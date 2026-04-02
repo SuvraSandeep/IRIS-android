@@ -18,7 +18,6 @@ android.permissions = RECORD_AUDIO, INTERNET, READ_PHONE_STATE, CALL_PHONE, RECE
 android.api         = 33
 android.minapi      = 21
 android.ndk         = 25b
-android.sdk         = 33
 android.archs       = arm64-v8a
 
 # Keep model files
