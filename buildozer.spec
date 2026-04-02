@@ -12,7 +12,6 @@ android.api = 33
 android.minapi = 21
 android.ndk = 25b
 android.accept_sdk_license = True
-p4a.branch = release-2023.09.16
 
 [buildozer]
 log_level = 2
