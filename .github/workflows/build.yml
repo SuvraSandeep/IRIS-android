@@ -24,10 +24,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-pip build-essential git ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev unzip openjdk-17-jdk autoconf libtool pkg-config cmake
 
-      - name: Install Buildozer
+      - name: Install Buildozer and pinned Cython
         run: |
           pip install --upgrade pip
-          pip install buildozer cython
+          pip install "cython==0.29.37" "buildozer==1.5.0"
 
       - name: Build APK
         run: |
