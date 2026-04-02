@@ -14,28 +14,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
+      - name: Build APK using Buildozer Docker
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-pip build-essential git ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev unzip openjdk-17-jdk autoconf libtool pkg-config cmake
-
-      - name: Install Buildozer and Cython
-        run: |
-          pip install --upgrade pip
-          pip install "cython==0.29.37"
-          pip install "buildozer==1.5.0"
-          pip install "python-for-android==2023.9.16"
-
-      - name: Build APK
-        env:
-          CYTHON: cython
-        run: |
-          buildozer -v android debug
+          docker run --rm \
+            -v ${{ github.workspace }}:/home/user/hostcwd \
+            kivy/buildozer:latest \
+            android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
