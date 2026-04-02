@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+            - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -35,9 +35,6 @@ jobs:
             libavformat-dev \
             libavcodec-dev \
             zlib1g-dev \
-            libgstreamer1.0 \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
             unzip \
             openjdk-17-jdk \
             autoconf \
