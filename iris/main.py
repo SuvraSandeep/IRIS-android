@@ -3,7 +3,6 @@ import sys
 import time
 import threading
 
-# ── Stub out unavailable native modules on Android ──
 try:
     import vosk
 except ImportError:
@@ -14,11 +13,23 @@ try:
 except ImportError:
     sd = None
 
+os.environ.setdefault('KIVY_NO_ENV_CONFIG', '1')
+
+from kivy.config import Config
+Config.set('graphics', 'resizable', '0')
+
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.screenmanager import Screen, ScreenManager
+from kivy.uix.screenmanager import Screen
 from kivy.properties import StringProperty, BooleanProperty, NumericProperty
 from kivy.clock import Clock
+from kivy.core.text import LabelBase
+
+try:
+    LabelBase.register('RobotoMono',
+        fn_regular='/system/fonts/DroidSansMono.ttf')
+except Exception:
+    pass
 
 
 class IRISRoot(BoxLayout):
@@ -31,55 +42,56 @@ class IRISRoot(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._start_time = time.time()
-        self._listen_thread = None
         self._running = False
         Clock.schedule_interval(self._tick, 1)
 
     def _tick(self, dt):
-        if self.is_active:
-            elapsed = int(time.time() - self._start_time)
-            m, s = divmod(elapsed, 60)
-            try:
-                self.ids.uptime_label.text = f'{m:02d}:{s:02d}'
-            except Exception:
-                pass
+        if not self.is_active:
+            return
+        elapsed = int(time.time() - self._start_time)
+        m, s = divmod(elapsed, 60)
+        try:
+            self.ids.sm.get_screen('main').ids.uptime_label.text = f'{m:02d}:{s:02d}'
+        except Exception:
+            pass
 
     def toggle_system(self, active):
         self.is_active = active
         if active:
-            self.status_text  = 'ACTIVE'
-            self.toggle_label = 'SYSTEM ON'
-            self.subtitle_text = 'listening…' if sd else 'mic unavailable'
-            self._start_time  = time.time()
+            self.status_text   = 'ACTIVE'
+            self.toggle_label  = 'SYSTEM ON'
+            self.subtitle_text = 'listening...' if (sd and vosk) else 'ui mode only'
+            self._start_time   = time.time()
             self._log('IRIS: System activated.')
             if sd and vosk:
                 self._start_listening()
             else:
-                self._log('IRIS: Voice engine offline (stub mode).')
+                self._log('IRIS: Voice offline - stub mode.')
         else:
-            self.status_text  = 'STANDBY'
-            self.toggle_label = 'SYSTEM OFF'
+            self.status_text   = 'STANDBY'
+            self.toggle_label  = 'SYSTEM OFF'
             self.subtitle_text = 'tap toggle to activate'
-            self._running = False
+            self._running      = False
             self._log('IRIS: System deactivated.')
 
     def _log(self, text, color='00ffff'):
         try:
             from kivy.uix.label import Label
+            ts  = time.strftime('%H:%M:%S')
             lbl = Label(
-                text=f'[color=3a3a3a]{time.strftime("%H:%M:%S")}[/color]  '
-                     f'[color={color}]{text}[/color]',
+                text=f'[color=3a3a3a]{ts}[/color]  [color={color}]{text}[/color]',
                 markup=True,
-                font_name='RobotoMono',
                 font_size='10sp',
                 size_hint_y=None,
                 halign='left',
             )
-            lbl.bind(texture_size=lbl.setter('size'))
-            lbl.text_size = (lbl.width, None)
-            log_list = self.ids.sm.get_screen('main').ids.log_list
+            lbl.bind(width=lambda inst, v: setattr(inst, 'text_size', (v, None)))
+            lbl.bind(texture_size=lambda inst, v: setattr(inst, 'height', v[1]))
+            screen   = self.ids.sm.get_screen('main')
+            log_list = screen.ids.log_list
             log_list.add_widget(lbl)
-            self.ids.sm.get_screen('main').ids.log_scroll.scroll_to(lbl)
+            Clock.schedule_once(
+                lambda dt: screen.ids.log_scroll.scroll_to(lbl), 0.1)
         except Exception:
             pass
 
@@ -93,50 +105,47 @@ class IRISRoot(BoxLayout):
         self._dispatch(cmd)
 
     def _dispatch(self, cmd):
-        cmd = cmd.lower()
+        cmd = cmd.lower().strip()
         try:
-            from android.permissions import request_permissions, Permission
+            from android import activity
         except ImportError:
-            self._log(f'IRIS: {cmd} → stub (no android)', 'ffaa00')
+            self._log(f'IRIS: {cmd} -> stub (desktop)', 'ffaa00')
             return
         if 'youtube' in cmd:
             self._open_url('https://www.youtube.com')
         elif 'call' in cmd:
-            self._log('IRIS: Call — contact picker not yet wired.', 'ffaa00')
+            self._log('IRIS: Call - not yet wired.', 'ffaa00')
         elif 'battery' in cmd:
             self._battery_status()
         elif 'map' in cmd:
             self._open_url('https://maps.google.com')
         elif 'alarm' in cmd:
-            self._log('IRIS: Alarm — not yet wired.', 'ffaa00')
+            self._log('IRIS: Alarm - not yet wired.', 'ffaa00')
         else:
-            self._log(f'IRIS: Unknown command "{cmd}"', 'ff3b3b')
+            self._log(f'IRIS: Unknown - "{cmd}"', 'ff3b3b')
 
     def _open_url(self, url):
         try:
             from android import activity
             from jnius import autoclass
-            Intent  = autoclass('android.content.Intent')
-            Uri     = autoclass('android.net.Uri')
-            intent  = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            activity.startActivity(intent)
+            Intent = autoclass('android.content.Intent')
+            Uri    = autoclass('android.net.Uri')
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             self._log(f'IRIS: Opened {url}')
         except Exception as e:
-            self._log(f'IRIS: open URL failed — {e}', 'ff3b3b')
+            self._log(f'IRIS: URL error - {e}', 'ff3b3b')
 
     def _battery_status(self):
         try:
             from plyer import battery
-            charge = battery.status.get('percentage', '?')
-            self._log(f'IRIS: Battery {charge}%')
+            pct = battery.status.get('percentage', '?')
+            self._log(f'IRIS: Battery {pct}%')
         except Exception as e:
-            self._log(f'IRIS: Battery — {e}', 'ffaa00')
+            self._log(f'IRIS: Battery unavailable - {e}', 'ffaa00')
 
     def _start_listening(self):
         self._running = True
-        self._listen_thread = threading.Thread(
-            target=self._listen_loop, daemon=True)
-        self._listen_thread.start()
+        threading.Thread(target=self._listen_loop, daemon=True).start()
 
     def _listen_loop(self):
         try:
@@ -154,7 +163,7 @@ class IRISRoot(BoxLayout):
                                 lambda dt, r=result: self._on_voice(r))
         except Exception as e:
             Clock.schedule_once(
-                lambda dt, err=e: self._log(f'IRIS: Voice error — {err}', 'ff3b3b'))
+                lambda dt, err=e: self._log(f'IRIS: Voice error - {err}', 'ff3b3b'))
 
     def _on_voice(self, text):
         self._log(f'HEARD: {text}', 'aaffff')
@@ -164,10 +173,10 @@ class IRISRoot(BoxLayout):
         try:
             msg = self.ids.sm.get_screen('debug').ids.debug_msg
             if pw == 'iris_debug':
-                msg.text = 'ACCESS GRANTED'
+                msg.text  = 'ACCESS GRANTED'
                 msg.color = (0, 1, 0.53, 0.9)
             else:
-                msg.text = 'ACCESS DENIED'
+                msg.text  = 'ACCESS DENIED'
                 msg.color = (1, 0.231, 0.231, 0.7)
         except Exception:
             pass
