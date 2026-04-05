@@ -1,31 +1,21 @@
-import sys
-import traceback
+import sys, traceback, time
 
-# Write crash log to app storage
-def crash_handler(exc_type, exc_value, exc_tb):
+def _crash(et, ev, tb):
     try:
         from android.storage import app_storage_path
-        path = app_storage_path()
+        p = app_storage_path() + '/iris_crash.txt'
     except Exception:
-        path = '/sdcard'
-    with open(f'{path}/iris_crash.txt', 'w') as f:
-        traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
-    sys.__excepthook__(exc_type, exc_value, exc_tb)
+        p = '/sdcard/iris_crash.txt'
+    open(p, 'w').write(''.join(traceback.format_exception(et, ev, tb)))
+sys.excepthook = _crash
 
-sys.excepthook = crash_handler
-
-import time
-
-try:
-    from kivy.app import App
-    from kivy.uix.boxlayout import BoxLayout
-    from kivy.uix.screenmanager import Screen
-    from kivy.properties import StringProperty, BooleanProperty, NumericProperty
-    from kivy.clock import Clock
-    from kivy.core.text import LabelBase
-except Exception as e:
-    crash_handler(*sys.exc_info())
-    raise
+from kivy.app import App
+from kivy.lang import Builder
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.screenmanager import Screen
+from kivy.properties import StringProperty, BooleanProperty, NumericProperty
+from kivy.clock import Clock
+from kivy.core.text import LabelBase
 
 try:
     LabelBase.register('RobotoMono', fn_regular='RobotoMono-Regular.ttf')
@@ -43,7 +33,6 @@ class IRISRoot(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._start_time = time.time()
-        self._running = False
         Clock.schedule_interval(self._tick, 1)
 
     def _tick(self, dt):
@@ -68,7 +57,6 @@ class IRISRoot(BoxLayout):
             self.status_text   = 'STANDBY'
             self.toggle_label  = 'SYSTEM OFF'
             self.subtitle_text = 'tap toggle to activate'
-            self._running      = False
             self._log('IRIS: System deactivated.')
 
     def _log(self, text, color='00ffff'):
@@ -116,6 +104,8 @@ class DebugScreen(Screen):
 
 class IRISApp(App):
     def build(self):
+        # Force explicit KV load — no auto-discovery ambiguity
+        Builder.load_file('iris.kv')
         return IRISRoot()
 
 
