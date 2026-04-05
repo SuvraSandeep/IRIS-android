@@ -8,45 +8,43 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install build dependencies
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Verify Python version
+        run: python --version && which python
+
+      - name: Install system deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y \
-            git zip unzip \
-            autoconf libtool pkg-config \
-            libncurses5-dev libffi-dev \
-            libssl-dev libbz2-dev \
-            libsqlite3-dev zlib1g-dev \
-            ccache
+            git zip unzip autoconf libtool pkg-config \
+            libncurses5-dev libffi-dev libssl-dev \
+            libbz2-dev libsqlite3-dev zlib1g-dev ccache
 
-      - name: Install Buildozer + Cython
+      - name: Install buildozer
         run: |
           pip install --upgrade pip
-          pip install buildozer==1.5.0 cython==3.0.0
+          pip install buildozer==1.5.0 cython==0.29.33
+          python -c "import cython; print('Cython', cython.__version__)"
 
-      - name: Cache Buildozer global dir
+      - name: Cache Buildozer (fresh key)
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: buildozer-${{ runner.os }}-${{ hashFiles('iris/buildozer.spec') }}
-          restore-keys: buildozer-${{ runner.os }}-
+          key: buildozer-py310-v99-${{ runner.os }}-${{ hashFiles('iris/buildozer.spec') }}
 
       - name: Build APK
         working-directory: iris
@@ -55,6 +53,8 @@ jobs:
           BUILDOZER_WARN_ON_ROOT: 0
         run: |
           buildozer android debug 2>&1 | tee build.log
+          echo "=== APK files ==="
+          find bin -name "*.apk" -ls 2>/dev/null || echo "No APK found"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
