@@ -6,7 +6,7 @@ package.domain= dev.stg
 source.dir    = .
 source.include_exts = py,png,jpg,kv,atlas,txt,ttf
 
-version = 0.7
+version = 0.8
 
 requirements = python3,kivy==2.3.0,plyer
 

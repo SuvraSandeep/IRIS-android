@@ -12,7 +12,6 @@ try:
 except ImportError:
     sd = None
 
-# Register font FIRST before any KV or widget loads
 from kivy.core.text import LabelBase
 LabelBase.register('RobotoMono', fn_regular='RobotoMono-Regular.ttf')
 
@@ -98,7 +97,7 @@ class IRISRoot(BoxLayout):
         try:
             from android import activity
         except ImportError:
-            self._log(f'IRIS: {cmd} -> stub', 'ffaa00')
+            self._log(f'stub: {cmd}', 'ffaa00')
             return
         if 'youtube' in cmd:
             self._open_url('https://www.youtube.com')
@@ -150,7 +149,7 @@ class IRISRoot(BoxLayout):
                         if result.strip():
                             Clock.schedule_once(lambda dt, r=result: self._on_voice(r))
         except Exception as e:
-            Clock.schedule_once(lambda dt, err=e: self._log(f'IRIS: Voice error - {err}', 'ff3b3b'))
+            Clock.schedule_once(lambda dt, err=e: self._log(f'Voice error: {err}', 'ff3b3b'))
 
     def _on_voice(self, text):
         self._log(f'HEARD: {text}', 'aaffff')

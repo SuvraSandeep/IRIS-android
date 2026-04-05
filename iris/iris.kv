@@ -1,18 +1,10 @@
 #:kivy 2.3.0
 
-# ── FONTS & COLORS ───────────────────────────────────
 #:set BG        (0.039, 0.039, 0.039, 1)
 #:set SURFACE   (0.059, 0.059, 0.059, 1)
-#:set SURFACE2  (0.078, 0.078, 0.078, 1)
 #:set CYAN      (0, 1, 1, 1)
 #:set CYAN_DIM  (0, 1, 1, 0.65)
 #:set CYAN_MUT  (0, 1, 1, 0.35)
-#:set BLUE      (0, 0.482, 1, 1)
-#:set ERROR     (1, 0.231, 0.231, 1)
-#:set SUCCESS   (0, 1, 0.533, 1)
-#:set WARN      (1, 0.722, 0, 1)
-#:set TEXT      (0.878, 0.878, 0.878, 1)
-#:set MUTED     (0.467, 0.467, 0.467, 1)
 #:set FAINT     (0.22, 0.22, 0.22, 1)
 #:set BORDER    (0, 1, 1, 0.07)
 
@@ -25,7 +17,6 @@
             pos: self.pos
             size: self.size
 
-    # ── TOP BAR ──────────────────────────────────────
     BoxLayout:
         size_hint_y: None
         height: dp(48)
@@ -38,13 +29,11 @@
                 points: [self.x, self.y, self.x + self.width, self.y]
                 width: 1
 
-        # IRIS Logo
         BoxLayout:
             orientation: 'vertical'
             size_hint_x: None
             width: dp(100)
             spacing: dp(1)
-
             Label:
                 text: 'IRIS'
                 font_name: 'RobotoMono'
@@ -54,7 +43,6 @@
                 halign: 'left'
                 valign: 'bottom'
                 text_size: self.size
-
             Label:
                 text: '// CORE v0.1'
                 font_name: 'RobotoMono'
@@ -64,9 +52,8 @@
                 valign: 'top'
                 text_size: self.size
 
-        Widget:  # spacer
+        Widget:
 
-        # Status Badge
         Label:
             id: status_label
             text: root.status_text
@@ -78,7 +65,6 @@
             halign: 'right'
             text_size: self.size
 
-        # Mic dot
         Widget:
             id: mic_dot
             size_hint_x: None
@@ -90,21 +76,16 @@
                     pos: (self.center_x - dp(4), self.center_y - dp(4))
                     size: (dp(8), dp(8))
 
-    # ── SCREEN MANAGER ───────────────────────────────
     ScreenManager:
         id: sm
         size_hint_y: 1
-
         MainScreen:
             name: 'main'
-
         AnalyticsScreen:
             name: 'analytics'
-
         DebugScreen:
             name: 'debug'
 
-    # ── BOTTOM BAR ───────────────────────────────────
     BoxLayout:
         size_hint_y: None
         height: dp(56)
@@ -117,18 +98,15 @@
                 points: [self.x, self.y + self.height, self.x + self.width, self.y + self.height]
                 width: 1
 
-        # Toggle
         BoxLayout:
             spacing: dp(10)
             size_hint_x: 1
-
             Switch:
                 id: sys_switch
                 size_hint_x: None
                 width: dp(60)
                 active: False
                 on_active: root.toggle_system(self.active)
-
             Label:
                 text: root.toggle_label
                 font_name: 'RobotoMono'
@@ -137,12 +115,10 @@
                 halign: 'left'
                 text_size: self.size
 
-        # Nav pills
         BoxLayout:
             size_hint_x: None
             width: dp(130)
             spacing: dp(5)
-
             Button:
                 text: 'SYS'
                 font_name: 'RobotoMono'
@@ -150,7 +126,6 @@
                 background_color: (0,0,0,0)
                 color: CYAN_MUT if app.root.ids.sm.current == 'main' else FAINT
                 on_release: app.root.ids.sm.current = 'main'
-
             Button:
                 text: 'STAT'
                 font_name: 'RobotoMono'
@@ -158,7 +133,6 @@
                 background_color: (0,0,0,0)
                 color: CYAN_MUT if app.root.ids.sm.current == 'analytics' else FAINT
                 on_release: app.root.ids.sm.current = 'analytics'
-
             Button:
                 text: 'DBG'
                 font_name: 'RobotoMono'
@@ -168,7 +142,6 @@
                 on_release: app.root.ids.sm.current = 'debug'
 
 
-# ── MAIN SCREEN ──────────────────────────────────────
 <MainScreen>:
     canvas.before:
         Color:
@@ -185,13 +158,11 @@
             padding: [dp(12), dp(12)]
             spacing: dp(8)
 
-            # Voice Core placeholder
             BoxLayout:
                 orientation: 'vertical'
                 size_hint_y: None
                 height: dp(160)
                 spacing: dp(8)
-
                 Widget:
                     size_hint_y: 1
                     canvas:
@@ -215,8 +186,6 @@
                         Ellipse:
                             pos: (self.center_x - dp(16), self.center_y - dp(16))
                             size: (dp(32), dp(32))
-
-                # Subtitle
                 Label:
                     id: subtitle_label
                     text: app.root.subtitle_text
@@ -228,7 +197,6 @@
                     halign: 'center'
                     text_size: self.size
 
-            # Command Log
             BoxLayout:
                 orientation: 'vertical'
                 size_hint_y: None
@@ -247,7 +215,6 @@
                     Line:
                         rounded_rectangle: [self.x, self.y, self.width, self.height, 6]
                         width: 1
-
                 Label:
                     text: 'CMD LOG'
                     font_name: 'RobotoMono'
@@ -257,7 +224,6 @@
                     height: dp(16)
                     halign: 'left'
                     text_size: self.size
-
                 ScrollView:
                     id: log_scroll
                     BoxLayout:
@@ -266,9 +232,8 @@
                         size_hint_y: None
                         height: self.minimum_height
                         spacing: dp(6)
-
                         Label:
-                            text: '[color=3a3a3a][boot | —ms | 200][/color]\n[color=00ffff]IRIS: System ready.[/color]'
+                            text: '[color=3a3a3a]boot[/color]  [color=00ffff]IRIS: System ready.[/color]'
                             markup: True
                             font_name: 'RobotoMono'
                             font_size: dp(10)
@@ -277,13 +242,12 @@
                             halign: 'left'
                             text_size: (self.width, None)
 
-            # Diagnostics
             GridLayout:
                 cols: 2
                 size_hint_y: None
-                height: dp(100)
+                height: dp(120)
                 padding: dp(10)
-                spacing: [dp(12), dp(0)]
+                spacing: [dp(12), dp(6)]
                 canvas.before:
                     Color:
                         rgba: (0.059,0.059,0.059,1)
@@ -296,7 +260,6 @@
                     Line:
                         rounded_rectangle: [self.x, self.y, self.width, self.height, 6]
                         width: 1
-
                 Label:
                     text: 'ENGINE'
                     font_name: 'RobotoMono'
@@ -311,7 +274,6 @@
                     color: (0,1,1,1)
                     halign: 'right'
                     text_size: self.size
-
                 Label:
                     text: 'CMDS'
                     font_name: 'RobotoMono'
@@ -327,7 +289,6 @@
                     color: (0,1,1,1)
                     halign: 'right'
                     text_size: self.size
-
                 Label:
                     text: 'UPTIME'
                     font_name: 'RobotoMono'
@@ -343,7 +304,6 @@
                     color: (0,1,1,1)
                     halign: 'right'
                     text_size: self.size
-
                 Label:
                     text: 'LATENCY'
                     font_name: 'RobotoMono'
@@ -353,20 +313,18 @@
                     text_size: self.size
                 Label:
                     id: latency_label
-                    text: '—'
+                    text: '-'
                     font_name: 'RobotoMono'
                     font_size: dp(10)
                     color: (0,1,1,1)
                     halign: 'right'
                     text_size: self.size
 
-            # Quick Actions
             BoxLayout:
                 orientation: 'vertical'
                 size_hint_y: None
                 height: dp(90)
                 spacing: dp(6)
-
                 Label:
                     text: 'QUICK ACTIONS'
                     font_name: 'RobotoMono'
@@ -376,11 +334,9 @@
                     height: dp(14)
                     halign: 'left'
                     text_size: self.size
-
                 GridLayout:
                     cols: 6
                     spacing: dp(6)
-
                     Button:
                         text: 'YT'
                         font_name: 'RobotoMono'
@@ -388,7 +344,6 @@
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.6)
                         on_release: app.root.quick_action('open youtube')
-
                     Button:
                         text: 'CALL'
                         font_name: 'RobotoMono'
@@ -396,7 +351,6 @@
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.6)
                         on_release: app.root.quick_action('call contact')
-
                     Button:
                         text: 'BAT'
                         font_name: 'RobotoMono'
@@ -404,7 +358,6 @@
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.35)
                         on_release: app.root.quick_action('battery status')
-
                     Button:
                         text: 'MSG'
                         font_name: 'RobotoMono'
@@ -412,7 +365,6 @@
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.35)
                         on_release: app.root.quick_action('read messages')
-
                     Button:
                         text: 'MAP'
                         font_name: 'RobotoMono'
@@ -420,7 +372,6 @@
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.35)
                         on_release: app.root.quick_action('open maps')
-
                     Button:
                         text: 'ALM'
                         font_name: 'RobotoMono'
@@ -430,7 +381,6 @@
                         on_release: app.root.quick_action('set alarm')
 
 
-# ── ANALYTICS SCREEN ─────────────────────────────────
 <AnalyticsScreen>:
     canvas.before:
         Color:
@@ -438,14 +388,12 @@
         Rectangle:
             pos: self.pos
             size: self.size
-
     BoxLayout:
         orientation: 'vertical'
         padding: dp(12)
         spacing: dp(10)
-
         Label:
-            text: 'ANALYTICS — SESSION'
+            text: 'ANALYTICS - SESSION'
             font_name: 'RobotoMono'
             font_size: dp(10)
             color: (0.22,0.22,0.22,1)
@@ -453,13 +401,11 @@
             height: dp(20)
             halign: 'left'
             text_size: self.size
-
         GridLayout:
             cols: 2
             size_hint_y: None
             height: dp(110)
             spacing: dp(8)
-
             BoxLayout:
                 canvas.before:
                     Color:
@@ -479,13 +425,12 @@
                     text_size: self.size
                 Label:
                     id: a_total
-                    text: '—'
+                    text: '0'
                     font_name: 'RobotoMono'
                     font_size: dp(22)
                     color: (0,1,1,1)
                     halign: 'left'
                     text_size: self.size
-
             BoxLayout:
                 canvas.before:
                     Color:
@@ -505,15 +450,14 @@
                     text_size: self.size
                 Label:
                     id: a_rate
-                    text: '—'
+                    text: '0%'
                     font_name: 'RobotoMono'
                     font_size: dp(22)
                     color: (0,1,1,1)
                     halign: 'left'
                     text_size: self.size
-
         Label:
-            text: 'No command data yet. Use the system first.'
+            text: 'No command data yet.'
             font_name: 'RobotoMono'
             font_size: dp(10)
             color: (0.22,0.22,0.22,1)
@@ -521,7 +465,6 @@
             text_size: self.size
 
 
-# ── DEBUG SCREEN ─────────────────────────────────────
 <DebugScreen>:
     canvas.before:
         Color:
@@ -529,14 +472,12 @@
         Rectangle:
             pos: self.pos
             size: self.size
-
     BoxLayout:
         orientation: 'vertical'
         padding: dp(14)
         spacing: dp(12)
-
         Label:
-            text: '██ RESTRICTED ACCESS ██\nEnter passphrase to continue.'
+            text: '** RESTRICTED ACCESS **\nEnter passphrase to continue.'
             font_name: 'RobotoMono'
             font_size: dp(10)
             color: (0.22,0.22,0.22,1)
@@ -544,12 +485,10 @@
             height: dp(40)
             halign: 'center'
             text_size: self.size
-
         BoxLayout:
             size_hint_y: None
             height: dp(40)
             spacing: dp(8)
-
             TextInput:
                 id: debug_pw
                 hint_text: 'passphrase'
@@ -561,7 +500,6 @@
                 foreground_color: (0,1,1,1)
                 cursor_color: (0,1,1,1)
                 on_text_validate: app.root.try_debug_unlock(self.text)
-
             Button:
                 text: 'EXEC'
                 font_name: 'RobotoMono'
@@ -571,7 +509,6 @@
                 background_color: (0.059,0.059,0.059,1)
                 color: (0,1,1,0.6)
                 on_release: app.root.try_debug_unlock(debug_pw.text)
-
         Label:
             id: debug_msg
             text: ''
