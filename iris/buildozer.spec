@@ -8,7 +8,7 @@ source.include_exts = py,png,jpg,kv,atlas,txt,gz,fst,int,conf,mdl
 
 version = 0.2
 
-requirements = python3,kivy==2.3.0,vosk,sounddevice,plyer
+requirements = python3,kivy==2.3.0,plyer
 
 # Orientation
 orientation = portrait
