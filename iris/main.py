@@ -12,24 +12,15 @@ try:
 except ImportError:
     sd = None
 
+# Register font FIRST before any KV or widget loads
+from kivy.core.text import LabelBase
+LabelBase.register('RobotoMono', fn_regular='RobotoMono-Regular.ttf')
+
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.screenmanager import Screen
 from kivy.properties import StringProperty, BooleanProperty, NumericProperty
 from kivy.clock import Clock
-from kivy.core.text import LabelBase
-
-# Register RobotoMono → system monospace font on Android
-for font_path in [
-    '/system/fonts/DroidSansMono.ttf',
-    '/system/fonts/CutiveMono.ttf',
-    '/system/fonts/NotoMono-Regular.ttf',
-]:
-    try:
-        LabelBase.register('RobotoMono', fn_regular=font_path)
-        break
-    except Exception:
-        continue
 
 
 class IRISRoot(BoxLayout):
@@ -112,13 +103,13 @@ class IRISRoot(BoxLayout):
         if 'youtube' in cmd:
             self._open_url('https://www.youtube.com')
         elif 'call' in cmd:
-            self._log('IRIS: Call - not yet wired.', 'ffaa00')
+            self._log('IRIS: Call - not wired yet.', 'ffaa00')
         elif 'battery' in cmd:
             self._battery_status()
         elif 'map' in cmd:
             self._open_url('https://maps.google.com')
         elif 'alarm' in cmd:
-            self._log('IRIS: Alarm - not yet wired.', 'ffaa00')
+            self._log('IRIS: Alarm - not wired yet.', 'ffaa00')
         else:
             self._log(f'IRIS: Unknown - "{cmd}"', 'ff3b3b')
 

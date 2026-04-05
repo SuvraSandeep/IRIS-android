@@ -4,9 +4,9 @@ package.name  = iris
 package.domain= dev.stg
 
 source.dir    = .
-source.include_exts = py,png,jpg,kv,atlas,txt
+source.include_exts = py,png,jpg,kv,atlas,txt,ttf
 
-version = 0.6
+version = 0.7
 
 requirements = python3,kivy==2.3.0,plyer
 
