@@ -1,24 +1,32 @@
+import sys
+import traceback
+
+# Write crash log to app storage
+def crash_handler(exc_type, exc_value, exc_tb):
+    try:
+        from android.storage import app_storage_path
+        path = app_storage_path()
+    except Exception:
+        path = '/sdcard'
+    with open(f'{path}/iris_crash.txt', 'w') as f:
+        traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = crash_handler
+
 import time
-import threading
 
 try:
-    import vosk
-except ImportError:
-    vosk = None
+    from kivy.app import App
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.screenmanager import Screen
+    from kivy.properties import StringProperty, BooleanProperty, NumericProperty
+    from kivy.clock import Clock
+    from kivy.core.text import LabelBase
+except Exception as e:
+    crash_handler(*sys.exc_info())
+    raise
 
-try:
-    import sounddevice as sd
-except ImportError:
-    sd = None
-
-from kivy.core.text import LabelBase
-from kivy.app import App
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.screenmanager import Screen
-from kivy.properties import StringProperty, BooleanProperty, NumericProperty
-from kivy.clock import Clock
-
-# Register bundled font
 try:
     LabelBase.register('RobotoMono', fn_regular='RobotoMono-Regular.ttf')
 except Exception:
