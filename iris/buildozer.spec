@@ -6,13 +6,13 @@ package.domain= dev.stg
 source.dir    = .
 source.include_exts = py,png,jpg,kv,atlas,txt,ttf
 
-version = 0.9
+version = 1.0
 
 requirements = python3,kivy==2.3.0,plyer
 
 orientation = portrait
 
-android.permissions = RECORD_AUDIO,INTERNET,READ_PHONE_STATE,CALL_PHONE,RECEIVE_BOOT_COMPLETED,BATTERY_STATS,FOREGROUND_SERVICE
+android.permissions = INTERNET, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
 android.api         = 33
 android.minapi      = 21
 android.ndk         = 25b

@@ -1,16 +1,18 @@
 import sys, os, traceback, time
 
-# Write crash log to phone storage - readable by any file manager
+# App private dir - NEVER needs permission on any Android version
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'iris_crash.txt')
+
 def write_log(msg):
-    for path in ['/sdcard/iris_crash.txt', '/storage/emulated/0/iris_crash.txt']:
-        try:
-            with open(path, 'a') as f:
-                f.write(msg + '\n')
-            break
-        except:
-            continue
+    try:
+        with open(LOG_PATH, 'a') as f:
+            f.write(msg + '\n')
+            f.flush()
+    except Exception as e:
+        pass  # absolute last resort
 
 write_log('--- IRIS START ' + time.strftime('%H:%M:%S') + ' ---')
+write_log('LOG_PATH: ' + LOG_PATH)
 
 try:
     write_log('1: kivy import')
@@ -30,14 +32,14 @@ try:
         write_log('5: vosk OK')
     except ImportError:
         vosk = None
-        write_log('5: vosk not present (OK)')
+        write_log('5: vosk absent (OK)')
 
     try:
         import sounddevice as sd
         write_log('6: sounddevice OK')
     except ImportError:
         sd = None
-        write_log('6: sounddevice not present (OK)')
+        write_log('6: sounddevice absent (OK)')
 
     class IRISRoot(BoxLayout):
         status_text   = StringProperty('STANDBY')
@@ -95,7 +97,7 @@ try:
             write_log('7: build() called')
             try:
                 root = IRISRoot()
-                write_log('8: IRISRoot() OK')
+                write_log('8: IRISRoot() created OK')
                 return root
             except Exception:
                 write_log('CRASH in build():\n' + traceback.format_exc())
@@ -103,6 +105,7 @@ try:
 
     write_log('9: calling IRISApp().run()')
     IRISApp().run()
+    write_log('10: app exited cleanly')
 
 except Exception:
     write_log('FATAL CRASH:\n' + traceback.format_exc())
