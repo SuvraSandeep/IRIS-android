@@ -1,0 +1,85 @@
+name: Test APK on Emulator
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Enable KVM for hardware acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y git zip unzip autoconf libtool pkg-config \
+            libncurses5-dev libffi-dev libssl-dev libbz2-dev libsqlite3-dev \
+            zlib1g-dev ccache
+          pip install buildozer==1.5.0 cython==0.29.33
+
+      - name: Cache Buildozer
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: buildozer-v7-${{ runner.os }}-${{ hashFiles('iris_test/buildozer.spec') }}
+
+      - name: Build test APK
+        working-directory: iris_test
+        env:
+          APP_ANDROID_ACCEPT_SDK_LICENSE: 1
+          BUILDOZER_WARN_ON_ROOT: 0
+        run: buildozer android debug 2>&1 | tee build.log
+
+      - name: Run on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          arch: x86_64
+          target: google_apis
+          force-avd-creation: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            APK=$(find iris_test/bin -name "*.apk" | head -1)
+            echo "Installing $APK"
+            adb install "$APK"
+            adb shell monkey -p org.test.iristest 1
+            sleep 5
+            adb shell dumpsys activity | grep -A5 "iristest" > emulator_result.txt
+            adb logcat -d -s python > python_logcat.txt 2>&1 || true
+            cat emulator_result.txt
+            cat python_logcat.txt
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-results
+          path: |
+            emulator_result.txt
+            python_logcat.txt
+            iris_test/build.log
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-apk
+          path: iris_test/bin/*.apk
+          if-no-files-found: error
