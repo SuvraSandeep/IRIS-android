@@ -4,8 +4,9 @@
 #:set SURFACE   (0.059, 0.059, 0.059, 1)
 #:set CYAN      (0, 1, 1, 1)
 #:set CYAN_DIM  (0, 1, 1, 0.65)
-#:set CYAN_MUT  (0, 1, 1, 0.35)
-#:set FAINT     (0.22, 0.22, 0.22, 1)
+#:set (0,1,1,0.65)  (0, 1, 1, 0.35)
+#:set (1,1,1,0.2)     (0.22, 0.22, 0.22, 1)
+#:set CYAN      (0, 1, 1, 1)
 #:set BORDER    (0, 1, 1, 0.07)
 
 <IRISRoot>:
@@ -71,7 +72,7 @@
             width: dp(20)
             canvas:
                 Color:
-                    rgba: FAINT
+                    rgba: (1,1,1,0.2)
                 Ellipse:
                     pos: (self.center_x - dp(4), self.center_y - dp(4))
                     size: (dp(8), dp(8))
@@ -111,7 +112,7 @@
                 text: root.toggle_label
                 font_name: 'RobotoMono'
                 font_size: dp(11)
-                color: CYAN if root.is_active else FAINT
+                color: CYAN if root.is_active else (1,1,1,0.2)
                 halign: 'left'
                 text_size: self.size
 
@@ -124,21 +125,21 @@
                 font_name: 'RobotoMono'
                 font_size: dp(9)
                 background_color: (0,0,0,0)
-                color: CYAN_MUT if root.ids.sm.current == 'main' else FAINT
+                color: (0,1,1,0.65) if root.ids.sm.current == 'main' else (1,1,1,0.2)
                 on_release: root.ids.sm.current = 'main'
             Button:
                 text: 'STAT'
                 font_name: 'RobotoMono'
                 font_size: dp(9)
                 background_color: (0,0,0,0)
-                color: CYAN_MUT if root.ids.sm.current == 'analytics' else FAINT
+                color: (0,1,1,0.65) if root.ids.sm.current == 'analytics' else (1,1,1,0.2)
                 on_release: root.ids.sm.current = 'analytics'
             Button:
                 text: 'DBG'
                 font_name: 'RobotoMono'
                 font_size: dp(9)
                 background_color: (0,0,0,0)
-                color: CYAN_MUT if root.ids.sm.current == 'debug' else FAINT
+                color: (0,1,1,0.65) if root.ids.sm.current == 'debug' else (1,1,1,0.2)
                 on_release: root.ids.sm.current = 'debug'
 
 
