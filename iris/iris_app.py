@@ -1,11 +1,15 @@
 import time
+import traceback
 from kivy.lang import Builder
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.screenmanager import Screen
 from kivy.properties import StringProperty, BooleanProperty, NumericProperty
 from kivy.clock import Clock
 
-Builder.load_file('iris.kv')
+try:
+    Builder.load_file('iris.kv')
+except Exception:
+    raise RuntimeError("KV LOAD FAILED:\n" + traceback.format_exc())
 
 
 class IRISRoot(BoxLayout):
@@ -16,9 +20,12 @@ class IRISRoot(BoxLayout):
     cmd_count     = NumericProperty(0)
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._start_time = time.time()
-        Clock.schedule_interval(self._tick, 1)
+        try:
+            super().__init__(**kwargs)
+            self._start_time = time.time()
+            Clock.schedule_interval(self._tick, 1)
+        except Exception:
+            raise RuntimeError("IRISRoot INIT FAILED:\n" + traceback.format_exc())
 
     def _tick(self, dt):
         if not self.is_active:
