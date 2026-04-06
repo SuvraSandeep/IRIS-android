@@ -18,8 +18,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -36,11 +35,8 @@ jobs:
           pip install --upgrade pip
           pip install buildozer==1.5.0 cython==0.29.33
 
-      - name: Cache Buildozer
-        uses: actions/cache@v4
-        with:
-          path: ~/.buildozer
-          key: buildozer-py310-v100-${{ runner.os }}-${{ hashFiles('iris/buildozer.spec') }}
+      - name: Show iris.kv line 191
+        run: sed -n '189,193p' iris/iris.kv
 
       - name: Build APK
         working-directory: iris
@@ -49,6 +45,10 @@ jobs:
           BUILDOZER_WARN_ON_ROOT: 0
         run: buildozer android debug 2>&1 | tee build.log
 
+      - name: Check python version in APK
+        working-directory: iris
+        run: unzip -l bin/*.apk | grep python
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -56,7 +56,7 @@ jobs:
           path: iris/bin/*.apk
           if-no-files-found: error
 
-      - name: Upload build log on failure
+      - name: Upload log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
