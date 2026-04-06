@@ -124,22 +124,22 @@
                 font_name: 'RobotoMono'
                 font_size: dp(9)
                 background_color: (0,0,0,0)
-                color: CYAN_MUT if app.root.ids.sm.current == 'main' else FAINT
-                on_release: app.root.ids.sm.current = 'main'
+                color: CYAN_MUT if root.ids.sm.current == 'main' else FAINT
+                on_release: root.ids.sm.current = 'main'
             Button:
                 text: 'STAT'
                 font_name: 'RobotoMono'
                 font_size: dp(9)
                 background_color: (0,0,0,0)
-                color: CYAN_MUT if app.root.ids.sm.current == 'analytics' else FAINT
-                on_release: app.root.ids.sm.current = 'analytics'
+                color: CYAN_MUT if root.ids.sm.current == 'analytics' else FAINT
+                on_release: root.ids.sm.current = 'analytics'
             Button:
                 text: 'DBG'
                 font_name: 'RobotoMono'
                 font_size: dp(9)
                 background_color: (0,0,0,0)
-                color: CYAN_MUT if app.root.ids.sm.current == 'debug' else FAINT
-                on_release: app.root.ids.sm.current = 'debug'
+                color: CYAN_MUT if root.ids.sm.current == 'debug' else FAINT
+                on_release: root.ids.sm.current = 'debug'
 
 
 <MainScreen>:
@@ -188,7 +188,7 @@
                             size: (dp(32), dp(32))
                 Label:
                     id: subtitle_label
-                    text: app.root.subtitle_text
+                    text: root.subtitle_text
                     font_name: 'RobotoMono'
                     font_size: dp(11)
                     color: (0,1,1,0.65)
@@ -343,42 +343,42 @@
                         font_size: dp(9)
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.6)
-                        on_release: app.root.quick_action('open youtube')
+                        on_release: root.quick_action('open youtube')
                     Button:
                         text: 'CALL'
                         font_name: 'RobotoMono'
                         font_size: dp(9)
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.6)
-                        on_release: app.root.quick_action('call contact')
+                        on_release: root.quick_action('call contact')
                     Button:
                         text: 'BAT'
                         font_name: 'RobotoMono'
                         font_size: dp(9)
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.35)
-                        on_release: app.root.quick_action('battery status')
+                        on_release: root.quick_action('battery status')
                     Button:
                         text: 'MSG'
                         font_name: 'RobotoMono'
                         font_size: dp(9)
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.35)
-                        on_release: app.root.quick_action('read messages')
+                        on_release: root.quick_action('read messages')
                     Button:
                         text: 'MAP'
                         font_name: 'RobotoMono'
                         font_size: dp(9)
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.35)
-                        on_release: app.root.quick_action('open maps')
+                        on_release: root.quick_action('open maps')
                     Button:
                         text: 'ALM'
                         font_name: 'RobotoMono'
                         font_size: dp(9)
                         background_color: (0.059,0.059,0.059,1)
                         color: (0,1,1,0.35)
-                        on_release: app.root.quick_action('set alarm')
+                        on_release: root.quick_action('set alarm')
 
 
 <AnalyticsScreen>:
@@ -499,7 +499,7 @@
                 background_color: (0.059,0.059,0.059,1)
                 foreground_color: (0,1,1,1)
                 cursor_color: (0,1,1,1)
-                on_text_validate: app.root.try_debug_unlock(self.text)
+                on_text_validate: root.try_debug_unlock(self.text)
             Button:
                 text: 'EXEC'
                 font_name: 'RobotoMono'
@@ -508,7 +508,7 @@
                 width: dp(60)
                 background_color: (0.059,0.059,0.059,1)
                 color: (0,1,1,0.6)
-                on_release: app.root.try_debug_unlock(debug_pw.text)
+                on_release: root.try_debug_unlock(debug_pw.text)
         Label:
             id: debug_msg
             text: ''
