@@ -40,7 +40,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: buildozer-py310-v99-${{ runner.os }}-${{ hashFiles('iris/buildozer.spec') }}
+          key: buildozer-py310-v100-${{ runner.os }}-${{ hashFiles('iris/buildozer.spec') }}
 
       - name: Build APK
         working-directory: iris
