@@ -1,4 +1,0 @@
-kivy==2.3.0
-vosk==0.3.45
-plyer
-pyjnius
