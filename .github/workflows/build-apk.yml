@@ -1,9 +1,9 @@
-name: Build IRIS Android APK
+name: Build IRIS v0.2.1 Android APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
     paths-ignore:
       - '**.md'
 
@@ -12,36 +12,61 @@ permissions:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build IRIS v0.2.1 debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      IRIS_SOURCE_ZIP: IRIS-Android-v0.2.1-source.zip
+      IRIS_APK_NAME: IRIS-v0.2.1-debug.apk
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
           cache-read-only: false
 
-      - name: Build IRIS APK
-        run: gradle :app:assembleDebug --stacktrace
+      - name: Locate or extract IRIS v0.2.1 source
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Give the APK a friendly name
-        run: cp app/build/outputs/apk/debug/app-debug.apk IRIS-v0.1.0-debug.apk
+          if [[ -f settings.gradle ]]; then
+            iris_project_dir="."
+          elif [[ -f IRIS-Android/settings.gradle ]]; then
+            iris_project_dir="IRIS-Android"
+          elif [[ -f "$IRIS_SOURCE_ZIP" ]]; then
+            unzip -q "$IRIS_SOURCE_ZIP"
+            iris_project_dir="IRIS-Android"
+          else
+            echo "::error::Upload $IRIS_SOURCE_ZIP to the repository root, or upload the extracted Android project files."
+            exit 1
+          fi
 
-      - name: Upload installable APK
+          test -f "$iris_project_dir/settings.gradle"
+          test -f "$iris_project_dir/app/build.gradle"
+          echo "IRIS_PROJECT_DIR=$iris_project_dir" >> "$GITHUB_ENV"
+          echo "Building IRIS from $iris_project_dir"
+
+      - name: Build IRIS v0.2.1 APK
+        run: gradle -p "$IRIS_PROJECT_DIR" :app:assembleDebug --stacktrace
+
+      - name: Give the APK its release name
+        run: cp "$IRIS_PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$IRIS_APK_NAME"
+
+      - name: Upload installable IRIS v0.2.1 APK
         uses: actions/upload-artifact@v4
         with:
-          name: IRIS-v0.1.0-debug-apk
-          path: IRIS-v0.1.0-debug.apk
+          name: IRIS-v0.2.1-debug-apk
+          path: IRIS-v0.2.1-debug.apk
           if-no-files-found: error
           retention-days: 30
