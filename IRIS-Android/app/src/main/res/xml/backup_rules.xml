@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <include domain="sharedpref" path="." />
+    <exclude domain="file" path="iris_profile_v2.enc" />
+    <exclude domain="file" path="iris_activity_v2.enc" />
+</full-backup-content>

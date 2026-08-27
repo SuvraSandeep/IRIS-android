@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ink">#090A18</color>
+    <color name="surface">#15162B</color>
+    <color name="surface_2">#20213D</color>
+    <color name="violet">#8B5CF6</color>
+    <color name="cyan">#22D3EE</color>
+    <color name="magenta">#F472B6</color>
+    <color name="mint">#34D399</color>
+    <color name="text_primary">#F8FAFC</color>
+    <color name="text_muted">#A9AEC9</color>
+    <color name="danger">#FB7185</color>
+</resources>

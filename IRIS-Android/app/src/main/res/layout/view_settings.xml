@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="22dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="How IRIS behaves"
+            android:textColor="@color/text_primary"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Power without the mysterious switches."
+            android:textColor="@color/text_muted"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="15dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical">
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="LISTENING MODE" android:textColor="@color/cyan" android:textSize="11sp" android:textStyle="bold" />
+            <RadioGroup
+                android:id="@+id/listeningModeGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp">
+                <RadioButton android:id="@+id/modeWake" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Custom wake phrase — recommended" android:textColor="@color/text_primary" />
+                <RadioButton android:id="@+id/modeTap" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Tap to talk — best battery" android:textColor="@color/text_primary" />
+                <RadioButton android:id="@+id/modeContinuous" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Continuous recognition — experimental" android:textColor="@color/text_primary" />
+            </RadioGroup>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="MICROPHONE" android:textColor="@color/cyan" android:textSize="11sp" android:textStyle="bold" />
+            <Spinner android:id="@+id/microphoneSpinner" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="5dp" />
+            <Switch android:id="@+id/onDeviceSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Prefer on-device speech recognition" android:textColor="@color/text_primary" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="7dp" android:text="Command language" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Spinner android:id="@+id/languageSpinner" android:layout_width="match_parent" android:layout_height="50dp" />
+            <Button android:id="@+id/downloadModelButton" android:layout_width="match_parent" android:layout_height="52dp"
+                android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
+                android:text="Check / download offline language" android:textAllCaps="false" android:textColor="@color/text_primary" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="PERSONALITY &amp; FEEDBACK" android:textColor="@color/magenta" android:textSize="11sp" android:textStyle="bold" />
+            <Spinner android:id="@+id/personalitySpinner" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="5dp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="7dp" android:text="Text size" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Spinner android:id="@+id/textSizeSpinner" android:layout_width="match_parent" android:layout_height="50dp" />
+            <Switch android:id="@+id/voiceRepliesSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Voice replies" android:textColor="@color/text_primary" />
+            <Switch android:id="@+id/hapticsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Haptic feedback" android:textColor="@color/text_primary" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="PRIVACY &amp; SAFETY" android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
+            <Switch android:id="@+id/requireUnlockSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Require unlock before calls" android:textColor="@color/text_primary" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="7dp" android:text="Activity logging" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Spinner android:id="@+id/logModeSpinner" android:layout_width="match_parent" android:layout_height="50dp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="7dp" android:text="Automatic deletion" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Spinner android:id="@+id/retentionSpinner" android:layout_width="match_parent" android:layout_height="50dp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                android:text="Profiles and logs are encrypted on-device. Emergency and short-code calls always open the dialer instead of auto-calling."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
