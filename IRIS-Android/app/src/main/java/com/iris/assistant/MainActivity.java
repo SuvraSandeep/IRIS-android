@@ -939,6 +939,13 @@ public class MainActivity extends Activity {
         if (wakeWizardPrompt != null) wakeWizardPrompt.setText("Say \u201C" + wakePhraseBeingTrained + "\u201D now");
         if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\uD83D\uDD34  Recording\u2026");
         wakeTrainingStatus.setText("Recording sample " + step + " of 5\u2026");
+        // Audio feedback: beep to signal "start speaking now"
+        try {
+            android.media.ToneGenerator tone = new android.media.ToneGenerator(
+                    android.media.AudioManager.STREAM_NOTIFICATION, 80);
+            tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 150);
+            handler.postDelayed(tone::release, 300);
+        } catch (Exception ignored) { }
         wakeTrainingEngine = new WakeWordEngine(this);
         wakeTrainingEngine.captureOne(new WakeWordEngine.Listener() {
             @Override public void onStatus(String status) { wakeTrainingStatus.setText(status); }
@@ -947,6 +954,7 @@ public class MainActivity extends Activity {
                     if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C  Too noisy \u2014 try again in a quieter spot");
                     if (wakeWizardPrompt != null) wakeWizardPrompt.setText("Say \u201C" + wakePhraseBeingTrained + "\u201D again");
                     wakeTrainingStatus.setText("Too noisy. Retrying\u2026");
+                    toast("Too noisy \u2014 retrying...");
                     handler.postDelayed(MainActivity.this::captureNextWakeSample, 1200);
                     return;
                 }
@@ -956,6 +964,14 @@ public class MainActivity extends Activity {
                 String icon = "Clear".equals(quality) ? "\u2705" : "\u26A0\uFE0F";
                 if (wakeWizardFeedback != null) wakeWizardFeedback.setText(icon + "  " + quality + " \u2022 " + Math.round(signalToNoise * 10) / 10f + "\u00D7 noise");
                 wakeTrainingStatus.setText(quality + " sample recorded");
+                toast(icon + " Sample " + wakeSampleIndex + "/5 captured!");
+                // Success beep
+                try {
+                    android.media.ToneGenerator tone = new android.media.ToneGenerator(
+                            android.media.AudioManager.STREAM_NOTIFICATION, 60);
+                    tone.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 100);
+                    handler.postDelayed(tone::release, 250);
+                } catch (Exception ignored) { }
                 if (wakeSampleIndex >= 5) finishWakeTraining();
                 else handler.postDelayed(MainActivity.this::captureNextWakeSample, 750);
             }
@@ -1000,6 +1016,17 @@ public class MainActivity extends Activity {
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.VISIBLE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.GONE);
         stopWakeTrainingEngine();
+        toast("\u2705 Wake phrase trained! Say \u201C" + saved.phrase + "\u201D to wake IRIS.");
+        // Success melody
+        try {
+            android.media.ToneGenerator tone = new android.media.ToneGenerator(
+                    android.media.AudioManager.STREAM_NOTIFICATION, 80);
+            tone.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 200);
+            handler.postDelayed(() -> {
+                tone.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 200);
+                handler.postDelayed(tone::release, 400);
+            }, 250);
+        } catch (Exception ignored) { }
         if (resumeAfterWakeTraining) {
             resumeAfterWakeTraining = false;
             handler.postDelayed(this::startListeningService, 500);

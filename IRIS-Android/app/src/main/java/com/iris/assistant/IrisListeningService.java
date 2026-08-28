@@ -1103,29 +1103,25 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void speak(String text) {
         if (text == null || text.isEmpty()) return;
         if (!settings.voiceReplies()) return;
-        // Try VoiceEngine (Sherpa-ONNX Piper) first
-        if (voiceEngine != null && voiceEngine.isReady()) {
-            voiceEngine.speak(text, new VoiceEngine.TtsListener() {
-                @Override public void onStart() { }
-                @Override public void onDone() { }
-                @Override public void onError(String message) {
-                    // Fallback to Android TTS
-                    speakAndroidTts(text);
-                }
-            });
-        } else {
-            speakAndroidTts(text);
-        }
+        speakAndroidTts(text);
     }
 
     private void speakAndroidTts(String text) {
-        if (ttsReady && textToSpeech != null) {
-            try {
-                textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
-            } catch (Exception e) {
-                LogStore.append(this, "TTS ERROR", e.getMessage());
-            }
-        } else {
+        if (textToSpeech == null) {
+            textToSpeech = new TextToSpeech(this, status -> {
+                ttsReady = status == TextToSpeech.SUCCESS;
+                if (ttsReady) {
+                    textToSpeech.setLanguage(Locale.getDefault());
+                    textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
+                } else {
+                    LogStore.append(this, "TTS", "Android TTS init failed with status " + status);
+                }
+            });
+            return;
+        }
+        if (!ttsReady) {
+            // TTS exists but not ready — reinitialize
+            try { textToSpeech.shutdown(); } catch (Exception ignored) { }
             textToSpeech = new TextToSpeech(this, status -> {
                 ttsReady = status == TextToSpeech.SUCCESS;
                 if (ttsReady) {
@@ -1133,6 +1129,15 @@ public class IrisListeningService extends Service implements RecognitionListener
                     textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
                 }
             });
+            return;
+        }
+        try {
+            int result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
+            if (result != TextToSpeech.SUCCESS) {
+                LogStore.append(this, "TTS", "speak() returned error " + result);
+            }
+        } catch (Exception e) {
+            LogStore.append(this, "TTS ERROR", e.getMessage());
         }
     }
 
