@@ -22,6 +22,7 @@ local.properties
 # Signing
 *.jks
 *.keystore
+!**/debug.keystore
 
 # OS
 .DS_Store

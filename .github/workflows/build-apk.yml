@@ -67,6 +67,7 @@ jobs:
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
+          chmod +x gradlew 2>/dev/null || true
           build_type="${{ inputs.build_type || 'debug' }}"
           if [[ "$build_type" == "release" ]]; then
             ./gradlew :app:assembleRelease --stacktrace 2>/dev/null || gradle :app:assembleRelease --stacktrace
@@ -77,7 +78,9 @@ jobs:
       - name: Run lint
         working-directory: ${{ env.PROJECT_DIR }}
         continue-on-error: true
-        run: ./gradlew :app:lintDebug --stacktrace 2>/dev/null || gradle :app:lintDebug --stacktrace
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+          ./gradlew :app:lintDebug --stacktrace 2>/dev/null || gradle :app:lintDebug --stacktrace
 
       - name: Rename APK
         run: |
