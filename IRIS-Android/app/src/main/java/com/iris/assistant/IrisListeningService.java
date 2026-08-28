@@ -93,6 +93,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private TextToSpeech textToSpeech;
     private boolean ttsReady;
     private int confirmationRetries;
+    private SpeakerVerifier speakerVerifier;
     private long lastLevelBroadcast;
     private Runnable commandTimeout;
     private Runnable confirmTimeout;
@@ -107,6 +108,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             ttsReady = status == TextToSpeech.SUCCESS;
             if (ttsReady) textToSpeech.setLanguage(Locale.getDefault());
         });
+        speakerVerifier = new SpeakerVerifier();
+        speakerVerifier.loadModel(this);
     }
 
     @Override
@@ -192,10 +195,23 @@ public class IrisListeningService extends Service implements RecognitionListener
         wakeEngine = new WakeWordEngine(this);
         wakeEngine.detect(wake.templates, wake.threshold, new WakeWordEngine.Listener() {
             @Override public void onStatus(String status) { broadcastMessage(status); }
-            @Override public void onSample(float[][] features, String quality, float signalToNoise) { }
-            @Override public void onWakeDetected(double distance) {
-                LogStore.append(IrisListeningService.this, "WAKE", wake.phrase
-                        + " matched at " + Math.round(distance * 100) / 100.0);
+            @Override public void onSample(float[][] features, String quality, float signalToNoise, short[] rawAudio) { }
+            @Override public void onWakeDetected(double distance, short[] rawAudio) {
+                if (settings.speakerVerification() && speakerVerifier != null && speakerVerifier.isReady()
+                        && wake.isVoiceEnrolled()) {
+                    boolean isOwner = speakerVerifier.verify(rawAudio, wake.voiceprint, settings.speakerThreshold());
+                    if (!isOwner) {
+                        LogStore.append(IrisListeningService.this, "REJECTED",
+                                "Wake phrase matched but speaker not recognized (distance " + Math.round(distance * 100) / 100.0 + ")");
+                        handler.postDelayed(IrisListeningService.this::startWakeDetection, 500);
+                        return;
+                    }
+                    LogStore.append(IrisListeningService.this, "VERIFIED",
+                            wake.phrase + " matched, speaker verified (distance " + Math.round(distance * 100) / 100.0 + ")");
+                } else {
+                    LogStore.append(IrisListeningService.this, "WAKE", wake.phrase
+                            + " matched at " + Math.round(distance * 100) / 100.0);
+                }
                 vibrate(45);
                 broadcastMessage("Awake. What are we doing?");
                 handler.postDelayed(IrisListeningService.this::startCommandRecognition, 180);
@@ -849,6 +865,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         releaseAudioRoute();
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }
         if (textToSpeech != null) textToSpeech.shutdown();
+        if (speakerVerifier != null) { speakerVerifier.close(); speakerVerifier = null; }
         super.onDestroy();
     }
 

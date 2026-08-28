@@ -19,8 +19,8 @@ import java.util.List;
 public final class WakeWordEngine {
     public interface Listener {
         void onStatus(String status);
-        void onSample(float[][] features, String quality, float signalToNoise);
-        void onWakeDetected(double distance);
+        void onSample(float[][] features, String quality, float signalToNoise, short[] rawAudio);
+        void onWakeDetected(double distance, short[] rawAudio);
         void onError(String message);
     }
 
@@ -139,13 +139,15 @@ public final class WakeWordEngine {
                         String quality = snr >= 5 ? "Clear" : snr >= 3 ? "Usable" : "Too noisy";
                         running = false;
                         double finalSnr = snr;
-                        main.post(() -> listener.onSample(features, quality, (float) finalSnr));
+                        short[] rawCopy = utterance.toArray();
+                        main.post(() -> listener.onSample(features, quality, (float) finalSnr, rawCopy));
                         break;
                     }
                     double distance = bestDistance(features, templates);
                     if (distance <= threshold) {
                         running = false;
-                        main.post(() -> listener.onWakeDetected(distance));
+                        short[] detectedAudio = utterance.toArray();
+                        main.post(() -> listener.onWakeDetected(distance, detectedAudio));
                         break;
                     }
                     postStatus(listener, "Wake phrase armed");

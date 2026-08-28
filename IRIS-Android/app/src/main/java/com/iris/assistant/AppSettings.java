@@ -45,4 +45,8 @@ public final class AppSettings {
     }
     public float textScale() { return prefs.getFloat("text_scale", 1.0f); }
     public void setTextScale(float value) { prefs.edit().putFloat("text_scale", value).apply(); }
+    public boolean speakerVerification() { return prefs.getBoolean("speaker_verification", true); }
+    public void setSpeakerVerification(boolean value) { prefs.edit().putBoolean("speaker_verification", value).apply(); }
+    public float speakerThreshold() { return prefs.getFloat("speaker_threshold", 0.70f); }
+    public void setSpeakerThreshold(float value) { prefs.edit().putFloat("speaker_threshold", value).apply(); }
 }

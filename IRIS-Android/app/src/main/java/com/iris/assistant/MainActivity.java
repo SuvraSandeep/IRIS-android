@@ -98,6 +98,7 @@ public class MainActivity extends Activity {
     private Button contactWizardCancel;
     private WakeWordEngine wakeTrainingEngine;
     private final List<float[][]> wakeTemplates = new ArrayList<>();
+    private final List<short[]> wakeRawSamples = new ArrayList<>();
     private int wakeSampleIndex;
     private String wakePhraseBeingTrained;
     private boolean resumeAfterWakeTraining;
@@ -268,7 +269,8 @@ public class MainActivity extends Activity {
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
         if (!wake.phrase.isEmpty()) wakePhraseInput.setText(wake.phrase);
         if (wake.isReady()) {
-            wakeTrainingStatus.setText("\u2705  \u201C" + wake.phrase + "\u201D \u2022 3 samples \u2022 encrypted");
+            String voiceStatus = wake.isVoiceEnrolled() ? "voice enrolled \u2705" : "voice not enrolled \u26A0\uFE0F";
+            wakeTrainingStatus.setText("\u2705  \u201C" + wake.phrase + "\u201D \u2022 " + voiceStatus);
             trainWakeButton.setText("\uD83D\uDD04  Retrain");
             testWakeButton.setEnabled(true);
         } else {
@@ -382,6 +384,10 @@ public class MainActivity extends Activity {
         Switch haptics = view.findViewById(R.id.hapticsSwitch);
         haptics.setChecked(settings.haptics());
         haptics.setOnCheckedChangeListener((button, checked) -> settings.setHaptics(checked));
+        Switch speakerVerification = view.findViewById(R.id.speakerVerificationSwitch);
+        speakerVerification.setChecked(settings.speakerVerification());
+        speakerVerification.setOnCheckedChangeListener((button, checked) -> settings.setSpeakerVerification(checked));
+
         Switch requireUnlock = view.findViewById(R.id.requireUnlockSwitch);
         requireUnlock.setChecked(settings.requireUnlock());
         requireUnlock.setOnCheckedChangeListener((button, checked) -> settings.setRequireUnlock(checked));
@@ -542,6 +548,7 @@ public class MainActivity extends Activity {
         if (resumeAfterWakeTraining) stopListeningService();
         wakePhraseBeingTrained = phrase;
         wakeTemplates.clear();
+        wakeRawSamples.clear();
         wakeSampleIndex = 0;
         trainWakeButton.setEnabled(false);
         testWakeButton.setEnabled(false);
@@ -552,19 +559,21 @@ public class MainActivity extends Activity {
 
     private void captureNextWakeSample() {
         stopWakeTrainingEngine();
-        if (wakeSampleIndex >= 3) return;
+        if (wakeSampleIndex >= 5) return;
         int step = wakeSampleIndex + 1;
-        if (wakeWizardStep != null) wakeWizardStep.setText("Step " + step + " of 3");
-        if (wakeWizardDots != null) wakeWizardDots.setText(step >= 1 ? "\u25CF" : "\u25CB"
-                + " " + (step >= 2 ? "\u25CF" : "\u25CB")
-                + " " + (step >= 3 ? "\u25CF" : "\u25CB"));
+        if (wakeWizardDots != null) {
+            StringBuilder dots = new StringBuilder();
+            for (int d = 1; d <= 5; d++) dots.append(d <= step ? "\u25CF" : "\u25CB").append(d < 5 ? " " : "");
+            wakeWizardDots.setText(dots.toString());
+        }
+        if (wakeWizardStep != null) wakeWizardStep.setText("Step " + step + " of 5");
         if (wakeWizardPrompt != null) wakeWizardPrompt.setText("Say \u201C" + wakePhraseBeingTrained + "\u201D now");
         if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\uD83D\uDD34  Recording\u2026");
-        wakeTrainingStatus.setText("Recording sample " + step + " of 3\u2026");
+        wakeTrainingStatus.setText("Recording sample " + step + " of 5\u2026");
         wakeTrainingEngine = new WakeWordEngine(this);
         wakeTrainingEngine.captureOne(new WakeWordEngine.Listener() {
             @Override public void onStatus(String status) { wakeTrainingStatus.setText(status); }
-            @Override public void onSample(float[][] features, String quality, float signalToNoise) {
+            @Override public void onSample(float[][] features, String quality, float signalToNoise, short[] rawAudio) {
                 if ("Too noisy".equals(quality)) {
                     if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C  Too noisy \u2014 try again in a quieter spot");
                     if (wakeWizardPrompt != null) wakeWizardPrompt.setText("Say \u201C" + wakePhraseBeingTrained + "\u201D again");
@@ -573,11 +582,12 @@ public class MainActivity extends Activity {
                     return;
                 }
                 wakeTemplates.add(features);
+                wakeRawSamples.add(rawAudio);
                 wakeSampleIndex++;
                 String icon = "Clear".equals(quality) ? "\u2705" : "\u26A0\uFE0F";
                 if (wakeWizardFeedback != null) wakeWizardFeedback.setText(icon + "  " + quality + " \u2022 " + Math.round(signalToNoise * 10) / 10f + "\u00D7 noise");
                 wakeTrainingStatus.setText(quality + " sample recorded");
-                if (wakeSampleIndex >= 3) finishWakeTraining();
+                if (wakeSampleIndex >= 5) finishWakeTraining();
                 else handler.postDelayed(MainActivity.this::captureNextWakeSample, 750);
             }
             @Override public void onWakeDetected(double distance) { }
@@ -590,15 +600,30 @@ public class MainActivity extends Activity {
     }
 
     private void finishWakeTraining() {
-        if (!new ProfileStore(this).setWakeProfile(wakePhraseBeingTrained, wakeTemplates)) {
+        // Only use first 3 templates for DTW (remaining are for voice enrollment)
+        List<float[][]> dtwTemplates = wakeTemplates.size() > 3
+                ? wakeTemplates.subList(0, 3) : wakeTemplates;
+        if (!new ProfileStore(this).setWakeProfile(wakePhraseBeingTrained, dtwTemplates)) {
             wakeTrainingStatus.setText("IRIS could not securely save those samples. Please retry.");
             trainWakeButton.setEnabled(true);
             return;
         }
+        // Enroll speaker voiceprint from all samples
+        SpeakerVerifier verifier = new SpeakerVerifier();
+        String enrollStatus = "voice not enrolled (model missing)";
+        if (verifier.loadModel(this) && !wakeRawSamples.isEmpty()) {
+            float[] voiceprint = verifier.enrollFromSamples(wakeRawSamples.toArray(new short[0][]));
+            if (voiceprint != null) {
+                new ProfileStore(this).setVoiceprint(voiceprint);
+                enrollStatus = "voice enrolled \u2705";
+            }
+            verifier.close();
+        }
         ProfileStore.WakeProfile saved = new ProfileStore(this).getWakeProfile();
-        LogStore.append(this, "WAKE TRAINED", saved.phrase + " with 3 acoustic templates");
-        wakeTrainingStatus.setText("Ready: “" + saved.phrase + "” • calibrated sensitivity "
-                + Math.round(saved.threshold * 100) / 100.0 + " • encrypted locally");
+        LogStore.append(this, "WAKE TRAINED", saved.phrase + " with " + dtwTemplates.size()
+                + " acoustic templates, " + enrollStatus);
+        wakeTrainingStatus.setText("✅  “" + saved.phrase + "” • "
+                + dtwTemplates.size() + " templates • " + enrollStatus);
         trainWakeButton.setText("\uD83D\uDD04  Retrain");
         trainWakeButton.setEnabled(true);
         trainWakeButton.setOnClickListener(v -> beginWakeTraining());
@@ -645,6 +670,7 @@ public class MainActivity extends Activity {
     private void cancelWakeTraining() {
         stopWakeTrainingEngine();
         wakeTemplates.clear();
+        wakeRawSamples.clear();
         wakeSampleIndex = 0;
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.VISIBLE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.GONE);

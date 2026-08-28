@@ -10,8 +10,8 @@ android {
         applicationId 'com.iris.assistant'
         minSdk 26
         targetSdk 35
-        versionCode 179
-        versionName '0.4.0'
+        versionCode 180
+        versionName '1.0.0'
     }
 
     signingConfigs {
@@ -43,4 +43,10 @@ android {
         warningsAsErrors false
         htmlReport true
     }
+
+    aaptOptions { noCompress 'tflite' }
+}
+
+dependencies {
+    implementation 'org.tensorflow:tensorflow-lite:2.16.1'
 }

@@ -82,6 +82,8 @@
             android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="PRIVACY &amp; SAFETY" android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
+            <Switch android:id="@+id/speakerVerificationSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="\uD83D\uDD0A Only respond to my voice" android:textColor="@color/text_primary" android:layout_marginBottom="6dp" />
             <Switch android:id="@+id/requireUnlockSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="Require unlock before calls" android:textColor="@color/text_primary" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"

@@ -31,7 +31,9 @@ public final class ProfileStore {
         public double threshold = 1.05;
         public long trainedAt;
         public final List<float[][]> templates = new ArrayList<>();
+        public float[] voiceprint;
         public boolean isReady() { return !phrase.trim().isEmpty() && templates.size() >= 3; }
+        public boolean isVoiceEnrolled() { return voiceprint != null && voiceprint.length == 192; }
     }
 
     public static class Match {
@@ -102,6 +104,11 @@ public final class ProfileStore {
                     if (matrix.length > 0) profile.templates.add(matrix);
                 }
             }
+            JSONArray vp = wake.optJSONArray("voiceprint");
+            if (vp != null && vp.length() == 192) {
+                profile.voiceprint = new float[192];
+                for (int i = 0; i < 192; i++) profile.voiceprint[i] = (float) vp.getDouble(i);
+            }
         } catch (Exception ignored) { }
         return profile;
     }
@@ -124,6 +131,24 @@ public final class ProfileStore {
                 allTemplates.put(frames);
             }
             wake.put("templates", allTemplates);
+            current.put("wakeWord", wake);
+            persist(current);
+            return true;
+        } catch (Exception ignored) { return false; }
+    }
+
+    public synchronized boolean setVoiceprint(float[] voiceprint) {
+        try {
+            JSONObject current = root();
+            JSONObject wake = current.optJSONObject("wakeWord");
+            if (wake == null) return false;
+            if (voiceprint != null && voiceprint.length == 192) {
+                JSONArray vp = new JSONArray();
+                for (float v : voiceprint) vp.put(Math.round(v * 1000000f) / 1000000.0);
+                wake.put("voiceprint", vp);
+            } else {
+                wake.remove("voiceprint");
+            }
             current.put("wakeWord", wake);
             persist(current);
             return true;
