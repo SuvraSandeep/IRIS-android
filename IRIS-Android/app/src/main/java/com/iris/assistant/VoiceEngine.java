@@ -7,16 +7,6 @@ import android.media.MediaRecorder;
 import android.os.Handler;
 import android.os.Looper;
 
-import com.k2fsa.sherpa.onnx.OfflineRecognizer;
-import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig;
-import com.k2fsa.sherpa.onnx.OfflineStream;
-import com.k2fsa.sherpa.onnx.OnlineRecognizer;
-import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig;
-import com.k2fsa.sherpa.onnx.OnlineStream;
-import com.k2fsa.sherpa.onnx.OfflineTts;
-import com.k2fsa.sherpa.onnx.OfflineTtsConfig;
-import com.k2fsa.sherpa.onnx.GeneratedAudio;
-
 import java.io.File;
 import java.util.List;
 
@@ -43,8 +33,8 @@ public final class VoiceEngine {
     private Thread wakeThread;
     private AudioRecord recorder;
 
-    // Sherpa-ONNX components (initialized lazily when models are available)
-    private OfflineTts tts;
+    // Sherpa-ONNX TTS (loaded dynamically when models available)
+    private Object tts; // Will be OfflineTts when sherpa models are ready
     private android.media.AudioTrack audioTrack;
 
     public interface SttListener {
@@ -208,23 +198,9 @@ public final class VoiceEngine {
      */
     public void speak(String text, TtsListener listener) {
         if (text == null || text.isEmpty()) return;
-        if (tts != null) {
-            new Thread(() -> {
-                try {
-                    main.post(listener::onStart);
-                    GeneratedAudio audio = tts.generate(text, 0, 1.0f);
-                    if (audio != null && audio.getSamples().length > 0) {
-                        playAudio(audio.getSamples(), audio.getSampleRate());
-                    }
-                    main.post(listener::onDone);
-                } catch (Exception e) {
-                    main.post(() -> listener.onError(e.getMessage()));
-                }
-            }, "IRIS-TTS").start();
-        } else {
-            // Fallback to Android TTS via listener
-            main.post(() -> listener.onError("TTS_FALLBACK"));
-        }
+        // Sherpa TTS not yet integrated — always use Android TTS fallback
+        // TODO: When sherpa models are downloaded and verified, use OfflineTts here
+        main.post(() -> listener.onError("TTS_FALLBACK"));
     }
 
     public void stopSpeaking() {
@@ -254,26 +230,11 @@ public final class VoiceEngine {
 
     private void initTts() {
         File modelDir = ModelManager.modelDir(context);
-        // Look for Piper TTS model
-        File[] onnxFiles = modelDir.listFiles((dir, name) -> name.endsWith(".onnx") && name.contains("en"));
-        if (onnxFiles != null && onnxFiles.length > 0) {
-            try {
-                String modelFile = onnxFiles[0].getAbsolutePath();
-                String jsonFile = modelFile.replace(".onnx", ".onnx.json");
-                if (new File(jsonFile).exists()) {
-                    OfflineTtsConfig config = new OfflineTtsConfig();
-                    config.getModel().getVits().setModel(modelFile);
-                    config.getModel().getVits().setDataDir("");
-                    config.getModel().getVits().setTokens(jsonFile);
-                    config.getModel().setNumThreads(2);
-                    tts = new OfflineTts(config);
-                    android.util.Log.i("IRIS", "Piper TTS loaded: " + onnxFiles[0].getName());
-                }
-            } catch (Exception e) {
-                android.util.Log.w("IRIS", "Piper TTS init failed: " + e.getMessage());
-                tts = null;
-            }
-        }
+        // Sherpa TTS integration point — when models are downloaded,
+        // use reflection to load OfflineTts to avoid compile-time dependency
+        // on classes that may not be present in all sherpa-onnx versions.
+        // For now, TTS falls back to Android TextToSpeech.
+        android.util.Log.i("IRIS", "VoiceEngine: Sherpa-ONNX available, TTS uses Android fallback until models ready");
     }
 
     private void playAudio(float[] samples, int sampleRate) {
@@ -311,7 +272,7 @@ public final class VoiceEngine {
         stopListening();
         stopWakeDetection();
         stopSpeaking();
-        if (tts != null) { try { tts.release(); } catch (Exception ignored) {} tts = null; }
+        if (tts != null) { tts = null; }
         initialized = false;
     }
 
