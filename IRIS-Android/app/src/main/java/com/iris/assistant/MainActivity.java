@@ -1,4 +1,4 @@
-﻿package com.iris.assistant;
+package com.iris.assistant;
 
 import android.Manifest;
 import android.app.Activity;
