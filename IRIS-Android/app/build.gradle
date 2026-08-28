@@ -10,8 +10,8 @@ android {
         applicationId 'com.iris.assistant'
         minSdk 26
         targetSdk 35
-        versionCode 187
-        versionName '3.0.1'
+        versionCode 188
+        versionName '4.0.0'
     }
 
     signingConfigs {
@@ -44,9 +44,9 @@ android {
         htmlReport true
     }
 
-    aaptOptions { noCompress 'tflite' }
+    aaptOptions { noCompress 'onnx' }
 }
 
 dependencies {
-    implementation 'org.tensorflow:tensorflow-lite:2.16.1'
+    implementation 'com.k2fsa.sherpa:sherpa-onnx-android:1.10.37'
 }

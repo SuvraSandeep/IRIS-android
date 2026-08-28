@@ -131,6 +131,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private int confirmationRetries;
     private String lastMemoryId;
     private SpeakerVerifier speakerVerifier;
+    private VoiceEngine voiceEngine;
     private long lastLevelBroadcast;
     private Runnable commandTimeout;
     private Runnable confirmTimeout;
@@ -147,6 +148,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         });
         speakerVerifier = new SpeakerVerifier();
         speakerVerifier.loadModel(this);
+        voiceEngine = new VoiceEngine(this);
+        voiceEngine.init();
     }
 
     @Override
@@ -1100,6 +1103,22 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void speak(String text) {
         if (text == null || text.isEmpty()) return;
         if (!settings.voiceReplies()) return;
+        // Try VoiceEngine (Sherpa-ONNX Piper) first
+        if (voiceEngine != null && voiceEngine.isReady()) {
+            voiceEngine.speak(text, new VoiceEngine.TtsListener() {
+                @Override public void onStart() { }
+                @Override public void onDone() { }
+                @Override public void onError(String message) {
+                    // Fallback to Android TTS
+                    speakAndroidTts(text);
+                }
+            });
+        } else {
+            speakAndroidTts(text);
+        }
+    }
+
+    private void speakAndroidTts(String text) {
         if (ttsReady && textToSpeech != null) {
             try {
                 textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
@@ -1107,8 +1126,6 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(this, "TTS ERROR", e.getMessage());
             }
         } else {
-            // TTS not ready — try reinitializing
-            LogStore.append(this, "TTS", "Not ready, reinitializing");
             textToSpeech = new TextToSpeech(this, status -> {
                 ttsReady = status == TextToSpeech.SUCCESS;
                 if (ttsReady) {
@@ -1283,6 +1300,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }
         if (textToSpeech != null) textToSpeech.shutdown();
         if (speakerVerifier != null) { speakerVerifier.close(); speakerVerifier = null; }
+        if (voiceEngine != null) { voiceEngine.close(); voiceEngine = null; }
         super.onDestroy();
     }
 
