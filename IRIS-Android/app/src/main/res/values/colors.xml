@@ -1,13 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ink">#090A18</color>
-    <color name="surface">#15162B</color>
-    <color name="surface_2">#20213D</color>
+    <color name="ink">#070816</color>
+    <color name="surface">#0F1028</color>
+    <color name="surface_2">#181A36</color>
+    <color name="surface_elevated">#1E2045</color>
     <color name="violet">#8B5CF6</color>
+    <color name="violet_dim">#5B3DB8</color>
     <color name="cyan">#22D3EE</color>
+    <color name="cyan_dim">#0E7490</color>
     <color name="magenta">#F472B6</color>
+    <color name="magenta_dim">#BE185D</color>
     <color name="mint">#34D399</color>
-    <color name="text_primary">#F8FAFC</color>
-    <color name="text_muted">#A9AEC9</color>
+    <color name="mint_dim">#059669</color>
+    <color name="amber">#FBBF24</color>
+    <color name="text_primary">#F1F5F9</color>
+    <color name="text_secondary">#CBD5E1</color>
+    <color name="text_muted">#64748B</color>
     <color name="danger">#FB7185</color>
+    <color name="glow_violet">#338B5CF6</color>
+    <color name="glow_cyan">#3322D3EE</color>
+    <color name="border_subtle">#1E293B</color>
+    <color name="border_accent">#334155</color>
 </resources>

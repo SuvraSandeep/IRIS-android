@@ -381,8 +381,8 @@ public class MainActivity extends Activity {
         Button[] tabs = {tabAssistant, tabTraining, tabLogs, tabSettings};
         for (int i = 0; i < tabs.length; i++) {
             tabs[i].setBackgroundResource(i == selectedTab
-                    ? R.drawable.bg_button_primary : R.drawable.bg_button_secondary);
-            tabs[i].setTextColor(Color.WHITE);
+                    ? R.drawable.bg_tab_active : R.drawable.bg_tab_inactive);
+            tabs[i].setTextColor(i == selectedTab ? Color.WHITE : getColor(R.color.text_muted));
         }
     }
 
@@ -462,8 +462,8 @@ public class MainActivity extends Activity {
             phaseChip.setTextColor(getColor(R.color.cyan));
         }
         statusText.setTextColor(active ? getColor(R.color.cyan) : getColor(R.color.text_primary));
-        micRouteText.setText("Microphone: " + lastMicRoute);
-        recognitionText.setText("Recognition: " + lastRecognition);
+        micRouteText.setText("\uD83C\uDF99  Microphone: " + lastMicRoute);
+        recognitionText.setText("\uD83E\uDDE0  Recognition: " + lastRecognition);
         updateFrequentContacts();
     }
 

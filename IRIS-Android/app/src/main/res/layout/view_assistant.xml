@@ -15,17 +15,17 @@
             android:id="@+id/statusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="16dp"
             android:text="IRIS is resting"
             android:textColor="@color/text_primary"
-            android:textSize="22sp"
+            android:textSize="24sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/subStatusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
+            android:layout_marginTop="6dp"
             android:gravity="center"
             android:text="Tap the orb when you need me."
             android:textColor="@color/text_muted"
@@ -35,80 +35,90 @@
             android:id="@+id/phaseChip"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="12dp"
             android:background="@drawable/bg_chip"
-            android:paddingLeft="13dp"
-            android:paddingTop="7dp"
-            android:paddingRight="13dp"
-            android:paddingBottom="7dp"
-            android:text="WAKE MODE"
-            android:textColor="@color/magenta"
+            android:paddingLeft="16dp"
+            android:paddingTop="8dp"
+            android:paddingRight="16dp"
+            android:paddingBottom="8dp"
+            android:text="\u2B24  OFFLINE"
+            android:textColor="@color/text_muted"
             android:textSize="11sp"
             android:textStyle="bold" />
 
         <com.iris.assistant.IrisOrbView
             android:id="@+id/irisOrb"
-            android:layout_width="230dp"
-            android:layout_height="230dp"
-            android:layout_marginTop="18dp"
+            android:layout_width="260dp"
+            android:layout_height="260dp"
+            android:layout_marginTop="20dp"
             android:contentDescription="Turn IRIS on or off" />
 
         <TextView
             android:id="@+id/liveTranscript"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_card"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/bg_card_accent"
             android:gravity="center"
-            android:minHeight="74dp"
-            android:text="Say “Call &lt;contact name&gt;”"
-            android:textColor="@color/text_primary"
+            android:minHeight="78dp"
+            android:text="Say \u201CCall &lt;contact name&gt;\u201D"
+            android:textColor="@color/text_secondary"
             android:textSize="16sp"
             android:textStyle="italic" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="14dp"
             android:background="@drawable/bg_card"
             android:gravity="center_vertical"
             android:orientation="vertical">
 
             <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="\uD83D\uDD0A  SYSTEM STATUS"
+                android:textColor="@color/violet"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1" />
+
+            <TextView
                 android:id="@+id/micRouteText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Microphone: Phone"
+                android:layout_marginTop="10dp"
+                android:text="\uD83C\uDF99  Microphone: Phone"
                 android:textColor="@color/cyan"
-                android:textSize="14sp"
+                android:textSize="13sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/recognitionText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
-                android:text="Recognition: Checking…"
+                android:layout_marginTop="6dp"
+                android:text="\uD83E\uDDE0  Recognition: Checking\u2026"
                 android:textColor="@color/magenta"
-                android:textSize="12sp"
+                android:textSize="13sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="IRIS saves activity and recognized words, never raw audio. Calls always wait for your confirmation."
+                android:layout_marginTop="10dp"
+                android:text="\uD83D\uDD12  Privacy: No raw audio saved. Calls always confirmed."
                 android:textColor="@color/text_muted"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <TextView
             android:id="@+id/frequentContactsText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="14dp"
             android:background="@drawable/bg_card"
-            android:text="Frequent calls will appear here after IRIS earns some history."
+            android:text="\u2B50  Frequent calls will appear here after IRIS earns some history."
             android:textColor="@color/text_muted"
             android:textSize="12sp" />
     </LinearLayout>
