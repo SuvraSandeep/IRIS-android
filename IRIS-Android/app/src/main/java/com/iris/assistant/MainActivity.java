@@ -143,6 +143,26 @@ public class MainActivity extends Activity {
 
     @Override
     protected void attachBaseContext(Context newBase) {
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            try {
+                String crash = throwable.getClass().getName() + ": " + throwable.getMessage();
+                StackTraceElement[] stack = throwable.getStackTrace();
+                if (stack.length > 0) crash += "\n  at " + stack[0].toString();
+                if (stack.length > 1) crash += "\n  at " + stack[1].toString();
+                if (stack.length > 2) crash += "\n  at " + stack[2].toString();
+                if (throwable.getCause() != null) {
+                    crash += "\nCaused by: " + throwable.getCause().getClass().getName() + ": " + throwable.getCause().getMessage();
+                    StackTraceElement[] causeStack = throwable.getCause().getStackTrace();
+                    if (causeStack.length > 0) crash += "\n  at " + causeStack[0].toString();
+                }
+                java.io.File file = new java.io.File(newBase.getFilesDir(), "iris_crash.txt");
+                try (java.io.FileWriter writer = new java.io.FileWriter(file, false)) {
+                    writer.write(crash);
+                }
+                android.util.Log.e("IRIS", crash);
+            } catch (Exception ignored) { }
+            System.exit(1);
+        });
         float scale = new AppSettings(newBase).textScale();
         if (Math.abs(scale - 1f) < .01f) {
             super.attachBaseContext(newBase);
@@ -155,19 +175,24 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        contentHost = findViewById(R.id.contentHost);
-        tabAssistant = findViewById(R.id.tabAssistant);
-        tabTraining = findViewById(R.id.tabTraining);
-        tabLogs = findViewById(R.id.tabLogs);
-        tabSettings = findViewById(R.id.tabSettings);
-        tabAssistant.setOnClickListener(v -> showAssistant());
-        tabTraining.setOnClickListener(v -> showTraining());
-        tabLogs.setOnClickListener(v -> showLogs());
-        tabSettings.setOnClickListener(v -> showSettings());
-        showAssistant();
-        handleLaunchIntent(getIntent());
+        try {
+            super.onCreate(savedInstanceState);
+            setContentView(R.layout.activity_main);
+            contentHost = findViewById(R.id.contentHost);
+            tabAssistant = findViewById(R.id.tabAssistant);
+            tabTraining = findViewById(R.id.tabTraining);
+            tabLogs = findViewById(R.id.tabLogs);
+            tabSettings = findViewById(R.id.tabSettings);
+            tabAssistant.setOnClickListener(v -> showAssistant());
+            tabTraining.setOnClickListener(v -> showTraining());
+            tabLogs.setOnClickListener(v -> showLogs());
+            tabSettings.setOnClickListener(v -> showSettings());
+            showAssistant();
+            handleLaunchIntent(getIntent());
+        } catch (Exception e) {
+            android.util.Log.e("IRIS", "onCreate crash", e);
+            Toast.makeText(this, "IRIS crash: " + e.getClass().getSimpleName() + " — " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     @Override
