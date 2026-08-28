@@ -15,6 +15,7 @@ import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Calendar;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -68,7 +70,23 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final int CALL_NOTIFICATION = 4202;
     private static final int TEACH_NOTIFICATION = 4203;
     private static final Pattern CALL_PATTERN = Pattern.compile(
-            "^(?:(?:please)\\s+)?(?:call|dial|phone|ring)\\s+(.+?)(?:\\s+please)?$",
+            "^(?:(?:please|can you|could you|just)\\s+)?"
+            + "(?:call|dial|phone|ring|ring up|phone up|buzz|hit up"
+            + "|get\\s+.+?\\s+on\\s+the\\s+(?:line|phone)"
+            + "|talk\\s+to|speak\\s+to|connect\\s+(?:me\\s+)?to|reach)"
+            + "\\s+(.+?)(?:\\s+(?:please|for me))?$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern HINDI_CALL_PATTERN = Pattern.compile(
+            "^(.+?)\\s+(?:ko\\s+(?:call|phone|ring)\\s+karo|se\\s+baat\\s+karo|ko\\s+phone\\s+karo)$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern REDIAL_PATTERN = Pattern.compile(
+            "^(?:redial|call\\s+(?:again|back|the\\s+last\\s+(?:person|one|contact))|ring\\s+(?:again|back))$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern QUICK_ACTION_PATTERN = Pattern.compile(
+            "^(?:what(?:\\s+is)?\\s+the\\s+time|time\\s*(?:please)?|what\\s+time\\s+is\\s+it"
+            + "|battery|battery\\s+level|how\\s+much\\s+battery"
+            + "|stop|shut\\s+up|quiet|silence|go\\s+to\\s+sleep"
+            + "|help|what\\s+can\\s+you\\s+do)$",
             Pattern.CASE_INSENSITIVE);
     private static final String PHASE_WAKE = "wake";
     private static final String PHASE_COMMAND = "command";
@@ -213,7 +231,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                             + " matched at " + Math.round(distance * 100) / 100.0);
                 }
                 vibrate(45);
-                broadcastMessage("Awake. What are we doing?");
+                broadcastMessage(timeGreeting() + " What can I do?");
                 handler.postDelayed(IrisListeningService.this::startCommandRecognition, 180);
             }
             @Override public void onError(String message) {
@@ -304,21 +322,58 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         LogStore.append(this, "HEARD", clean);
         broadcastTranscript(clean);
-        ProfileStore.Match learned = new ProfileStore(this).findMatch(clean);
+
+        // 1. Check trained phrases first
+        ProfileStore store = new ProfileStore(this);
+        ProfileStore.Match learned = store.findMatch(clean);
         if (learned != null) {
             LogStore.append(this, "MATCH", "Learned phrase → " + learned.contactName
                     + " (" + Math.round(learned.confidence * 100) + "%)");
             requestCallConfirmation(learned.contactName, learned.phoneNumber);
             return;
         }
-        Matcher matcher = CALL_PATTERN.matcher(ProfileStore.normalize(clean));
-        if (!matcher.matches()) {
-            LogStore.append(this, "IGNORED", "No call command detected");
-            broadcastMessage("I heard you, but not a call command.");
+
+        String normalized = ProfileStore.normalize(clean);
+
+        // 2. Quick actions (time, battery, stop, help)
+        if (QUICK_ACTION_PATTERN.matcher(normalized).matches()) {
+            handleQuickAction(normalized);
+            return;
+        }
+
+        // 3. Redial / call back
+        if (REDIAL_PATTERN.matcher(normalized).matches()) {
+            handleRedial(store);
+            return;
+        }
+
+        // 4. Call patterns (English)
+        Matcher matcher = CALL_PATTERN.matcher(normalized);
+        String requested = null;
+        if (matcher.matches()) {
+            requested = matcher.group(1).trim();
+        }
+
+        // 5. Hindi/Hinglish call patterns
+        if (requested == null) {
+            Matcher hindiMatcher = HINDI_CALL_PATTERN.matcher(normalized);
+            if (hindiMatcher.matches()) requested = hindiMatcher.group(1).trim();
+        }
+
+        // 6. No pattern matched
+        if (requested == null) {
+            LogStore.append(this, "IGNORED", "No command detected");
+            int knownCount = store.getEntries().size();
+            if (knownCount > 0) {
+                broadcastMessage("I didn\u2019t catch a command. Try \u201CCall <name>\u201D. I know " + knownCount + " contacts.");
+            } else {
+                broadcastMessage("I didn\u2019t understand. Train some contacts first, then say \u201CCall <name>\u201D.");
+            }
+            requestCorrection(clean);
             rearmAfterAction();
             return;
         }
-        String requested = matcher.group(1).trim();
+
         List<ContactMatch> candidates = resolveContacts(requested);
         if (candidates.isEmpty()) {
             broadcastMessage(hasPermission(Manifest.permission.READ_CONTACTS)
@@ -334,6 +389,52 @@ public class IrisListeningService extends Service implements RecognitionListener
                 && first.score - candidates.get(1).score < .09) {
             requestDisambiguation(candidates.subList(0, Math.min(3, candidates.size())));
         } else requestCallConfirmation(first.name, first.number);
+    }
+
+    private void handleQuickAction(String normalized) {
+        if (normalized.matches(".*\\b(time|what time)\\b.*")) {
+            Calendar cal = Calendar.getInstance();
+            int hour = cal.get(Calendar.HOUR_OF_DAY);
+            int minute = cal.get(Calendar.MINUTE);
+            String ampm = hour >= 12 ? "PM" : "AM";
+            int displayHour = hour % 12 == 0 ? 12 : hour % 12;
+            String timeText = "It\u2019s " + displayHour + ":" + String.format(Locale.US, "%02d", minute) + " " + ampm;
+            speak(timeText);
+            broadcastMessage(timeText);
+            LogStore.append(this, "QUICK", "Time: " + timeText);
+        } else if (normalized.matches(".*\\b(battery)\\b.*")) {
+            BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
+            int level = bm != null ? bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) : -1;
+            String batteryText = level >= 0 ? "Battery is at " + level + " percent" : "I can\u2019t check the battery right now";
+            speak(batteryText);
+            broadcastMessage(batteryText);
+            LogStore.append(this, "QUICK", batteryText);
+        } else if (normalized.matches(".*\\b(help|what can you do)\\b.*")) {
+            String helpText = "Say \u201CCall\u201D followed by a name, ask the time, check battery, or say \u201CStop\u201D.";
+            speak(helpText);
+            broadcastMessage(helpText);
+            LogStore.append(this, "QUICK", "Help requested");
+        } else {
+            // Stop / shut up / quiet
+            broadcastMessage("Going back to sleep.");
+            LogStore.append(this, "STOP", "Voice command: stop");
+            stopIris("Stopped by voice command");
+            return;
+        }
+        rearmAfterAction();
+    }
+
+    private void handleRedial(ProfileStore store) {
+        List<ProfileStore.Entry> recent = store.frequentContacts(1);
+        if (recent.isEmpty() || recent.get(0).lastCalled == 0) {
+            broadcastMessage("I don\u2019t have anyone to call back yet.");
+            LogStore.append(this, "REDIAL", "No recent calls");
+            rearmAfterAction();
+            return;
+        }
+        ProfileStore.Entry last = recent.get(0);
+        LogStore.append(this, "REDIAL", last.contactName);
+        requestCallConfirmation(last.contactName, last.phoneNumber);
     }
 
     private void handleConfirmation(String heard) {
@@ -750,6 +851,15 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void speak(String text) {
         if (settings.voiceReplies() && ttsReady && text != null)
             textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
+    }
+
+    private String timeGreeting() {
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        if (hour < 6) return "Up late? I\u2019m here.";
+        if (hour < 12) return "Good morning.";
+        if (hour < 17) return "Good afternoon.";
+        if (hour < 21) return "Good evening.";
+        return "Still going? I\u2019m here.";
     }
 
     private String personalityLine(String event, String name) {
