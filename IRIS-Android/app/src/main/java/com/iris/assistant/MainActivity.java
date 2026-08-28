@@ -590,7 +590,7 @@ public class MainActivity extends Activity {
                 if (wakeSampleIndex >= 5) finishWakeTraining();
                 else handler.postDelayed(MainActivity.this::captureNextWakeSample, 750);
             }
-            @Override public void onWakeDetected(double distance) { }
+            @Override public void onWakeDetected(double distance, short[] rawAudio) { }
             @Override public void onError(String message) {
                 wakeTrainingStatus.setText(message);
                 trainWakeButton.setText("Retry sample");
@@ -647,8 +647,8 @@ public class MainActivity extends Activity {
         WakeWordEngine active = wakeTrainingEngine;
         active.detect(wake.templates, wake.threshold, new WakeWordEngine.Listener() {
             @Override public void onStatus(String status) { }
-            @Override public void onSample(float[][] features, String quality, float signalToNoise) { }
-            @Override public void onWakeDetected(double distance) {
+            @Override public void onSample(float[][] features, String quality, float signalToNoise, short[] rawAudio) { }
+            @Override public void onWakeDetected(double distance, short[] rawAudio) {
                 wakeTrainingStatus.setText("Matched “" + wake.phrase + "” • distance "
                         + Math.round(distance * 100) / 100.0 + ". Test passed.");
                 stopWakeTrainingEngine();
