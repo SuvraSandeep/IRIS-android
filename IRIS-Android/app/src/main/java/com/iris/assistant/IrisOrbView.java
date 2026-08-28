@@ -41,16 +41,18 @@ public class IrisOrbView extends View {
             pulse = (float) valueAnimator.getAnimatedValue();
             if (active) invalidate();
         });
-        pulseAnimator.start();
     }
 
     public void setActive(boolean active) {
         this.active = active;
         if (!active) {
             phase = "off";
-            if (pulseAnimator != null) pulseAnimator.pause();
+            if (pulseAnimator != null && pulseAnimator.isStarted()) pulseAnimator.pause();
         } else {
-            if (pulseAnimator != null && pulseAnimator.isPaused()) pulseAnimator.resume();
+            if (pulseAnimator != null) {
+                if (!pulseAnimator.isStarted()) pulseAnimator.start();
+                else if (pulseAnimator.isPaused()) pulseAnimator.resume();
+            }
         }
         setContentDescription(active ? "Turn IRIS off" : "Turn IRIS on");
         invalidate();
@@ -60,8 +62,12 @@ public class IrisOrbView extends View {
         this.phase = phase == null ? "off" : phase;
         this.active = !"off".equals(this.phase);
         if (!"confirm".equals(this.phase)) contactImage = null;
-        if (active && pulseAnimator != null && pulseAnimator.isPaused()) pulseAnimator.resume();
-        else if (!active && pulseAnimator != null) pulseAnimator.pause();
+        if (active && pulseAnimator != null) {
+            if (!pulseAnimator.isStarted()) pulseAnimator.start();
+            else if (pulseAnimator.isPaused()) pulseAnimator.resume();
+        } else if (!active && pulseAnimator != null && pulseAnimator.isStarted()) {
+            pulseAnimator.pause();
+        }
         String description;
         switch (this.phase) {
             case "wake": description = "IRIS armed, waiting for wake phrase. Tap to stop."; break;
