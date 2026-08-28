@@ -97,6 +97,15 @@ public class IrisListeningService extends Service implements RecognitionListener
             + "|when\\s+did\\s+i\\s+(?:last\\s+)?call\\s+(.+)"
             + "|call\\s+history|my\\s+calls)$",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern MEMORY_PATTERN = Pattern.compile(
+            "^(?:remember|note|save|store)\\s+(?:that\\s+)?(.+)$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern FORGET_PATTERN = Pattern.compile(
+            "^(?:forget|delete|remove)\\s+(?:that|the\\s+last\\s+(?:memory|thing)|it)$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern RECALL_PATTERN = Pattern.compile(
+            "^(?:what\\s+do\\s+you\\s+(?:know|remember)|tell\\s+me\\s+about\\s+(?:me|myself)|my\\s+(?:memories|info|memory))$",
+            Pattern.CASE_INSENSITIVE);
     private static final String PHASE_WAKE = "wake";
     private static final String PHASE_COMMAND = "command";
     private static final String PHASE_CONFIRM = "confirm";
@@ -120,6 +129,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private TextToSpeech textToSpeech;
     private boolean ttsReady;
     private int confirmationRetries;
+    private String lastMemoryId;
     private SpeakerVerifier speakerVerifier;
     private long lastLevelBroadcast;
     private Runnable commandTimeout;
@@ -376,6 +386,21 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
+        // 2b. Memory voice commands (remember/forget/recall)
+        Matcher memoryMatcher = MEMORY_PATTERN.matcher(normalized);
+        if (memoryMatcher.matches()) {
+            handleRemember(memoryMatcher.group(1).trim());
+            return;
+        }
+        if (FORGET_PATTERN.matcher(normalized).matches()) {
+            handleForget();
+            return;
+        }
+        if (RECALL_PATTERN.matcher(normalized).matches()) {
+            handleRecall();
+            return;
+        }
+
         // 3. Call history queries
         if (HISTORY_PATTERN.matcher(normalized).matches()) {
             handleHistory(normalized, store);
@@ -482,6 +507,71 @@ public class IrisListeningService extends Service implements RecognitionListener
         ProfileStore.Entry last = recent.get(0);
         LogStore.append(this, "REDIAL", last.contactName);
         requestCallConfirmation(last.contactName, last.phoneNumber);
+    }
+
+    private void handleRemember(String statement) {
+        MemoryParser.ParsedMemory parsed = MemoryParser.parse(statement);
+        if (parsed != null) {
+            MemoryStore.Memory memory = new MemoryStore.Memory();
+            memory.category = parsed.category;
+            memory.key = parsed.key;
+            memory.value = parsed.value;
+            memory.source = "voice";
+            MemoryStore.add(this, memory);
+            lastMemoryId = memory.id;
+            String response = "Got it. " + parsed.key + " is " + parsed.value + ".";
+            speak(response);
+            broadcastMessage("\uD83E\uDDE0 " + response);
+            LogStore.append(this, "MEMORY", "Voice: " + parsed.key + " = " + parsed.value
+                    + " (" + parsed.category + ", confidence " + Math.round(parsed.confidence * 100) + "%)");
+        } else {
+            String response = "I\u2019ll remember that as a note.";
+            MemoryStore.Memory memory = new MemoryStore.Memory();
+            memory.category = MemoryStore.CAT_ABOUT_ME;
+            memory.key = "note";
+            memory.value = statement;
+            memory.source = "voice";
+            MemoryStore.add(this, memory);
+            lastMemoryId = memory.id;
+            speak(response);
+            broadcastMessage("\uD83E\uDDE0 " + response);
+            LogStore.append(this, "MEMORY", "Voice note: " + statement);
+        }
+        rearmAfterAction();
+    }
+
+    private void handleForget() {
+        if (lastMemoryId != null) {
+            MemoryStore.delete(this, lastMemoryId);
+            speak("Done. I forgot it.");
+            broadcastMessage("\uD83D\uDDD1 Memory removed.");
+            LogStore.append(this, "MEMORY", "Deleted: " + lastMemoryId);
+            lastMemoryId = null;
+        } else {
+            speak("There\u2019s nothing recent to forget.");
+            broadcastMessage("Nothing to forget.");
+        }
+        rearmAfterAction();
+    }
+
+    private void handleRecall() {
+        int count = MemoryStore.count(this);
+        String name = MemoryStore.ownerName(this);
+        if (count == 0) {
+            speak("I don\u2019t know anything about you yet. Say \u201Cremember\u201D followed by a fact.");
+            broadcastMessage("\uD83E\uDDE0 No memories yet.");
+        } else {
+            StringBuilder response = new StringBuilder();
+            if (name != null) response.append("I know your name is ").append(name).append(". ");
+            response.append("I have ").append(count).append(" ").append(count == 1 ? "memory" : "memories");
+            List<MemoryStore.Memory> people = MemoryStore.getByCategory(this, MemoryStore.CAT_PEOPLE);
+            if (!people.isEmpty()) response.append(", including ").append(people.size()).append(" about people");
+            response.append(".");
+            speak(response.toString());
+            broadcastMessage("\uD83E\uDDE0 " + response);
+        }
+        LogStore.append(this, "RECALL", "Memories: " + count);
+        rearmAfterAction();
     }
 
     private void handleHistory(String normalized, ProfileStore store) {
@@ -766,6 +856,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 Uri.parse("tel:" + Uri.encode(digits))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             new ProfileStore(this).recordCall(name, number);
+            BehaviorAnalyzer.onCallPlaced(this, name, number);
             LogStore.append(this, direct ? "CALLING" : "DIALER", name == null ? number : name);
             isRunning = false;
             broadcastState(false, "off");

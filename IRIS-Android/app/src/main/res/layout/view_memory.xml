@@ -41,7 +41,20 @@
                 android:layout_height="48dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_button_primary"
-                android:text="\uFF0B  Add Memory"
+                android:text="\uFF0B  Add"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/speakMemoryButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginLeft="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_button_primary"
+                android:text="\uD83C\uDF99 Speak"
                 android:textAllCaps="false"
                 android:textColor="@color/text_primary"
                 android:textSize="13sp"
@@ -51,27 +64,39 @@
                 android:id="@+id/searchMemoryButton"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
-                android:layout_marginLeft="8dp"
-                android:layout_weight="0.6"
+                android:layout_marginLeft="6dp"
+                android:layout_weight="0.7"
                 android:background="@drawable/bg_button_secondary"
-                android:text="\uD83D\uDD0D Search"
+                android:text="\uD83D\uDD0D"
                 android:textAllCaps="false"
                 android:textColor="@color/text_primary"
-                android:textSize="13sp" />
+                android:textSize="16sp" />
         </LinearLayout>
     </LinearLayout>
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="10dp"
         android:layout_weight="1">
 
         <LinearLayout
-            android:id="@+id/memoryListHost"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical" />
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/suggestionsHost"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <LinearLayout
+                android:id="@+id/memoryListHost"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </LinearLayout>
     </ScrollView>
 
     <LinearLayout
@@ -83,24 +108,36 @@
         <Button
             android:id="@+id/exportMemoryButton"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
             android:background="@drawable/bg_button_secondary"
             android:text="\uD83D\uDCE4 Export"
             android:textAllCaps="false"
             android:textColor="@color/text_primary"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
 
         <Button
             android:id="@+id/importMemoryButton"
             android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_marginLeft="8dp"
+            android:layout_height="44dp"
+            android:layout_marginLeft="6dp"
             android:layout_weight="1"
             android:background="@drawable/bg_button_secondary"
             android:text="\uD83D\uDCE5 Import"
             android:textAllCaps="false"
             android:textColor="@color/text_primary"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/clearMemoryButton"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_marginLeft="6dp"
+            android:layout_weight="0.7"
+            android:background="@drawable/bg_button_secondary"
+            android:text="\uD83D\uDDD1"
+            android:textAllCaps="false"
+            android:textColor="@color/danger"
+            android:textSize="16sp" />
     </LinearLayout>
 </LinearLayout>

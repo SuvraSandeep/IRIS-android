@@ -283,10 +283,10 @@ public class MainActivity extends Activity {
         }
 
         // Wire up buttons
-        trainWakeButton.setOnClickListener(v -> beginWakeTraining());
+        trainWakeButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Train wake phrase", this::beginWakeTraining));
         testWakeButton.setOnClickListener(v -> testWakePhrase());
         wakeWizardCancel.setOnClickListener(v -> cancelWakeTraining());
-        startTrainingButton.setOnClickListener(v -> requestContactForTraining());
+        startTrainingButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Train contact", this::requestContactForTraining));
         contactWizardCancel.setOnClickListener(v -> cancelContactTraining());
         view.findViewById(R.id.testWakeButton2).setOnClickListener(v -> testWakePhrase());
         view.findViewById(R.id.testCommandsButton).setOnClickListener(v -> testTrainedCommand());
@@ -328,16 +328,23 @@ public class MainActivity extends Activity {
         contentHost.addView(view);
 
         TextView memorySummary = view.findViewById(R.id.memorySummary);
+        LinearLayout suggestionsHost = view.findViewById(R.id.suggestionsHost);
         LinearLayout memoryListHost = view.findViewById(R.id.memoryListHost);
 
         int count = MemoryStore.count(this);
-        memorySummary.setText(count + (count == 1 ? " memory" : " memories")
-                + " \u2022 " + (count == 0 ? "Teach me about yourself" : "Last updated recently"));
+        String name = MemoryStore.ownerName(this);
+        String greeting = name != null ? "Hi " + name + "! " : "";
+        memorySummary.setText(greeting + count + (count == 1 ? " memory" : " memories")
+                + " \u2022 " + (count == 0 ? "Teach me about yourself" : "Tap + or \uD83C\uDF99 to add"));
 
-        // Add memory button
-        view.findViewById(R.id.addMemoryButton).setOnClickListener(v -> showAddMemoryDialog(memorySummary, memoryListHost));
+        // Add memory (with biometric)
+        view.findViewById(R.id.addMemoryButton).setOnClickListener(v ->
+                authenticateThen("\uD83D\uDD12 Add memory", () -> showAddMemoryDialog(memorySummary, memoryListHost)));
 
-        // Search button
+        // Speak to add memory
+        view.findViewById(R.id.speakMemoryButton).setOnClickListener(v -> speakToAddMemory(memorySummary, memoryListHost));
+
+        // Search
         view.findViewById(R.id.searchMemoryButton).setOnClickListener(v -> showSearchMemoryDialog(memoryListHost));
 
         // Export/Import
@@ -346,8 +353,153 @@ public class MainActivity extends Activity {
         view.findViewById(R.id.importMemoryButton).setOnClickListener(v ->
                 authenticateThen("Import IRIS memory", this::openMemoryDocument));
 
+        // Clear all
+        view.findViewById(R.id.clearMemoryButton).setOnClickListener(v ->
+                authenticateThen("\uD83D\uDD12 Clear all memories", () ->
+                    new AlertDialog.Builder(this)
+                        .setTitle("Clear all memories?")
+                        .setMessage("This removes everything IRIS knows about you.")
+                        .setNegativeButton("Keep", null)
+                        .setPositiveButton("Clear", (d, w) -> {
+                            try { SecureStore.write(this, "iris_memory_v1.enc", ""); } catch (Exception ignored) { }
+                            toast("All memories cleared.");
+                            showMemory();
+                        }).show()));
+
+        // Render suggestions
+        renderSuggestions(suggestionsHost, memorySummary, memoryListHost);
+
+        // Render memory list
         renderMemoryList(memoryListHost);
         updateTabs();
+    }
+
+    private void renderSuggestions(LinearLayout host, TextView summary, LinearLayout listHost) {
+        host.removeAllViews();
+        List<BehaviorAnalyzer.Suggestion> suggestions = BehaviorAnalyzer.analyze(this);
+        if (suggestions.isEmpty()) return;
+
+        TextView header = new TextView(this);
+        header.setText("\u26A1 IRIS NOTICED");
+        header.setTextColor(getColor(R.color.amber));
+        header.setTextSize(11);
+        header.setLetterSpacing(0.08f);
+        header.setPadding(0, dp(4), 0, dp(8));
+        host.addView(header);
+
+        for (BehaviorAnalyzer.Suggestion s : suggestions) {
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setBackgroundResource(R.drawable.bg_card);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            params.bottomMargin = dp(6);
+            card.setLayoutParams(params);
+
+            TextView text = new TextView(this);
+            text.setText(s.emoji + "  " + s.title);
+            text.setTextColor(getColor(R.color.text_primary));
+            text.setTextSize(13);
+            card.addView(text);
+
+            LinearLayout buttons = new LinearLayout(this);
+            buttons.setOrientation(LinearLayout.HORIZONTAL);
+            buttons.setPadding(0, dp(8), 0, 0);
+
+            Button accept = new Button(this);
+            accept.setText("Save");
+            accept.setTextColor(getColor(R.color.mint));
+            accept.setTextSize(11);
+            accept.setBackgroundResource(R.drawable.bg_button_secondary);
+            accept.setOnClickListener(v -> {
+                if (s.value != null && !s.value.isEmpty()) {
+                    MemoryStore.Memory m = new MemoryStore.Memory();
+                    m.category = s.category;
+                    m.key = s.key;
+                    m.value = s.value;
+                    m.source = "auto_learned";
+                    MemoryStore.add(this, m);
+                    toast("\u26A1 Saved: " + s.key);
+                } else {
+                    showAddMemoryDialog(summary, listHost);
+                }
+                host.removeView(card);
+            });
+
+            Button dismiss = new Button(this);
+            dismiss.setText("Dismiss");
+            dismiss.setTextColor(getColor(R.color.text_muted));
+            dismiss.setTextSize(11);
+            dismiss.setBackgroundResource(R.drawable.bg_button_secondary);
+            dismiss.setOnClickListener(v -> host.removeView(card));
+
+            buttons.addView(accept, new LinearLayout.LayoutParams(dp(80), dp(36)));
+            buttons.addView(dismiss, new LinearLayout.LayoutParams(dp(80), dp(36)));
+            card.addView(buttons);
+            host.addView(card);
+        }
+    }
+
+    private void speakToAddMemory(TextView summary, LinearLayout listHost) {
+        if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            toast("Microphone permission needed.");
+            return;
+        }
+        if (IrisListeningService.isRunning) stopListeningService();
+        destroyDryRunRecognizer();
+        dryRunRecognizer = createPreferredRecognizer();
+        toast("\uD83C\uDF99 Listening... say what I should remember.");
+        dryRunRecognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) { }
+            @Override public void onBeginningOfSpeech() { }
+            @Override public void onRmsChanged(float rmsdB) { }
+            @Override public void onBufferReceived(byte[] buffer) { }
+            @Override public void onEndOfSpeech() { toast("Processing..."); }
+            @Override public void onError(int error) { toast("Couldn\u2019t hear you. Try again."); destroyDryRunRecognizer(); }
+            @Override public void onResults(Bundle results) {
+                ArrayList<String> heard = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                String text = heard == null || heard.isEmpty() ? "" : heard.get(0);
+                if (text.isEmpty()) { toast("Nothing heard."); destroyDryRunRecognizer(); return; }
+                MemoryParser.ParsedMemory parsed = MemoryParser.parse(text);
+                if (parsed != null && parsed.confidence >= 0.80f) {
+                    MemoryStore.Memory m = new MemoryStore.Memory();
+                    m.category = parsed.category;
+                    m.key = parsed.key;
+                    m.value = parsed.value;
+                    m.source = "voice";
+                    MemoryStore.add(MainActivity.this, m);
+                    toast("\uD83E\uDDE0 " + parsed.key + " = " + parsed.value);
+                    LogStore.append(MainActivity.this, "MEMORY", "Voice: " + parsed.key + " = " + parsed.value);
+                    int count = MemoryStore.count(MainActivity.this);
+                    summary.setText(count + " memories \u2022 Last updated just now");
+                    renderMemoryList(listHost);
+                } else {
+                    // Low confidence or unparseable — save as note with confirm
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("\uD83E\uDDE0 Save as memory?")
+                        .setMessage("I heard: \u201C" + text + "\u201D")
+                        .setNegativeButton("Discard", null)
+                        .setPositiveButton("Save as note", (d, w) -> {
+                            MemoryStore.Memory m = new MemoryStore.Memory();
+                            m.category = MemoryStore.CAT_ABOUT_ME;
+                            m.key = "note";
+                            m.value = text;
+                            m.source = "voice";
+                            MemoryStore.add(MainActivity.this, m);
+                            toast("\uD83E\uDDE0 Saved as note.");
+                            renderMemoryList(listHost);
+                        }).show();
+                }
+                destroyDryRunRecognizer();
+            }
+            @Override public void onPartialResults(Bundle partialResults) { }
+            @Override public void onEvent(int eventType, Bundle params) { }
+        });
+        Intent speech = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, new AppSettings(this).preferOnDevice())
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, new AppSettings(this).resolvedLanguageTag());
+        dryRunRecognizer.startListening(speech);
     }
 
     private void showAddMemoryDialog(TextView summary, LinearLayout listHost) {
@@ -511,11 +663,11 @@ public class MainActivity extends Activity {
         delete.setTextColor(getColor(R.color.danger));
         delete.setTextSize(16);
         delete.setBackgroundResource(R.drawable.bg_button_secondary);
-        delete.setOnClickListener(v -> {
+        delete.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Delete memory", () -> {
             MemoryStore.delete(this, memory.id);
             host.removeView(row);
             toast("Memory removed.");
-        });
+        }));
 
         row.addView(text);
         row.addView(delete, new LinearLayout.LayoutParams(dp(48), dp(40)));
