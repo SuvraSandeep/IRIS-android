@@ -258,9 +258,8 @@ public class IrisListeningService extends Service implements RecognitionListener
                     voskEngine.stop();
                     LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Vosk)");
                     vibrate(45);
-                    speak(timeGreeting() + " What can I do?");
                     broadcastMessage(timeGreeting() + " What can I do?");
-                    handler.postDelayed(IrisListeningService.this::startCommandRecognition, 900);
+                    speakThenRun(timeGreeting() + " What can I do?", IrisListeningService.this::startCommandRecognition);
                 }
                 @Override public void onError(String message) {
                     LogStore.append(IrisListeningService.this, "VOSK ERROR", message);
@@ -305,9 +304,8 @@ public class IrisListeningService extends Service implements RecognitionListener
                             + " matched at " + Math.round(distance * 100) / 100.0);
                 }
                 vibrate(45);
-                speak(timeGreeting() + " What can I do?");
                 broadcastMessage(timeGreeting() + " What can I do?");
-                handler.postDelayed(IrisListeningService.this::startCommandRecognition, 900);
+                speakThenRun(timeGreeting() + " What can I do?", IrisListeningService.this::startCommandRecognition);
             }
             @Override public void onError(String message) {
                 LogStore.append(IrisListeningService.this, "ERROR", message);
@@ -1212,6 +1210,44 @@ public class IrisListeningService extends Service implements RecognitionListener
         } catch (Exception e) {
             LogStore.append(this, "TTS ERROR", e.getMessage());
         }
+    }
+
+    /**
+     * Speak text and run the callback ONLY after speech finishes.
+     * Prevents the mic from cutting off IRIS mid-sentence.
+     * If voice replies are off or TTS fails, runs the callback after a short delay.
+     */
+    private void speakThenRun(String text, Runnable afterSpeaking) {
+        if (text == null || text.isEmpty() || !settings.voiceReplies() || textToSpeech == null || !ttsReady) {
+            // No speech — just run after a brief pause
+            handler.postDelayed(afterSpeaking, 600);
+            return;
+        }
+        final boolean[] ran = {false};
+        textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+            @Override public void onStart(String utteranceId) { }
+            @Override public void onDone(String utteranceId) {
+                if ("iris_greet".equals(utteranceId) && !ran[0]) {
+                    ran[0] = true;
+                    handler.post(() -> { textToSpeech.setOnUtteranceProgressListener(null); afterSpeaking.run(); });
+                }
+            }
+            @Override public void onError(String utteranceId) {
+                if (!ran[0]) {
+                    ran[0] = true;
+                    handler.post(() -> { textToSpeech.setOnUtteranceProgressListener(null); afterSpeaking.run(); });
+                }
+            }
+        });
+        try {
+            textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_greet");
+        } catch (Exception e) {
+            handler.postDelayed(afterSpeaking, 600);
+        }
+        // Safety net: if onDone never fires (some TTS engines), run after 6s max
+        handler.postDelayed(() -> {
+            if (!ran[0]) { ran[0] = true; textToSpeech.setOnUtteranceProgressListener(null); afterSpeaking.run(); }
+        }, 6000);
     }
 
     private String callTimingWarning(String name, String number) {

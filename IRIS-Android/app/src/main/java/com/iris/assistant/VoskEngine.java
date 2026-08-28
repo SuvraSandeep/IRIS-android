@@ -78,16 +78,18 @@ public final class VoskEngine {
             speechService = new SpeechService(recognizer, SAMPLE_RATE);
             speechService.startListening(new RecognitionListener() {
                 @Override public void onPartialResult(String hypothesis) {
-                    if (containsPhrase(hypothesis, phrase)) {
-                        listener.onWakeDetected();
-                    }
+                    // Do NOT trigger on partial results — too noisy.
                 }
                 @Override public void onResult(String hypothesis) {
-                    if (containsPhrase(hypothesis, phrase)) {
+                    if (isExactPhrase(hypothesis, phrase)) {
                         listener.onWakeDetected();
                     }
                 }
-                @Override public void onFinalResult(String hypothesis) { }
+                @Override public void onFinalResult(String hypothesis) {
+                    if (isExactPhrase(hypothesis, phrase)) {
+                        listener.onWakeDetected();
+                    }
+                }
                 @Override public void onError(Exception e) {
                     listener.onError(e.getMessage());
                 }
@@ -154,10 +156,16 @@ public final class VoskEngine {
 
     // ─── Helpers ───
 
-    private static boolean containsPhrase(String hypothesisJson, String phrase) {
-        String text = extractText(hypothesisJson, "partial");
-        if (text.isEmpty()) text = extractText(hypothesisJson, "text");
-        return text.contains(phrase);
+    private static boolean isExactPhrase(String hypothesisJson, String phrase) {
+        // Vosk result JSON: {"text": "nova"}. Require the recognized text to
+        // BE the phrase (allowing for surrounding whitespace only) — not just contain it.
+        String text = extractText(hypothesisJson, "text");
+        if (text.isEmpty()) return false;
+        if (text.equals(phrase)) return true;
+        // Allow the phrase to appear as complete words (e.g. recognizer adds nothing else meaningful)
+        // but reject if there's extra content that isn't the phrase.
+        return text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)")
+                && text.replace(phrase, "").trim().isEmpty();
     }
 
     private static String extractText(String json, String field) {
