@@ -131,7 +131,6 @@ public class IrisListeningService extends Service implements RecognitionListener
     private int confirmationRetries;
     private String lastMemoryId;
     private SpeakerVerifier speakerVerifier;
-    private VoiceEngine voiceEngine;
     private long lastLevelBroadcast;
     private Runnable commandTimeout;
     private Runnable confirmTimeout;
@@ -144,12 +143,17 @@ public class IrisListeningService extends Service implements RecognitionListener
         createNotificationChannels();
         textToSpeech = new TextToSpeech(this, status -> {
             ttsReady = status == TextToSpeech.SUCCESS;
-            if (ttsReady) textToSpeech.setLanguage(Locale.getDefault());
+            if (ttsReady) {
+                textToSpeech.setLanguage(Locale.getDefault());
+                // Warm up TTS engine with silent utterance — some devices need this
+                textToSpeech.speak(" ", TextToSpeech.QUEUE_FLUSH, null, "warmup");
+                LogStore.append(IrisListeningService.this, "TTS", "Ready: " + textToSpeech.getDefaultEngine());
+            } else {
+                LogStore.append(IrisListeningService.this, "TTS", "FAILED (status " + status + ")");
+            }
         });
         speakerVerifier = new SpeakerVerifier();
         speakerVerifier.loadModel(this);
-        voiceEngine = new VoiceEngine(this);
-        voiceEngine.init();
     }
 
     @Override
@@ -1305,7 +1309,6 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }
         if (textToSpeech != null) textToSpeech.shutdown();
         if (speakerVerifier != null) { speakerVerifier.close(); speakerVerifier = null; }
-        if (voiceEngine != null) { voiceEngine.close(); voiceEngine = null; }
         super.onDestroy();
     }
 

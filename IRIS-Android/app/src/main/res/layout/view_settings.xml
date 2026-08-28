@@ -59,6 +59,9 @@
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="7dp" android:text="Command language" android:textColor="@color/text_muted" android:textSize="12sp" />
             <Spinner android:id="@+id/languageSpinner" android:layout_width="match_parent" android:layout_height="50dp" />
+            <Button android:id="@+id/testTtsButton" android:layout_width="match_parent" android:layout_height="52dp"
+                android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
+                android:text="\uD83D\uDD0A Test voice — tap to hear IRIS" android:textAllCaps="false" android:textColor="@color/text_primary" />
             <Button android:id="@+id/downloadModelButton" android:layout_width="match_parent" android:layout_height="52dp"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
                 android:text="Check / download offline language" android:textAllCaps="false" android:textColor="@color/text_primary" />

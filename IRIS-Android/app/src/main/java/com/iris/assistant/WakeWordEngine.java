@@ -266,7 +266,7 @@ public final class WakeWordEngine {
         return Math.sqrt(sum / Math.max(1, length));
     }
 
-    private static float[][] extractFeatures(short[] audio) {
+    public static float[][] extractFeatures(short[] audio) {
         int window = 400;
         int hop = 160;
         if (audio.length < window) return new float[0][0];

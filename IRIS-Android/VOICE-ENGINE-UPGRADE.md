@@ -1,176 +1,379 @@
-# IRIS Robust Voice Engine — Sherpa-ONNX Integration
+# IRIS v5.0.0 — Complete Voice Engine & Training Overhaul
 
-## The Problem
+## Problem Statement
 
-Current IRIS uses 3 fragile components:
-1. **Wake detection:** Custom Goertzel+DTW — triggers on random sounds
-2. **Speech recognition:** Android SpeechRecognizer — unreliable, hangs, some OEMs broken
-3. **TTS:** Android TextToSpeech — robotic, fails silently on many devices
+The current IRIS has three fundamental problems:
+1. **Training doesn't work reliably** — VAD-based capture is unpredictable
+2. **IRIS doesn't speak** — Android TTS is broken on the device
+3. **Wake detection triggers on random sounds** — DTW is too fragile
 
-## The Solution: Sherpa-ONNX
+All three stem from using DIY/built-in Android components that are unreliable.
 
-**Sherpa-ONNX** (by k2-fsa/Next-gen Kaldi) is a single open-source library that provides:
+## Solution: Replace ALL voice components with Vosk
 
-| Feature | What it does | Model size |
-|---|---|---|
-| **Streaming STT** | Real-time speech-to-text, works while user speaks | ~15 MB |
-| **Keyword Spotting** | Neural wake word detection (replaces our DTW) | ~5 MB |
-| **TTS (Piper voices)** | Natural-sounding offline text-to-speech | ~20 MB |
-| **VAD** | Voice Activity Detection (Silero VAD) | ~2 MB |
-| **Speaker ID** | Speaker verification/identification | ~5 MB |
+**Vosk** is the best choice because:
+- ✅ 100% free, open source (Apache 2.0)
+- ✅ 100% offline — no API keys, no internet after model download
+- ✅ Available on Maven Central: `com.alphacephei:vosk-android:0.3.75`
+- ✅ Includes: STT + speaker identification + grammar mode
+- ✅ Small model: 50 MB (English) or 20 MB (small English)
+- ✅ Supports 20+ languages including Hindi and Indian English
+- ✅ Battle-tested — used in production apps worldwide
 
-**Total: ~47 MB of models, all fully offline, 100% free (Apache 2.0 license)**
+For TTS, we keep Android TTS but fix it properly with a **test-on-startup** approach.
 
-### Why Sherpa-ONNX?
+---
 
-- ✅ **100% free** — Apache 2.0 license, no API keys, no subscriptions
-- ✅ **100% offline** — no internet needed, ever
-- ✅ **All-in-one** — STT + TTS + wake word + VAD + speaker ID in one library
-- ✅ **Android SDK** — Java API, published on JitPack
-- ✅ **20+ languages** — English, Hindi, and more
-- ✅ **Actively maintained** — 15k+ GitHub stars, frequent releases
-- ✅ **Small footprint** — runs on phones with 2GB RAM
+## Part 1: New Training Module
 
-## Architecture: Before vs After
+### Design Philosophy
+- **Timed recording, not VAD** — record exactly 3 seconds, no guessing
+- **Visual countdown** — 3, 2, 1, 🔴 NOW
+- **Live waveform** — user sees their voice being captured
+- **Audio feedback** — beep before, chime after
+- **Only 3 samples** — enough for matching, less tedious
+- **Clear progress** — big dots, step number, completion celebration
 
-### Before (fragile)
+### Training Flow (User's Perspective)
+
 ```
-Wake: Custom Goertzel+DTW (12 features, easy false triggers)
-STT:  Android SpeechRecognizer (unreliable, OEM-dependent)
-TTS:  Android TextToSpeech (robotic, fails silently)
-VAD:  Custom RMS threshold (misses quiet speech, triggers on noise)
+╔══════════════════════════════════════╗
+║  🎙️  TRAIN YOUR WAKE PHRASE         ║
+║                                      ║
+║  Type what IRIS should listen for:   ║
+║  ┌──────────────────────────┐       ║
+║  │  Nova                    │       ║
+║  └──────────────────────────┘       ║
+║                                      ║
+║  You'll say it 3 times so IRIS       ║
+║  learns your voice.                  ║
+║                                      ║
+║  [ Begin Training → ]                ║
+╚══════════════════════════════════════╝
+              ↓ tap Begin
+╔══════════════════════════════════════╗
+║  Sample 1 of 3       ● ○ ○          ║
+║                                      ║
+║  Get ready to say "Nova"...          ║
+║                                      ║
+║         ╭─────────╮                  ║
+║         │   3     │  ← big number   ║
+║         ╰─────────╯                  ║
+╚══════════════════════════════════════╝
+              ↓ countdown
+╔══════════════════════════════════════╗
+║  Sample 1 of 3       ● ○ ○          ║
+║                                      ║
+║  🔴  SAY "Nova" NOW                 ║
+║                                      ║
+║  ▓▓▓▓▓▓▓░░░░░░░░░  ← live level    ║
+║  ▓▓▓▓▓▓▓▓▓▓░░░░░░                  ║
+║  ▓▓▓▓▓▓▓▓▓▓▓▓░░░░  ← 3 sec timer  ║
+║                                      ║
+║  [ Cancel ]                          ║
+╚══════════════════════════════════════╝
+              ↓ 3 seconds pass
+╔══════════════════════════════════════╗
+║  Sample 1 of 3       ● ○ ○          ║
+║                                      ║
+║  ✅  Perfect! Clear audio captured.  ║
+║                                      ║
+║  Next sample in 2 seconds...         ║
+║                                      ║
+╚══════════════════════════════════════╝
+              ↓ auto-advance
+╔══════════════════════════════════════╗
+║  Sample 2 of 3       ● ● ○          ║
+║         ╭─────────╮                  ║
+║         │   3     │                  ║
+║         ╰─────────╯                  ║
+╚══════════════════════════════════════╝
+              ↓ ... repeat for 3 ...
+╔══════════════════════════════════════╗
+║  🎉  TRAINING COMPLETE!             ║
+║                                      ║
+║  IRIS now responds to "Nova"         ║
+║  spoken in YOUR voice.               ║
+║                                      ║
+║  [ 🧪 Test Now ]    [ ✅ Done ]     ║
+╚══════════════════════════════════════╝
 ```
 
-### After (robust)
-```
-Wake: Sherpa-ONNX Keyword Spotter (neural, custom keywords)
-STT:  Sherpa-ONNX Streaming ASR (Zipformer/Paraformer model)
-TTS:  Sherpa-ONNX Piper TTS (natural VITS neural voice)
-VAD:  Sherpa-ONNX Silero VAD (state-of-the-art, tiny model)
-Speaker: Sherpa-ONNX Speaker ID (replaces our custom TFLite)
+### Technical: Timed Recording Implementation
+
+```java
+// Instead of WakeWordEngine.captureOne() with unpredictable VAD:
+class TimedRecorder {
+    static short[] record(int durationMs, LevelCallback onLevel) {
+        AudioRecord mic = new AudioRecord(..., 16000, MONO, PCM_16BIT, ...);
+        mic.startRecording();
+        short[] buffer = new short[16000 * durationMs / 1000]; // exact size
+        int offset = 0;
+        long startTime = System.currentTimeMillis();
+        while (offset < buffer.length) {
+            int read = mic.read(buffer, offset, Math.min(512, buffer.length - offset));
+            offset += read;
+            // Report live audio level for waveform display
+            onLevel.onLevel(rms(buffer, offset - read, read));
+        }
+        mic.stop();
+        mic.release();
+        return buffer; // Exactly durationMs of audio, guaranteed
+    }
+}
 ```
 
-## Gradle Dependency
+**Why this is better:**
+- Recording ALWAYS works — no VAD to confuse
+- ALWAYS takes exactly 3 seconds — predictable
+- Live level callback drives the waveform UI
+- No background thread magic — simple, debuggable
+
+---
+
+## Part 2: Fix TTS (IRIS Must Speak)
+
+### Current problem
+Android TextToSpeech initializes asynchronously. On some devices:
+- The callback never fires
+- The engine is ready but `speak()` returns error
+- The language isn't available
+- Audio is routed to the wrong output
+
+### Solution: Test TTS on startup, report status
+
+```java
+// In IrisListeningService.onCreate():
+textToSpeech = new TextToSpeech(this, status -> {
+    ttsReady = status == TextToSpeech.SUCCESS;
+    if (ttsReady) {
+        textToSpeech.setLanguage(Locale.getDefault());
+        // TEST IT: speak a silent utterance to warm up the engine
+        textToSpeech.speak(" ", TextToSpeech.QUEUE_FLUSH, null, "warmup");
+        LogStore.append(this, "TTS", "Ready: " + textToSpeech.getDefaultEngine());
+    } else {
+        LogStore.append(this, "TTS", "FAILED to initialize (status " + status + ")");
+        // Try system default engine explicitly
+        String engine = textToSpeech.getDefaultEngine();
+        LogStore.append(this, "TTS", "Default engine: " + engine);
+    }
+});
+```
+
+Also add a TTS test button in Settings so you can verify it works:
+```
+[ 🔊 Test Voice ] → speaks "Hello, I am IRIS. I can hear and speak."
+```
+
+### Fallback chain
+1. Android TextToSpeech (default engine)
+2. If that fails → try Google TTS engine explicitly
+3. If that fails → use ToneGenerator beeps for critical feedback
+4. Log everything so we can debug
+
+---
+
+## Part 3: Better Wake Detection
+
+### Current problem
+DTW with 10 Goertzel bands is primitive. Even with tightened thresholds, it can't distinguish between similar sounds.
+
+### Solution: Use Vosk grammar mode for wake detection
+
+Vosk supports a **grammar mode** where you give it a list of words to listen for. This is a **neural speech recognizer** constrained to your wake phrase — dramatically more accurate than DTW.
+
+```java
+// Vosk grammar mode for wake word
+Recognizer recognizer = new Recognizer(model, 16000,
+    "[\"nova\", \"[unk]\"]"); // Only recognize "nova" or unknown
+
+// In the audio loop:
+if (recognizer.acceptWaveForm(buffer, count)) {
+    String result = recognizer.getResult();
+    // result: {"text": "nova"} or {"text": ""}
+    if (result.contains("nova")) {
+        // WAKE DETECTED — with neural accuracy!
+    }
+}
+```
+
+**Why this is massively better:**
+- Neural speech model vs 10-frequency-band comparison
+- Understands speech, not just spectral patterns
+- Rejects non-speech sounds (clicks, taps, music) because it's a speech model
+- Supports any word/phrase — not just acoustic patterns
+- Same model also does command recognition
+
+### Keep DTW as secondary check
+After Vosk detects the wake word, run DTW on the audio as a **speaker similarity check** — this acts as a lightweight voice gate even without a full speaker model.
+
+---
+
+## Part 4: Vosk Integration Architecture
+
+### Dependencies
 
 ```groovy
 dependencies {
-    // Sherpa-ONNX — all-in-one voice engine
-    implementation 'com.k2fsa.sherpa:sherpa-onnx-android:1.10.37'
+    // Vosk — offline STT + speaker ID (Maven Central, no JitPack needed)
+    implementation 'com.alphacephei:vosk-android:0.3.75'
     
-    // Remove: TFLite (no longer needed for speaker verification)
-    // implementation 'org.tensorflow:tensorflow-lite:2.16.1'
+    // Remove sherpa-onnx (replaced by Vosk)
+    // implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.5'
 }
 ```
 
-**One dependency replaces both Android SpeechRecognizer AND TFLite.**
+### Models (bundled in assets or downloaded on first launch)
 
-## Models Needed (downloaded once, stored in assets)
+| Model | Size | Purpose |
+|---|---|---|
+| `vosk-model-small-en-us-0.15` | 40 MB | English STT + wake word grammar |
+| `vosk-model-small-hi-0.22` | 42 MB | Hindi STT (optional) |
+| `vosk-model-spk-0.4` | 13 MB | Speaker identification/verification |
 
-| Model | File | Size | Source |
-|---|---|---|---|
-| STT (English) | `sherpa-onnx-streaming-zipformer-en-20M` | ~20 MB | [HuggingFace](https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26) |
-| STT (Hindi) | `sherpa-onnx-streaming-zipformer-hi` | ~20 MB | HuggingFace |
-| TTS (English) | `en_US-amy-medium.onnx` + `.json` | ~20 MB | [Piper voices](https://huggingface.co/rhasspy/piper-voices) |
-| TTS (Hindi) | `hi_IN-swara-medium.onnx` + `.json` | ~20 MB | Piper voices |
-| VAD | `silero_vad.onnx` | ~2 MB | Included with sherpa-onnx |
-| Speaker ID | `3dspeaker_speech_eres2net_base.onnx` | ~5 MB | [3D-Speaker](https://huggingface.co/csukuangfj/3dspeaker) |
+**Option A: Bundle in APK** — app is ~55 MB (acceptable)
+**Option B: Download on first launch** — app is ~5 MB, downloads 40 MB once
 
-**Total: ~87 MB** (can be reduced to ~42 MB by using only English)
+### What Vosk replaces
 
-### Model download strategy
-- Models are NOT in the APK (too large)
-- On first launch: "IRIS needs to download voice models (~40 MB). This is a one-time setup."
-- Download from GitHub Releases or HuggingFace
-- Store in app's internal storage
-- Works fully offline after download
-
-## New Class: `VoiceEngine.java`
-
-Replaces: `WakeWordEngine.java` (for wake), Android `SpeechRecognizer` (for STT), Android `TextToSpeech` (for TTS), `SpeakerVerifier.java` + `MelSpectrogram.java` (for speaker ID)
-
-```java
-public final class VoiceEngine {
-    // Initialization
-    void init(Context context)                    // loads all models
-    boolean isReady()                              // all models loaded?
-    void close()                                   // release resources
-    
-    // Wake word detection
-    void startWakeDetection(WakeListener listener) // neural keyword spotting
-    void stopWakeDetection()
-    
-    // Speech-to-text (streaming)
-    void startListening(SttListener listener)      // real-time transcription
-    void stopListening()
-    
-    // Text-to-speech
-    void speak(String text, TtsListener listener)  // natural Piper voice
-    void stopSpeaking()
-    boolean isSpeaking()
-    
-    // Speaker verification
-    float[] extractSpeakerEmbedding(short[] audio) // voiceprint
-    float verifySpeaker(short[] audio, float[] voiceprint) // similarity
-    
-    // VAD
-    boolean isSpeech(short[] audio)                // is this speech?
-}
-```
-
-## Migration Plan
+| Component | Before | After (Vosk) |
+|---|---|---|
+| Wake detection | WakeWordEngine (Goertzel+DTW) | Vosk grammar mode (neural) |
+| Command STT | Android SpeechRecognizer | Vosk streaming recognizer |
+| Speaker ID | SpeakerVerifier (no-op placeholder) | Vosk speaker vectors |
+| Training capture | WakeWordEngine.captureOne() (VAD) | TimedRecorder (3 sec fixed) |
 
 ### What stays
-- `ProfileStore.java` — contact/phrase storage (unchanged)
-- `MemoryStore.java` — memory system (unchanged)
-- `MemoryParser.java` — NL parsing (unchanged)
-- `BehaviorAnalyzer.java` — pattern detection (unchanged)
-- `SecureStore.java` — encryption (unchanged)
-- `LogStore.java` — logging (unchanged)
-- `AppSettings.java` — settings (unchanged)
-- `IrisOrbView.java` — UI (unchanged)
-- All layouts, drawables, resources (unchanged)
 
-### What gets replaced
-| Old | New | Reason |
-|---|---|---|
-| `WakeWordEngine.java` | `VoiceEngine.startWakeDetection()` | Neural > Goertzel+DTW |
-| `SpeechRecognizer` (Android) | `VoiceEngine.startListening()` | Always works, no OEM issues |
-| `TextToSpeech` (Android) | `VoiceEngine.speak()` | Natural voice, never fails |
-| `SpeakerVerifier.java` | `VoiceEngine.verifySpeaker()` | Same quality, one less dependency |
-| `MelSpectrogram.java` | (removed) | Sherpa handles internally |
-| TFLite dependency | (removed) | Sherpa-ONNX replaces it |
-
-### What gets modified
-| File | Changes |
+| Component | Why |
 |---|---|
-| `IrisListeningService.java` | Use VoiceEngine instead of WakeWordEngine, SpeechRecognizer, TextToSpeech |
-| `MainActivity.java` | Use VoiceEngine for training capture, dry-run tests, speak-to-add-memory |
-| `app/build.gradle` | Replace TFLite with sherpa-onnx dependency |
+| Android TextToSpeech | Vosk doesn't do TTS. Android TTS is the only free option. |
+| WakeWordEngine DTW | Kept as secondary speaker voice check after Vosk wake |
+| ProfileStore | Unchanged — stores contacts, phrases, voiceprint |
+| MemoryStore | Unchanged — stores memories |
+| All UI layouts | Unchanged (except training views) |
+
+---
+
+## Part 5: New Classes
+
+| File | Lines | Purpose |
+|---|---|---|
+| `TimedRecorder.java` | ~80 | Fixed-duration audio recording with live level callback |
+| `VoskEngine.java` | ~250 | Vosk wrapper: init, wake grammar, streaming STT, speaker vectors |
+
+### Classes to remove or deprecate
+| File | Status |
+|---|---|
+| `VoiceEngine.java` | Remove (replaced by VoskEngine) |
+| `MelSpectrogram.java` | Remove (Vosk handles features internally) |
+| `SpeakerVerifier.java` | Keep but delegate to Vosk speaker vectors |
+| `WakeWordEngine.java` | Keep for DTW speaker check only |
+
+---
+
+## Part 6: Training UI Redesign
+
+### New `view_training.xml` structure
+
+```
+┌─ 🎙️ WAKE PHRASE ────────────────────┐
+│                                      │
+│  [Status: not trained / trained]     │
+│  [Input field for phrase]            │
+│                                      │
+│  ── TRAINING WIZARD ──               │
+│  [Countdown display: 3, 2, 1, NOW]  │
+│  [Live audio level bar]             │
+│  [Step dots: ● ● ○]                │
+│  [Quality feedback per sample]       │
+│                                      │
+│  [Begin/Retrain]  [Test]            │
+└──────────────────────────────────────┘
+
+┌─ 📇 CONTACT COMMANDS ───────────────┐
+│  [Same countdown-based flow]         │
+│  [But using Vosk STT for text]      │
+└──────────────────────────────────────┘
+
+┌─ 🧪 TEST & TRANSFER ────────────────┐
+│  [Test wake]  [Test command]         │
+│  [🔊 Test Voice]                    │
+│  [Export]  [Import]                  │
+└──────────────────────────────────────┘
+```
+
+### Live Audio Level Bar
+
+A horizontal bar that bounces with mic input during recording:
+```
+▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░  (quiet)
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░  (speaking)
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  (loud)
+```
+
+Implemented as a simple `View` with `setLevel(float)` that draws a colored rectangle.
+
+---
+
+## Part 7: TTS Debugging in Settings
+
+Add to Settings tab:
+```
+┌─ 🔊 VOICE OUTPUT ──────────────────┐
+│  TTS Engine: Google TTS             │
+│  Status: ✅ Ready                   │
+│  Language: en-IN                    │
+│                                      │
+│  [ 🔊 Test Voice ]                  │
+│  Speaks: "Hello, I am IRIS."       │
+└──────────────────────────────────────┘
+```
+
+If TTS fails, show:
+```
+│  Status: ❌ Not working             │
+│  Try: Settings → Apps → Google TTS  │
+│       → Enable / Update             │
+```
+
+---
+
+## Implementation Order
+
+| Step | What | Priority |
+|------|------|----------|
+| 1 | Add Vosk dependency, remove sherpa-onnx | Build |
+| 2 | Create TimedRecorder.java | Training |
+| 3 | Rewrite training to use TimedRecorder | Training |
+| 4 | Fix TTS with warmup + test button | Speech |
+| 5 | Create VoskEngine.java | Core |
+| 6 | Replace wake detection with Vosk grammar | Core |
+| 7 | Replace Android SpeechRecognizer with Vosk STT | Core |
+| 8 | Add Vosk speaker vectors for verification | Security |
+| 9 | Bundle or download Vosk models | Packaging |
+| 10 | Training UI with countdown + waveform | Polish |
 
 ## Version
 
-- versionName: 4.0.0 (major feature — complete voice engine replacement)
-- versionCode: 188
+- versionName: 5.0.0 (major — complete voice engine overhaul)
+- versionCode: 191
 - okhttp: pinned at 4.12.0 (not applicable)
 
-## Risk Assessment
+## Model Download Strategy
 
-| Risk | Mitigation |
-|---|---|
-| Sherpa-ONNX APK size increase (~8 MB native libs) | Acceptable for the quality improvement |
-| Model download on first launch (~40 MB) | Show progress, WiFi recommendation |
-| ONNX Runtime compatibility | Well-tested on Android 8+, same as our minSdk |
-| Migration complexity | Keep old code as fallback, feature-flag the switch |
+Since Vosk models are 40-50 MB, we have two options:
 
-## Implementation Steps
+### Option A: Include in APK (recommended for now)
+- Download the model zip, extract into `app/src/main/assets/`
+- APK size: ~55 MB (acceptable — WhatsApp is 200 MB)
+- Zero setup for user — just install and use
 
-1. Add sherpa-onnx dependency, remove TFLite
-2. Create VoiceEngine.java wrapping all Sherpa APIs
-3. Create model downloader (first-launch setup)
-4. Replace wake detection in IrisListeningService
-5. Replace speech recognition in IrisListeningService
-6. Replace TTS in IrisListeningService  
-7. Replace speaker verification
-8. Update training to use VoiceEngine
-9. Test and tune thresholds
-10. Remove old WakeWordEngine, MelSpectrogram, SpeakerVerifier (keep as legacy fallback)
+### Option B: Download on first launch
+- APK size: ~5 MB
+- First launch shows: "Downloading voice model (40 MB)..."
+- Better for Play Store size limits later
+
+For testing, **Option A** is better because it eliminates one more thing that can go wrong.
+
+**However**, we can't bundle 40 MB in the GitHub zip (too large). So we'll use Option B for CI builds and include download instructions.
