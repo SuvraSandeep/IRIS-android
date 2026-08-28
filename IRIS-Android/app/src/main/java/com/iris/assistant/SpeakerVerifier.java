@@ -152,6 +152,22 @@ public final class SpeakerVerifier {
         return average;
     }
 
+    /**
+     * Three-tier speaker verification.
+     * @return 2 = owner (similarity >= ownerThreshold),
+     *         1 = unknown (similarity >= strangerThreshold but < ownerThreshold),
+     *         0 = stranger (similarity < strangerThreshold)
+     */
+    public int verifyTier(short[] audio, float[] voiceprint, float ownerThreshold, float strangerThreshold) {
+        if (voiceprint == null || voiceprint.length != EMBEDDING_SIZE) return 2; // No voiceprint = treat as owner
+        float[] embedding = extractEmbedding(audio);
+        if (embedding == null) return 2; // Can't verify = treat as owner (fail-open)
+        float similarity = cosineSimilarity(embedding, voiceprint);
+        if (similarity >= ownerThreshold) return 2;
+        if (similarity >= strangerThreshold) return 1;
+        return 0;
+    }
+
     /** Release model resources. */
     public void close() {
         if (interpreter != null) {

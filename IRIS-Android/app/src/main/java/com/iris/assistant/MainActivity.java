@@ -65,6 +65,7 @@ public class MainActivity extends Activity {
     private Button tabAssistant;
     private Button tabTraining;
     private Button tabLogs;
+    private Button tabMemory;
     private Button tabSettings;
     private int selectedTab;
 
@@ -175,10 +176,12 @@ public class MainActivity extends Activity {
         tabAssistant = findViewById(R.id.tabAssistant);
         tabTraining = findViewById(R.id.tabTraining);
         tabLogs = findViewById(R.id.tabLogs);
+        tabMemory = findViewById(R.id.tabMemory);
         tabSettings = findViewById(R.id.tabSettings);
         tabAssistant.setOnClickListener(v -> showAssistant());
         tabTraining.setOnClickListener(v -> showTraining());
         tabLogs.setOnClickListener(v -> showLogs());
+        tabMemory.setOnClickListener(v -> showMemory());
         tabSettings.setOnClickListener(v -> showSettings());
         showAssistant();
         handleLaunchIntent(getIntent());
@@ -318,8 +321,222 @@ public class MainActivity extends Activity {
         updateTabs();
     }
 
-    private void showSettings() {
+    private void showMemory() {
         selectedTab = 3;
+        contentHost.removeAllViews();
+        View view = LayoutInflater.from(this).inflate(R.layout.view_memory, contentHost, false);
+        contentHost.addView(view);
+
+        TextView memorySummary = view.findViewById(R.id.memorySummary);
+        LinearLayout memoryListHost = view.findViewById(R.id.memoryListHost);
+
+        int count = MemoryStore.count(this);
+        memorySummary.setText(count + (count == 1 ? " memory" : " memories")
+                + " \u2022 " + (count == 0 ? "Teach me about yourself" : "Last updated recently"));
+
+        // Add memory button
+        view.findViewById(R.id.addMemoryButton).setOnClickListener(v -> showAddMemoryDialog(memorySummary, memoryListHost));
+
+        // Search button
+        view.findViewById(R.id.searchMemoryButton).setOnClickListener(v -> showSearchMemoryDialog(memoryListHost));
+
+        // Export/Import
+        view.findViewById(R.id.exportMemoryButton).setOnClickListener(v ->
+                authenticateThen("Export IRIS memory", this::createMemoryDocument));
+        view.findViewById(R.id.importMemoryButton).setOnClickListener(v ->
+                authenticateThen("Import IRIS memory", this::openMemoryDocument));
+
+        renderMemoryList(memoryListHost);
+        updateTabs();
+    }
+
+    private void showAddMemoryDialog(TextView summary, LinearLayout listHost) {
+        String[] categories = {"About Me", "People", "Preference", "Rule", "Correction", "Schedule"};
+        String[] categoryKeys = {MemoryStore.CAT_ABOUT_ME, MemoryStore.CAT_PEOPLE,
+                MemoryStore.CAT_PREFERENCE, MemoryStore.CAT_RULE, MemoryStore.CAT_CORRECTION, MemoryStore.CAT_SCHEDULE};
+
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setPadding(dp(22), dp(8), dp(22), 0);
+
+        Spinner catSpinner = new Spinner(this);
+        ArrayAdapter<String> catAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, categories);
+        catAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        catSpinner.setAdapter(catAdapter);
+        wrapper.addView(catSpinner);
+
+        EditText keyInput = new EditText(this);
+        keyInput.setHint("Label (e.g. name, brother, no calls after)");
+        keyInput.setSingleLine(true);
+        keyInput.setTextColor(getColor(R.color.text_primary));
+        keyInput.setHintTextColor(getColor(R.color.text_muted));
+        wrapper.addView(keyInput);
+
+        EditText valueInput = new EditText(this);
+        valueInput.setHint("Value (e.g. Sandeep, Rahul, 10 PM)");
+        valueInput.setSingleLine(true);
+        valueInput.setTextColor(getColor(R.color.text_primary));
+        valueInput.setHintTextColor(getColor(R.color.text_muted));
+        wrapper.addView(valueInput);
+
+        EditText detailInput = new EditText(this);
+        detailInput.setHint("Detail (optional, e.g. phone number)");
+        detailInput.setSingleLine(true);
+        detailInput.setTextColor(getColor(R.color.text_primary));
+        detailInput.setHintTextColor(getColor(R.color.text_muted));
+        wrapper.addView(detailInput);
+
+        new AlertDialog.Builder(this)
+                .setTitle("\uD83E\uDDE0 Teach IRIS something new")
+                .setView(wrapper)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Remember", (dialog, which) -> {
+                    String key = keyInput.getText().toString().trim();
+                    String value = valueInput.getText().toString().trim();
+                    String detail = detailInput.getText().toString().trim();
+                    if (key.isEmpty() || value.isEmpty()) {
+                        toast("Both label and value are required.");
+                        return;
+                    }
+                    MemoryStore.Memory memory = new MemoryStore.Memory();
+                    memory.category = categoryKeys[catSpinner.getSelectedItemPosition()];
+                    memory.key = key;
+                    memory.value = value;
+                    if (!detail.isEmpty()) memory.detail = detail;
+                    MemoryStore.add(this, memory);
+                    toast("\uD83E\uDDE0 Remembered: " + key + " = " + value);
+                    LogStore.append(this, "MEMORY", "Added: " + key + " = " + value);
+                    int count = MemoryStore.count(this);
+                    summary.setText(count + (count == 1 ? " memory" : " memories") + " \u2022 Last updated just now");
+                    renderMemoryList(listHost);
+                }).show();
+    }
+
+    private void showSearchMemoryDialog(LinearLayout listHost) {
+        EditText searchInput = new EditText(this);
+        searchInput.setHint("Search memories...");
+        searchInput.setSingleLine(true);
+        searchInput.setTextColor(getColor(R.color.text_primary));
+        searchInput.setHintTextColor(getColor(R.color.text_muted));
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setPadding(dp(22), dp(8), dp(22), 0);
+        wrapper.addView(searchInput, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        new AlertDialog.Builder(this)
+                .setTitle("\uD83D\uDD0D Search Memories")
+                .setView(wrapper)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Search", (dialog, which) -> {
+                    String query = searchInput.getText().toString().trim();
+                    if (query.isEmpty()) return;
+                    listHost.removeAllViews();
+                    List<MemoryStore.Memory> results = MemoryStore.search(this, query);
+                    if (results.isEmpty()) {
+                        TextView empty = new TextView(this);
+                        empty.setText("No memories match \u201C" + query + "\u201D");
+                        empty.setTextColor(getColor(R.color.text_muted));
+                        empty.setPadding(0, dp(12), 0, 0);
+                        listHost.addView(empty);
+                    } else {
+                        for (MemoryStore.Memory m : results) addMemoryCard(listHost, m);
+                    }
+                }).show();
+    }
+
+    private void renderMemoryList(LinearLayout listHost) {
+        listHost.removeAllViews();
+        String[] catOrder = {MemoryStore.CAT_ABOUT_ME, MemoryStore.CAT_PEOPLE,
+                MemoryStore.CAT_PREFERENCE, MemoryStore.CAT_RULE,
+                MemoryStore.CAT_CORRECTION, MemoryStore.CAT_SCHEDULE};
+        String[] catLabels = {"\uD83D\uDC64  ABOUT ME", "\uD83D\uDC65  PEOPLE",
+                "\u2699\uFE0F  PREFERENCES", "\uD83D\uDCCB  RULES",
+                "\uD83D\uDD27  CORRECTIONS", "\uD83D\uDCC5  SCHEDULE"};
+        int[] catColors = {R.color.cyan, R.color.magenta, R.color.violet,
+                R.color.mint, R.color.amber, R.color.cyan};
+
+        List<MemoryStore.Memory> all = MemoryStore.getAll(this);
+        if (all.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("No memories yet. Tap \u201C+ Add Memory\u201D to teach IRIS about yourself.");
+            empty.setTextColor(getColor(R.color.text_muted));
+            empty.setTextSize(13);
+            empty.setPadding(0, dp(16), 0, 0);
+            listHost.addView(empty);
+            return;
+        }
+
+        for (int c = 0; c < catOrder.length; c++) {
+            List<MemoryStore.Memory> catMemories = new ArrayList<>();
+            for (MemoryStore.Memory m : all) {
+                if (catOrder[c].equals(m.category)) catMemories.add(m);
+            }
+            if (catMemories.isEmpty()) continue;
+
+            // Category header
+            TextView header = new TextView(this);
+            header.setText(catLabels[c]);
+            header.setTextColor(getColor(catColors[c]));
+            header.setTextSize(11);
+            header.setTextColor(getColor(catColors[c]));
+            header.setPadding(0, dp(14), 0, dp(6));
+            header.setLetterSpacing(0.08f);
+            listHost.addView(header);
+
+            for (MemoryStore.Memory m : catMemories) addMemoryCard(listHost, m);
+        }
+    }
+
+    private void addMemoryCard(LinearLayout host, MemoryStore.Memory memory) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setBackgroundResource(R.drawable.bg_card);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        rowParams.bottomMargin = dp(6);
+        row.setLayoutParams(rowParams);
+
+        TextView text = new TextView(this);
+        String display = memory.key + ": " + memory.value;
+        if (memory.detail != null && !memory.detail.isEmpty()) display += "\n" + memory.detail;
+        text.setText(display);
+        text.setTextColor(getColor(R.color.text_primary));
+        text.setTextSize(12);
+        text.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        Button delete = new Button(this);
+        delete.setText("\u00D7");
+        delete.setTextColor(getColor(R.color.danger));
+        delete.setTextSize(16);
+        delete.setBackgroundResource(R.drawable.bg_button_secondary);
+        delete.setOnClickListener(v -> {
+            MemoryStore.delete(this, memory.id);
+            host.removeView(row);
+            toast("Memory removed.");
+        });
+
+        row.addView(text);
+        row.addView(delete, new LinearLayout.LayoutParams(dp(48), dp(40)));
+        host.addView(row);
+    }
+
+    private static final int EXPORT_MEMORY = 205;
+    private static final int IMPORT_MEMORY = 206;
+
+    private void createMemoryDocument() {
+        startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/json").putExtra(Intent.EXTRA_TITLE, "IRIS-memory.irismemory"), EXPORT_MEMORY);
+    }
+
+    private void openMemoryDocument() {
+        startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*"), IMPORT_MEMORY);
+    }
+
+    private void showSettings() {
+        selectedTab = 4;
         contentHost.removeAllViews();
         View view = LayoutInflater.from(this).inflate(R.layout.view_settings, contentHost, false);
         contentHost.addView(view);
@@ -427,7 +644,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateTabs() {
-        Button[] tabs = {tabAssistant, tabTraining, tabLogs, tabSettings};
+        Button[] tabs = {tabAssistant, tabTraining, tabLogs, tabMemory, tabSettings};
         for (int i = 0; i < tabs.length; i++) {
             tabs[i].setBackgroundResource(i == selectedTab
                     ? R.drawable.bg_tab_active : R.drawable.bg_tab_inactive);
@@ -1185,6 +1402,13 @@ public class MainActivity extends Activity {
                 updateProfileSummary();
                 renderProfileManager();
                 toast("Merged " + count + " trained contacts and portable wake data.");
+            } else if (requestCode == EXPORT_MEMORY) {
+                writeText(uri, MemoryStore.exportJson(this));
+                toast("IRIS memory exported.");
+            } else if (requestCode == IMPORT_MEMORY) {
+                int count = MemoryStore.importAndMerge(this, readText(uri));
+                toast("Imported " + count + " memories.");
+                LogStore.append(this, "MEMORY IMPORT", count + " memories merged");
             } else if (requestCode == EXPORT_LOGS) {
                 String logs = LogStore.readNewestFirst(this);
                 writeText(uri, logs.isEmpty() ? "IRIS has no recorded activity.\n" : logs);

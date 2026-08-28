@@ -226,13 +226,29 @@ public class IrisListeningService extends Service implements RecognitionListener
             @Override public void onWakeDetected(double distance, short[] rawAudio) {
                 if (settings.speakerVerification() && speakerVerifier != null && speakerVerifier.isReady()
                         && wake.isVoiceEnrolled()) {
-                    boolean isOwner = speakerVerifier.verify(rawAudio, wake.voiceprint, settings.speakerThreshold());
-                    if (!isOwner) {
-                        LogStore.append(IrisListeningService.this, "REJECTED",
-                                "Wake phrase matched but speaker not recognized (distance " + Math.round(distance * 100) / 100.0 + ")");
+                    int tier = speakerVerifier.verifyTier(rawAudio, wake.voiceprint,
+                            settings.speakerThreshold(), 0.45f);
+                    if (tier == 0) {
+                        // STRANGER — silently ignore
+                        LogStore.append(IrisListeningService.this, "STRANGER",
+                                "Wake matched but voice rejected (distance " + Math.round(distance * 100) / 100.0 + ")");
                         handler.postDelayed(IrisListeningService.this::startWakeDetection, 500);
                         return;
+                    } else if (tier == 1) {
+                        // UNKNOWN — challenge with notification
+                        LogStore.append(IrisListeningService.this, "CHALLENGE",
+                                "Wake matched, voice uncertain (distance " + Math.round(distance * 100) / 100.0 + ")");
+                        broadcastMessage("I don\u2019t recognize your voice. Unlock the phone to continue.");
+                        showVoiceChallengeNotification();
+                        handler.postDelayed(() -> {
+                            if (isRunning && PHASE_WAKE.equals(phase)) {
+                                broadcastMessage("Verification timed out.");
+                                startWakeDetection();
+                            }
+                        }, 30_000);
+                        return;
                     }
+                    // OWNER — proceed
                     LogStore.append(IrisListeningService.this, "VERIFIED",
                             wake.phrase + " matched, speaker verified (distance " + Math.round(distance * 100) / 100.0 + ")");
                 } else {
@@ -343,6 +359,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
 
         String normalized = ProfileStore.normalize(clean);
+
+        // 1b. Check memory corrections
+        MemoryStore.Memory correction = MemoryStore.findCorrection(this, clean);
+        if (correction != null && correction.detail != null && !correction.detail.isEmpty()) {
+            LogStore.append(this, "MEMORY", "Correction: " + clean + " → " + correction.value);
+            requestCallConfirmation(correction.value, correction.detail);
+            return;
+        }
 
         // 2. Relationship resolution ("call my wife", "ring my brother")
         String[] relationship = store.resolveRelationship(normalized.replaceAll("^(?:call|dial|phone|ring|talk to|reach)\\s+", ""));
@@ -922,6 +946,22 @@ public class IrisListeningService extends Service implements RecognitionListener
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(CALL_NOTIFICATION);
     }
 
+    private void showVoiceChallengeNotification() {
+        Intent open = new Intent(this, MainActivity.class)
+                .putExtra("voice_challenge", true);
+        PendingIntent content = PendingIntent.getActivity(this, 44, open,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Notification notification = new Notification.Builder(this, CALL_CHANNEL)
+                .setSmallIcon(R.drawable.ic_iris)
+                .setContentTitle("\uD83D\uDD12 Voice verification required")
+                .setContentText("Someone triggered your wake phrase. Tap to verify.")
+                .setContentIntent(content)
+                .setAutoCancel(true)
+                .setVisibility(Notification.VISIBILITY_PRIVATE)
+                .build();
+        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(CALL_NOTIFICATION, notification);
+    }
+
     private void createNotificationChannels() {
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         manager.createNotificationChannel(new NotificationChannel(LISTENING_CHANNEL,
@@ -974,6 +1014,17 @@ public class IrisListeningService extends Service implements RecognitionListener
                 return "Do Not Disturb is on. Still want to call " + name + "?";
             }
         } catch (Exception ignored) { }
+        // Memory preference: no calls after X
+        String noCallsAfter = MemoryStore.findPreference(this, "no calls after");
+        if (noCallsAfter != null) {
+            try {
+                int cutoff = Integer.parseInt(noCallsAfter.replaceAll("[^0-9]", ""));
+                if (cutoff > 0 && cutoff <= 24 && hour >= cutoff) {
+                    return "Your rule says no calls after " + cutoff + ". Override for " + name + "?";
+                }
+            } catch (Exception ignored) { }
+        }
+
         // Repeated calls check
         ProfileStore store = new ProfileStore(this);
         for (ProfileStore.Entry entry : store.getEntries()) {
@@ -989,12 +1040,15 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private String timeGreeting() {
+        String name = MemoryStore.ownerName(this);
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        if (hour < 6) return "Up late? I\u2019m here.";
-        if (hour < 12) return "Good morning.";
-        if (hour < 17) return "Good afternoon.";
-        if (hour < 21) return "Good evening.";
-        return "Still going? I\u2019m here.";
+        String greeting;
+        if (hour < 6) greeting = "Up late?";
+        else if (hour < 12) greeting = "Good morning";
+        else if (hour < 17) greeting = "Good afternoon";
+        else if (hour < 21) greeting = "Good evening";
+        else greeting = "Still going?";
+        return name != null ? greeting + ", " + name + "." : greeting + ". I\u2019m here.";
     }
 
     private String personalityLine(String event, String name) {

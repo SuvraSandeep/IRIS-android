@@ -86,7 +86,7 @@
             android:text="\uD83C\uDFAF Assistant"
             android:textAllCaps="false"
             android:textColor="@color/text_primary"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:textStyle="bold" />
 
         <Button
@@ -99,7 +99,7 @@
             android:text="\uD83C\uDF99 Training"
             android:textAllCaps="false"
             android:textColor="@color/text_muted"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
 
         <Button
             android:id="@+id/tabLogs"
@@ -111,7 +111,19 @@
             android:text="\uD83D\uDCCA Activity"
             android:textAllCaps="false"
             android:textColor="@color/text_muted"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/tabMemory"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginLeft="4dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_tab_inactive"
+            android:text="\uD83E\uDDE0 Memory"
+            android:textAllCaps="false"
+            android:textColor="@color/text_muted"
+            android:textSize="11sp" />
 
         <Button
             android:id="@+id/tabSettings"
@@ -123,6 +135,6 @@
             android:text="\u2699 Settings"
             android:textAllCaps="false"
             android:textColor="@color/text_muted"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
     </LinearLayout>
 </LinearLayout>
