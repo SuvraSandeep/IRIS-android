@@ -23,12 +23,8 @@ public class IrisTileService extends TileService {
                 || (AppSettings.MODE_WAKE.equals(new AppSettings(this).listeningMode())
                 && !new ProfileStore(this).getWakeProfile().isReady())) {
             Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            if (Build.VERSION.SDK_INT >= 34) {
-                startActivityAndCollapse(android.app.PendingIntent.getActivity(this, 0, open,
-                        android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT));
-            } else {
-                startActivityAndCollapse(open);
-            }
+            startActivityAndCollapse(android.app.PendingIntent.getActivity(this, 0, open,
+                    android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT));
         } else {
             startForegroundService(new Intent(this, IrisListeningService.class).setAction(IrisListeningService.ACTION_START));
         }
