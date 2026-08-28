@@ -83,6 +83,19 @@ public class MainActivity extends Activity {
     private TextView wakeTrainingStatus;
     private Button trainWakeButton;
     private Button testWakeButton;
+    private View wakeNormalState;
+    private View wakeWizardState;
+    private TextView wakeWizardStep;
+    private TextView wakeWizardDots;
+    private TextView wakeWizardPrompt;
+    private TextView wakeWizardFeedback;
+    private Button wakeWizardCancel;
+    private View contactNormalState;
+    private View contactWizardState;
+    private TextView contactWizardStep;
+    private TextView contactWizardDots;
+    private TextView contactWizardFeedback;
+    private Button contactWizardCancel;
     private WakeWordEngine wakeTrainingEngine;
     private final List<float[][]> wakeTemplates = new ArrayList<>();
     private int wakeSampleIndex;
@@ -222,31 +235,61 @@ public class MainActivity extends Activity {
         contentHost.removeAllViews();
         View view = LayoutInflater.from(this).inflate(R.layout.view_training, contentHost, false);
         contentHost.addView(view);
+
+        // Wake phrase section
         wakePhraseInput = view.findViewById(R.id.wakePhraseInput);
         wakeTrainingStatus = view.findViewById(R.id.wakeTrainingStatus);
         trainWakeButton = view.findViewById(R.id.trainWakeButton);
         testWakeButton = view.findViewById(R.id.testWakeButton);
-        trainingStep = view.findViewById(R.id.trainingStep);
+        wakeNormalState = view.findViewById(R.id.wakeNormalState);
+        wakeWizardState = view.findViewById(R.id.wakeWizardState);
+        wakeWizardStep = view.findViewById(R.id.wakeWizardStep);
+        wakeWizardDots = view.findViewById(R.id.wakeWizardDots);
+        wakeWizardPrompt = view.findViewById(R.id.wakeWizardPrompt);
+        wakeWizardFeedback = view.findViewById(R.id.wakeWizardFeedback);
+        wakeWizardCancel = view.findViewById(R.id.wakeWizardCancel);
+
+        // Contact section
+        profileSummary = view.findViewById(R.id.profileSummary);
+        startTrainingButton = view.findViewById(R.id.startTrainingButton);
+        contactNormalState = view.findViewById(R.id.contactNormalState);
+        contactWizardState = view.findViewById(R.id.contactWizardState);
+        contactWizardStep = view.findViewById(R.id.contactWizardStep);
+        contactWizardDots = view.findViewById(R.id.contactWizardDots);
         trainingContact = view.findViewById(R.id.trainingContact);
         trainingPrompt = view.findViewById(R.id.trainingPrompt);
-        profileSummary = view.findViewById(R.id.profileSummary);
+        contactWizardFeedback = view.findViewById(R.id.contactWizardFeedback);
+        contactWizardCancel = view.findViewById(R.id.contactWizardCancel);
+
+        // Profile list
         profileListHost = view.findViewById(R.id.profileListHost);
-        startTrainingButton = view.findViewById(R.id.startTrainingButton);
+
+        // Populate wake phrase state
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
         if (!wake.phrase.isEmpty()) wakePhraseInput.setText(wake.phrase);
-        wakeTrainingStatus.setText(wake.isReady()
-                ? "Ready: “" + wake.phrase + "” • 3 acoustic samples • encrypted locally"
-                : "Choose any phrase and record it three times. Acoustic templates stay on-device.");
-        trainWakeButton.setText(wake.isReady() ? "Retrain wake phrase" : "Train wake phrase");
-        testWakeButton.setEnabled(wake.isReady());
+        if (wake.isReady()) {
+            wakeTrainingStatus.setText("\u2705  \u201C" + wake.phrase + "\u201D \u2022 3 samples \u2022 encrypted");
+            trainWakeButton.setText("\uD83D\uDD04  Retrain");
+            testWakeButton.setEnabled(true);
+        } else {
+            wakeTrainingStatus.setText("\u26A0\uFE0F  Not configured yet");
+            trainWakeButton.setText("\uD83C\uDFA4  Set Up Wake Phrase");
+            testWakeButton.setEnabled(false);
+        }
+
+        // Wire up buttons
         trainWakeButton.setOnClickListener(v -> beginWakeTraining());
         testWakeButton.setOnClickListener(v -> testWakePhrase());
+        wakeWizardCancel.setOnClickListener(v -> cancelWakeTraining());
         startTrainingButton.setOnClickListener(v -> requestContactForTraining());
+        contactWizardCancel.setOnClickListener(v -> cancelContactTraining());
+        view.findViewById(R.id.testWakeButton2).setOnClickListener(v -> testWakePhrase());
         view.findViewById(R.id.testCommandsButton).setOnClickListener(v -> testTrainedCommand());
         view.findViewById(R.id.exportProfileButton).setOnClickListener(v ->
                 authenticateThen("Export IRIS profile", this::createProfileDocument));
         view.findViewById(R.id.importProfileButton).setOnClickListener(v ->
                 authenticateThen("Import IRIS profile", this::openProfileDocument));
+
         updateProfileSummary();
         renderProfileManager();
         updateTabs();
@@ -502,31 +545,38 @@ public class MainActivity extends Activity {
         wakeSampleIndex = 0;
         trainWakeButton.setEnabled(false);
         testWakeButton.setEnabled(false);
+        if (wakeNormalState != null) wakeNormalState.setVisibility(View.GONE);
+        if (wakeWizardState != null) wakeWizardState.setVisibility(View.VISIBLE);
         handler.postDelayed(this::captureNextWakeSample, resumeAfterWakeTraining ? 700 : 150);
     }
 
     private void captureNextWakeSample() {
         stopWakeTrainingEngine();
         if (wakeSampleIndex >= 3) return;
-        wakeTrainingStatus.setText("Sample " + (wakeSampleIndex + 1)
-                + " of 3 • Say “" + wakePhraseBeingTrained + "” once, naturally.");
+        int step = wakeSampleIndex + 1;
+        if (wakeWizardStep != null) wakeWizardStep.setText("Step " + step + " of 3");
+        if (wakeWizardDots != null) wakeWizardDots.setText(step >= 1 ? "\u25CF" : "\u25CB"
+                + " " + (step >= 2 ? "\u25CF" : "\u25CB")
+                + " " + (step >= 3 ? "\u25CF" : "\u25CB"));
+        if (wakeWizardPrompt != null) wakeWizardPrompt.setText("Say \u201C" + wakePhraseBeingTrained + "\u201D now");
+        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\uD83D\uDD34  Recording\u2026");
+        wakeTrainingStatus.setText("Recording sample " + step + " of 3\u2026");
         wakeTrainingEngine = new WakeWordEngine(this);
         wakeTrainingEngine.captureOne(new WakeWordEngine.Listener() {
             @Override public void onStatus(String status) { wakeTrainingStatus.setText(status); }
             @Override public void onSample(float[][] features, String quality, float signalToNoise) {
                 if ("Too noisy".equals(quality)) {
-                    wakeTrainingStatus.setText("That sample was too noisy. Move somewhere calmer and retry sample " + (wakeSampleIndex + 1) + ".");
-                    trainWakeButton.setText("Retry sample");
-                    trainWakeButton.setEnabled(true);
-                    trainWakeButton.setOnClickListener(v -> {
-                        trainWakeButton.setEnabled(false);
-                        captureNextWakeSample();
-                    });
+                    if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C  Too noisy \u2014 try again in a quieter spot");
+                    if (wakeWizardPrompt != null) wakeWizardPrompt.setText("Say \u201C" + wakePhraseBeingTrained + "\u201D again");
+                    wakeTrainingStatus.setText("Too noisy. Retrying\u2026");
+                    handler.postDelayed(MainActivity.this::captureNextWakeSample, 1200);
                     return;
                 }
                 wakeTemplates.add(features);
                 wakeSampleIndex++;
-                wakeTrainingStatus.setText(quality + " sample • signal " + Math.round(signalToNoise * 10) / 10f + "× noise");
+                String icon = "Clear".equals(quality) ? "\u2705" : "\u26A0\uFE0F";
+                if (wakeWizardFeedback != null) wakeWizardFeedback.setText(icon + "  " + quality + " \u2022 " + Math.round(signalToNoise * 10) / 10f + "\u00D7 noise");
+                wakeTrainingStatus.setText(quality + " sample recorded");
                 if (wakeSampleIndex >= 3) finishWakeTraining();
                 else handler.postDelayed(MainActivity.this::captureNextWakeSample, 750);
             }
@@ -549,10 +599,12 @@ public class MainActivity extends Activity {
         LogStore.append(this, "WAKE TRAINED", saved.phrase + " with 3 acoustic templates");
         wakeTrainingStatus.setText("Ready: “" + saved.phrase + "” • calibrated sensitivity "
                 + Math.round(saved.threshold * 100) / 100.0 + " • encrypted locally");
-        trainWakeButton.setText("Retrain wake phrase");
+        trainWakeButton.setText("\uD83D\uDD04  Retrain");
         trainWakeButton.setEnabled(true);
         trainWakeButton.setOnClickListener(v -> beginWakeTraining());
         testWakeButton.setEnabled(true);
+        if (wakeNormalState != null) wakeNormalState.setVisibility(View.VISIBLE);
+        if (wakeWizardState != null) wakeWizardState.setVisibility(View.GONE);
         stopWakeTrainingEngine();
         if (resumeAfterWakeTraining) {
             resumeAfterWakeTraining = false;
@@ -590,6 +642,35 @@ public class MainActivity extends Activity {
         if (wakeTrainingEngine != null) { wakeTrainingEngine.stop(); wakeTrainingEngine = null; }
     }
 
+    private void cancelWakeTraining() {
+        stopWakeTrainingEngine();
+        wakeTemplates.clear();
+        wakeSampleIndex = 0;
+        if (wakeNormalState != null) wakeNormalState.setVisibility(View.VISIBLE);
+        if (wakeWizardState != null) wakeWizardState.setVisibility(View.GONE);
+        trainWakeButton.setEnabled(true);
+        ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
+        testWakeButton.setEnabled(wake.isReady());
+        if (resumeAfterWakeTraining) {
+            resumeAfterWakeTraining = false;
+            startListeningService();
+        }
+    }
+
+    private void cancelContactTraining() {
+        destroyTrainingRecognizer();
+        trainingSamples.clear();
+        trainingQualities.clear();
+        trainingSampleIndex = 0;
+        if (contactNormalState != null) contactNormalState.setVisibility(View.VISIBLE);
+        if (contactWizardState != null) contactWizardState.setVisibility(View.GONE);
+        startTrainingButton.setEnabled(true);
+        if (resumeAfterContactTraining) {
+            resumeAfterContactTraining = false;
+            startListeningService();
+        }
+    }
+
     private void requestContactForTraining() {
         if (!hasPermission(Manifest.permission.RECORD_AUDIO) || !hasPermission(Manifest.permission.READ_CONTACTS)) {
             pendingTrainingKind = "contact";
@@ -621,8 +702,10 @@ public class MainActivity extends Activity {
         trainingErrorCount = 0;
         trainingRecognizer = createPreferredRecognizer();
         trainingRecognizer.setRecognitionListener(new TrainingListener());
-        trainingContact.setText(selectedContactName);
+        if (trainingContact != null) trainingContact.setText("Training: " + selectedContactName);
         startTrainingButton.setEnabled(false);
+        if (contactNormalState != null) contactNormalState.setVisibility(View.GONE);
+        if (contactWizardState != null) contactWizardState.setVisibility(View.VISIBLE);
         handler.postDelayed(this::recordNextTrainingSample, resumeAfterContactTraining ? 700 : 200);
     }
 
@@ -636,8 +719,13 @@ public class MainActivity extends Activity {
     private void recordNextTrainingSample() {
         if (trainingRecognizer == null || trainingSampleIndex >= 3) return;
         trainingPeakRms = -20;
-        trainingStep.setText("SAMPLE " + (trainingSampleIndex + 1) + " OF 3");
-        trainingPrompt.setText("Say how you would ask IRIS to call " + selectedContactName + ".");
+        int step = trainingSampleIndex + 1;
+        if (contactWizardStep != null) contactWizardStep.setText("Sample " + step + " of 3");
+        if (contactWizardDots != null) contactWizardDots.setText((step >= 1 ? "\u25CF" : "\u25CB")
+                + " " + (step >= 2 ? "\u25CF" : "\u25CB")
+                + " " + (step >= 3 ? "\u25CF" : "\u25CB"));
+        if (contactWizardFeedback != null) contactWizardFeedback.setText("\uD83D\uDD34  Listening\u2026");
+        trainingPrompt.setText("Say how you\u2019d ask IRIS to call " + selectedContactName);
         Intent speech = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         speech.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         speech.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
@@ -648,12 +736,15 @@ public class MainActivity extends Activity {
     }
 
     private void showTrainingRetry(String message) {
-        trainingPrompt.setText(message);
-        startTrainingButton.setText("Retry sample " + (trainingSampleIndex + 1));
-        startTrainingButton.setEnabled(true);
-        startTrainingButton.setOnClickListener(v -> {
+        if (contactWizardFeedback != null) contactWizardFeedback.setText("\u26A0\uFE0F  " + message);
+        trainingPrompt.setText("Tap below to retry, or cancel.");
+        contactWizardCancel.setText("Retry");
+        contactWizardCancel.setTextColor(getColor(R.color.cyan));
+        contactWizardCancel.setOnClickListener(v -> {
             trainingErrorCount = 0;
-            startTrainingButton.setEnabled(false);
+            contactWizardCancel.setText("Cancel");
+            contactWizardCancel.setTextColor(getColor(R.color.danger));
+            contactWizardCancel.setOnClickListener(v2 -> cancelContactTraining());
             recordNextTrainingSample();
         });
     }
@@ -661,12 +752,12 @@ public class MainActivity extends Activity {
     private void finishContactTraining() {
         new ProfileStore(this).addTraining(selectedContactName, selectedContactNumber, trainingSamples);
         LogStore.append(this, "TRAINED", selectedContactName + " with " + trainingSamples.size() + " phrases");
-        trainingStep.setText("TRAINING COMPLETE");
-        trainingContact.setText(selectedContactName + " is ready");
+        if (contactNormalState != null) contactNormalState.setVisibility(View.VISIBLE);
+        if (contactWizardState != null) contactWizardState.setVisibility(View.GONE);
         List<String> learned = new ArrayList<>();
         for (int i = 0; i < trainingSamples.size(); i++) learned.add("“" + trainingSamples.get(i) + "” — " + trainingQualities.get(i));
         trainingPrompt.setText(String.join("\n", learned));
-        startTrainingButton.setText("Train another contact");
+        startTrainingButton.setText("\uFF0B  Train New Contact");
         startTrainingButton.setEnabled(true);
         startTrainingButton.setOnClickListener(v -> requestContactForTraining());
         destroyTrainingRecognizer();
@@ -1043,11 +1134,20 @@ public class MainActivity extends Activity {
     }
 
     private class TrainingListener implements RecognitionListener {
-        @Override public void onReadyForSpeech(Bundle params) { trainingPrompt.setText("Listening… say it naturally."); }
-        @Override public void onBeginningOfSpeech() { trainingPrompt.setText("Got you. Keep going…"); }
+        @Override public void onReadyForSpeech(Bundle params) {
+            if (contactWizardFeedback != null) contactWizardFeedback.setText("\uD83D\uDD34  Listening\u2026");
+            trainingPrompt.setText("Say it naturally.");
+        }
+        @Override public void onBeginningOfSpeech() {
+            if (contactWizardFeedback != null) contactWizardFeedback.setText("\uD83C\uDF99  Got you\u2026");
+            trainingPrompt.setText("Keep going\u2026");
+        }
         @Override public void onRmsChanged(float rmsdB) { trainingPeakRms = Math.max(trainingPeakRms, rmsdB); }
         @Override public void onBufferReceived(byte[] buffer) { }
-        @Override public void onEndOfSpeech() { trainingPrompt.setText("Checking that sample…"); }
+        @Override public void onEndOfSpeech() {
+            if (contactWizardFeedback != null) contactWizardFeedback.setText("\uD83E\uDDE0  Checking\u2026");
+            trainingPrompt.setText("Processing sample\u2026");
+        }
         @Override public void onError(int error) {
             if (trainingRecognizer == null) return;
             if (++trainingErrorCount < 3) handler.postDelayed(MainActivity.this::recordNextTrainingSample, 700);
@@ -1064,13 +1164,17 @@ public class MainActivity extends Activity {
             trainingErrorCount = 0;
             if (trainingSampleIndex >= 3) finishContactTraining();
             else {
-                trainingPrompt.setText(quality + " • learned “" + phrase + "”. Next sample…");
+                String icon = "Clear".equals(quality) ? "\u2705" : "Usable".equals(quality) ? "\u26A0\uFE0F" : "\uD83D\uDD07";
+                if (contactWizardFeedback != null) contactWizardFeedback.setText(icon + "  " + quality + " \u2022 \u201C" + phrase + "\u201D");
+                trainingPrompt.setText("Great! Next sample\u2026");
                 handler.postDelayed(MainActivity.this::recordNextTrainingSample, 750);
             }
         }
         @Override public void onPartialResults(Bundle partialResults) {
             ArrayList<String> heard = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-            if (heard != null && !heard.isEmpty()) trainingPrompt.setText("“" + heard.get(0) + "”");
+            if (heard != null && !heard.isEmpty()) {
+                trainingPrompt.setText("\u201C" + heard.get(0) + "\u201D");
+            }
         }
         @Override public void onEvent(int eventType, Bundle params) { }
     }
