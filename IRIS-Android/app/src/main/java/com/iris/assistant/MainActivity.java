@@ -990,28 +990,50 @@ public class MainActivity extends Activity {
 
                 @Override
                 public void onComplete(short[] audio) {
-                    // Extract features using WakeWordEngine's static methods
-                    float[][] features = WakeWordEngine.extractFeatures(audio);
-                    if (features.length < 10) {
-                        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u26A0\uFE0F Too quiet. Try speaking louder.");
-                        toast("Too quiet \u2014 retrying...");
-                        handler.postDelayed(MainActivity.this::captureNextWakeSample, 1500);
-                        return;
-                    }
-                    // Calculate SNR
+                    // Calculate audio level (RMS)
                     double rmsVal = 0;
                     for (short s : audio) rmsVal += (double) s * s;
-                    rmsVal = Math.sqrt(rmsVal / audio.length);
-                    float snr = (float) (rmsVal / 300.0); // approximate SNR
-                    String quality = snr >= 3 ? "Clear" : snr >= 1.5 ? "Usable" : "Quiet";
+                    rmsVal = Math.sqrt(rmsVal / Math.max(1, audio.length));
+
+                    // REJECT unclear samples — require clear, loud-enough speech
+                    if (rmsVal < 500) {
+                        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C Too quiet \u2014 speak louder and clearer");
+                        wakeTrainingStatus.setText("Rejected: too quiet. Retrying sample " + (wakeSampleIndex + 1) + "...");
+                        toast("\u274C Too quiet \u2014 say it louder");
+                        rejectTone();
+                        handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
+                        return;
+                    }
+
+                    float[][] features = WakeWordEngine.extractFeatures(audio);
+                    if (features.length < 15) {
+                        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C Didn't catch it \u2014 say the whole phrase clearly");
+                        wakeTrainingStatus.setText("Rejected: unclear. Retrying...");
+                        toast("\u274C Unclear \u2014 say the full phrase");
+                        rejectTone();
+                        handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
+                        return;
+                    }
+
+                    float snr = (float) (rmsVal / 300.0);
+                    String quality = snr >= 4 ? "Clear" : snr >= 2.5 ? "Usable" : "Quiet";
+                    // REJECT Quiet quality — only accept Clear or Usable
+                    if ("Quiet".equals(quality)) {
+                        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C Not clear enough \u2014 try again");
+                        wakeTrainingStatus.setText("Rejected: not clear. Retrying...");
+                        toast("\u274C Not clear enough");
+                        rejectTone();
+                        handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
+                        return;
+                    }
 
                     wakeTemplates.add(features);
                     wakeRawSamples.add(audio);
                     wakeSampleIndex++;
-                    String icon = "Clear".equals(quality) ? "\u2705" : "Usable".equals(quality) ? "\u26A0\uFE0F" : "\uD83D\uDD07";
-                    if (wakeWizardFeedback != null) wakeWizardFeedback.setText(icon + "  " + quality + " sample captured!");
+                    String icon = "Clear".equals(quality) ? "\u2705" : "\u26A0\uFE0F";
+                    if (wakeWizardFeedback != null) wakeWizardFeedback.setText(icon + "  " + quality + " sample accepted!");
                     wakeTrainingStatus.setText(icon + " Sample " + wakeSampleIndex + "/5 done");
-                    toast(icon + " Sample " + wakeSampleIndex + "/5 captured!");
+                    toast(icon + " Sample " + wakeSampleIndex + "/5 accepted!");
                     // Success chime
                     try {
                         android.media.ToneGenerator tone = new android.media.ToneGenerator(
@@ -1741,6 +1763,15 @@ public class MainActivity extends Activity {
     }
 
     private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
+
+    private void rejectTone() {
+        try {
+            android.media.ToneGenerator tone = new android.media.ToneGenerator(
+                    android.media.AudioManager.STREAM_NOTIFICATION, 90);
+            tone.startTone(android.media.ToneGenerator.TONE_PROP_NACK, 250);
+            handler.postDelayed(tone::release, 400);
+        } catch (Exception ignored) { }
+    }
 
     @Override
     protected void onDestroy() {

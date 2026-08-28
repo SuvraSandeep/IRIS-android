@@ -248,69 +248,31 @@ public class IrisListeningService extends Service implements RecognitionListener
         phase = PHASE_WAKE;
         currentPhase = phase;
         broadcastState(true, phase);
-        updateListeningNotification("Waiting for “" + wake.phrase + "”");
 
-        // Primary: Vosk neural grammar-mode wake detection (robust)
-        if (voskReady && voskEngine != null) {
-            voskEngine.startWakeDetection(wake.phrase, new VoskEngine.WakeListener() {
-                @Override public void onWakeDetected() {
-                    if (!isRunning || !PHASE_WAKE.equals(phase)) return;
-                    voskEngine.stop();
-                    LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Vosk)");
-                    vibrate(45);
-                    broadcastMessage(timeGreeting() + " What can I do?");
-                    speakThenRun(timeGreeting() + " What can I do?", IrisListeningService.this::startCommandRecognition);
-                }
-                @Override public void onError(String message) {
-                    LogStore.append(IrisListeningService.this, "VOSK ERROR", message);
-                    handler.postDelayed(IrisListeningService.this::startWakeDetection, 1500);
-                }
-            });
+        // If Vosk model isn't ready yet, wait for it (don't use noise-prone DTW)
+        if (!voskReady || voskEngine == null) {
+            updateListeningNotification("Loading voice model…");
+            broadcastMessage("Loading voice model, one moment…");
+            LogStore.append(this, "VOSK", "Waiting for model to load before wake detection");
+            handler.postDelayed(this::startWakeDetection, 1500);
             return;
         }
 
-        // Fallback: legacy DTW wake engine
-        wakeEngine = new WakeWordEngine(this);
-        wakeEngine.detect(wake.templates, wake.threshold, new WakeWordEngine.Listener() {
-            @Override public void onStatus(String status) { broadcastMessage(status); }
-            @Override public void onSample(float[][] features, String quality, float signalToNoise, short[] rawAudio) { }
-            @Override public void onWakeDetected(double distance, short[] rawAudio) {
-                if (settings.speakerVerification() && speakerVerifier != null && speakerVerifier.isReady()
-                        && wake.isVoiceEnrolled()) {
-                    int tier = speakerVerifier.verifyTier(rawAudio, wake.voiceprint,
-                            settings.speakerThreshold(), 0.45f);
-                    if (tier == 0) {
-                        LogStore.append(IrisListeningService.this, "STRANGER",
-                                "Wake matched but voice rejected (distance " + Math.round(distance * 100) / 100.0 + ")");
-                        handler.postDelayed(IrisListeningService.this::startWakeDetection, 500);
-                        return;
-                    } else if (tier == 1) {
-                        LogStore.append(IrisListeningService.this, "CHALLENGE",
-                                "Wake matched, voice uncertain (distance " + Math.round(distance * 100) / 100.0 + ")");
-                        broadcastMessage("I don\u2019t recognize your voice. Unlock the phone to continue.");
-                        showVoiceChallengeNotification();
-                        handler.postDelayed(() -> {
-                            if (isRunning && PHASE_WAKE.equals(phase)) {
-                                broadcastMessage("Verification timed out.");
-                                startWakeDetection();
-                            }
-                        }, 30_000);
-                        return;
-                    }
-                    LogStore.append(IrisListeningService.this, "VERIFIED",
-                            wake.phrase + " matched, speaker verified (distance " + Math.round(distance * 100) / 100.0 + ")");
-                } else {
-                    LogStore.append(IrisListeningService.this, "WAKE", wake.phrase
-                            + " matched at " + Math.round(distance * 100) / 100.0);
-                }
+        updateListeningNotification("Waiting for “" + wake.phrase + "”");
+        // Vosk neural grammar-mode wake detection — only fires on the exact phrase
+        voskEngine.startWakeDetection(wake.phrase, new VoskEngine.WakeListener() {
+            @Override public void onWakeDetected() {
+                if (!isRunning || !PHASE_WAKE.equals(phase)) return;
+                voskEngine.stop();
+                LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Vosk)");
                 vibrate(45);
                 broadcastMessage(timeGreeting() + " What can I do?");
+                // Speak THEN listen — never cut off IRIS mid-sentence
                 speakThenRun(timeGreeting() + " What can I do?", IrisListeningService.this::startCommandRecognition);
             }
             @Override public void onError(String message) {
-                LogStore.append(IrisListeningService.this, "ERROR", message);
-                broadcastMessage(message);
-                handler.postDelayed(IrisListeningService.this::startWakeDetection, 1200);
+                LogStore.append(IrisListeningService.this, "VOSK ERROR", message);
+                handler.postDelayed(IrisListeningService.this::startWakeDetection, 1500);
             }
         });
     }
