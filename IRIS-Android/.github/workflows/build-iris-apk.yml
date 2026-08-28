@@ -64,6 +64,27 @@ jobs:
           echo "VERSION=${version:-unknown}" >> "$GITHUB_ENV"
           echo "Building IRIS v${version:-unknown}"
 
+      - name: Download and bundle Vosk model
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSETS_DIR="$PROJECT_DIR/app/src/main/assets"
+          MODEL_DIR="$ASSETS_DIR/model-en-us"
+          if [[ -d "$MODEL_DIR" && -f "$MODEL_DIR/README" ]]; then
+            echo "Vosk model already present, skipping download."
+          else
+            echo "Downloading Vosk small English model (~40 MB)..."
+            mkdir -p "$ASSETS_DIR"
+            cd "$ASSETS_DIR"
+            curl -sSL -o vosk-model.zip \
+              https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
+            unzip -q vosk-model.zip
+            rm vosk-model.zip
+            mv vosk-model-small-en-us-0.15 model-en-us
+            echo "Vosk model bundled at $MODEL_DIR"
+            ls -la "$MODEL_DIR"
+          fi
+
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |

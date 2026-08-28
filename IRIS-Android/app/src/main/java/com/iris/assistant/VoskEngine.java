@@ -4,121 +4,166 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import org.json.JSONObject;
 import org.vosk.Model;
 import org.vosk.Recognizer;
+import org.vosk.android.RecognitionListener;
+import org.vosk.android.SpeechService;
 import org.vosk.android.StorageService;
 
-import java.io.File;
-import java.io.IOException;
-
 /**
- * Vosk-based voice engine providing:
- * - Wake word detection via grammar-constrained recognition
- * - Streaming speech-to-text
- * - Speaker identification vectors
+ * Vosk-based voice engine — the robust, offline core of IRIS.
  *
- * 100% offline, 100% free (Apache 2.0).
+ * Provides:
+ *  - Continuous wake-word detection via grammar-constrained recognition
+ *    (only accepts the trained phrase; random noise scores as [unk])
+ *  - Continuous speech-to-text for commands
+ *
+ * 100% offline, 100% free (Apache 2.0). Model bundled in assets/model-en-us.
  */
 public final class VoskEngine {
-    private static final int SAMPLE_RATE = 16_000;
+    private static final float SAMPLE_RATE = 16_000f;
     private static final Handler main = new Handler(Looper.getMainLooper());
 
     private Model model;
-    private boolean modelLoaded;
+    private volatile boolean modelLoaded;
+    private SpeechService speechService;
 
     public interface InitListener {
         void onReady();
         void onError(String message);
     }
 
-    /**
-     * Initialize Vosk with model from assets.
-     * Call from a background thread or use the async version.
-     */
+    public interface WakeListener {
+        void onWakeDetected();
+        void onError(String message);
+    }
+
+    public interface SttListener {
+        void onPartial(String text);
+        void onFinal(String text);
+        void onError(String message);
+    }
+
+    /** Load the Vosk model from assets (async). Safe to call multiple times. */
     public void init(Context context, InitListener listener) {
-        StorageService.unpack(context, "model-en", "model",
-                (model) -> {
-                    this.model = model;
-                    this.modelLoaded = true;
+        if (modelLoaded) { main.post(listener::onReady); return; }
+        StorageService.unpack(context, "model-en-us", "vosk-model",
+                (m) -> {
+                    model = m;
+                    modelLoaded = true;
                     main.post(listener::onReady);
                 },
-                (exception) -> {
-                    android.util.Log.e("IRIS", "Vosk model load failed: " + exception.getMessage());
+                (e) -> {
                     modelLoaded = false;
-                    main.post(() -> listener.onError(exception.getMessage()));
+                    android.util.Log.e("IRIS", "Vosk model load failed: " + e.getMessage());
+                    main.post(() -> listener.onError(e.getMessage()));
                 });
     }
 
     public boolean isReady() { return modelLoaded && model != null; }
 
     /**
-     * Create a grammar-constrained recognizer for wake word detection.
-     * Only recognizes the specified wake phrase — rejects everything else.
+     * Start continuous wake-word detection.
+     * Uses a grammar limited to the wake phrase, so only that phrase
+     * (spoken as actual speech) triggers detection.
      */
-    public Recognizer createWakeRecognizer(String wakePhrase) {
-        if (!isReady()) return null;
+    public void startWakeDetection(String wakePhrase, WakeListener listener) {
+        if (!isReady()) { listener.onError("Voice model not ready"); return; }
+        stop();
         try {
-            String grammar = "[\"" + wakePhrase.toLowerCase().trim()
-                    + "\", \"[unk]\"]";
-            return new Recognizer(model, SAMPLE_RATE, grammar);
+            String phrase = wakePhrase.toLowerCase().trim();
+            String grammar = "[\"" + phrase + "\", \"[unk]\"]";
+            Recognizer recognizer = new Recognizer(model, SAMPLE_RATE, grammar);
+            speechService = new SpeechService(recognizer, SAMPLE_RATE);
+            speechService.startListening(new RecognitionListener() {
+                @Override public void onPartialResult(String hypothesis) {
+                    if (containsPhrase(hypothesis, phrase)) {
+                        listener.onWakeDetected();
+                    }
+                }
+                @Override public void onResult(String hypothesis) {
+                    if (containsPhrase(hypothesis, phrase)) {
+                        listener.onWakeDetected();
+                    }
+                }
+                @Override public void onFinalResult(String hypothesis) { }
+                @Override public void onError(Exception e) {
+                    listener.onError(e.getMessage());
+                }
+                @Override public void onTimeout() { }
+            });
         } catch (Exception e) {
-            android.util.Log.e("IRIS", "Wake recognizer creation failed: " + e.getMessage());
-            return null;
+            listener.onError(e.getMessage());
         }
     }
 
     /**
-     * Create a full vocabulary recognizer for command recognition.
+     * Start continuous speech-to-text for command recognition.
+     * Uses the full vocabulary model.
      */
-    public Recognizer createCommandRecognizer() {
-        if (!isReady()) return null;
+    public void startListening(SttListener listener) {
+        if (!isReady()) { listener.onError("Voice model not ready"); return; }
+        stop();
         try {
-            return new Recognizer(model, SAMPLE_RATE);
+            Recognizer recognizer = new Recognizer(model, SAMPLE_RATE);
+            speechService = new SpeechService(recognizer, SAMPLE_RATE);
+            speechService.startListening(new RecognitionListener() {
+                @Override public void onPartialResult(String hypothesis) {
+                    String text = extractText(hypothesis, "partial");
+                    if (!text.isEmpty()) listener.onPartial(text);
+                }
+                @Override public void onResult(String hypothesis) {
+                    String text = extractText(hypothesis, "text");
+                    if (!text.isEmpty()) listener.onFinal(text);
+                }
+                @Override public void onFinalResult(String hypothesis) {
+                    String text = extractText(hypothesis, "text");
+                    if (!text.isEmpty()) listener.onFinal(text);
+                }
+                @Override public void onError(Exception e) {
+                    listener.onError(e.getMessage());
+                }
+                @Override public void onTimeout() { }
+            });
         } catch (Exception e) {
-            android.util.Log.e("IRIS", "Command recognizer creation failed: " + e.getMessage());
-            return null;
+            listener.onError(e.getMessage());
         }
     }
 
-    /**
-     * Process a completed audio buffer and return the recognized text.
-     * For use with TimedRecorder output.
-     */
-    public String recognizeAudio(short[] audio) {
-        if (!isReady() || audio == null) return "";
-        try {
-            Recognizer rec = new Recognizer(model, SAMPLE_RATE);
-            // Convert short[] to byte[] (little-endian PCM)
-            byte[] bytes = new byte[audio.length * 2];
-            for (int i = 0; i < audio.length; i++) {
-                bytes[i * 2] = (byte) (audio[i] & 0xFF);
-                bytes[i * 2 + 1] = (byte) ((audio[i] >> 8) & 0xFF);
-            }
-            rec.acceptWaveForm(bytes, bytes.length);
-            String result = rec.getFinalResult();
-            rec.close();
-            // Parse JSON result: {"text": "hello world"}
-            return extractText(result);
-        } catch (Exception e) {
-            return "";
+    /** Stop any active recognition. */
+    public void stop() {
+        if (speechService != null) {
+            try {
+                speechService.stop();
+                speechService.shutdown();
+            } catch (Exception ignored) { }
+            speechService = null;
         }
     }
 
     /** Release all resources. */
     public void close() {
+        stop();
         if (model != null) {
-            model.close();
+            try { model.close(); } catch (Exception ignored) { }
             model = null;
         }
         modelLoaded = false;
     }
 
-    /** Extract "text" field from Vosk JSON result. */
-    private static String extractText(String json) {
+    // ─── Helpers ───
+
+    private static boolean containsPhrase(String hypothesisJson, String phrase) {
+        String text = extractText(hypothesisJson, "partial");
+        if (text.isEmpty()) text = extractText(hypothesisJson, "text");
+        return text.contains(phrase);
+    }
+
+    private static String extractText(String json, String field) {
         if (json == null) return "";
         try {
-            org.json.JSONObject obj = new org.json.JSONObject(json);
-            return obj.optString("text", "").trim();
+            return new JSONObject(json).optString(field, "").trim().toLowerCase();
         } catch (Exception e) {
             return "";
         }

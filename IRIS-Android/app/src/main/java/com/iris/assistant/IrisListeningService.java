@@ -131,6 +131,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     private int confirmationRetries;
     private String lastMemoryId;
     private SpeakerVerifier speakerVerifier;
+    private VoskEngine voskEngine;
+    private boolean voskReady;
     private long lastLevelBroadcast;
     private Runnable commandTimeout;
     private Runnable confirmTimeout;
@@ -154,6 +156,17 @@ public class IrisListeningService extends Service implements RecognitionListener
         });
         speakerVerifier = new SpeakerVerifier();
         speakerVerifier.loadModel(this);
+        voskEngine = new VoskEngine();
+        voskEngine.init(this, new VoskEngine.InitListener() {
+            @Override public void onReady() {
+                voskReady = true;
+                LogStore.append(IrisListeningService.this, "VOSK", "Voice model ready");
+            }
+            @Override public void onError(String message) {
+                voskReady = false;
+                LogStore.append(IrisListeningService.this, "VOSK", "Model unavailable, using fallback: " + message);
+            }
+        });
     }
 
     @Override
@@ -236,6 +249,28 @@ public class IrisListeningService extends Service implements RecognitionListener
         currentPhase = phase;
         broadcastState(true, phase);
         updateListeningNotification("Waiting for “" + wake.phrase + "”");
+
+        // Primary: Vosk neural grammar-mode wake detection (robust)
+        if (voskReady && voskEngine != null) {
+            voskEngine.startWakeDetection(wake.phrase, new VoskEngine.WakeListener() {
+                @Override public void onWakeDetected() {
+                    if (!isRunning || !PHASE_WAKE.equals(phase)) return;
+                    voskEngine.stop();
+                    LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Vosk)");
+                    vibrate(45);
+                    speak(timeGreeting() + " What can I do?");
+                    broadcastMessage(timeGreeting() + " What can I do?");
+                    handler.postDelayed(IrisListeningService.this::startCommandRecognition, 900);
+                }
+                @Override public void onError(String message) {
+                    LogStore.append(IrisListeningService.this, "VOSK ERROR", message);
+                    handler.postDelayed(IrisListeningService.this::startWakeDetection, 1500);
+                }
+            });
+            return;
+        }
+
+        // Fallback: legacy DTW wake engine
         wakeEngine = new WakeWordEngine(this);
         wakeEngine.detect(wake.templates, wake.threshold, new WakeWordEngine.Listener() {
             @Override public void onStatus(String status) { broadcastMessage(status); }
@@ -246,13 +281,11 @@ public class IrisListeningService extends Service implements RecognitionListener
                     int tier = speakerVerifier.verifyTier(rawAudio, wake.voiceprint,
                             settings.speakerThreshold(), 0.45f);
                     if (tier == 0) {
-                        // STRANGER — silently ignore
                         LogStore.append(IrisListeningService.this, "STRANGER",
                                 "Wake matched but voice rejected (distance " + Math.round(distance * 100) / 100.0 + ")");
                         handler.postDelayed(IrisListeningService.this::startWakeDetection, 500);
                         return;
                     } else if (tier == 1) {
-                        // UNKNOWN — challenge with notification
                         LogStore.append(IrisListeningService.this, "CHALLENGE",
                                 "Wake matched, voice uncertain (distance " + Math.round(distance * 100) / 100.0 + ")");
                         broadcastMessage("I don\u2019t recognize your voice. Unlock the phone to continue.");
@@ -265,7 +298,6 @@ public class IrisListeningService extends Service implements RecognitionListener
                         }, 30_000);
                         return;
                     }
-                    // OWNER — proceed
                     LogStore.append(IrisListeningService.this, "VERIFIED",
                             wake.phrase + " matched, speaker verified (distance " + Math.round(distance * 100) / 100.0 + ")");
                 } else {
@@ -273,8 +305,9 @@ public class IrisListeningService extends Service implements RecognitionListener
                             + " matched at " + Math.round(distance * 100) / 100.0);
                 }
                 vibrate(45);
+                speak(timeGreeting() + " What can I do?");
                 broadcastMessage(timeGreeting() + " What can I do?");
-                handler.postDelayed(IrisListeningService.this::startCommandRecognition, 180);
+                handler.postDelayed(IrisListeningService.this::startCommandRecognition, 900);
             }
             @Override public void onError(String message) {
                 LogStore.append(IrisListeningService.this, "ERROR", message);
@@ -286,10 +319,45 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void startCommandRecognition() {
         stopWakeEngine();
+        if (voskEngine != null) voskEngine.stop();
         phase = PHASE_COMMAND;
         currentPhase = phase;
         broadcastState(true, phase);
         updateListeningNotification("Listening for a call command");
+
+        // Primary: Vosk streaming STT
+        if (voskReady && voskEngine != null) {
+            final boolean[] handled = {false};
+            commandTimeout = () -> {
+                if (isRunning && PHASE_COMMAND.equals(phase) && !handled[0]) {
+                    voskEngine.stop();
+                    broadcastMessage("No command heard. Going back to sleep.");
+                    LogStore.append(this, "TIMEOUT", "Command window expired");
+                    rearmAfterAction();
+                }
+            };
+            handler.postDelayed(commandTimeout, 12_000);
+            voskEngine.startListening(new VoskEngine.SttListener() {
+                @Override public void onPartial(String text) {
+                    if (!text.isEmpty()) broadcastTranscript(text);
+                }
+                @Override public void onFinal(String text) {
+                    if (handled[0] || text.isEmpty()) return;
+                    handled[0] = true;
+                    if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                    voskEngine.stop();
+                    handleCommand(text);
+                }
+                @Override public void onError(String message) {
+                    if (handled[0]) return;
+                    LogStore.append(IrisListeningService.this, "VOSK STT ERROR", message);
+                    rearmAfterAction();
+                }
+            });
+            return;
+        }
+
+        // Fallback: Android SpeechRecognizer
         createRecognizer();
         if (recognizer == null) {
             broadcastMessage("Speech recognition is unavailable.");
@@ -1094,6 +1162,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void stopWakeEngine() {
         if (wakeEngine != null) { wakeEngine.stop(); wakeEngine = null; }
+        if (voskEngine != null) voskEngine.stop();
     }
 
     private void destroyRecognizer() {
@@ -1309,6 +1378,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }
         if (textToSpeech != null) textToSpeech.shutdown();
         if (speakerVerifier != null) { speakerVerifier.close(); speakerVerifier = null; }
+        if (voskEngine != null) { voskEngine.close(); voskEngine = null; }
         super.onDestroy();
     }
 

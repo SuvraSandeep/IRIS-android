@@ -6,3 +6,6 @@ local.properties
 *.jks
 *.keystore
 !debug.keystore
+
+# Vosk model — downloaded at build time by CI, not committed
+app/src/main/assets/model-en-us/
