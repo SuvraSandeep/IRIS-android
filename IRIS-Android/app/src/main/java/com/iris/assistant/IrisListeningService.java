@@ -88,6 +88,15 @@ public class IrisListeningService extends Service implements RecognitionListener
             + "|stop|shut\\s+up|quiet|silence|go\\s+to\\s+sleep"
             + "|help|what\\s+can\\s+you\\s+do)$",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern RELATIONSHIP_CALL_PATTERN = Pattern.compile(
+            "^(?:(?:please|can you)\\s+)?(?:call|dial|phone|ring|talk\\s+to|reach)\\s+(?:my\\s+)?(.+?)(?:\\s+(?:please|for me))?$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern HISTORY_PATTERN = Pattern.compile(
+            "^(?:who\\s+did\\s+i\\s+call\\s*(?:last|today|yesterday)?"
+            + "|how\\s+many\\s+times\\s+did\\s+i\\s+call\\s+(.+)"
+            + "|when\\s+did\\s+i\\s+(?:last\\s+)?call\\s+(.+)"
+            + "|call\\s+history|my\\s+calls)$",
+            Pattern.CASE_INSENSITIVE);
     private static final String PHASE_WAKE = "wake";
     private static final String PHASE_COMMAND = "command";
     private static final String PHASE_CONFIRM = "confirm";
@@ -335,32 +344,46 @@ public class IrisListeningService extends Service implements RecognitionListener
 
         String normalized = ProfileStore.normalize(clean);
 
-        // 2. Quick actions (time, battery, stop, help)
+        // 2. Relationship resolution ("call my wife", "ring my brother")
+        String[] relationship = store.resolveRelationship(normalized.replaceAll("^(?:call|dial|phone|ring|talk to|reach)\\s+", ""));
+        if (relationship != null && relationship[0].length() > 0 && relationship[1].length() > 0) {
+            LogStore.append(this, "RELATIONSHIP", "Resolved \u2192 " + relationship[0]);
+            requestCallConfirmation(relationship[0], relationship[1]);
+            return;
+        }
+
+        // 3. Call history queries
+        if (HISTORY_PATTERN.matcher(normalized).matches()) {
+            handleHistory(normalized, store);
+            return;
+        }
+
+        // 4. Quick actions (time, battery, stop, help)
         if (QUICK_ACTION_PATTERN.matcher(normalized).matches()) {
             handleQuickAction(normalized);
             return;
         }
 
-        // 3. Redial / call back
+        // 5. Redial / call back
         if (REDIAL_PATTERN.matcher(normalized).matches()) {
             handleRedial(store);
             return;
         }
 
-        // 4. Call patterns (English)
+        // 6. Call patterns (English)
         Matcher matcher = CALL_PATTERN.matcher(normalized);
         String requested = null;
         if (matcher.matches()) {
             requested = matcher.group(1).trim();
         }
 
-        // 5. Hindi/Hinglish call patterns
+        // 7. Hindi/Hinglish call patterns
         if (requested == null) {
             Matcher hindiMatcher = HINDI_CALL_PATTERN.matcher(normalized);
             if (hindiMatcher.matches()) requested = hindiMatcher.group(1).trim();
         }
 
-        // 6. No pattern matched
+        // 8. No pattern matched
         if (requested == null) {
             LogStore.append(this, "IGNORED", "No command detected");
             int knownCount = store.getEntries().size();
@@ -435,6 +458,85 @@ public class IrisListeningService extends Service implements RecognitionListener
         ProfileStore.Entry last = recent.get(0);
         LogStore.append(this, "REDIAL", last.contactName);
         requestCallConfirmation(last.contactName, last.phoneNumber);
+    }
+
+    private void handleHistory(String normalized, ProfileStore store) {
+        if (normalized.matches(".*\\bwho\\s+did\\s+i\\s+call\\s+last\\b.*")) {
+            ProfileStore.Entry last = store.lastCalled();
+            if (last != null) {
+                String text = "Your last call was to " + last.contactName;
+                speak(text);
+                broadcastMessage(text);
+            } else {
+                broadcastMessage("I don\u2019t have any call history yet.");
+            }
+        } else if (normalized.matches(".*\\bwho\\s+did\\s+i\\s+call\\s+today\\b.*") || normalized.matches(".*\\bmy\\s+calls\\b.*") || normalized.matches(".*\\bcall\\s+history\\b.*")) {
+            List<ProfileStore.Entry> today = store.calledToday();
+            if (today.isEmpty()) {
+                broadcastMessage("No calls yet today.");
+            } else {
+                List<String> names = new ArrayList<>();
+                for (ProfileStore.Entry e : today) names.add(e.contactName);
+                String text = "Today you called: " + String.join(", ", names);
+                speak(text);
+                broadcastMessage(text);
+            }
+        } else if (normalized.matches(".*\\bhow\\s+many\\s+times\\b.*")) {
+            String who = normalized.replaceAll(".*how\\s+many\\s+times\\s+did\\s+i\\s+call\\s+", "").trim();
+            List<ContactMatch> matches = resolveContacts(who);
+            if (!matches.isEmpty()) {
+                ContactMatch best = matches.get(0);
+                ProfileStore.Entry entry = null;
+                for (ProfileStore.Entry e : store.getEntries()) {
+                    if (e.contactName.equalsIgnoreCase(best.name)) { entry = e; break; }
+                }
+                if (entry != null && entry.callCount > 0) {
+                    String text = "You\u2019ve called " + entry.contactName + " " + entry.callCount + " time" + (entry.callCount != 1 ? "s" : "") + " total.";
+                    speak(text);
+                    broadcastMessage(text);
+                } else {
+                    broadcastMessage("I don\u2019t have call records for " + who + ".");
+                }
+            } else {
+                broadcastMessage("I couldn\u2019t find a contact matching \u201C" + who + "\u201D.");
+            }
+        } else if (normalized.matches(".*\\bwhen\\s+did\\s+i\\b.*")) {
+            String who = normalized.replaceAll(".*when\\s+did\\s+i\\s+(?:last\\s+)?call\\s+", "").trim();
+            List<ContactMatch> matches = resolveContacts(who);
+            if (!matches.isEmpty()) {
+                ContactMatch best = matches.get(0);
+                ProfileStore.Entry entry = null;
+                for (ProfileStore.Entry e : store.getEntries()) {
+                    if (e.contactName.equalsIgnoreCase(best.name)) { entry = e; break; }
+                }
+                if (entry != null && entry.lastCalled > 0) {
+                    String timeAgo = relativeTime(entry.lastCalled);
+                    String text = "You last called " + entry.contactName + " " + timeAgo + ".";
+                    speak(text);
+                    broadcastMessage(text);
+                } else {
+                    broadcastMessage("I don\u2019t have a record of calling " + who + ".");
+                }
+            } else {
+                broadcastMessage("I couldn\u2019t find a contact matching \u201C" + who + "\u201D.");
+            }
+        } else {
+            broadcastMessage("I didn\u2019t understand the history question.");
+        }
+        LogStore.append(this, "HISTORY", normalized);
+        rearmAfterAction();
+    }
+
+    private String relativeTime(long timestamp) {
+        long diff = System.currentTimeMillis() - timestamp;
+        long minutes = diff / 60_000;
+        if (minutes < 1) return "just now";
+        if (minutes < 60) return minutes + " minute" + (minutes != 1 ? "s" : "") + " ago";
+        long hours = minutes / 60;
+        if (hours < 24) return hours + " hour" + (hours != 1 ? "s" : "") + " ago";
+        long days = hours / 24;
+        if (days == 1) return "yesterday";
+        return days + " days ago";
     }
 
     private void handleConfirmation(String heard) {
@@ -578,6 +680,12 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (name == null || number == null) {
             rearmAfterAction();
             return;
+        }
+        // Smart call timing checks
+        String warning = callTimingWarning(name, number);
+        if (warning != null) {
+            broadcastMessage(warning);
+            speak(warning);
         }
         pendingName = name;
         pendingNumber = number;
@@ -851,6 +959,33 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void speak(String text) {
         if (settings.voiceReplies() && ttsReady && text != null)
             textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
+    }
+
+    private String callTimingWarning(String name, String number) {
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        // Late night warning (11 PM - 6 AM)
+        if (hour >= 23 || hour < 6) {
+            return "It\u2019s late. Are you sure about calling " + name + "?";
+        }
+        // DND check
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null && nm.getCurrentInterruptionFilter() != NotificationManager.INTERRUPTION_FILTER_ALL) {
+                return "Do Not Disturb is on. Still want to call " + name + "?";
+            }
+        } catch (Exception ignored) { }
+        // Repeated calls check
+        ProfileStore store = new ProfileStore(this);
+        for (ProfileStore.Entry entry : store.getEntries()) {
+            if (entry.phoneNumber != null && entry.phoneNumber.replaceAll("[^0-9+]", "").equals(
+                    number.replaceAll("[^0-9+]", "")) && entry.callCount >= 3) {
+                long hoursSinceLast = (System.currentTimeMillis() - entry.lastCalled) / 3_600_000;
+                if (hoursSinceLast < 2) {
+                    return "You\u2019ve called " + name + " " + entry.callCount + " times recently. Try again?";
+                }
+            }
+        }
+        return null;
     }
 
     private String timeGreeting() {

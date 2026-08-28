@@ -1,4 +1,4 @@
-package com.iris.assistant;
+﻿package com.iris.assistant;
 
 import android.Manifest;
 import android.app.Activity;
@@ -843,25 +843,76 @@ public class MainActivity extends Activity {
     }
 
     private void showProfileDetails(ProfileStore.Entry entry) {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setPadding(dp(22), dp(4), dp(22), 0);
+
         EditText alias = new EditText(this);
         alias.setHint("Add phrase or nickname, e.g. Ring home");
         alias.setSingleLine(true);
         alias.setTextColor(getColor(R.color.text_primary));
         alias.setHintTextColor(getColor(R.color.text_muted));
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setPadding(dp(22), dp(4), dp(22), 0);
         wrapper.addView(alias, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        // Relationship label spinner
+        TextView labelHeader = new TextView(this);
+        labelHeader.setText("\uD83C\uDFF7\uFE0F  Set relationship label");
+        labelHeader.setTextColor(getColor(R.color.cyan));
+        labelHeader.setTextSize(12);
+        labelHeader.setPadding(0, dp(14), 0, dp(4));
+        wrapper.addView(labelHeader);
+
+        String[] labels = {"None", "Wife", "Husband", "Mom", "Dad", "Brother", "Sister",
+                "Boss", "Doctor", "Office", "Friend", "Partner", "Son", "Daughter"};
+        Spinner labelSpinner = new Spinner(this);
+        ArrayAdapter<String> labelAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, labels);
+        labelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        labelSpinner.setAdapter(labelAdapter);
+
+        // Check if this contact already has a label
+        java.util.Map<String, String[]> relationships = new ProfileStore(this).getRelationships();
+        String currentLabel = "None";
+        for (java.util.Map.Entry<String, String[]> rel : relationships.entrySet()) {
+            if (rel.getValue()[1].replaceAll("[^0-9+]", "").equals(
+                    entry.phoneNumber.replaceAll("[^0-9+]", ""))) {
+                currentLabel = rel.getKey().substring(0, 1).toUpperCase() + rel.getKey().substring(1);
+                break;
+            }
+        }
+        int labelIndex = java.util.Arrays.asList(labels).indexOf(currentLabel);
+        labelSpinner.setSelection(Math.max(0, labelIndex), false);
+        wrapper.addView(labelSpinner);
+
         new AlertDialog.Builder(this).setTitle(entry.contactName)
                 .setMessage(entry.phoneNumber + "\n\nLearned:\n" +
                         (entry.phrases.isEmpty() ? "No custom phrases yet" : String.join("\n", entry.phrases)))
-                .setView(wrapper).setNegativeButton("Close", null)
+                .setView(wrapper)
+                .setNegativeButton("Close", null)
+                .setNeutralButton("Save label", (dialog, which) -> {
+                    String selectedLabel = labels[labelSpinner.getSelectedItemPosition()];
+                    ProfileStore store = new ProfileStore(this);
+                    // Remove any existing label for this number
+                    for (java.util.Map.Entry<String, String[]> rel : store.getRelationships().entrySet()) {
+                        if (rel.getValue()[1].replaceAll("[^0-9+]", "").equals(
+                                entry.phoneNumber.replaceAll("[^0-9+]", ""))) {
+                            store.removeRelationship(rel.getKey());
+                        }
+                    }
+                    if (!"None".equals(selectedLabel)) {
+                        store.setRelationship(selectedLabel, entry.contactName, entry.phoneNumber);
+                        toast("\uD83C\uDFF7\uFE0F  " + entry.contactName + " is now your " + selectedLabel.toLowerCase());
+                    } else {
+                        toast("Label removed.");
+                    }
+                })
                 .setPositiveButton("Add phrase", (dialog, which) -> {
                     String phrase = alias.getText().toString().trim();
                     if (!phrase.isEmpty()) {
                         new ProfileStore(this).addTraining(entry.contactName, entry.phoneNumber,
                                 java.util.Collections.singletonList(phrase));
-                        toast("Added “" + phrase + "”.");
+                        toast("Added \u201C" + phrase + "\u201D.");
                         updateProfileSummary();
                         renderProfileManager();
                     }

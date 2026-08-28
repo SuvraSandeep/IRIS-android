@@ -155,6 +155,105 @@ public final class ProfileStore {
         } catch (Exception ignored) { return false; }
     }
 
+    public synchronized java.util.Map<String, String[]> getRelationships() {
+        java.util.Map<String, String[]> result = new java.util.LinkedHashMap<>();
+        try {
+            JSONObject rels = root().optJSONObject("relationships");
+            if (rels == null) return result;
+            java.util.Iterator<String> keys = rels.keys();
+            while (keys.hasNext()) {
+                String label = keys.next();
+                JSONObject entry = rels.getJSONObject(label);
+                result.put(label, new String[]{entry.optString("name", ""), entry.optString("number", "")});
+            }
+        } catch (Exception ignored) { }
+        return result;
+    }
+
+    public synchronized void setRelationship(String label, String name, String number) {
+        try {
+            JSONObject current = root();
+            JSONObject rels = current.optJSONObject("relationships");
+            if (rels == null) rels = new JSONObject();
+            JSONObject entry = new JSONObject();
+            entry.put("name", name);
+            entry.put("number", number);
+            rels.put(normalize(label), entry);
+            current.put("relationships", rels);
+            persist(current);
+        } catch (Exception ignored) { }
+    }
+
+    public synchronized void removeRelationship(String label) {
+        try {
+            JSONObject current = root();
+            JSONObject rels = current.optJSONObject("relationships");
+            if (rels != null) {
+                rels.remove(normalize(label));
+                current.put("relationships", rels);
+                persist(current);
+            }
+        } catch (Exception ignored) { }
+    }
+
+    public synchronized String[] resolveRelationship(String label) {
+        try {
+            JSONObject rels = root().optJSONObject("relationships");
+            if (rels == null) return null;
+            String key = normalize(label);
+            // Direct match
+            if (rels.has(key)) {
+                JSONObject entry = rels.getJSONObject(key);
+                return new String[]{entry.optString("name", ""), entry.optString("number", "")};
+            }
+            // Try with "my" prefix removed
+            if (key.startsWith("my ")) key = key.substring(3).trim();
+            if (rels.has(key)) {
+                JSONObject entry = rels.getJSONObject(key);
+                return new String[]{entry.optString("name", ""), entry.optString("number", "")};
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    public synchronized List<Entry> calledToday() {
+        long todayStart = todayMidnight();
+        List<Entry> result = new ArrayList<>();
+        for (Entry entry : getEntries()) {
+            if (entry.lastCalled >= todayStart) result.add(entry);
+        }
+        result.sort((a, b) -> Long.compare(b.lastCalled, a.lastCalled));
+        return result;
+    }
+
+    public synchronized Entry lastCalled() {
+        Entry latest = null;
+        for (Entry entry : getEntries()) {
+            if (entry.lastCalled > 0 && (latest == null || entry.lastCalled > latest.lastCalled)) latest = entry;
+        }
+        return latest;
+    }
+
+    public synchronized int callCountToday(String number) {
+        long todayStart = todayMidnight();
+        String target = normalizeNumber(number);
+        for (Entry entry : getEntries()) {
+            if (normalizeNumber(entry.phoneNumber).equals(target) && entry.lastCalled >= todayStart) {
+                return entry.callCount; // Approximate — callCount is total, not daily
+            }
+        }
+        return 0;
+    }
+
+    private static long todayMidnight() {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        cal.set(java.util.Calendar.MINUTE, 0);
+        cal.set(java.util.Calendar.SECOND, 0);
+        cal.set(java.util.Calendar.MILLISECOND, 0);
+        return cal.getTimeInMillis();
+    }
+
     public synchronized void addTraining(String name, String number, List<String> phrases) {
         List<Entry> entries = getEntries();
         Entry target = null;
