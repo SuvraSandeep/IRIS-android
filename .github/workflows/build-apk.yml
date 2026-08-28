@@ -68,21 +68,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ASSETS_DIR="$PROJECT_DIR/app/src/main/assets"
+          ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
           MODEL_DIR="$ASSETS_DIR/model-en-us"
-          if [[ -d "$MODEL_DIR" && -f "$MODEL_DIR/README" ]]; then
+          if [[ -f "$MODEL_DIR/README" || -d "$MODEL_DIR/am" ]]; then
             echo "Vosk model already present, skipping download."
           else
             echo "Downloading Vosk small English model (~40 MB)..."
             mkdir -p "$ASSETS_DIR"
-            cd "$ASSETS_DIR"
-            curl -sSL -o vosk-model.zip \
+            rm -rf "$MODEL_DIR"
+            curl -fSL -o "$ASSETS_DIR/vosk-model.zip" \
               https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-            unzip -q vosk-model.zip
-            rm vosk-model.zip
-            mv vosk-model-small-en-us-0.15 model-en-us
-            echo "Vosk model bundled at $MODEL_DIR"
-            ls -la "$MODEL_DIR"
+            unzip -q "$ASSETS_DIR/vosk-model.zip" -d "$ASSETS_DIR"
+            rm -f "$ASSETS_DIR/vosk-model.zip"
+            mv "$ASSETS_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR"
+            echo "Vosk model bundled. Contents:"
+            ls -la "$MODEL_DIR" || true
           fi
 
       - name: Build APK
