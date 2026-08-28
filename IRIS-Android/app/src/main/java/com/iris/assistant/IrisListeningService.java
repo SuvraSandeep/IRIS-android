@@ -355,6 +355,16 @@ public class IrisListeningService extends Service implements RecognitionListener
             rearmAfterAction();
             return;
         }
+        // Immediate cancel commands
+        String lower = clean.toLowerCase(Locale.ROOT);
+        if (lower.matches("^(stop|cancel|shut up|quiet|go away|never mind|nevermind|nahi|ruk|bas)$")) {
+            LogStore.append(this, "CANCELLED", "Voice cancel: " + clean);
+            broadcastMessage("Okay, going quiet.");
+            speak("Okay.");
+            rearmAfterAction();
+            return;
+        }
+
         LogStore.append(this, "HEARD", clean);
         broadcastTranscript(clean);
 
@@ -659,7 +669,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (answer.matches(".*\\b(yes|call|confirm|do it|haan|ha)\\b.*")) {
             if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
             placeCall(pendingName, pendingNumber);
-        } else if (answer.matches(".*\\b(no|cancel|stop|nope|nahi)\\b.*")) {
+        } else if (answer.matches(".*\\b(no|cancel|stop|nope|nahi|shut up|quiet|ruk|bas|never mind)\\b.*")) {
             if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
             cancelCallNotification();
             broadcastMessage("Call cancelled.");
@@ -1088,8 +1098,25 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void speak(String text) {
-        if (settings.voiceReplies() && ttsReady && text != null)
-            textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
+        if (text == null || text.isEmpty()) return;
+        if (!settings.voiceReplies()) return;
+        if (ttsReady && textToSpeech != null) {
+            try {
+                textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
+            } catch (Exception e) {
+                LogStore.append(this, "TTS ERROR", e.getMessage());
+            }
+        } else {
+            // TTS not ready — try reinitializing
+            LogStore.append(this, "TTS", "Not ready, reinitializing");
+            textToSpeech = new TextToSpeech(this, status -> {
+                ttsReady = status == TextToSpeech.SUCCESS;
+                if (ttsReady) {
+                    textToSpeech.setLanguage(Locale.getDefault());
+                    textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_reply");
+                }
+            });
+        }
     }
 
     private String callTimingWarning(String name, String number) {

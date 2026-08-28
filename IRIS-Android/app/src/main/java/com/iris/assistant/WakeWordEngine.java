@@ -110,12 +110,12 @@ public final class WakeWordEngine {
             if (count <= 0) continue;
             double rms = rms(frame, count);
             peak = Math.max(peak, rms);
-            double trigger = Math.max(420, noiseFloor * 2.8);
+            double trigger = Math.max(600, noiseFloor * 3.2);
 
             if (!speaking) {
                 noiseFloor = noiseFloor * .97 + Math.min(rms, trigger) * .03;
                 hotFrames = rms > trigger ? hotFrames + 1 : 0;
-                if (hotFrames >= 2) {
+                if (hotFrames >= 4) {
                     speaking = true;
                     quietFrames = 0;
                     utterance.clear();
@@ -134,7 +134,7 @@ public final class WakeWordEngine {
                     speaking = false;
                     hotFrames = 0;
                     quietFrames = 0;
-                    if (features.length < 12) continue;
+                    if (features.length < 18) continue;
                     if (captureOnly) {
                         String quality = snr >= 5 ? "Clear" : snr >= 3 ? "Usable" : "Too noisy";
                         running = false;
@@ -225,7 +225,7 @@ public final class WakeWordEngine {
                 maximum = Math.max(maximum, dtw(templates.get(i), templates.get(j)));
             }
         }
-        return Math.max(.60, Math.min(1.85, maximum * 1.38 + .08));
+        return Math.max(.50, Math.min(1.40, maximum * 1.15 + .05));
     }
 
     private static double bestDistance(float[][] sample, List<float[][]> templates) {
