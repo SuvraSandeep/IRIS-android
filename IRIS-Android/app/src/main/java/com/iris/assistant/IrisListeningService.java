@@ -506,6 +506,13 @@ public class IrisListeningService extends Service implements RecognitionListener
      * Answers questions from memory, greets, and chats. Only calls when
      * there's an explicit call command (handled earlier in handleCommand).
      */
+    private final java.util.Random chatRandom = new java.util.Random();
+
+    /** Pick a random response from variants for natural variety. */
+    private String pick(String... options) {
+        return options[chatRandom.nextInt(options.length)];
+    }
+
     private void handleChat(String original, String normalized, ProfileStore store) {
         LogStore.append(this, "CHAT", original);
         String personality = settings.personality();
@@ -520,9 +527,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         // Identity questions
         if (normalized.matches(".*\\b(who am i|what.?s my name|what is my name|my name)\\b.*")) {
             if (ownerName != null) {
-                reply = sarcastic ? "You're " + ownerName + ". Forgot already?"
+                reply = sarcastic ? pick("You're " + ownerName + ". Forgot already?",
+                                          "Still " + ownerName + ", last I checked.",
+                                          "You're " + ownerName + ". Want me to write it down?")
                         : professional ? "You are " + ownerName + "."
-                        : warm ? "You're " + ownerName + ", of course!"
+                        : warm ? pick("You're " + ownerName + ", of course!", "You're my favorite person, " + ownerName + "!")
                         : "You're " + ownerName + ".";
             } else {
                 reply = "I don't know your name yet. Say \u201Cremember my name is\u2026\u201D to tell me.";
@@ -530,30 +539,38 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         // Who/what are you
         else if (normalized.matches(".*\\b(who are you|what are you|your name)\\b.*")) {
-            reply = sarcastic ? "I'm IRIS. The voice in your phone that actually listens."
+            reply = sarcastic ? pick("I'm IRIS. The voice in your phone that actually listens.",
+                                      "IRIS. Think of me as the smart part of your phone.")
                     : professional ? "I am IRIS, your assistant."
                     : warm ? "I'm IRIS, your personal assistant and I'm always here for you."
                     : "I'm IRIS, your personal assistant. I can chat, remember things, and call your contacts.";
         }
         // Greetings
         else if (normalized.matches("^(hi|hello|hey|yo|hi there|hello there)\\b.*")) {
-            reply = sarcastic ? "Well, look who's talking to their phone" + namePart + "."
-                    : professional ? "Hello" + namePart + ". How can I help?"
-                    : warm ? "Hey" + namePart + "! So good to hear you. What can I do?"
-                    : "Hey" + namePart + "! What can I do for you?";
+            reply = sarcastic ? pick("Well, look who's talking to their phone" + namePart + ".",
+                                      "Oh hey" + namePart + ". Missed me?",
+                                      "You rang" + namePart + "? Figuratively.")
+                    : professional ? pick("Hello" + namePart + ". How can I help?", "Hello" + namePart + ". What do you need?")
+                    : warm ? pick("Hey" + namePart + "! So good to hear you. What can I do?",
+                                  "Hi" + namePart + "! Always a pleasure. What's up?")
+                    : pick("Hey" + namePart + "! What can I do for you?", "Hi" + namePart + "! How can I help?");
         }
         // How are you
         else if (normalized.matches(".*\\bhow are you\\b.*")) {
-            reply = sarcastic ? "Living the dream, trapped in your phone. You?"
+            reply = sarcastic ? pick("Living the dream, trapped in your phone. You?",
+                                      "Same as always \u2014 electric. How about you?",
+                                      "Can't complain, nobody listens anyway. You?")
                     : professional ? "Functioning normally. How may I assist?"
-                    : warm ? "I'm wonderful, thank you for asking! How are you?"
-                    : "I'm doing great, thanks for asking! What about you?";
+                    : warm ? pick("I'm wonderful, thank you for asking! How are you?",
+                                  "Doing lovely, especially now you're here! And you?")
+                    : pick("I'm doing great, thanks! What about you?", "All good here! How about you?");
         }
         // Thanks
         else if (normalized.matches(".*\\b(thank you|thanks|thank u|thankyou)\\b.*")) {
-            reply = sarcastic ? "Don't mention it. Really, don't."
+            reply = sarcastic ? pick("Don't mention it. Really, don't.", "That's what I'm here for. Apparently.")
                     : professional ? "You're welcome."
-                    : warm ? "Anytime! Happy to help." : "You're welcome!";
+                    : warm ? pick("Anytime! Happy to help.", "Of course! Always here for you.")
+                    : pick("You're welcome!", "Anytime!", "No problem at all!");
         }
         // What can you do
         else if (normalized.matches(".*\\b(what can you do|help|your features|what do you do)\\b.*")) {
@@ -577,17 +594,18 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         // Yes/okay acknowledgements
         else if (normalized.matches("^(yes|yeah|ok|okay|sure|cool|nice)\\b.*")) {
-            reply = sarcastic ? "Thrilling. What now?"
+            reply = sarcastic ? pick("Thrilling. What now?", "Riveting. Anything else?")
                     : professional ? "Understood. What would you like?"
-                    : "Great! What would you like to do?";
+                    : pick("Great! What would you like to do?", "Cool! What's next?");
         }
         // Fallback
         else {
-            reply = sarcastic ? "That went over my circuits. I can call people, tell time, or remember things though."
-                    : "I'm still learning to chat. I can call your contacts, tell the time, or remember things. What would you like?";
+            reply = sarcastic ? pick("That went over my circuits. I can call people, tell time, or remember things though.",
+                                      "Not sure what that means, but I can call someone or check the time.")
+                    : pick("I'm still learning to chat. I can call your contacts, tell the time, or remember things. What would you like?",
+                           "I didn't quite get that. I can make calls, tell time, or remember things for you.");
         }
 
-        // Silent personality: show text but don't speak
         if ("Silent".equals(personality)) {
             broadcastMessage(reply);
             handler.postDelayed(this::rearmAfterAction, 800);
