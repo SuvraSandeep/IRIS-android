@@ -258,12 +258,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         currentPhase = phase;
         broadcastState(true, phase);
 
-        // If Vosk model isn't ready yet, wait for it (don't use noise-prone DTW)
+        // Give Vosk a brief chance to load; if not ready, use Android speech
+        // recognition for wake (real STT — reliable, rejects noise). Never wait forever.
         if (!voskReady || voskEngine == null) {
-            updateListeningNotification("Loading voice model…");
-            broadcastMessage("Loading voice model, one moment…");
-            LogStore.append(this, "VOSK", "Waiting for model to load before wake detection");
-            handler.postDelayed(this::startWakeDetection, 1500);
+            LogStore.append(this, "WAKE", "Vosk not ready — using Android speech recognition for wake");
+            startAndroidWakeDetection(wake);
             return;
         }
 
@@ -281,9 +280,88 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
             @Override public void onError(String message) {
                 LogStore.append(IrisListeningService.this, "VOSK ERROR", message);
-                handler.postDelayed(IrisListeningService.this::startWakeDetection, 1500);
+                // If Vosk keeps erroring, fall back to Android STT wake
+                startAndroidWakeDetection(wake);
             }
         });
+    }
+
+    /**
+     * Wake detection using Android's own SpeechRecognizer.
+     * Continuously listens; if the recognized text contains the wake phrase,
+     * wakes IRIS. Real speech recognition — rejects random noise, works on
+     * every phone that has Google speech (which this device confirmed it does).
+     */
+    private void startAndroidWakeDetection(ProfileStore.WakeProfile wake) {
+        if (!isRunning || !PHASE_WAKE.equals(phase)) return;
+        updateListeningNotification("Waiting for “" + wake.phrase + "”");
+        final String target = ProfileStore.normalize(wake.phrase);
+        destroyRecognizer();
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            broadcastMessage("Speech recognition unavailable on this device.");
+            return;
+        }
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        recognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) { }
+            @Override public void onBeginningOfSpeech() { }
+            @Override public void onRmsChanged(float rmsdB) { }
+            @Override public void onBufferReceived(byte[] buffer) { }
+            @Override public void onEndOfSpeech() { }
+            @Override public void onError(int error) {
+                // Restart listening unless stopped
+                if (isRunning && PHASE_WAKE.equals(phase)) {
+                    handler.postDelayed(() -> restartAndroidWake(), 300);
+                }
+            }
+            @Override public void onResults(Bundle results) {
+                ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                boolean detected = false;
+                if (matches != null) {
+                    for (String m : matches) {
+                        String norm = ProfileStore.normalize(m);
+                        if (norm.contains(target) || target.contains(norm) && norm.length() >= 3) {
+                            detected = true; break;
+                        }
+                    }
+                }
+                if (detected && isRunning && PHASE_WAKE.equals(phase)) {
+                    LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Android STT)");
+                    vibrate(45);
+                    broadcastMessage(timeGreeting() + " What can I do?");
+                    speakThenRun(timeGreeting() + " What can I do?", IrisListeningService.this::startCommandRecognition);
+                } else if (isRunning && PHASE_WAKE.equals(phase)) {
+                    handler.postDelayed(() -> restartAndroidWake(), 200);
+                }
+            }
+            @Override public void onPartialResults(Bundle partialResults) {
+                ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (matches != null && isRunning && PHASE_WAKE.equals(phase)) {
+                    for (String m : matches) {
+                        if (ProfileStore.normalize(m).contains(target)) {
+                            try { recognizer.stopListening(); } catch (Exception ignored) { }
+                            break;
+                        }
+                    }
+                }
+            }
+            @Override public void onEvent(int eventType, Bundle params) { }
+        });
+        restartAndroidWake();
+    }
+
+    private void restartAndroidWake() {
+        if (!isRunning || !PHASE_WAKE.equals(phase) || recognizer == null) return;
+        try {
+            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+            intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, settings.resolvedLanguageTag());
+            recognizer.startListening(intent);
+        } catch (Exception e) {
+            handler.postDelayed(this::restartAndroidWake, 500);
+        }
     }
 
     private void startCommandRecognition() {
