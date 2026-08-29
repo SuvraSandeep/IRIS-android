@@ -133,6 +133,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     private SpeakerVerifier speakerVerifier;
     private VoskEngine voskEngine;
     private boolean voskReady;
+    private LlmAgent llmAgent;
+    private volatile boolean llmReady;
     private long lastLevelBroadcast;
     private Runnable commandTimeout;
     private Runnable confirmTimeout;
@@ -167,6 +169,13 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this, "VOSK", "Model unavailable, using fallback: " + message);
             }
         });
+        // Load the Gemma LLM on a background thread (heavy — may take several seconds)
+        llmAgent = new LlmAgent();
+        new Thread(() -> {
+            boolean ok = llmAgent.loadModel(this);
+            llmReady = ok;
+            LogStore.append(this, "LLM", ok ? "Gemma AI ready" : "No LLM model, using rule-based chat");
+        }, "IRIS-LLM-Load").start();
     }
 
     @Override
@@ -515,6 +524,71 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void handleChat(String original, String normalized, ProfileStore store) {
         LogStore.append(this, "CHAT", original);
+
+        // Try the real AI (Gemma) first, on a background thread
+        if (llmReady && llmAgent != null && llmAgent.isReady()) {
+            broadcastMessage("Thinking…");
+            new Thread(() -> {
+                String llmOut = llmAgent.generateReply(this, original);
+                handler.post(() -> {
+                    if (llmOut == null || llmOut.isEmpty()) {
+                        ruleBasedChat(original, normalized, store); // fallback
+                    } else {
+                        handleLlmOutput(llmOut, store);
+                    }
+                });
+            }, "IRIS-LLM-Gen").start();
+            return;
+        }
+
+        // Fallback: rule-based chat
+        ruleBasedChat(original, normalized, store);
+    }
+
+    /** Parse the LLM output for action tags, else speak it as a chat reply. */
+    private void handleLlmOutput(String out, ProfileStore store) {
+        LogStore.append(this, "LLM", "Reply: " + out);
+        // [CALL: name]
+        java.util.regex.Matcher call = java.util.regex.Pattern
+                .compile("\\[CALL:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (call.find()) {
+            String who = call.group(1).trim();
+            // Resolve via relationship, then contacts
+            String[] rel = store.resolveRelationship(ProfileStore.normalize(who));
+            if (rel != null && rel[0].length() > 0 && rel[1].length() > 0) {
+                requestCallConfirmation(rel[0], rel[1]);
+                return;
+            }
+            List<ContactMatch> matches = resolveContacts(who);
+            if (!matches.isEmpty()) {
+                requestCallConfirmation(matches.get(0).name, matches.get(0).number);
+            } else {
+                broadcastMessage("I couldn't find " + who + " in your contacts.");
+                speakThenRun("I couldn't find " + who + " in your contacts.", this::rearmAfterAction);
+            }
+            return;
+        }
+        // [TIME]
+        if (out.matches(".*\\[TIME\\].*")) { handleQuickAction("time"); return; }
+        // [BATTERY]
+        if (out.matches(".*\\[BATTERY\\].*")) { handleQuickAction("battery"); return; }
+        // [REMEMBER: fact]
+        java.util.regex.Matcher rem = java.util.regex.Pattern
+                .compile("\\[REMEMBER:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (rem.find()) { handleRemember(rem.group(1).trim()); return; }
+
+        // Plain conversational reply — strip any stray brackets
+        String clean = out.replaceAll("\\[.*?\\]", "").trim();
+        if (clean.isEmpty()) clean = "Okay.";
+        broadcastMessage(clean);
+        if ("Silent".equals(settings.personality())) {
+            handler.postDelayed(this::rearmAfterAction, 800);
+        } else {
+            speakThenRun(clean, this::rearmAfterAction);
+        }
+    }
+
+    private void ruleBasedChat(String original, String normalized, ProfileStore store) {
         String personality = settings.personality();
         boolean sarcastic = "Sarcastic".equals(personality);
         boolean professional = "Professional".equals(personality);
@@ -1484,6 +1558,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (textToSpeech != null) textToSpeech.shutdown();
         if (speakerVerifier != null) { speakerVerifier.close(); speakerVerifier = null; }
         if (voskEngine != null) { voskEngine.close(); voskEngine = null; }
+        if (llmAgent != null) { llmAgent.close(); llmAgent = null; }
         super.onDestroy();
     }
 
