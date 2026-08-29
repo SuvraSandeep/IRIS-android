@@ -479,15 +479,8 @@ public class IrisListeningService extends Service implements RecognitionListener
 
         // 8. No pattern matched
         if (requested == null) {
-            LogStore.append(this, "IGNORED", "No command detected");
-            int knownCount = store.getEntries().size();
-            if (knownCount > 0) {
-                broadcastMessage("I didn\u2019t catch a command. Try \u201CCall <name>\u201D. I know " + knownCount + " contacts.");
-            } else {
-                broadcastMessage("I didn\u2019t understand. Train some contacts first, then say \u201CCall <name>\u201D.");
-            }
-            requestCorrection(clean);
-            rearmAfterAction();
+            // Not a call command — treat as conversation
+            handleChat(clean, normalized, store);
             return;
         }
 
@@ -506,6 +499,72 @@ public class IrisListeningService extends Service implements RecognitionListener
                 && first.score - candidates.get(1).score < .09) {
             requestDisambiguation(candidates.subList(0, Math.min(3, candidates.size())));
         } else requestCallConfirmation(first.name, first.number);
+    }
+
+    /**
+     * Conversational handler — makes IRIS a chatbot, not just a dialer.
+     * Answers questions from memory, greets, and chats. Only calls when
+     * there's an explicit call command (handled earlier in handleCommand).
+     */
+    private void handleChat(String original, String normalized, ProfileStore store) {
+        LogStore.append(this, "CHAT", original);
+        String reply;
+
+        String ownerName = MemoryStore.ownerName(this);
+
+        // Identity questions
+        if (normalized.matches(".*\\b(who am i|what.?s my name|what is my name|my name)\\b.*")) {
+            reply = ownerName != null ? "You're " + ownerName + "." 
+                    : "I don't know your name yet. Say \u201Cremember my name is\u2026\u201D to tell me.";
+        }
+        // Who/what are you
+        else if (normalized.matches(".*\\b(who are you|what are you|your name)\\b.*")) {
+            reply = "I'm IRIS, your personal assistant. I can chat, remember things, and call your contacts.";
+        }
+        // Greetings
+        else if (normalized.matches("^(hi|hello|hey|yo|hi there|hello there)\\b.*")) {
+            reply = ownerName != null ? "Hey " + ownerName + "! What can I do for you?" : "Hey! What can I do for you?";
+        }
+        // How are you
+        else if (normalized.matches(".*\\bhow are you\\b.*")) {
+            reply = "I'm doing great, thanks for asking! What about you?";
+        }
+        // Thanks
+        else if (normalized.matches(".*\\b(thank you|thanks|thank u|thankyou)\\b.*")) {
+            reply = "You're welcome!";
+        }
+        // What can you do
+        else if (normalized.matches(".*\\b(what can you do|help|your features|what do you do)\\b.*")) {
+            reply = "I can call your contacts, tell the time, check battery, remember facts about you, and chat. Try \u201Ccall Mom\u201D or \u201Cremember my wife is Priya\u201D.";
+        }
+        // "what is my X" / "what's my X" — look up in memory
+        else if (normalized.matches(".*\\bmy\\s+(\\w+).*")) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("my\\s+(\\w+)").matcher(normalized);
+            String answer = null;
+            if (m.find()) {
+                String key = m.group(1);
+                // Search memory for this key
+                for (MemoryStore.Memory mem : MemoryStore.getAll(this)) {
+                    if (mem.key.toLowerCase().contains(key) || key.contains(mem.key.toLowerCase())) {
+                        answer = "Your " + mem.key + " is " + mem.value + ".";
+                        break;
+                    }
+                }
+            }
+            reply = answer != null ? answer
+                    : "I don't know that yet. You can tell me by saying \u201Cremember\u2026\u201D.";
+        }
+        // Yes/okay acknowledgements
+        else if (normalized.matches("^(yes|yeah|ok|okay|sure|cool|nice)\\b.*")) {
+            reply = "Great! What would you like to do?";
+        }
+        // Fallback
+        else {
+            reply = "I'm still learning to chat. I can call your contacts, tell the time, or remember things. What would you like?";
+        }
+
+        broadcastMessage(reply);
+        speakThenRun(reply, this::rearmAfterAction);
     }
 
     private void handleQuickAction(String normalized) {

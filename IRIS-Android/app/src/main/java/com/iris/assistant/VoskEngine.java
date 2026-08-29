@@ -157,15 +157,14 @@ public final class VoskEngine {
     // ─── Helpers ───
 
     private static boolean isExactPhrase(String hypothesisJson, String phrase) {
-        // Vosk result JSON: {"text": "nova"}. Require the recognized text to
-        // BE the phrase (allowing for surrounding whitespace only) — not just contain it.
+        // Vosk grammar mode result: {"text": "nova"}. Since the recognizer is
+        // constrained to the phrase (or [unk]), a final result containing the
+        // phrase is a reliable, safe wake trigger.
         String text = extractText(hypothesisJson, "text");
         if (text.isEmpty()) return false;
-        if (text.equals(phrase)) return true;
-        // Allow the phrase to appear as complete words (e.g. recognizer adds nothing else meaningful)
-        // but reject if there's extra content that isn't the phrase.
-        return text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)")
-                && text.replace(phrase, "").trim().isEmpty();
+        // Match the phrase as a whole word within the final text
+        return text.equals(phrase)
+                || text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)");
     }
 
     private static String extractText(String json, String field) {
