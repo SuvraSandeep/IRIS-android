@@ -70,10 +70,10 @@ public final class LlmAgent {
      * Generate a reply to the user's message, given their memory and personality.
      * Returns the raw model output (may contain an action tag). Null on failure.
      */
-    public String generateReply(Context context, String userMessage) {
+    public String generateReply(Context context, String userMessage, String conversationContext) {
         if (!isReady()) return null;
         try {
-            String prompt = buildPrompt(context, userMessage);
+            String prompt = buildPrompt(context, userMessage, conversationContext);
             Object result = generateMethod.invoke(llmInference, prompt);
             return result != null ? result.toString().trim() : null;
         } catch (Throwable t) {
@@ -82,8 +82,8 @@ public final class LlmAgent {
         }
     }
 
-    /** Build the system prompt with memory, personality, and tool instructions. */
-    private String buildPrompt(Context context, String userMessage) {
+    /** Build the system prompt with memory, personality, conversation, and tools. */
+    private String buildPrompt(Context context, String userMessage, String conversationContext) {
         StringBuilder sb = new StringBuilder();
         sb.append("You are IRIS, a warm, concise personal assistant living on the user's phone.\n");
 
@@ -114,6 +114,11 @@ public final class LlmAgent {
         sb.append("If they ask battery level, reply with exactly: [BATTERY]\n");
         sb.append("If they tell you to remember something, reply with exactly: [REMEMBER: <fact>]\n");
         sb.append("Otherwise, reply conversationally in one or two short sentences.\n\n");
+
+        // Conversation context window — so IRIS remembers what was just said
+        if (conversationContext != null && !conversationContext.isEmpty()) {
+            sb.append(conversationContext).append("\n");
+        }
 
         sb.append("User: ").append(userMessage).append("\nIRIS:");
         return sb.toString();

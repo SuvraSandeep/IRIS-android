@@ -135,6 +135,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private boolean voskReady;
     private LlmAgent llmAgent;
     private volatile boolean llmReady;
+    private final ConversationManager conversation = new ConversationManager();
     private long lastLevelBroadcast;
     private Runnable commandTimeout;
     private Runnable confirmTimeout;
@@ -607,11 +608,12 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (llmReady && llmAgent != null && llmAgent.isReady()) {
             broadcastMessage("Thinking…");
             new Thread(() -> {
-                String llmOut = llmAgent.generateReply(this, original);
+                String llmOut = llmAgent.generateReply(this, original, conversation.transcript());
                 handler.post(() -> {
                     if (llmOut == null || llmOut.isEmpty()) {
                         ruleBasedChat(original, normalized, store); // fallback
                     } else {
+                        conversation.add(original, llmOut.replaceAll("\\[.*?\\]", "").trim());
                         handleLlmOutput(llmOut, store);
                     }
                 });
