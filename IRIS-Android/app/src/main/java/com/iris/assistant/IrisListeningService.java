@@ -508,42 +508,63 @@ public class IrisListeningService extends Service implements RecognitionListener
      */
     private void handleChat(String original, String normalized, ProfileStore store) {
         LogStore.append(this, "CHAT", original);
+        String personality = settings.personality();
+        boolean sarcastic = "Sarcastic".equals(personality);
+        boolean professional = "Professional".equals(personality);
+        boolean warm = "Warm".equals(personality);
         String reply;
 
         String ownerName = MemoryStore.ownerName(this);
+        String namePart = ownerName != null ? " " + ownerName : "";
 
         // Identity questions
         if (normalized.matches(".*\\b(who am i|what.?s my name|what is my name|my name)\\b.*")) {
-            reply = ownerName != null ? "You're " + ownerName + "." 
-                    : "I don't know your name yet. Say \u201Cremember my name is\u2026\u201D to tell me.";
+            if (ownerName != null) {
+                reply = sarcastic ? "You're " + ownerName + ". Forgot already?"
+                        : professional ? "You are " + ownerName + "."
+                        : warm ? "You're " + ownerName + ", of course!"
+                        : "You're " + ownerName + ".";
+            } else {
+                reply = "I don't know your name yet. Say \u201Cremember my name is\u2026\u201D to tell me.";
+            }
         }
         // Who/what are you
         else if (normalized.matches(".*\\b(who are you|what are you|your name)\\b.*")) {
-            reply = "I'm IRIS, your personal assistant. I can chat, remember things, and call your contacts.";
+            reply = sarcastic ? "I'm IRIS. The voice in your phone that actually listens."
+                    : professional ? "I am IRIS, your assistant."
+                    : warm ? "I'm IRIS, your personal assistant and I'm always here for you."
+                    : "I'm IRIS, your personal assistant. I can chat, remember things, and call your contacts.";
         }
         // Greetings
         else if (normalized.matches("^(hi|hello|hey|yo|hi there|hello there)\\b.*")) {
-            reply = ownerName != null ? "Hey " + ownerName + "! What can I do for you?" : "Hey! What can I do for you?";
+            reply = sarcastic ? "Well, look who's talking to their phone" + namePart + "."
+                    : professional ? "Hello" + namePart + ". How can I help?"
+                    : warm ? "Hey" + namePart + "! So good to hear you. What can I do?"
+                    : "Hey" + namePart + "! What can I do for you?";
         }
         // How are you
         else if (normalized.matches(".*\\bhow are you\\b.*")) {
-            reply = "I'm doing great, thanks for asking! What about you?";
+            reply = sarcastic ? "Living the dream, trapped in your phone. You?"
+                    : professional ? "Functioning normally. How may I assist?"
+                    : warm ? "I'm wonderful, thank you for asking! How are you?"
+                    : "I'm doing great, thanks for asking! What about you?";
         }
         // Thanks
         else if (normalized.matches(".*\\b(thank you|thanks|thank u|thankyou)\\b.*")) {
-            reply = "You're welcome!";
+            reply = sarcastic ? "Don't mention it. Really, don't."
+                    : professional ? "You're welcome."
+                    : warm ? "Anytime! Happy to help." : "You're welcome!";
         }
         // What can you do
         else if (normalized.matches(".*\\b(what can you do|help|your features|what do you do)\\b.*")) {
             reply = "I can call your contacts, tell the time, check battery, remember facts about you, and chat. Try \u201Ccall Mom\u201D or \u201Cremember my wife is Priya\u201D.";
         }
-        // "what is my X" / "what's my X" — look up in memory
+        // "what is my X" — look up in memory
         else if (normalized.matches(".*\\bmy\\s+(\\w+).*")) {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("my\\s+(\\w+)").matcher(normalized);
             String answer = null;
             if (m.find()) {
                 String key = m.group(1);
-                // Search memory for this key
                 for (MemoryStore.Memory mem : MemoryStore.getAll(this)) {
                     if (mem.key.toLowerCase().contains(key) || key.contains(mem.key.toLowerCase())) {
                         answer = "Your " + mem.key + " is " + mem.value + ".";
@@ -556,15 +577,24 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         // Yes/okay acknowledgements
         else if (normalized.matches("^(yes|yeah|ok|okay|sure|cool|nice)\\b.*")) {
-            reply = "Great! What would you like to do?";
+            reply = sarcastic ? "Thrilling. What now?"
+                    : professional ? "Understood. What would you like?"
+                    : "Great! What would you like to do?";
         }
         // Fallback
         else {
-            reply = "I'm still learning to chat. I can call your contacts, tell the time, or remember things. What would you like?";
+            reply = sarcastic ? "That went over my circuits. I can call people, tell time, or remember things though."
+                    : "I'm still learning to chat. I can call your contacts, tell the time, or remember things. What would you like?";
         }
 
-        broadcastMessage(reply);
-        speakThenRun(reply, this::rearmAfterAction);
+        // Silent personality: show text but don't speak
+        if ("Silent".equals(personality)) {
+            broadcastMessage(reply);
+            handler.postDelayed(this::rearmAfterAction, 800);
+        } else {
+            broadcastMessage(reply);
+            speakThenRun(reply, this::rearmAfterAction);
+        }
     }
 
     private void handleQuickAction(String normalized) {
