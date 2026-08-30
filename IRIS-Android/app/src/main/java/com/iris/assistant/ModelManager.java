@@ -51,7 +51,7 @@ public final class ModelManager {
         android.net.Network net = cm.getActiveNetwork();
         if (net == null) {
             createDownloadChannel(context);
-            notify(context, "\uD83E\uDDE0 IRIS AI brain", "Waiting for a connection to download the AI brain (~550 MB).", false);
+            postNotif(context, "\uD83E\uDDE0 IRIS AI brain", "Waiting for a connection to download the AI brain (~550 MB).", false);
             return;
         }
         android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(net);
@@ -59,19 +59,19 @@ public final class ModelManager {
         boolean unmetered = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
         createDownloadChannel(context);
         String netNote = unmetered ? "" : " (using mobile data)";
-        notify(context, "\uD83E\uDDE0 Downloading IRIS AI brain", "Starting\u2026 (~550 MB, one time)" + netNote, true);
+        postNotif(context, "\uD83E\uDDE0 Downloading IRIS AI brain", "Starting\u2026 (~550 MB, one time)" + netNote, true);
         downloadGemma(context, new LlmDownloadListener() {
             @Override public void onProgress(int percent, long done, long total) {
                 String mb = total > 0 ? (done / 1048576) + " / " + (total / 1048576) + " MB" : (done / 1048576) + " MB";
-                notifyProgress(context, "\uD83E\uDDE0 Downloading IRIS AI brain",
+                postProgress(context, "\uD83E\uDDE0 Downloading IRIS AI brain",
                         (percent >= 0 ? percent + "% \u2022 " : "") + mb + netNote, percent);
             }
             @Override public void onComplete(File model) {
-                notify(context, "\u2705 IRIS AI brain ready!",
+                postNotif(context, "\u2705 IRIS AI brain ready!",
                         "Conversational AI is active. Say your wake phrase and chat.", false);
             }
             @Override public void onError(String message) {
-                notify(context, "\u26A0\uFE0F AI brain download failed",
+                postNotif(context, "\u26A0\uFE0F AI brain download failed",
                         message + " \u2014 will retry next time you open IRIS.", false);
             }
         });
@@ -85,7 +85,7 @@ public final class ModelManager {
                 DL_CHANNEL, "IRIS model downloads", android.app.NotificationManager.IMPORTANCE_LOW));
     }
 
-    private static void notify(Context context, String title, String text, boolean ongoing) {
+    private static void postNotif(Context context, String title, String text, boolean ongoing) {
         android.app.NotificationManager nm =
                 (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
@@ -95,7 +95,7 @@ public final class ModelManager {
                 .setOngoing(ongoing).setOnlyAlertOnce(true).build());
     }
 
-    private static void notifyProgress(Context context, String title, String text, int percent) {
+    private static void postProgress(Context context, String title, String text, int percent) {
         android.app.NotificationManager nm =
                 (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
