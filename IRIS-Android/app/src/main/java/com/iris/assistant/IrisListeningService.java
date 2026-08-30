@@ -103,6 +103,11 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern OPEN_APP_PATTERN = Pattern.compile(
             "^(?:please\\s+)?(?:open|launch|start|run)\\s+(?:the\\s+)?(.+?)(?:\\s+app)?$",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern NOTIFICATION_PATTERN = Pattern.compile(
+            ".*\\b(?:notification|notifications|any\\s+(?:new\\s+)?message|new\\s+messages?"
+            + "|who\\s+(?:texted|messaged|pinged)\\s+me|did\\s+(?:anyone|someone)\\s+(?:text|message)"
+            + "|what\\s+did\\s+i\\s+miss|read\\s+(?:my\\s+)?(?:sms|text|texts|whatsapp|messages))\\b.*",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern FORGET_PATTERN = Pattern.compile(
             "^(?:forget|delete|remove)\\s+(?:that|the\\s+last\\s+(?:memory|thing)|it)$",
             Pattern.CASE_INSENSITIVE);
@@ -573,6 +578,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             // if no app matched, fall through to other handlers / chat
         }
 
+        // 5c. Read phone notifications ("read my notifications", "who texted me")
+        if (NOTIFICATION_PATTERN.matcher(normalized).matches() && !containsCallVerb(normalized)) {
+            handleNotifications(normalized);
+            return;
+        }
+
         // 6. Call patterns (English)
         Matcher matcher = CALL_PATTERN.matcher(normalized);
         String requested = null;
@@ -839,7 +850,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             broadcastMessage(batteryText);
             LogStore.append(this, "QUICK", batteryText);
         } else if (normalized.matches(".*\\b(help|what can you do)\\b.*")) {
-            String helpText = "Say \u201CCall\u201D followed by a name, ask the time, check battery, or say \u201CStop\u201D.";
+            String helpText = "Say \u201CCall\u201D and a name, ask the time or battery, say \u201Copen\u201D and an app, ask me to read your notifications, or say \u201CStop\u201D.";
             speak(helpText);
             broadcastMessage(helpText);
             LogStore.append(this, "QUICK", "Help requested");
@@ -851,6 +862,90 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         rearmAfterAction();
+    }
+
+    /**
+     * Read recent phone notifications by voice. Supports filtering by app
+     * ("whatsapp", "sms/text"). Prompts to grant Notification Access if needed.
+     */
+    private void handleNotifications(String normalized) {
+        if (!notificationAccessGranted()) {
+            String msg = "I need notification access first. Opening the settings — enable IRIS there.";
+            broadcastMessage(msg);
+            speakThenRun(msg, this::rearmAfterAction);
+            openNotificationAccessSettings();
+            LogStore.append(this, "NOTIF", "Access not granted — opened settings");
+            return;
+        }
+
+        // Determine an app filter from the request
+        String filter = null; String filterLabel = null;
+        if (normalized.contains("whatsapp")) { filter = "whatsapp"; filterLabel = "WhatsApp"; }
+        else if (normalized.matches(".*\\b(sms|text|texted|texts)\\b.*")) { filter = "sms_family"; filterLabel = "messages"; }
+
+        List<NotificationStore.Item> items;
+        if ("sms_family".equals(filter)) {
+            items = new ArrayList<>();
+            for (NotificationStore.Item it : NotificationStore.recent(50)) {
+                String p = it.pkg.toLowerCase();
+                if (p.contains("mms") || p.contains("sms") || p.contains("messaging")
+                        || it.appLabel.toLowerCase().contains("message")) {
+                    items.add(it);
+                    if (items.size() >= 5) break;
+                }
+            }
+        } else if (filter != null) {
+            items = NotificationStore.recentFor(filter, 5);
+        } else {
+            items = NotificationStore.recent(5);
+        }
+
+        if (items.isEmpty()) {
+            String none = filterLabel != null
+                    ? "You have no recent " + filterLabel + " notifications."
+                    : "You have no recent notifications.";
+            broadcastMessage(none);
+            speakThenRun(none, this::rearmAfterAction);
+            LogStore.append(this, "NOTIF", "None" + (filterLabel != null ? " for " + filterLabel : ""));
+            return;
+        }
+
+        int count = Math.min(items.size(), 3);
+        StringBuilder spoken = new StringBuilder();
+        spoken.append("You have ").append(items.size())
+              .append(items.size() == 1 ? " recent notification. " : " recent notifications. ");
+        for (int i = 0; i < count; i++) {
+            NotificationStore.Item it = items.get(i);
+            spoken.append("From ").append(it.appLabel);
+            if (!it.title.isEmpty()) spoken.append(", ").append(it.title);
+            if (!it.text.isEmpty()) spoken.append(": ").append(it.text);
+            spoken.append(". ");
+        }
+        String out = spoken.toString().trim();
+        broadcastMessage("\uD83D\uDD14 " + out);
+        speakThenRun(out, this::rearmAfterAction);
+        LogStore.append(this, "NOTIF", "Read " + count + " of " + items.size()
+                + (filterLabel != null ? " (" + filterLabel + ")" : ""));
+    }
+
+    private boolean notificationAccessGranted() {
+        try {
+            String flat = android.provider.Settings.Secure.getString(
+                    getContentResolver(), "enabled_notification_listeners");
+            return flat != null && flat.contains(getPackageName());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void openNotificationAccessSettings() {
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } catch (Exception e) {
+            LogStore.append(this, "NOTIF ERROR", "Can't open settings: " + e.getMessage());
+        }
     }
 
     /**
