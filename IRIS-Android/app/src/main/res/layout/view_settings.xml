@@ -67,14 +67,14 @@
                 android:text="Check / download offline language" android:textAllCaps="false" android:textColor="@color/text_primary" />
             <Button android:id="@+id/downloadBrainButton" android:layout_width="match_parent" android:layout_height="52dp"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_primary"
-                android:text="\uD83E\uDDE0 Download AI brain (Gemma, ~550 MB)" android:textAllCaps="false"
+                android:text="\uD83E\uDDE0 Download AI brain (~1.6 GB)" android:textAllCaps="false"
                 android:textColor="@color/text_primary" android:textStyle="bold" />
             <TextView android:id="@+id/brainStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="6dp" android:text="AI brain: not installed (using rule-based replies)"
                 android:textColor="@color/text_muted" android:textSize="12sp" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="Gemma is license-gated. One-time free setup: 1) open huggingface.co/litert-community/Gemma3-1B-IT and click Agree/Acknowledge, 2) create a token at huggingface.co/settings/tokens, 3) paste it below."
+                android:text="The default AI brain is open (no account needed) — just tap Download. The token field below is optional, only needed if you switch to a gated model."
                 android:textColor="@color/text_muted" android:textSize="11sp" />
             <EditText android:id="@+id/hfTokenInput" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary" android:padding="12dp"

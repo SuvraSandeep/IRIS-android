@@ -51,7 +51,7 @@ public final class ModelManager {
         android.net.Network net = cm.getActiveNetwork();
         if (net == null) {
             createDownloadChannel(context);
-            postNotif(context, "\uD83E\uDDE0 IRIS AI brain", "Waiting for a connection to download the AI brain (~550 MB).", false);
+            postNotif(context, "\uD83E\uDDE0 IRIS AI brain", "Waiting for a connection to download the AI brain (~1.6 GB).", false);
             return;
         }
         android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(net);
@@ -59,7 +59,7 @@ public final class ModelManager {
         boolean unmetered = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
         createDownloadChannel(context);
         String netNote = unmetered ? "" : " (using mobile data)";
-        postNotif(context, "\uD83E\uDDE0 Downloading IRIS AI brain", "Starting\u2026 (~550 MB, one time)" + netNote, true);
+        postNotif(context, "\uD83E\uDDE0 Downloading IRIS AI brain", "Starting\u2026 (~1.6 GB, one time)" + netNote, true);
         downloadGemma(context, new LlmDownloadListener() {
             @Override public void onProgress(int percent, long done, long total) {
                 String mb = total > 0 ? (done / 1048576) + " / " + (total / 1048576) + " MB" : (done / 1048576) + " MB";
@@ -110,15 +110,15 @@ public final class ModelManager {
     // ─── Gemma LLM model ───
 
     /** Candidate filenames the LlmAgent looks for. */
-    public static final String GEMMA_FILE = "gemma3-1b-it-int4.task";
+    public static final String GEMMA_FILE = "qwen2.5-1.5b-it-int8.task";
 
     /**
-     * Public URL for the Gemma 3 1B int4 .task model (LiteRT community build).
-     * If this becomes gated, the user can adb-push the .task file into the model
-     * dir manually instead.
+     * Public URL for the AI brain model. Uses litert-community/Qwen2.5-1.5B-Instruct
+     * (Apache-2.0, NOT gated) so it downloads with no Hugging Face account or token.
+     * Built for the MediaPipe LLM Inference API (same engine LlmAgent uses).
      */
     private static final String GEMMA_URL =
-            "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task?download=true";
+            "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task?download=true";
 
     public interface LlmDownloadListener {
         void onProgress(int percent, long downloadedBytes, long totalBytes);
@@ -131,7 +131,7 @@ public final class ModelManager {
         return f.exists() && f.length() > 100_000_000L; // > 100 MB sanity check
     }
 
-    /** Download the Gemma LLM model (~550 MB) on a background thread. */
+    /** Download the AI brain model (~1.6 GB) on a background thread. */
     public static void downloadGemma(Context context, LlmDownloadListener listener) {
         new Thread(() -> {
             File dir = modelDir(context);

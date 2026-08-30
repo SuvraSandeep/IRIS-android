@@ -780,7 +780,7 @@ public class MainActivity extends Activity {
             }
             new AlertDialog.Builder(this)
                     .setTitle("\uD83E\uDDE0 Download AI brain?")
-                    .setMessage("This downloads Google Gemma (~550 MB) so IRIS can chat with real AI, fully offline.\n\nUse WiFi. This is a one-time download.")
+                    .setMessage("This downloads an open AI model (Qwen 2.5, ~1.6 GB) so IRIS can chat with real AI, fully offline. No account needed.\n\nUse WiFi if you can. This is a one-time download.")
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Download", (d, w) -> {
                         brainButton.setEnabled(false);
