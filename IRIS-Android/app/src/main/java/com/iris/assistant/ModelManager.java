@@ -33,6 +33,80 @@ public final class ModelManager {
 
     private ModelManager() { }
 
+    // ─── Automatic setup with notifications ───
+
+    private static final String DL_CHANNEL = "iris_download_v1";
+    private static final int DL_NOTIF_ID = 4301;
+
+    /**
+     * Automatically download the Gemma AI brain if missing.
+     * Skips silently if present or offline. On mobile data, notifies to use WiFi.
+     * On WiFi, downloads in background with a live progress notification and a
+     * completion notification when the AI brain is ready.
+     */
+    public static void autoDownloadGemmaIfNeeded(Context context) {
+        if (gemmaPresent(context)) return;
+        android.net.ConnectivityManager cm =
+                (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) return;
+        android.net.Network net = cm.getActiveNetwork();
+        if (net == null) return;
+        android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+        if (caps == null || !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)) return;
+        boolean unmetered = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
+        createDownloadChannel(context);
+        if (!unmetered) {
+            notify(context, "\uD83E\uDDE0 IRIS AI brain", "Connect to WiFi to auto-download the AI brain (~550 MB).", false);
+            return;
+        }
+        notify(context, "\uD83E\uDDE0 Downloading IRIS AI brain", "Starting\u2026 (~550 MB, one time)", true);
+        downloadGemma(context, new LlmDownloadListener() {
+            @Override public void onProgress(int percent, long done, long total) {
+                String mb = total > 0 ? (done / 1048576) + " / " + (total / 1048576) + " MB" : (done / 1048576) + " MB";
+                notifyProgress(context, "\uD83E\uDDE0 Downloading IRIS AI brain",
+                        (percent >= 0 ? percent + "% \u2022 " : "") + mb, percent);
+            }
+            @Override public void onComplete(File model) {
+                notify(context, "\u2705 IRIS AI brain ready!",
+                        "Conversational AI is active. Say your wake phrase and chat.", false);
+            }
+            @Override public void onError(String message) {
+                notify(context, "\u26A0\uFE0F AI brain download failed",
+                        message + " \u2014 will retry next time on WiFi.", false);
+            }
+        });
+    }
+
+    private static void createDownloadChannel(Context context) {
+        android.app.NotificationManager nm =
+                (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        nm.createNotificationChannel(new android.app.NotificationChannel(
+                DL_CHANNEL, "IRIS model downloads", android.app.NotificationManager.IMPORTANCE_LOW));
+    }
+
+    private static void notify(Context context, String title, String text, boolean ongoing) {
+        android.app.NotificationManager nm =
+                (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        nm.notify(DL_NOTIF_ID, new android.app.Notification.Builder(context, DL_CHANNEL)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle(title).setContentText(text)
+                .setOngoing(ongoing).setOnlyAlertOnce(true).build());
+    }
+
+    private static void notifyProgress(Context context, String title, String text, int percent) {
+        android.app.NotificationManager nm =
+                (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        android.app.Notification.Builder b = new android.app.Notification.Builder(context, DL_CHANNEL)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setContentTitle(title).setContentText(text)
+                .setOngoing(true).setOnlyAlertOnce(true);
+        if (percent >= 0) b.setProgress(100, percent, false); else b.setProgress(0, 0, true);
+        nm.notify(DL_NOTIF_ID, b.build());
+    }
+
     // ─── Gemma LLM model ───
 
     /** Candidate filenames the LlmAgent looks for. */
