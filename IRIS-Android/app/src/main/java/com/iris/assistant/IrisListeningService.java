@@ -398,7 +398,9 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void restartAndroidWake() {
         if (!isRunning || !PHASE_WAKE.equals(phase) || recognizer == null) return;
-        muteRecognizerBeep(); // silence the start/stop earcons during always-on wake
+        // NOTE: we deliberately do NOT mute audio streams here. Muting STREAM_MUSIC
+        // to hide the recognizer beep also mutes TTS, which was cutting IRIS off
+        // mid-sentence. Silent wake comes from Vosk instead.
         try {
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
@@ -665,6 +667,21 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (requested == null) {
             // Not a call command — treat as conversation
             handleChat(clean, normalized, store);
+            return;
+        }
+
+        // Guard: "call me / myself / my phone" — can't call the owner
+        if (requested.matches("(?i)^(?:me|myself|my\\s*self|my\\s+phone|my\\s+number)$")) {
+            broadcastMessage("That's you — I can't call you. Tell me who to call.");
+            speakThenRun("That's you! Who would you like me to call?", this::rearmAfterAction);
+            LogStore.append(this, "CALL", "Refused self-call");
+            return;
+        }
+        // Guard: empty or too-short name — ask who instead of matching randomly
+        if (requested.length() < 2) {
+            broadcastMessage("Who would you like me to call?");
+            speakThenRun("Who would you like me to call?", this::startCommandRecognition);
+            LogStore.append(this, "CALL", "No name given");
             return;
         }
 
@@ -1165,12 +1182,61 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         android.location.Location loc = lastKnownLocation();
         if (loc == null) {
-            String msg = "I couldn't get your location. Make sure location is turned on.";
-            broadcastMessage(msg);
-            speakThenRun(msg, this::rearmAfterAction);
-            LogStore.append(this, "WEATHER", "No location fix");
+            // No cached fix — request a fresh one, then retry weather.
+            broadcastMessage("\u26C5 Getting your location\u2026");
+            LogStore.append(this, "WEATHER", "No cached fix — requesting fresh location");
+            requestFreshLocation(fresh -> {
+                if (fresh == null) {
+                    String msg = "I couldn't get your location. Make sure location is turned on.";
+                    broadcastMessage(msg);
+                    speakThenRun(msg, this::rearmAfterAction);
+                    LogStore.append(this, "WEATHER", "No location fix");
+                } else {
+                    fetchWeatherFor(fresh, normalized);
+                }
+            });
             return;
         }
+        fetchWeatherFor(loc, normalized);
+    }
+
+    /** Request a single fresh location update with a timeout; callback gets null on failure. */
+    private void requestFreshLocation(java.util.function.Consumer<android.location.Location> cb) {
+        try {
+            android.location.LocationManager lm =
+                    (android.location.LocationManager) getSystemService(LOCATION_SERVICE);
+            if (lm == null) { cb.accept(null); return; }
+            String provider = lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+                    ? android.location.LocationManager.NETWORK_PROVIDER
+                    : (lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+                        ? android.location.LocationManager.GPS_PROVIDER : null);
+            if (provider == null) { cb.accept(null); return; }
+            final boolean[] done = {false};
+            final android.location.LocationListener listener = new android.location.LocationListener() {
+                @Override public void onLocationChanged(android.location.Location location) {
+                    if (done[0]) return;
+                    done[0] = true;
+                    try { lm.removeUpdates(this); } catch (Exception ignored) { }
+                    handler.post(() -> cb.accept(location));
+                }
+                @Override public void onProviderDisabled(String p) { }
+                @Override public void onProviderEnabled(String p) { }
+                @Override public void onStatusChanged(String p, int s, Bundle e) { }
+            };
+            lm.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper());
+            // Timeout after 8 seconds → fall back to last-known or null
+            handler.postDelayed(() -> {
+                if (done[0]) return;
+                done[0] = true;
+                try { lm.removeUpdates(listener); } catch (Exception ignored) { }
+                cb.accept(lastKnownLocation());
+            }, 8000);
+        } catch (SecurityException | Exception e) {
+            cb.accept(null);
+        }
+    }
+
+    private void fetchWeatherFor(android.location.Location loc, String normalized) {
         boolean forecast = normalized.matches(".*\\b(forecast|tomorrow|later|week|rain)\\b.*");
         broadcastMessage("\u26C5 Checking the weather\u2026");
         LogStore.append(this, "WEATHER", "Fetching for " + loc.getLatitude() + "," + loc.getLongitude());
@@ -1491,11 +1557,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void handleConfirmation(String heard) {
         String answer = ProfileStore.normalize(heard);
         LogStore.append(this, "CONFIRM VOICE", answer);
-        if (answer.matches(".*\\b(yes|call|confirm|do it|haan|ha)\\b.*")) {
-            if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
-            pendingCandidates = null;
-            placeCall(pendingName, pendingNumber);
-        } else if (answer.matches(".*\\b(no|cancel|stop|nope|nahi|shut up|quiet|ruk|bas|never mind)\\b.*")) {
+        // "no" first so "no" never gets misread as yes. "call" is NOT a yes —
+        // it's ambiguous with a fresh command and caused wrong-contact calls.
+        if (answer.matches("^(?:no|nope|nah|nahi|cancel|wrong|not\\s+\\w+|stop|never\\s*mind|ruk|bas)\\b.*")) {
             if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
             cancelCallNotification();
             // If there are more candidates, ask about the next one
@@ -1509,9 +1573,13 @@ public class IrisListeningService extends Service implements RecognitionListener
                 broadcastMessage("Call cancelled.");
                 speakThenRun("Okay, cancelled.", this::rearmAfterAction);
             }
+        } else if (answer.matches("^(?:yes|yeah|yep|yup|confirm|correct|right|sure|okay|ok|do\\s+it|go\\s+ahead|haan|ha)\\b.*")) {
+            if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
+            pendingCandidates = null;
+            placeCall(pendingName, pendingNumber);
         } else if (confirmationRetries++ < 1) {
-            broadcastMessage("Say “Call” or “Cancel”, or use the buttons.");
-            handler.postDelayed(this::startConfirmationRecognition, 450);
+            broadcastMessage("Say “yes” to call or “no” to cancel.");
+            speakThenRun("Say yes to call, or no to cancel.", this::startConfirmationRecognition);
         } else {
             cancelCallNotification();
             broadcastMessage("I couldn't understand. Call cancelled.");
@@ -1536,7 +1604,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 String name = cursor.getString(0);
                 String number = cursor.getString(1);
                 double score = nameScore(target, ProfileStore.normalize(name));
-                if (score >= .65) matches.add(new ContactMatch(name, number, score));
+                if (score >= .72) matches.add(new ContactMatch(name, number, score));
             }
         } catch (Exception error) {
             LogStore.append(this, "ERROR", "Contact lookup failed: " + error.getMessage());
