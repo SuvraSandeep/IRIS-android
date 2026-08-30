@@ -103,6 +103,10 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern OPEN_APP_PATTERN = Pattern.compile(
             "^(?:please\\s+)?(?:open|launch|start|run)\\s+(?:the\\s+)?(.+?)(?:\\s+app)?$",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern WEATHER_PATTERN = Pattern.compile(
+            ".*\\b(?:weather|forecast|temperature|how\\s+(?:hot|cold|warm)|going\\s+to\\s+rain"
+            + "|will\\s+it\\s+rain|is\\s+it\\s+(?:raining|sunny|hot|cold))\\b.*",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern NOTIFICATION_PATTERN = Pattern.compile(
             ".*\\bnotifications?\\b.*"
             + "|.*\\bwho\\s+(?:texted|messaged|pinged)\\s+me\\b.*"
@@ -300,9 +304,10 @@ public class IrisListeningService extends Service implements RecognitionListener
                 voskEngine.stop();
                 LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Vosk)");
                 vibrate(45);
-                broadcastMessage(timeGreeting() + " What can I do?");
+                String greet = wakeGreeting();
+                broadcastMessage(greet);
                 // Speak THEN listen — never cut off IRIS mid-sentence
-                speakThenRun(timeGreeting() + " What can I do?", IrisListeningService.this::startCommandRecognition);
+                speakThenRun(greet, IrisListeningService.this::startCommandRecognition);
             }
             @Override public void onError(String message) {
                 LogStore.append(IrisListeningService.this, "VOSK ERROR", message);
@@ -352,9 +357,12 @@ public class IrisListeningService extends Service implements RecognitionListener
                 if (detected && isRunning && PHASE_WAKE.equals(phase)) {
                     androidWakeActive = false;
                     restoreRecognizerBeep(); // unmute so the greeting + TTS are audible
+                    destroyRecognizer();     // fully release the mic before speaking
                     LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Android STT)");
                     vibrate(45);
-                    speakThenRun(timeGreeting() + " What can I do?", IrisListeningService.this::startCommandRecognition);
+                    String greet = wakeGreeting();
+                    broadcastMessage(greet);
+                    speakThenRun(greet, IrisListeningService.this::startCommandRecognition);
                 } else if (isRunning && PHASE_WAKE.equals(phase)) {
                     handler.postDelayed(IrisListeningService.this::restartAndroidWake, 200);
                 }
@@ -634,6 +642,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
+        // 5d. Weather / forecast
+        if (WEATHER_PATTERN.matcher(normalized).matches()) {
+            handleWeather(normalized);
+            return;
+        }
+
         // 6. Call patterns (English)
         Matcher matcher = CALL_PATTERN.matcher(normalized);
         String requested = null;
@@ -850,14 +864,69 @@ public class IrisListeningService extends Service implements RecognitionListener
                     : professional ? "Understood. What would you like?"
                     : pick("Great! What would you like to do?", "Cool! What's next?");
         }
+        // Date / day
+        else if (normalized.matches(".*\\b(what.?s the date|what date|what day|which day|today.?s date)\\b.*")) {
+            java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("EEEE, MMMM d", Locale.getDefault());
+            reply = "Today is " + fmt.format(new java.util.Date()) + ".";
+        }
+        // Jokes
+        else if (normalized.matches(".*\\b(joke|make me laugh|something funny)\\b.*")) {
+            reply = pick(
+                    "Why don't scientists trust atoms? Because they make up everything.",
+                    "I told my phone I needed a break, and now it won't stop giving me KitKat ads.",
+                    "Why did the developer go broke? Because he used up all his cache.",
+                    "I would tell you a UDP joke, but you might not get it.",
+                    "Parallel lines have so much in common. It's a shame they'll never meet.");
+        }
+        // Emotional / well-being
+        else if (normalized.matches(".*\\b(i.?m sad|i am sad|i feel sad|i.?m depressed|feeling low|i.?m down)\\b.*")) {
+            reply = warm ? pick("I'm sorry you're feeling that way" + namePart + ". I'm here for you. Want to call someone you love?",
+                                 "That's tough" + namePart + ". Talking to someone can help \u2014 want me to call a friend?")
+                    : "I'm sorry to hear that" + namePart + ". Want me to call someone close to you?";
+        }
+        else if (normalized.matches(".*\\b(i.?m bored|i am bored|so bored)\\b.*")) {
+            reply = pick("Want to hear a joke, or should I call someone for you?",
+                         "Let's fix that \u2014 I can tell you a joke or ring a friend. Your call.",
+                         "Boredom, the classic. Ask me for a joke or the weather?");
+        }
+        else if (normalized.matches(".*\\b(i.?m tired|i am tired|so tired|exhausted)\\b.*")) {
+            reply = warm ? "Get some rest" + namePart + ". Say \u201Cgo to sleep\u201D and I'll be quiet."
+                    : "Sounds like you need a break" + namePart + ".";
+        }
+        // Love / compliments
+        else if (normalized.matches(".*\\b(i love you|you.?re the best|you.?re amazing|good job|well done)\\b.*")) {
+            reply = sarcastic ? pick("Flattery will get you everywhere.", "I know. But thanks.")
+                    : warm ? pick("Aww, that means a lot" + namePart + "!", "You're the best" + namePart + "!")
+                    : pick("Thank you" + namePart + "!", "That's kind of you!");
+        }
+        // Who made you
+        else if (normalized.matches(".*\\b(who made you|who created you|your creator|who built you)\\b.*")) {
+            reply = "I was built to be your personal, private assistant \u2014 running right here on your phone.";
+        }
+        // Are you there
+        else if (normalized.matches(".*\\b(are you there|you there|can you hear me|you awake)\\b.*")) {
+            reply = pick("I'm right here" + namePart + ".", "Always listening" + namePart + ". What do you need?",
+                         "Yep, I'm here. Go ahead.");
+        }
+        // Goodbye
+        else if (normalized.matches("^(bye|goodbye|see you|see ya|catch you later|talk later)\\b.*")) {
+            String bye = warm ? pick("Take care" + namePart + "! I'm here whenever you need me.",
+                                      "Bye" + namePart + "! Talk soon.")
+                    : pick("Goodbye" + namePart + ".", "See you" + namePart + "!");
+            broadcastMessage(bye);
+            conversation.add(original, bye);
+            speakThenRun(bye, this::rearmAfterAction);
+            return;
+        }
         // Fallback
         else {
-            reply = sarcastic ? pick("That went over my circuits. I can call people, tell time, or remember things though.",
-                                      "Not sure what that means, but I can call someone or check the time.")
-                    : pick("I'm still learning to chat. I can call your contacts, tell the time, or remember things. What would you like?",
-                           "I didn't quite get that. I can make calls, tell time, or remember things for you.");
+            reply = sarcastic ? pick("That went over my circuits. I can call people, read notifications, check the weather, tell time, or remember things.",
+                                      "Not sure what that means. I can call someone, read your messages, or check the weather though.")
+                    : pick("I didn't quite catch that. I can call contacts, read your notifications, check the weather, tell the time, open apps, or remember things \u2014 what would you like?",
+                           "Hmm, not sure. Try \u201Ccall Mom\u201D, \u201Cwhat's the weather\u201D, \u201Cread my notifications\u201D, or \u201Cremember\u2026\u201D.");
         }
 
+        conversation.add(original, reply);
         if ("Silent".equals(personality)) {
             broadcastMessage(reply);
             handler.postDelayed(this::rearmAfterAction, 800);
@@ -872,7 +941,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (containsCallVerb(n)) return false; // never swallow a call command
         if (n.matches(".*\\btime\\b.*")) return true;
         if (n.matches(".*\\bbattery\\b.*")) return true;
-        if (n.matches("^(?:stop|shut\\s*up|quiet|silence|go\\s+to\\s+sleep|sleep|never\\s*mind)$")) return true;
+        if (n.matches(".*\\b(?:charging|charge|plugged)\\b.*")) return true;
+        if (n.matches("^(?:stop|shut\\s*up|quiet|silence|go\\s+to\\s+sleep|go\\s+to\\s+bed|sleep|sleep\\s+now|good\\s*night|goodnight|rest|dismiss|never\\s*mind)$")) return true;
         if (n.matches(".*\\b(?:kill|shut\\s*down|shutdown|turn\\s+off|power\\s+off|terminate)\\b.*")) return true;
         if (n.matches(".*\\b(?:what\\s+can\\s+you\\s+do|help\\s+me|^help$)\\b.*")) return true;
         return false;
@@ -880,6 +950,40 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private boolean containsCallVerb(String n) {
         return n.matches(".*\\b(?:call|dial|phone|ring)\\b.*");
+    }
+
+    private Intent batteryIntent() {
+        try {
+            return registerReceiver(null,
+                    new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        } catch (Exception e) { return null; }
+    }
+
+    private boolean isCharging() {
+        Intent b = batteryIntent();
+        if (b == null) return false;
+        int status = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+        return status == BatteryManager.BATTERY_STATUS_CHARGING
+                || status == BatteryManager.BATTERY_STATUS_FULL;
+    }
+
+    private String chargingStatusText() {
+        Intent b = batteryIntent();
+        if (b == null) return "I can\u2019t check charging right now.";
+        int status = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+        int level = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+        int pct = (level >= 0 && scale > 0) ? Math.round(level * 100f / scale) : -1;
+        String pctPart = pct >= 0 ? " It's at " + pct + " percent." : "";
+        if (status == BatteryManager.BATTERY_STATUS_FULL) return "Yes, it's plugged in and fully charged.";
+        if (status == BatteryManager.BATTERY_STATUS_CHARGING) {
+            int plugged = b.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1);
+            String how = plugged == BatteryManager.BATTERY_PLUGGED_USB ? " over USB"
+                    : plugged == BatteryManager.BATTERY_PLUGGED_AC ? " on the charger"
+                    : plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS ? " wirelessly" : "";
+            return "Yes, your phone is charging" + how + "." + pctPart;
+        }
+        return "No, your phone isn't charging." + pctPart;
     }
 
     private void handleQuickAction(String normalized) {
@@ -893,10 +997,22 @@ public class IrisListeningService extends Service implements RecognitionListener
             speak(timeText);
             broadcastMessage(timeText);
             LogStore.append(this, "QUICK", "Time: " + timeText);
+        } else if (normalized.matches(".*\\b(?:charging|charge|plugged)\\b.*")) {
+            String chargeText = chargingStatusText();
+            speak(chargeText);
+            broadcastMessage(chargeText);
+            LogStore.append(this, "QUICK", chargeText);
         } else if (normalized.matches(".*\\b(battery)\\b.*")) {
             BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
             int level = bm != null ? bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) : -1;
-            String batteryText = level >= 0 ? "Battery is at " + level + " percent" : "I can\u2019t check the battery right now";
+            String batteryText;
+            if (level >= 0) {
+                batteryText = "Battery is at " + level + " percent";
+                if (isCharging()) batteryText += ", and charging";
+                batteryText += ".";
+            } else {
+                batteryText = "I can\u2019t check the battery right now.";
+            }
             speak(batteryText);
             broadcastMessage(batteryText);
             LogStore.append(this, "QUICK", batteryText);
@@ -969,7 +1085,12 @@ public class IrisListeningService extends Service implements RecognitionListener
         // COUNT
         if (wantsCount) {
             int n = items.size();
-            String out = "You have " + n + (n == 1 ? " notification" : " notifications") + scope + ".";
+            String out;
+            if (n == 0 && appFilter == null && rawSender == null) {
+                out = "You have no notifications right now. I'll keep track as new ones arrive.";
+            } else {
+                out = "You have " + n + (n == 1 ? " notification" : " notifications") + scope + ".";
+            }
             reply(out);
             LogStore.append(this, "NOTIF", "Count" + scope + " = " + n);
             return;
@@ -1030,6 +1151,87 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void reply(String text) {
         broadcastMessage("\uD83D\uDD14 " + text);
         speakThenRun(text, this::rearmAfterAction);
+    }
+
+    /** Speak weather/forecast for the current location via free Open-Meteo. */
+    private void handleWeather(String normalized) {
+        if (!hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+                && !hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            String msg = "I need location permission for weather. Open the IRIS app and grant location access.";
+            broadcastMessage(msg);
+            speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "WEATHER", "No location permission");
+            return;
+        }
+        android.location.Location loc = lastKnownLocation();
+        if (loc == null) {
+            String msg = "I couldn't get your location. Make sure location is turned on.";
+            broadcastMessage(msg);
+            speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "WEATHER", "No location fix");
+            return;
+        }
+        boolean forecast = normalized.matches(".*\\b(forecast|tomorrow|later|week|rain)\\b.*");
+        broadcastMessage("\u26C5 Checking the weather\u2026");
+        LogStore.append(this, "WEATHER", "Fetching for " + loc.getLatitude() + "," + loc.getLongitude());
+        final android.location.Location floc = loc;
+        // Geocode (blocking) off the main thread, then fetch.
+        new Thread(() -> {
+            String place = geocodePlace(floc);
+            WeatherService.fetch(floc.getLatitude(), floc.getLongitude(), forecast, place,
+                    new WeatherService.WeatherListener() {
+                        @Override public void onResult(String spoken) {
+                            broadcastMessage("\u26C5 " + spoken);
+                            speakThenRun(spoken, IrisListeningService.this::rearmAfterAction);
+                            LogStore.append(IrisListeningService.this, "WEATHER", "OK");
+                        }
+                        @Override public void onError(String message) {
+                            String msg = "I couldn't reach the weather service. Check your connection.";
+                            broadcastMessage(msg);
+                            speakThenRun(msg, IrisListeningService.this::rearmAfterAction);
+                            LogStore.append(IrisListeningService.this, "WEATHER ERROR", message);
+                        }
+                    });
+        }, "IRIS-Geocode").start();
+    }
+
+    private android.location.Location lastKnownLocation() {
+        try {
+            android.location.LocationManager lm =
+                    (android.location.LocationManager) getSystemService(LOCATION_SERVICE);
+            if (lm == null) return null;
+            android.location.Location best = null;
+            String[] providers = {
+                    android.location.LocationManager.NETWORK_PROVIDER,
+                    android.location.LocationManager.GPS_PROVIDER,
+                    android.location.LocationManager.PASSIVE_PROVIDER
+            };
+            for (String p : providers) {
+                try {
+                    android.location.Location l = lm.getLastKnownLocation(p);
+                    if (l != null && (best == null || l.getTime() > best.getTime())) best = l;
+                } catch (SecurityException | IllegalArgumentException ignored) { }
+            }
+            return best;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Reverse-geocode a rough place name (best effort; may return null). */
+    private String geocodePlace(android.location.Location loc) {
+        try {
+            android.location.Geocoder g = new android.location.Geocoder(this, Locale.getDefault());
+            java.util.List<android.location.Address> list =
+                    g.getFromLocation(loc.getLatitude(), loc.getLongitude(), 1);
+            if (list != null && !list.isEmpty()) {
+                android.location.Address a = list.get(0);
+                if (a.getLocality() != null) return a.getLocality();
+                if (a.getSubAdminArea() != null) return a.getSubAdminArea();
+                if (a.getAdminArea() != null) return a.getAdminArea();
+            }
+        } catch (Exception ignored) { }
+        return null;
     }
 
     private String describeScope(String appLabel, String sender) {
@@ -1795,7 +1997,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             @Override public void onDone(String utteranceId) {
                 if ("iris_greet".equals(utteranceId) && !ran[0]) {
                     ran[0] = true;
-                    handler.post(() -> { textToSpeech.setOnUtteranceProgressListener(null); afterSpeaking.run(); });
+                    // Small settle delay so the audio tail fully flushes before the
+                    // mic opens — prevents the greeting being cut off / re-heard.
+                    handler.postDelayed(() -> {
+                        textToSpeech.setOnUtteranceProgressListener(null);
+                        afterSpeaking.run();
+                    }, 300);
                 }
             }
             @Override public void onError(String utteranceId) {
@@ -1852,6 +2059,38 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
         }
         return null;
+    }
+
+    /** A varied, natural wake greeting so IRIS doesn't sound robotic. */
+    private String wakeGreeting() {
+        String name = MemoryStore.ownerName(this);
+        String n = name != null ? " " + name : "";
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        String tod = hour < 6 ? "" : hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : hour < 21 ? "Evening" : "";
+        String personality = settings.personality();
+        if ("Professional".equals(personality)) {
+            return pick("Yes" + n + "?", "How can I help" + n + "?", "At your service" + n + ".",
+                    "Listening" + n + ".", "Go ahead" + n + ".");
+        }
+        if ("Sarcastic".equals(personality)) {
+            return pick("You rang" + n + "?", "What now" + n + "?", "I'm all ears" + n + ".",
+                    "Yeah" + n + ", what's up?", "Back again" + n + "? What do you need?");
+        }
+        // Warm / default
+        String[] base = {
+                "Hey" + n + ", what can I do?",
+                "Yes" + n + "? I'm listening.",
+                "Hi" + n + ", how can I help?",
+                "I'm here" + n + ". What do you need?",
+                "What's up" + n + "?",
+                "Go ahead" + n + ", I'm listening."
+        };
+        String g = base[chatRandom.nextInt(base.length)];
+        // Occasionally prepend the time of day for a natural touch
+        if (!tod.isEmpty() && chatRandom.nextInt(3) == 0) {
+            g = tod + n + ". " + pick("What can I do?", "How can I help?", "I'm listening.");
+        }
+        return g;
     }
 
     private String timeGreeting() {

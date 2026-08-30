@@ -830,11 +830,12 @@ public class MainActivity extends Activity {
         addIfMissing(missing, Manifest.permission.RECORD_AUDIO);
         addIfMissing(missing, Manifest.permission.READ_CONTACTS);
         addIfMissing(missing, Manifest.permission.CALL_PHONE);
+        addIfMissing(missing, Manifest.permission.ACCESS_COARSE_LOCATION);
         if (Build.VERSION.SDK_INT >= 31) addIfMissing(missing, Manifest.permission.BLUETOOTH_CONNECT);
         if (Build.VERSION.SDK_INT >= 33) addIfMissing(missing, Manifest.permission.POST_NOTIFICATIONS);
         if (missing.isEmpty()) startListeningService();
         else new AlertDialog.Builder(this).setTitle("IRIS needs a few doors opened")
-                .setMessage("Microphone listens; Contacts resolves names; Phone places confirmed calls; Bluetooth chooses a headset; Notifications keep listening visible.")
+                .setMessage("Microphone listens; Contacts resolves names; Phone places confirmed calls; Location powers weather; Bluetooth chooses a headset; Notifications keep listening visible.")
                 .setNegativeButton("Not now", null)
                 .setPositiveButton("Continue", (dialog, which) ->
                         requestPermissions(missing.toArray(new String[0]), PERMISSION_START)).show();
