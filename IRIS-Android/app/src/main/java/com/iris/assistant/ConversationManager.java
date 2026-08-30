@@ -9,7 +9,7 @@ import java.util.Deque;
  * just said and stay in context. Pure in-memory, resets when the service restarts.
  */
 public final class ConversationManager {
-    private static final int MAX_TURNS = 8; // last 8 exchanges
+    private static final int MAX_TURNS = 4; // last 4 exchanges
 
     public static class Turn {
         public final String user;

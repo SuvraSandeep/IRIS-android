@@ -75,12 +75,38 @@ public final class LlmAgent {
         try {
             String prompt = buildPrompt(context, userMessage, conversationContext);
             Object result = generateMethod.invoke(llmInference, prompt);
-            return result != null ? result.toString().trim() : null;
+            return cleanReply(result != null ? result.toString() : null);
         } catch (Throwable t) {
             android.util.Log.e("IRIS", "LLM generate failed: " + t.getMessage());
             return null;
         }
     }
+
+    /**
+     * Strip conversation scaffolding the small model tends to echo back:
+     * leading "IRIS:" labels, literal "\n", and any hallucinated next turn
+     * ("User:", a second "IRIS:", or model end-of-turn markers). Keeps only
+     * IRIS's single reply. Returns null if nothing usable remains.
+     */
+    static String cleanReply(String raw) {
+        if (raw == null) return null;
+        String s = raw.replace("\\n", "\n").trim();
+        // If the model echoed turn labels, take the text after the first "IRIS:"
+        int iris = s.indexOf("IRIS:");
+        if (iris >= 0) s = s.substring(iris + 5);
+        // Cut at the first appended new turn or end-of-turn marker
+        String[] stops = {
+                "\nUser:", "User:", "\nIRIS:", "IRIS:", "\nAssistant:", "Assistant:",
+                "<|im_end|>", "<|im_start|>", "<|endoftext|>", "<end_of_turn>", "<eos>"
+        };
+        int cut = -1;
+        for (String stop : stops) {
+            int i = s.indexOf(stop);
+            if (i >= 0 && (cut < 0 || i < cut)) cut = i;
+        }
+        if (cut >= 0) s = s.substring(0, cut);
+        s = s.trim();
+        return s.isEmpty() ? null : s;
 
     /** Build the system prompt with memory, personality, conversation, and tools. */
     private String buildPrompt(Context context, String userMessage, String conversationContext) {
@@ -101,7 +127,7 @@ public final class LlmAgent {
             sb.append("What you know about the user:\n");
             int count = 0;
             for (MemoryStore.Memory m : memories) {
-                if (count++ >= 15) break;
+                if (count++ >= 8) break;
                 sb.append("- ").append(m.key).append(": ").append(m.value);
                 if (m.detail != null && !m.detail.isEmpty()) sb.append(" (").append(m.detail).append(")");
                 sb.append("\n");
@@ -119,7 +145,8 @@ public final class LlmAgent {
         sb.append("[NOTIFICATIONS] — read recent phone notifications\n");
         sb.append("[REMEMBER: <fact>] — save a fact about the user\n");
         sb.append("[RECALL: <topic>] — look up something you know about the user\n");
-        sb.append("Otherwise, reply conversationally in one or two short sentences.\n\n");
+        sb.append("Otherwise, reply conversationally in one or two short sentences.\n");
+        sb.append("Write ONLY IRIS's next line, then stop. Never write the user's lines or continue the conversation yourself.\n\n");
 
         // Few-shot examples so the small model reliably uses tags
         sb.append("Examples:\n");
