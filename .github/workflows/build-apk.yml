@@ -64,25 +64,28 @@ jobs:
           echo "VERSION=${version:-unknown}" >> "$GITHUB_ENV"
           echo "Building IRIS v${version:-unknown}"
 
-      - name: Download and bundle Vosk model
+      - name: Download and bundle Vosk model (optional, non-fatal)
         shell: bash
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          # App self-downloads the model at runtime; this is a best-effort
+          # speed-up that must NEVER fail the build.
           ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
           MODEL_DIR="$ASSETS_DIR/model-en-us"
-          if [[ -f "$MODEL_DIR/README" || -d "$MODEL_DIR/am" ]]; then
-            echo "Vosk model already present, skipping download."
+          if [[ -d "$MODEL_DIR/am" ]]; then
+            echo "Vosk model already present, skipping."
           else
-            echo "Downloading Vosk small English model (~40 MB)..."
             mkdir -p "$ASSETS_DIR"
             rm -rf "$MODEL_DIR"
-            curl -fSL -o "$ASSETS_DIR/vosk-model.zip" \
-              https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-            unzip -q "$ASSETS_DIR/vosk-model.zip" -d "$ASSETS_DIR"
-            rm -f "$ASSETS_DIR/vosk-model.zip"
-            mv "$ASSETS_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR"
-            echo "Vosk model bundled. Contents:"
-            ls -la "$MODEL_DIR" || true
+            if curl -fSL --retry 2 --max-time 180 -o "$ASSETS_DIR/vosk-model.zip" \
+                 https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip \
+               && unzip -q "$ASSETS_DIR/vosk-model.zip" -d "$ASSETS_DIR"; then
+              mv "$ASSETS_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR" || true
+              echo "Vosk model bundled."
+            else
+              echo "::warning::Vosk download failed — app downloads it at runtime."
+            fi
+            rm -f "$ASSETS_DIR/vosk-model.zip" || true
           fi
 
       - name: Build APK
@@ -91,9 +94,9 @@ jobs:
           chmod +x gradlew 2>/dev/null || true
           build_type="${{ inputs.build_type || 'debug' }}"
           if [[ "$build_type" == "release" ]]; then
-            ./gradlew :app:assembleRelease --stacktrace 2>/dev/null || gradle :app:assembleRelease --stacktrace
+            ./gradlew :app:assembleRelease --stacktrace
           else
-            ./gradlew :app:assembleDebug --stacktrace 2>/dev/null || gradle :app:assembleDebug --stacktrace
+            ./gradlew :app:assembleDebug --stacktrace
           fi
 
       - name: Run lint
