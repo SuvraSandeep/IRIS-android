@@ -1231,7 +1231,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 try { lm.removeUpdates(listener); } catch (Exception ignored) { }
                 cb.accept(lastKnownLocation());
             }, 8000);
-        } catch (SecurityException | Exception e) {
+        } catch (Exception e) {
             cb.accept(null);
         }
     }
