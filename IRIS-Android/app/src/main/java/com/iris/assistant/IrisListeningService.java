@@ -113,6 +113,46 @@ public class IrisListeningService extends Service implements RecognitionListener
             + "|what(?:'?s|\\s+is)\\s+my\\s+location"
             + "|which\\s+(?:city|place|area|town)\\s+am\\s+i(?:\\s+in)?)\\b.*",
             Pattern.CASE_INSENSITIVE);
+    // "text Rahul saying I'll be late" / "send a message to mom that I'm coming"
+    private static final Pattern SMS_PATTERN = Pattern.compile(
+            "^(?:send\\s+(?:a\\s+)?(?:text|message|sms)\\s+to|text|message|sms)\\s+(.+?)\\s+(?:saying|that|:)\\s+(.+)$",
+            Pattern.CASE_INSENSITIVE);
+    // "whatsapp Rahul saying hi" / "send a whatsapp to mom that ..."
+    private static final Pattern WHATSAPP_PATTERN = Pattern.compile(
+            "^(?:send\\s+(?:a\\s+)?whatsapp(?:\\s+message)?\\s+to|whatsapp(?:\\s+message)?(?:\\s+to)?)\\s+(.+?)\\s+(?:saying|that|:)\\s+(.+)$",
+            Pattern.CASE_INSENSITIVE);
+    // "set an alarm for 7:30 am" / "wake me up at 6 am"
+    private static final Pattern ALARM_PATTERN = Pattern.compile(
+            "^(?:set\\s+(?:an?\\s+)?alarm\\s+(?:for|at)|wake\\s+me\\s+up\\s+at)\\s+(.+)$",
+            Pattern.CASE_INSENSITIVE);
+    // "set a timer for 5 minutes"
+    private static final Pattern TIMER_PATTERN = Pattern.compile(
+            "^(?:set\\s+(?:a\\s+)?timer\\s+for|timer\\s+for)\\s+(.+)$",
+            Pattern.CASE_INSENSITIVE);
+    // "remind me to call mom in 10 minutes" / "remind me to take medicine at 9 pm"
+    private static final Pattern REMINDER_PATTERN = Pattern.compile(
+            "^(?:remind\\s+me\\s+to|set\\s+a\\s+reminder\\s+to|reminder\\s+to)\\s+(.+?)\\s+(in|at)\\s+(.+)$",
+            Pattern.CASE_INSENSITIVE);
+    // "turn on the flashlight" / "torch off"
+    private static final Pattern TORCH_PATTERN = Pattern.compile(
+            "^(?:turn\\s+(on|off)\\s+(?:the\\s+)?(?:flash\\s*light|torch|flash)"
+            + "|(?:flash\\s*light|torch|flash)\\s+(on|off))$",
+            Pattern.CASE_INSENSITIVE);
+    // "volume up/down/mute/max" / "turn up the volume" / "mute"
+    private static final Pattern VOLUME_PATTERN = Pattern.compile(
+            "^(?:volume\\s+(up|down|max|maximum|mute|unmute)"
+            + "|turn\\s+(up|down)\\s+(?:the\\s+)?volume"
+            + "|(mute|unmute)(?:\\s+(?:the\\s+)?(?:volume|sound|phone))?"
+            + "|(max|maximum)\\s+volume)$",
+            Pattern.CASE_INSENSITIVE);
+    // "turn on wifi" / "disable bluetooth" / "wifi settings"
+    private static final Pattern CONNECTIVITY_PATTERN = Pattern.compile(
+            "^(?:turn\\s+(on|off)\\s+|enable\\s+|disable\\s+)?(wi-?fi|bluetooth)(?:\\s+settings?)?$",
+            Pattern.CASE_INSENSITIVE);
+    // "search for X" / "google X" / "look up X"
+    private static final Pattern WEBSEARCH_PATTERN = Pattern.compile(
+            "^(?:search\\s+(?:the\\s+web\\s+)?for|search|google|look\\s+up|web\\s+search\\s+for)\\s+(.+)$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern NOTIFICATION_PATTERN = Pattern.compile(
             ".*\\bnotifications?\\b.*"
             + "|.*\\bwho\\s+(?:texted|messaged|pinged)\\s+me\\b.*"
@@ -662,6 +702,29 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
+        // 5f. Messaging & device actions (match on original text to keep message body)
+        Matcher waM = WHATSAPP_PATTERN.matcher(clean);
+        if (waM.matches()) { handleWhatsApp(waM.group(1).trim(), waM.group(2).trim()); return; }
+        Matcher smsM = SMS_PATTERN.matcher(clean);
+        if (smsM.matches()) { handleSendSms(smsM.group(1).trim(), smsM.group(2).trim()); return; }
+        Matcher remM = REMINDER_PATTERN.matcher(clean);
+        if (remM.matches()) { handleReminder(remM.group(1).trim(), remM.group(2).trim(), remM.group(3).trim()); return; }
+        Matcher almM = ALARM_PATTERN.matcher(clean);
+        if (almM.matches()) { handleSetAlarm(almM.group(1).trim()); return; }
+        Matcher tmrM = TIMER_PATTERN.matcher(clean);
+        if (tmrM.matches()) { handleSetTimer(tmrM.group(1).trim()); return; }
+        Matcher torchM = TORCH_PATTERN.matcher(normalized);
+        if (torchM.matches()) {
+            String s = torchM.group(1) != null ? torchM.group(1) : torchM.group(2);
+            handleTorch("on".equalsIgnoreCase(s));
+            return;
+        }
+        if (VOLUME_PATTERN.matcher(normalized).matches()) { handleVolume(normalized); return; }
+        Matcher connM = CONNECTIVITY_PATTERN.matcher(normalized);
+        if (connM.matches()) { handleConnectivity(connM.group(2)); return; }
+        Matcher webM = WEBSEARCH_PATTERN.matcher(clean);
+        if (webM.matches()) { handleWebSearch(webM.group(1).trim()); return; }
+
         // 6. Call patterns (English)
         Matcher matcher = CALL_PATTERN.matcher(normalized);
         String requested = null;
@@ -796,6 +859,41 @@ public class IrisListeningService extends Service implements RecognitionListener
         // [WEATHER]
         if (out.matches(".*\\[WEATHER\\].*")) { handleWeather("weather"); return; }
         if (out.matches(".*\\[LOCATION\\].*")) { handleLocation(); return; }
+        // [SMS: name | message]
+        java.util.regex.Matcher smsTag = java.util.regex.Pattern
+                .compile("\\[SMS:\\s*([^|\\]]+)\\|([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (smsTag.find()) { handleSendSms(smsTag.group(1).trim(), smsTag.group(2).trim()); return; }
+        // [WHATSAPP: name | message]
+        java.util.regex.Matcher waTag = java.util.regex.Pattern
+                .compile("\\[WHATSAPP:\\s*([^|\\]]+)\\|([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (waTag.find()) { handleWhatsApp(waTag.group(1).trim(), waTag.group(2).trim()); return; }
+        // [ALARM: time]
+        java.util.regex.Matcher almTag = java.util.regex.Pattern
+                .compile("\\[ALARM:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (almTag.find()) { handleSetAlarm(almTag.group(1).trim()); return; }
+        // [TIMER: duration]
+        java.util.regex.Matcher tmrTag = java.util.regex.Pattern
+                .compile("\\[TIMER:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (tmrTag.find()) { handleSetTimer(tmrTag.group(1).trim()); return; }
+        // [REMINDER: in|at time | task]
+        java.util.regex.Matcher remTag = java.util.regex.Pattern
+                .compile("\\[REMINDER:\\s*(in|at)\\s+([^|\\]]+)\\|([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (remTag.find()) { handleReminder(remTag.group(3).trim(), remTag.group(1).trim(), remTag.group(2).trim()); return; }
+        // [TORCH: on/off]
+        java.util.regex.Matcher torchTag = java.util.regex.Pattern
+                .compile("\\[TORCH:\\s*(on|off)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (torchTag.find()) { handleTorch("on".equalsIgnoreCase(torchTag.group(1).trim())); return; }
+        // [VOLUME: up/down/mute/max]
+        java.util.regex.Matcher volTag = java.util.regex.Pattern
+                .compile("\\[VOLUME:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (volTag.find()) { handleVolume(volTag.group(1).trim().toLowerCase(Locale.ROOT)); return; }
+        // [WIFI] / [BLUETOOTH]
+        if (out.matches(".*\\[WIFI\\].*")) { handleConnectivity("wifi"); return; }
+        if (out.matches(".*\\[BLUETOOTH\\].*")) { handleConnectivity("bluetooth"); return; }
+        // [SEARCH: query]
+        java.util.regex.Matcher searchTag = java.util.regex.Pattern
+                .compile("\\[SEARCH:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (searchTag.find()) { handleWebSearch(searchTag.group(1).trim()); return; }
         // [NOTIFICATIONS]
         if (out.matches(".*\\[NOTIFICATIONS\\].*")) { handleNotifications("notifications"); return; }
         // [REDIAL]
@@ -1301,6 +1399,363 @@ public class IrisListeningService extends Service implements RecognitionListener
                 speakThenRun(msg, this::rearmAfterAction);
             });
         }, "IRIS-Geocode").start();
+    }
+
+    // ---------------- Messaging & device action handlers ----------------
+
+    /** Send an SMS to a resolved contact (or number). */
+    private void handleSendSms(String who, String message) {
+        if (!hasPermission(Manifest.permission.SEND_SMS)) {
+            String msg = "I need SMS permission for that. Open the IRIS app and allow sending texts.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "SMS", "No SEND_SMS permission"); return;
+        }
+        String number = resolveNumber(who);
+        if (number == null) {
+            String msg = "I couldn't find " + who + " in your contacts.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "SMS", "No contact: " + who); return;
+        }
+        try {
+            android.telephony.SmsManager sms = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    ? getSystemService(android.telephony.SmsManager.class)
+                    : android.telephony.SmsManager.getDefault();
+            java.util.ArrayList<String> parts = sms.divideMessage(message);
+            sms.sendMultipartTextMessage(number, null, parts, null, null);
+            String msg = "Sent a text to " + who + ".";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "SMS", "Sent to " + who + ": " + message);
+        } catch (Exception e) {
+            String msg = "I couldn't send that text.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "SMS", "Failed: " + e.getMessage());
+        }
+    }
+
+    /** Open a WhatsApp chat with the message pre-filled (user taps send). */
+    private void handleWhatsApp(String who, String message) {
+        String number = resolveNumber(who);
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            if (number != null) {
+                String digits = number.replaceAll("[^0-9]", "");
+                i.setData(Uri.parse("https://wa.me/" + digits
+                        + "?text=" + Uri.encode(message)));
+            } else {
+                // No number — open WhatsApp share sheet with the text
+                i = new Intent(Intent.ACTION_SEND);
+                i.setType("text/plain");
+                i.setPackage("com.whatsapp");
+                i.putExtra(Intent.EXTRA_TEXT, message);
+            }
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            String msg = number != null
+                    ? "Opening WhatsApp to " + who + " — just tap send."
+                    : "Opening WhatsApp — pick " + who + " and tap send.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "WHATSAPP", "To " + who + ": " + message);
+        } catch (Exception e) {
+            String msg = "I couldn't open WhatsApp. Is it installed?";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "WHATSAPP", "Failed: " + e.getMessage());
+        }
+    }
+
+    /** Set a system alarm. Parses hour/minute/am-pm; opens the clock UI if unparseable. */
+    private void handleSetAlarm(String timeText) {
+        int[] hm = parseClockTime(timeText);
+        try {
+            Intent i = new Intent(android.provider.AlarmClock.ACTION_SET_ALARM);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            i.putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "IRIS alarm");
+            if (hm != null) {
+                i.putExtra(android.provider.AlarmClock.EXTRA_HOUR, hm[0]);
+                i.putExtra(android.provider.AlarmClock.EXTRA_MINUTES, hm[1]);
+                i.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true);
+            }
+            startActivity(i);
+            String msg = hm != null
+                    ? "Alarm set for " + formatClock(hm[0], hm[1]) + "."
+                    : "Opening the clock so you can set the alarm.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "ALARM", timeText + (hm != null ? " → " + hm[0] + ":" + hm[1] : " (UI)"));
+        } catch (Exception e) {
+            String msg = "I couldn't set the alarm.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "ALARM", "Failed: " + e.getMessage());
+        }
+    }
+
+    /** Set a system countdown timer. */
+    private void handleSetTimer(String durationText) {
+        int seconds = parseDurationSeconds(durationText);
+        try {
+            Intent i = new Intent(android.provider.AlarmClock.ACTION_SET_TIMER);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            i.putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "IRIS timer");
+            if (seconds > 0) {
+                i.putExtra(android.provider.AlarmClock.EXTRA_LENGTH, seconds);
+                i.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true);
+            }
+            startActivity(i);
+            String msg = seconds > 0
+                    ? "Timer set for " + humanDuration(seconds) + "."
+                    : "Opening the clock so you can set the timer.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "TIMER", durationText + " → " + seconds + "s");
+        } catch (Exception e) {
+            String msg = "I couldn't set the timer.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "TIMER", "Failed: " + e.getMessage());
+        }
+    }
+
+    /** Schedule a reminder via AlarmManager; ReminderReceiver posts the notification. */
+    private void handleReminder(String task, String inAt, String timeText) {
+        long triggerAt;
+        String whenSpoken;
+        if ("in".equalsIgnoreCase(inAt)) {
+            int secs = parseDurationSeconds(timeText);
+            if (secs <= 0) secs = 600; // default 10 min
+            triggerAt = System.currentTimeMillis() + secs * 1000L;
+            whenSpoken = "in " + humanDuration(secs);
+        } else { // "at"
+            int[] hm = parseClockTime(timeText);
+            if (hm == null) {
+                String msg = "I didn't catch the time for that reminder.";
+                broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+                LogStore.append(this, "REMINDER", "Unparseable time: " + timeText); return;
+            }
+            Calendar cal = Calendar.getInstance();
+            cal.set(Calendar.HOUR_OF_DAY, hm[0]);
+            cal.set(Calendar.MINUTE, hm[1]);
+            cal.set(Calendar.SECOND, 0);
+            cal.set(Calendar.MILLISECOND, 0);
+            if (cal.getTimeInMillis() <= System.currentTimeMillis()) {
+                cal.add(Calendar.DAY_OF_MONTH, 1); // next occurrence
+            }
+            triggerAt = cal.getTimeInMillis();
+            whenSpoken = "at " + formatClock(hm[0], hm[1]);
+        }
+        try {
+            android.app.AlarmManager am =
+                    (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+            Intent i = new Intent(this, ReminderReceiver.class);
+            i.putExtra(ReminderReceiver.EXTRA_TEXT, task);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT
+                    | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+            PendingIntent pi = PendingIntent.getBroadcast(this,
+                    (int) (triggerAt & 0x7fffffff), i, flags);
+            boolean exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms();
+            if (exact) {
+                am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            } else {
+                am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            }
+            String msg = "Okay, I'll remind you to " + task + " " + whenSpoken + ".";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "REMINDER", task + " @ " + whenSpoken);
+        } catch (Exception e) {
+            String msg = "I couldn't set that reminder.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "REMINDER", "Failed: " + e.getMessage());
+        }
+    }
+
+    /** Toggle the flashlight/torch. */
+    private void handleTorch(boolean on) {
+        try {
+            android.hardware.camera2.CameraManager cm =
+                    (android.hardware.camera2.CameraManager) getSystemService(CAMERA_SERVICE);
+            String flashId = null;
+            for (String id : cm.getCameraIdList()) {
+                Boolean hasFlash = cm.getCameraCharacteristics(id)
+                        .get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                if (Boolean.TRUE.equals(hasFlash)) { flashId = id; break; }
+            }
+            if (flashId == null) {
+                String msg = "This phone doesn't have a flashlight I can control.";
+                broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction); return;
+            }
+            cm.setTorchMode(flashId, on);
+            String msg = on ? "Torch on." : "Torch off.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "TORCH", on ? "on" : "off");
+        } catch (Exception e) {
+            String msg = "I couldn't control the torch.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "TORCH", "Failed: " + e.getMessage());
+        }
+    }
+
+    /** Adjust media volume. */
+    private void handleVolume(String normalized) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            int stream = AudioManager.STREAM_MUSIC;
+            String msg;
+            if (normalized.matches(".*\\b(mute)\\b.*")) {
+                am.setStreamVolume(stream, 0, AudioManager.FLAG_SHOW_UI);
+                msg = "Muted.";
+            } else if (normalized.matches(".*\\b(unmute)\\b.*")) {
+                int half = am.getStreamMaxVolume(stream) / 2;
+                am.setStreamVolume(stream, half, AudioManager.FLAG_SHOW_UI);
+                msg = "Unmuted.";
+            } else if (normalized.matches(".*\\b(max|maximum)\\b.*")) {
+                am.setStreamVolume(stream, am.getStreamMaxVolume(stream), AudioManager.FLAG_SHOW_UI);
+                msg = "Volume maxed.";
+            } else if (normalized.matches(".*\\b(down|lower|decrease)\\b.*")) {
+                am.adjustStreamVolume(stream, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI);
+                msg = "Volume down.";
+            } else {
+                am.adjustStreamVolume(stream, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI);
+                msg = "Volume up.";
+            }
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "VOLUME", msg);
+        } catch (Exception e) {
+            broadcastMessage("I couldn't change the volume.");
+            speakThenRun("I couldn't change the volume.", this::rearmAfterAction);
+        }
+    }
+
+    /** Open the WiFi/Bluetooth settings panel (toggling isn't allowed by Android). */
+    private void handleConnectivity(String which) {
+        boolean bt = which != null && which.toLowerCase(Locale.ROOT).startsWith("bluetooth");
+        try {
+            Intent i;
+            if (bt) {
+                i = new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS);
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                i = new Intent(android.provider.Settings.Panel.ACTION_WIFI);
+            } else {
+                i = new Intent(android.provider.Settings.ACTION_WIFI_SETTINGS);
+            }
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            String label = bt ? "Bluetooth" : "Wi-Fi";
+            String msg = "Android won't let me flip that directly — here's " + label + " settings, toggle it here.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "CONNECTIVITY", label);
+        } catch (Exception e) {
+            broadcastMessage("I couldn't open those settings.");
+            speakThenRun("I couldn't open those settings.", this::rearmAfterAction);
+        }
+    }
+
+    /** Do a web search in the browser. */
+    private void handleWebSearch(String query) {
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            String msg = "Searching the web for " + query + ".";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "SEARCH", query);
+        } catch (Exception e) {
+            broadcastMessage("I couldn't open a browser.");
+            speakThenRun("I couldn't open a browser.", this::rearmAfterAction);
+        }
+    }
+
+    /** Resolve a spoken name to the best-matching contact number, or null. */
+    private String resolveNumber(String who) {
+        if (who == null || who.trim().isEmpty()) return null;
+        // Relationship first ("my brother")
+        ProfileStore store = new ProfileStore(this);
+        String[] rel = store.resolveRelationship(
+                ProfileStore.normalize(who).replaceAll("^my\\s+", ""));
+        if (rel != null && rel[1] != null && !rel[1].isEmpty()) return rel[1];
+        List<ContactMatch> matches = resolveContacts(who);
+        return matches.isEmpty() ? null : matches.get(0).number;
+    }
+
+    // ---------------- Number / time parsing helpers ----------------
+
+    private static final java.util.Map<String, Integer> NUM_WORDS = new java.util.HashMap<>();
+    static {
+        String[] ones = {"zero","one","two","three","four","five","six","seven","eight","nine",
+                "ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen",
+                "eighteen","nineteen"};
+        for (int i = 0; i < ones.length; i++) NUM_WORDS.put(ones[i], i);
+        String[] tens = {"twenty","thirty","forty","fifty"};
+        for (int i = 0; i < tens.length; i++) NUM_WORDS.put(tens[i], (i + 2) * 10);
+    }
+
+    /** Parse "5 minutes", "thirty seconds", "an hour", "half an hour" → seconds. 0 if unknown. */
+    private int parseDurationSeconds(String text) {
+        if (text == null) return 0;
+        String t = text.toLowerCase(Locale.ROOT).trim();
+        if (t.contains("half an hour") || t.contains("half hour")) return 1800;
+        if (t.contains("quarter")) return 900;
+        int unitSecs = 60; // default minutes
+        if (t.contains("hour")) unitSecs = 3600;
+        else if (t.contains("second")) unitSecs = 1;
+        else if (t.contains("minute") || t.contains("min")) unitSecs = 60;
+        int qty = extractNumber(t);
+        if (qty <= 0) {
+            if (t.startsWith("an ") || t.startsWith("a ")) qty = 1; else return 0;
+        }
+        return qty * unitSecs;
+    }
+
+    /** Parse "7", "seven", "seven thirty", "7 30", with am/pm → {hour24, minute}. Null if unknown. */
+    private int[] parseClockTime(String text) {
+        if (text == null) return null;
+        String t = text.toLowerCase(Locale.ROOT).trim();
+        boolean pm = t.contains("pm") || t.contains("p m") || t.contains("evening") || t.contains("night");
+        boolean am = t.contains("am") || t.contains("a m") || t.contains("morning");
+        // digit form "7:30" or "730"
+        Matcher md = Pattern.compile("(\\d{1,2})(?::|\\s)?(\\d{2})?").matcher(t);
+        int hour = -1, minute = 0;
+        if (md.find() && md.group(1) != null && t.matches(".*\\d.*")) {
+            hour = Integer.parseInt(md.group(1));
+            if (md.group(2) != null) minute = Integer.parseInt(md.group(2));
+        } else {
+            // word form: first number word = hour, optional second = minute
+            String[] tokens = t.split("\\s+");
+            java.util.List<Integer> nums = new ArrayList<>();
+            for (String tok : tokens) {
+                Integer v = NUM_WORDS.get(tok);
+                if (v != null) nums.add(v);
+            }
+            if (t.contains("quarter")) minute = 15;
+            if (t.contains("half")) minute = 30;
+            if (!nums.isEmpty()) {
+                hour = nums.get(0);
+                if (nums.size() > 1) minute = nums.get(1);
+            }
+        }
+        if (hour < 0 || hour > 23) return null;
+        if (minute < 0 || minute > 59) minute = 0;
+        if (pm && hour < 12) hour += 12;
+        if (am && hour == 12) hour = 0;
+        return new int[]{hour, minute};
+    }
+
+    /** First number (digit or single number-word) in the text, else -1. */
+    private int extractNumber(String t) {
+        Matcher m = Pattern.compile("\\d+").matcher(t);
+        if (m.find()) { try { return Integer.parseInt(m.group()); } catch (Exception e) { return -1; } }
+        for (String tok : t.split("\\s+")) {
+            Integer v = NUM_WORDS.get(tok);
+            if (v != null) return v;
+        }
+        return -1;
+    }
+
+    private String formatClock(int hour24, int minute) {
+        String ampm = hour24 >= 12 ? "PM" : "AM";
+        int h = hour24 % 12 == 0 ? 12 : hour24 % 12;
+        return h + ":" + String.format(Locale.US, "%02d", minute) + " " + ampm;
+    }
+
+    private String humanDuration(int seconds) {
+        if (seconds % 3600 == 0) { int h = seconds / 3600; return h + (h == 1 ? " hour" : " hours"); }
+        if (seconds % 60 == 0) { int m = seconds / 60; return m + (m == 1 ? " minute" : " minutes"); }
+        return seconds + " seconds";
     }
 
     /** Request a single fresh location update with a timeout; callback gets null on failure. */
