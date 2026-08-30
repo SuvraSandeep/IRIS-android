@@ -85,28 +85,6 @@ jobs:
             ls -la "$MODEL_DIR" || true
           fi
 
-      - name: Download Gemma LLM model (best-effort, optional)
-        shell: bash
-        continue-on-error: true
-        run: |
-          MODELS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets/sherpa-models"
-          mkdir -p "$MODELS_DIR"
-          TARGET="$MODELS_DIR/gemma.task"
-          if [[ -f "$TARGET" ]]; then
-            echo "Gemma model already present."
-          else
-            echo "Attempting to download Gemma 3 1B (int4) model..."
-            # LiteRT community mirror (public). If this fails, the app falls
-            # back to rule-based chat — the build still succeeds.
-            URL="https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task?download=true"
-            if curl -fSL --retry 2 -o "$TARGET" "$URL"; then
-              echo "Gemma model downloaded ($(du -h "$TARGET" | cut -f1))."
-            else
-              echo "::warning::Gemma model download failed — app will use rule-based chat. Add the model manually to enable the LLM."
-              rm -f "$TARGET"
-            fi
-          fi
-
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |

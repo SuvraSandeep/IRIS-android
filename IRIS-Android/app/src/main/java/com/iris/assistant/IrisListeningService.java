@@ -300,6 +300,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         destroyRecognizer();
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             broadcastMessage("Speech recognition unavailable on this device.");
+            LogStore.append(this, "WAKE ERROR", "No speech recognition available");
             return;
         }
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
@@ -310,45 +311,53 @@ public class IrisListeningService extends Service implements RecognitionListener
             @Override public void onBufferReceived(byte[] buffer) { }
             @Override public void onEndOfSpeech() { }
             @Override public void onError(int error) {
-                // Restart listening unless stopped
-                if (isRunning && PHASE_WAKE.equals(phase)) {
-                    handler.postDelayed(() -> restartAndroidWake(), 300);
+                if (!isRunning || !PHASE_WAKE.equals(phase)) return;
+                // Busy or client errors need a fresh recognizer, not just a restart
+                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                        || error == SpeechRecognizer.ERROR_CLIENT) {
+                    handler.postDelayed(() -> startAndroidWakeDetection(wake), 600);
+                } else {
+                    handler.postDelayed(IrisListeningService.this::restartAndroidWake, 350);
                 }
             }
             @Override public void onResults(Bundle results) {
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                boolean detected = false;
-                if (matches != null) {
-                    for (String m : matches) {
-                        String norm = ProfileStore.normalize(m);
-                        if (norm.contains(target) || target.contains(norm) && norm.length() >= 3) {
-                            detected = true; break;
-                        }
-                    }
-                }
+                boolean detected = wakeHeard(matches, target);
                 if (detected && isRunning && PHASE_WAKE.equals(phase)) {
                     LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Android STT)");
                     vibrate(45);
-                    broadcastMessage(timeGreeting() + " What can I do?");
                     speakThenRun(timeGreeting() + " What can I do?", IrisListeningService.this::startCommandRecognition);
                 } else if (isRunning && PHASE_WAKE.equals(phase)) {
-                    handler.postDelayed(() -> restartAndroidWake(), 200);
+                    handler.postDelayed(IrisListeningService.this::restartAndroidWake, 200);
                 }
             }
             @Override public void onPartialResults(Bundle partialResults) {
                 ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                if (matches != null && isRunning && PHASE_WAKE.equals(phase)) {
-                    for (String m : matches) {
-                        if (ProfileStore.normalize(m).contains(target)) {
-                            try { recognizer.stopListening(); } catch (Exception ignored) { }
-                            break;
-                        }
-                    }
+                if (wakeHeard(matches, target) && isRunning && PHASE_WAKE.equals(phase)) {
+                    try { recognizer.stopListening(); } catch (Exception ignored) { }
                 }
             }
             @Override public void onEvent(int eventType, Bundle params) { }
         });
         restartAndroidWake();
+    }
+
+    /** True if the wake phrase (or all of its words) appear in any recognition result. */
+    private boolean wakeHeard(ArrayList<String> matches, String target) {
+        if (matches == null || target.isEmpty()) return false;
+        String[] targetWords = target.split("\\s+");
+        for (String m : matches) {
+            String norm = ProfileStore.normalize(m);
+            if (norm.isEmpty()) continue;
+            if (norm.contains(target)) return true;      // exact phrase heard
+            // Or: all wake words present (handles minor STT word-order/filler)
+            boolean all = true;
+            for (String w : targetWords) {
+                if (w.length() >= 2 && !norm.contains(w)) { all = false; break; }
+            }
+            if (all && targetWords.length > 0) return true;
+        }
+        return false;
     }
 
     private void restartAndroidWake() {
@@ -357,7 +366,6 @@ public class IrisListeningService extends Service implements RecognitionListener
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
             intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-            intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, settings.resolvedLanguageTag());
             recognizer.startListening(intent);
         } catch (Exception e) {
