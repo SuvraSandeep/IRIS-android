@@ -989,7 +989,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         // What can you do
         else if (normalized.matches(".*\\b(what can you do|help|your features|what do you do)\\b.*")) {
-            reply = "I can call your contacts, tell the time, check battery, remember facts about you, and chat. Try \u201Ccall Mom\u201D or \u201Cremember my wife is Priya\u201D.";
+            reply = "Quite a lot. I can call or text your contacts, send WhatsApp messages, set alarms, timers and reminders, check the time, battery, weather and your location, read notifications, toggle the torch and volume, open apps, search the web, and remember things about you \u2014 all by voice. Try \u201Ctext Mom saying I'll be late\u201D or \u201Cremind me to call Dad in an hour\u201D.";
         }
         // "what is my X" — look up in memory
         else if (normalized.matches(".*\\bmy\\s+(\\w+).*")) {
@@ -1166,7 +1166,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             broadcastMessage(batteryText);
             LogStore.append(this, "QUICK", batteryText);
         } else if (normalized.matches(".*\\b(help|what can you do)\\b.*")) {
-            String helpText = "Say \u201CCall\u201D and a name, ask the time or battery, say \u201Copen\u201D and an app, ask me to read your notifications, say \u201Cstop\u201D to sleep, or \u201Ckill\u201D to shut me down.";
+            String helpText = "I can call or text people, send WhatsApp, set alarms, timers and reminders, tell the time, battery, weather and location, read notifications, control the torch and volume, open apps, and search the web. Say \u201Cstop\u201D to sleep or \u201Ckill\u201D to shut me down.";
             speak(helpText);
             broadcastMessage(helpText);
             LogStore.append(this, "QUICK", "Help requested");

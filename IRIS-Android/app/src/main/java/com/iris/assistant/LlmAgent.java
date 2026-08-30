@@ -109,6 +109,51 @@ public final class LlmAgent {
         return s.isEmpty() ? null : s;
     }
 
+    /** A live snapshot of the environment so replies are context-aware. */
+    private String situationContext(Context context) {
+        StringBuilder sb = new StringBuilder("Current context (for your awareness):\n");
+        try {
+            java.util.Calendar now = java.util.Calendar.getInstance();
+            java.text.SimpleDateFormat df = new java.text.SimpleDateFormat(
+                    "EEEE, d MMMM yyyy, h:mm a", java.util.Locale.getDefault());
+            sb.append("- Now: ").append(df.format(now.getTime())).append("\n");
+            int hour = now.get(java.util.Calendar.HOUR_OF_DAY);
+            String part = hour < 5 ? "late night" : hour < 12 ? "morning"
+                    : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
+            sb.append("- Part of day: ").append(part).append("\n");
+        } catch (Exception ignored) { }
+        try {
+            android.os.BatteryManager bm =
+                    (android.os.BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
+            int level = bm != null
+                    ? bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) : -1;
+            if (level >= 0) {
+                boolean charging = bm.isCharging();
+                sb.append("- Battery: ").append(level).append("%")
+                        .append(charging ? " (charging)" : "").append("\n");
+            }
+        } catch (Exception ignored) { }
+        try {
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            String net = "offline";
+            if (cm != null) {
+                android.net.Network active = cm.getActiveNetwork();
+                android.net.NetworkCapabilities caps = active != null ? cm.getNetworkCapabilities(active) : null;
+                if (caps != null) {
+                    if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) net = "Wi-Fi";
+                    else if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)) net = "mobile data";
+                    else if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) net = "ethernet";
+                    else net = "online";
+                }
+            }
+            sb.append("- Network: ").append(net).append("\n");
+        } catch (Exception ignored) { }
+        String owner = MemoryStore.ownerName(context);
+        if (owner != null) sb.append("- You are speaking with: ").append(owner).append("\n");
+        return sb.toString();
+    }
+
     /** Build the system prompt with memory, personality, conversation, and tools. */
     private String buildPrompt(Context context, String userMessage, String conversationContext) {
         StringBuilder sb = new StringBuilder();
@@ -122,6 +167,8 @@ public final class LlmAgent {
         else if ("Professional".equals(personality)) sb.append("Keep your tone crisp, formal, and businesslike.\n");
         else if ("Warm".equals(personality)) sb.append("Be especially warm and personable, while staying refined.\n");
         else sb.append("Keep your composed, subtly witty, and helpful demeanour.\n");
+
+        sb.append(situationContext(context));
 
         // Inject memory
         String name = MemoryStore.ownerName(context);
@@ -157,6 +204,12 @@ public final class LlmAgent {
         sb.append("[WIFI] — open Wi-Fi settings\n");
         sb.append("[BLUETOOTH] — open Bluetooth settings\n");
         sb.append("[SEARCH: <query>] — search the web\n");
+        sb.append("Only use a tag when the user actually wants that action done.\n");
+        sb.append("You CANNOT (be honest and say so, don't pretend): send email, post to social media, "
+                + "directly switch Wi-Fi/Bluetooth on or off (you can only open their settings), "
+                + "auto-reply to notifications, make video calls, play music or media, take photos, "
+                + "or operate other apps beyond opening them. If asked for something outside your tools, "
+                + "say briefly that you can't do it yet.\n");
         sb.append("[NOTIFICATIONS] — read recent phone notifications\n");
         sb.append("[REMEMBER: <fact>] — save a fact about the user\n");
         sb.append("[RECALL: <topic>] — look up something you know about the user\n");
