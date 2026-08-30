@@ -143,6 +143,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private SpeakerVerifier speakerVerifier;
     private VoskEngine voskEngine;
     private boolean voskReady;
+    private volatile boolean androidWakeActive;
     private LlmAgent llmAgent;
     private volatile boolean llmReady;
     private final ConversationManager conversation = new ConversationManager();
@@ -174,6 +175,14 @@ public class IrisListeningService extends Service implements RecognitionListener
             @Override public void onReady() {
                 voskReady = true;
                 LogStore.append(IrisListeningService.this, "VOSK", "Voice model ready");
+                // If we're currently beeping via the Android recognizer, switch to
+                // silent, continuous Vosk wake immediately.
+                if (isRunning && androidWakeActive && PHASE_WAKE.equals(phase)) {
+                    handler.post(() -> {
+                        LogStore.append(IrisListeningService.this, "WAKE", "Switching to silent Vosk wake");
+                        startWakeDetection();
+                    });
+                }
             }
             @Override public void onError(String message) {
                 voskReady = false;
@@ -277,6 +286,10 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
+        // Vosk is ready — silent, continuous wake. Leave Android STT mode.
+        androidWakeActive = false;
+        restoreRecognizerBeep();
+
         updateListeningNotification("Waiting for “" + wake.phrase + "”");
         // Vosk neural grammar-mode wake detection — only fires on the exact phrase
         voskEngine.startWakeDetection(wake.phrase, new VoskEngine.WakeListener() {
@@ -305,6 +318,7 @@ public class IrisListeningService extends Service implements RecognitionListener
      */
     private void startAndroidWakeDetection(ProfileStore.WakeProfile wake) {
         if (!isRunning || !PHASE_WAKE.equals(phase)) return;
+        androidWakeActive = true;
         updateListeningNotification("Waiting for “" + wake.phrase + "”");
         final String target = ProfileStore.normalize(wake.phrase);
         destroyRecognizer();
@@ -334,6 +348,8 @@ public class IrisListeningService extends Service implements RecognitionListener
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 boolean detected = wakeHeard(matches, target);
                 if (detected && isRunning && PHASE_WAKE.equals(phase)) {
+                    androidWakeActive = false;
+                    restoreRecognizerBeep(); // unmute so the greeting + TTS are audible
                     LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Android STT)");
                     vibrate(45);
                     speakThenRun(timeGreeting() + " What can I do?", IrisListeningService.this::startCommandRecognition);
@@ -372,6 +388,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void restartAndroidWake() {
         if (!isRunning || !PHASE_WAKE.equals(phase) || recognizer == null) return;
+        muteRecognizerBeep(); // silence the start/stop earcons during always-on wake
         try {
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
@@ -383,9 +400,40 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
+    private boolean beepMuted = false;
+
+    /**
+     * Silence the recognizer's start/stop beep during continuous wake listening.
+     * Only mutes when the user isn't playing media (so we never interrupt music).
+     * Always restored via restoreRecognizerBeep() before speaking or leaving wake.
+     */
+    private void muteRecognizerBeep() {
+        try {
+            if (audioManager == null) audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (audioManager == null || beepMuted) return;
+            if (audioManager.isMusicActive()) return; // don't fight the user's audio
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0);
+            audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0);
+            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0);
+            beepMuted = true;
+        } catch (Exception ignored) { }
+    }
+
+    private void restoreRecognizerBeep() {
+        try {
+            if (audioManager == null || !beepMuted) return;
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0);
+            audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0);
+            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0);
+            beepMuted = false;
+        } catch (Exception ignored) { }
+    }
+
     private void startCommandRecognition() {
         stopWakeEngine();
         if (voskEngine != null) voskEngine.stop();
+        androidWakeActive = false;
+        restoreRecognizerBeep();
         phase = PHASE_COMMAND;
         currentPhase = phase;
         broadcastState(true, phase);
@@ -1573,6 +1621,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         isRunning = false;
         currentPhase = "off";
         handler.removeCallbacksAndMessages(null);
+        androidWakeActive = false;
+        restoreRecognizerBeep();
         destroyRecognizer();
         stopWakeEngine();
         cancelCallNotification();
@@ -1833,6 +1883,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     public void onDestroy() {
         isRunning = false;
         handler.removeCallbacksAndMessages(null);
+        restoreRecognizerBeep();
         destroyRecognizer();
         stopWakeEngine();
         releaseAudioRoute();

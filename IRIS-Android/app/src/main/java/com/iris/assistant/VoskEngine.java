@@ -11,6 +11,8 @@ import org.vosk.android.RecognitionListener;
 import org.vosk.android.SpeechService;
 import org.vosk.android.StorageService;
 
+import java.io.File;
+
 /**
  * Vosk-based voice engine — the robust, offline core of IRIS.
  *
@@ -24,6 +26,9 @@ import org.vosk.android.StorageService;
 public final class VoskEngine {
     private static final float SAMPLE_RATE = 16_000f;
     private static final Handler main = new Handler(Looper.getMainLooper());
+    private static final String MODEL_DIR_NAME = "vosk-model-en-us-0.15";
+    private static final String MODEL_URL =
+            "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip";
 
     private Model model;
     private volatile boolean modelLoaded;
@@ -45,20 +50,148 @@ public final class VoskEngine {
         void onError(String message);
     }
 
-    /** Load the Vosk model from assets (async). Safe to call multiple times. */
+    /** Load the Vosk model: bundled assets first, else download at runtime. */
     public void init(Context context, InitListener listener) {
         if (modelLoaded) { main.post(listener::onReady); return; }
-        StorageService.unpack(context, "model-en-us", "vosk-model",
-                (m) -> {
-                    model = m;
-                    modelLoaded = true;
-                    main.post(listener::onReady);
-                },
-                (e) -> {
-                    modelLoaded = false;
-                    android.util.Log.e("IRIS", "Vosk model load failed: " + e.getMessage());
-                    main.post(() -> listener.onError(e.getMessage()));
-                });
+        Context app = context.getApplicationContext();
+        // 0. If we've already downloaded/extracted the model before, load it directly.
+        File extracted = new File(app.getFilesDir(), MODEL_DIR_NAME);
+        if (isValidModelDir(extracted)) {
+            loadFromPath(extracted.getAbsolutePath(), listener);
+            return;
+        }
+        // 1. Try the model bundled in assets (instant, offline).
+        try {
+            StorageService.unpack(app, "model-en-us", "vosk-model",
+                    (m) -> { model = m; modelLoaded = true; main.post(listener::onReady); },
+                    (e) -> {
+                        android.util.Log.w("IRIS", "Vosk assets unpack failed, downloading: " + e.getMessage());
+                        downloadAndLoad(app, listener);
+                    });
+        } catch (Throwable t) {
+            downloadAndLoad(app, listener);
+        }
+    }
+
+    private void loadFromPath(String path, InitListener listener) {
+        new Thread(() -> {
+            try {
+                model = new Model(path);
+                modelLoaded = true;
+                main.post(listener::onReady);
+            } catch (Throwable t) {
+                modelLoaded = false;
+                main.post(() -> listener.onError(t.getMessage()));
+            }
+        }, "Vosk-Load").start();
+    }
+
+    /** Download the small English model (~40 MB) and load it. One-time, then offline. */
+    private void downloadAndLoad(Context context, InitListener listener) {
+        new Thread(() -> {
+            try {
+                File modelDir = new File(context.getFilesDir(), MODEL_DIR_NAME);
+                if (!isValidModelDir(modelDir)) {
+                    File zip = new File(context.getCacheDir(), "vosk-model.zip");
+                    android.util.Log.i("IRIS", "Downloading Vosk model…");
+                    downloadFile(MODEL_URL, zip);
+                    File tmp = new File(context.getFilesDir(), "vosk-tmp");
+                    deleteRecursive(tmp);
+                    unzip(zip, tmp);
+                    // The zip contains a single top-level folder; move it to modelDir
+                    File[] children = tmp.listFiles();
+                    File src = (children != null && children.length == 1 && children[0].isDirectory())
+                            ? children[0] : tmp;
+                    deleteRecursive(modelDir);
+                    if (!src.renameTo(modelDir)) copyRecursive(src, modelDir);
+                    deleteRecursive(tmp);
+                    //noinspection ResultOfMethodCallIgnored
+                    zip.delete();
+                }
+                model = new Model(modelDir.getAbsolutePath());
+                modelLoaded = true;
+                android.util.Log.i("IRIS", "Vosk model ready (downloaded)");
+                main.post(listener::onReady);
+            } catch (Throwable t) {
+                modelLoaded = false;
+                android.util.Log.e("IRIS", "Vosk model download/load failed: " + t.getMessage());
+                main.post(() -> listener.onError(t.getMessage()));
+            }
+        }, "Vosk-Download").start();
+    }
+
+    private static boolean isValidModelDir(File dir) {
+        return dir.isDirectory() && (new File(dir, "am").exists() || new File(dir, "conf").exists());
+    }
+
+    private static void downloadFile(String url, File dest) throws Exception {
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        conn.setConnectTimeout(20000);
+        conn.setReadTimeout(60000);
+        conn.setInstanceFollowRedirects(true);
+        conn.connect();
+        if (conn.getResponseCode() / 100 != 2) throw new Exception("HTTP " + conn.getResponseCode());
+        try (java.io.InputStream in = conn.getInputStream();
+             java.io.FileOutputStream out = new java.io.FileOutputStream(dest)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    private static void unzip(File zip, File targetDir) throws Exception {
+        //noinspection ResultOfMethodCallIgnored
+        targetDir.mkdirs();
+        try (java.util.zip.ZipInputStream zis =
+                     new java.util.zip.ZipInputStream(new java.io.BufferedInputStream(new java.io.FileInputStream(zip)))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                File outFile = new File(targetDir, entry.getName());
+                // Zip-slip guard
+                if (!outFile.getCanonicalPath().startsWith(targetDir.getCanonicalPath() + File.separator)) continue;
+                if (entry.isDirectory()) {
+                    //noinspection ResultOfMethodCallIgnored
+                    outFile.mkdirs();
+                } else {
+                    //noinspection ResultOfMethodCallIgnored
+                    outFile.getParentFile().mkdirs();
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(outFile)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = zis.read(buf)) != -1) out.write(buf, 0, n);
+                    }
+                }
+                zis.closeEntry();
+            }
+        }
+    }
+
+    private static void copyRecursive(File src, File dst) throws Exception {
+        if (src.isDirectory()) {
+            //noinspection ResultOfMethodCallIgnored
+            dst.mkdirs();
+            File[] kids = src.listFiles();
+            if (kids != null) for (File k : kids) copyRecursive(k, new File(dst, k.getName()));
+        } else {
+            try (java.io.FileInputStream in = new java.io.FileInputStream(src);
+                 java.io.FileOutputStream out = new java.io.FileOutputStream(dst)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            }
+        }
+    }
+
+    private static void deleteRecursive(File f) {
+        if (f == null || !f.exists()) return;
+        if (f.isDirectory()) {
+            File[] kids = f.listFiles();
+            if (kids != null) for (File k : kids) deleteRecursive(k);
+        }
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
     }
 
     public boolean isReady() { return modelLoaded && model != null; }
