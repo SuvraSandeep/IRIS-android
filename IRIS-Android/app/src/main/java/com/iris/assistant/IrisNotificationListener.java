@@ -41,7 +41,7 @@ public class IrisNotificationListener extends NotificationListenerService {
             }
 
             String appLabel = resolveAppLabel(pkg);
-            NotificationStore.add(pkg, appLabel, title, text, sbn.getPostTime());
+            NotificationStore.add(getApplicationContext(), pkg, appLabel, title, text, sbn.getPostTime());
         } catch (Exception ignored) { }
     }
 

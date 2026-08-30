@@ -104,9 +104,11 @@ public class IrisListeningService extends Service implements RecognitionListener
             "^(?:please\\s+)?(?:open|launch|start|run)\\s+(?:the\\s+)?(.+?)(?:\\s+app)?$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern NOTIFICATION_PATTERN = Pattern.compile(
-            ".*\\b(?:notification|notifications|any\\s+(?:new\\s+)?message|new\\s+messages?"
-            + "|who\\s+(?:texted|messaged|pinged)\\s+me|did\\s+(?:anyone|someone)\\s+(?:text|message)"
-            + "|what\\s+did\\s+i\\s+miss|read\\s+(?:my\\s+)?(?:sms|text|texts|whatsapp|messages))\\b.*",
+            ".*\\bnotifications?\\b.*"
+            + "|.*\\bwho\\s+(?:texted|messaged|pinged)\\s+me\\b.*"
+            + "|.*\\bwhat\\s+did\\s+i\\s+miss\\b.*"
+            + "|.*\\b(?:how\\s+many|any|check|latest|last|read|unread|new)\\b.*\\b(?:message|messages|text|texts|whatsapp|sms)\\b.*"
+            + "|.*\\b(?:message|messages|text|texts)\\s+from\\b.*",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern FORGET_PATTERN = Pattern.compile(
             "^(?:forget|delete|remove)\\s+(?:that|the\\s+last\\s+(?:memory|thing)|it)$",
@@ -871,6 +873,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (n.matches(".*\\btime\\b.*")) return true;
         if (n.matches(".*\\bbattery\\b.*")) return true;
         if (n.matches("^(?:stop|shut\\s*up|quiet|silence|go\\s+to\\s+sleep|sleep|never\\s*mind)$")) return true;
+        if (n.matches(".*\\b(?:kill|shut\\s*down|shutdown|turn\\s+off|power\\s+off|terminate)\\b.*")) return true;
         if (n.matches(".*\\b(?:what\\s+can\\s+you\\s+do|help\\s+me|^help$)\\b.*")) return true;
         return false;
     }
@@ -898,23 +901,36 @@ public class IrisListeningService extends Service implements RecognitionListener
             broadcastMessage(batteryText);
             LogStore.append(this, "QUICK", batteryText);
         } else if (normalized.matches(".*\\b(help|what can you do)\\b.*")) {
-            String helpText = "Say \u201CCall\u201D and a name, ask the time or battery, say \u201Copen\u201D and an app, ask me to read your notifications, or say \u201CStop\u201D.";
+            String helpText = "Say \u201CCall\u201D and a name, ask the time or battery, say \u201Copen\u201D and an app, ask me to read your notifications, say \u201Cstop\u201D to sleep, or \u201Ckill\u201D to shut me down.";
             speak(helpText);
             broadcastMessage(helpText);
             LogStore.append(this, "QUICK", "Help requested");
+        } else if (normalized.matches(".*\\b(kill|shut\\s*down|shutdown|turn\\s+off|power\\s+off|terminate)\\b.*")) {
+            // KILL — fully stop the service; user must reopen the app to restart
+            broadcastMessage("Shutting down. Open the app to start me again.");
+            LogStore.append(this, "KILL", "Full shutdown by voice");
+            speakThenRun("Shutting down.", () -> stopIris("Killed by voice command"));
+            return;
         } else {
-            // Stop / shut up / quiet
-            broadcastMessage("Going back to sleep.");
-            LogStore.append(this, "STOP", "Voice command: stop");
-            stopIris("Stopped by voice command");
+            // STOP / sleep — stay alive, go back to waiting for the wake phrase
+            ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
+            String phrase = wake != null && wake.phrase != null ? wake.phrase : "the wake phrase";
+            broadcastMessage("Going to sleep. Say \u201C" + phrase + "\u201D to wake me.");
+            LogStore.append(this, "SLEEP", "Back to wake listening");
+            rearmAfterAction();
             return;
         }
         rearmAfterAction();
     }
 
     /**
-     * Read recent phone notifications by voice. Supports filtering by app
-     * ("whatsapp", "sms/text"). Prompts to grant Notification Access if needed.
+     * Robust notification handler. Understands:
+     *  - "read my latest / last notification"  → the single most recent
+     *  - "count / how many notifications"       → total (or per-app) count
+     *  - "how many WhatsApp messages"           → count for an app
+     *  - "any message from mom on WhatsApp"     → search by sender within an app
+     *  - "read my notifications / whatsapp"     → read the recent few
+     * Prompts to grant Notification Access if needed.
      */
     private void handleNotifications(String normalized) {
         if (!notificationAccessGranted()) {
@@ -926,42 +942,80 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
-        // Determine an app filter from the request
-        String filter = null; String filterLabel = null;
-        if (normalized.contains("whatsapp")) { filter = "whatsapp"; filterLabel = "WhatsApp"; }
-        else if (normalized.matches(".*\\b(sms|text|texted|texts)\\b.*")) { filter = "sms_family"; filterLabel = "messages"; }
+        // App filter
+        String appFilter = null, appLabel = null;
+        if (normalized.contains("whatsapp")) { appFilter = "whatsapp"; appLabel = "WhatsApp"; }
+        else if (normalized.matches(".*\\b(sms|text|texted|texts)\\b.*")) { appFilter = "sms"; appLabel = "messages"; }
 
-        List<NotificationStore.Item> items;
-        if ("sms_family".equals(filter)) {
-            items = new ArrayList<>();
-            for (NotificationStore.Item it : NotificationStore.recent(50)) {
-                String p = it.pkg.toLowerCase();
-                if (p.contains("mms") || p.contains("sms") || p.contains("messaging")
-                        || it.appLabel.toLowerCase().contains("message")) {
-                    items.add(it);
-                    if (items.size() >= 5) break;
-                }
-            }
-        } else if (filter != null) {
-            items = NotificationStore.recentFor(filter, 5);
-        } else {
-            items = NotificationStore.recent(5);
+        // Sender ("from mom", "from my mother", "from John")
+        String rawSender = extractSender(normalized);
+        String senderName = rawSender != null ? resolveSenderName(rawSender) : null;
+        String senderLabel = rawSender; // for speaking back naturally
+
+        // Intent
+        boolean wantsCount = normalized.matches(".*\\b(how many|count|number of)\\b.*");
+        boolean wantsLatest = normalized.matches(".*\\b(latest|last|most recent|newest)\\b.*");
+        boolean wantsAny = normalized.matches(".*\\b(any|is there|are there|check if|do i have)\\b.*");
+
+        // Query (try resolved sender name first, fall back to raw word)
+        String searchTerm = senderName != null ? senderName : rawSender;
+        List<NotificationStore.Item> items = NotificationStore.query(this, appFilter, searchTerm, 0);
+        if (items.isEmpty() && searchTerm != null && rawSender != null && !rawSender.equals(searchTerm)) {
+            items = NotificationStore.query(this, appFilter, rawSender, 0);
         }
 
-        if (items.isEmpty()) {
-            String none = filterLabel != null
-                    ? "You have no recent " + filterLabel + " notifications."
-                    : "You have no recent notifications.";
-            broadcastMessage(none);
-            speakThenRun(none, this::rearmAfterAction);
-            LogStore.append(this, "NOTIF", "None" + (filterLabel != null ? " for " + filterLabel : ""));
+        String scope = describeScope(appLabel, senderLabel);
+
+        // COUNT
+        if (wantsCount) {
+            int n = items.size();
+            String out = "You have " + n + (n == 1 ? " notification" : " notifications") + scope + ".";
+            reply(out);
+            LogStore.append(this, "NOTIF", "Count" + scope + " = " + n);
             return;
         }
 
+        // ANY / search-by-sender (yes/no + latest)
+        if (wantsAny || (rawSender != null && !wantsLatest)) {
+            if (items.isEmpty()) {
+                reply("No, I don't see any messages" + scope + ".");
+                LogStore.append(this, "NOTIF", "None" + scope);
+            } else {
+                NotificationStore.Item it = items.get(0);
+                int n = items.size();
+                String out = "Yes, " + n + (n == 1 ? " message" : " messages") + scope + ". The latest"
+                        + (it.title.isEmpty() ? "" : " from " + it.title)
+                        + (it.text.isEmpty() ? "." : ": " + it.text);
+                reply(out);
+                LogStore.append(this, "NOTIF", "Found " + n + scope);
+            }
+            return;
+        }
+
+        // Nothing at all
+        if (items.isEmpty()) {
+            reply("You have no recent notifications" + scope + ".");
+            LogStore.append(this, "NOTIF", "Empty" + scope);
+            return;
+        }
+
+        // LATEST — just the single most recent
+        if (wantsLatest) {
+            NotificationStore.Item it = items.get(0);
+            StringBuilder sb = new StringBuilder("Your latest notification is from ").append(it.appLabel);
+            if (!it.title.isEmpty()) sb.append(", ").append(it.title);
+            if (!it.text.isEmpty()) sb.append(": ").append(it.text);
+            sb.append(".");
+            reply(sb.toString());
+            LogStore.append(this, "NOTIF", "Latest read");
+            return;
+        }
+
+        // READ — the recent few (up to 3)
         int count = Math.min(items.size(), 3);
         StringBuilder spoken = new StringBuilder();
         spoken.append("You have ").append(items.size())
-              .append(items.size() == 1 ? " recent notification. " : " recent notifications. ");
+              .append(items.size() == 1 ? " notification" : " notifications").append(scope).append(". ");
         for (int i = 0; i < count; i++) {
             NotificationStore.Item it = items.get(i);
             spoken.append("From ").append(it.appLabel);
@@ -969,11 +1023,48 @@ public class IrisListeningService extends Service implements RecognitionListener
             if (!it.text.isEmpty()) spoken.append(": ").append(it.text);
             spoken.append(". ");
         }
-        String out = spoken.toString().trim();
-        broadcastMessage("\uD83D\uDD14 " + out);
-        speakThenRun(out, this::rearmAfterAction);
-        LogStore.append(this, "NOTIF", "Read " + count + " of " + items.size()
-                + (filterLabel != null ? " (" + filterLabel + ")" : ""));
+        reply(spoken.toString().trim());
+        LogStore.append(this, "NOTIF", "Read " + count + " of " + items.size() + scope);
+    }
+
+    private void reply(String text) {
+        broadcastMessage("\uD83D\uDD14 " + text);
+        speakThenRun(text, this::rearmAfterAction);
+    }
+
+    private String describeScope(String appLabel, String sender) {
+        StringBuilder s = new StringBuilder();
+        if (sender != null) s.append(" from ").append(sender);
+        if (appLabel != null) s.append(" on ").append(appLabel);
+        return s.toString();
+    }
+
+    /** Extract the sender term after "from", stopping before app words. */
+    private String extractSender(String normalized) {
+        Matcher m = Pattern.compile(
+                "\\bfrom\\s+(?:my\\s+)?([a-z][a-z ]*?)(?:\\s+(?:in|on|via)\\b.*)?$")
+                .matcher(normalized);
+        if (!m.find()) return null;
+        String s = m.group(1).trim();
+        // Strip trailing app words if they leaked in
+        s = s.replaceAll("\\b(whatsapp|sms|messages?|texts?|notification[s]?)\\b", "").trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    /** Resolve a relationship word ("mother", "my dad") to a saved contact name. */
+    private String resolveSenderName(String rawSender) {
+        String key = rawSender.toLowerCase().trim();
+        // Try relationship → contact name
+        try {
+            String[] rel = new ProfileStore(this).resolveRelationship(ProfileStore.normalize(key));
+            if (rel != null && rel[0] != null && !rel[0].isEmpty()) return rel[0];
+        } catch (Exception ignored) { }
+        // Try memory people category
+        try {
+            MemoryStore.Memory mem = MemoryStore.findByKey(this, MemoryStore.CAT_PEOPLE, key);
+            if (mem != null && mem.value != null && !mem.value.isEmpty()) return mem.value;
+        } catch (Exception ignored) { }
+        return null; // fall back to raw word
     }
 
     private boolean notificationAccessGranted() {
