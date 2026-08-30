@@ -107,6 +107,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             ".*\\b(?:weather|forecast|temperature|how\\s+(?:hot|cold|warm)|going\\s+to\\s+rain"
             + "|will\\s+it\\s+rain|is\\s+it\\s+(?:raining|sunny|hot|cold))\\b.*",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern LOCATION_PATTERN = Pattern.compile(
+            ".*\\b(?:where\\s+am\\s+i|where\\s+are\\s+we|where\\s+is\\s+this"
+            + "|my\\s+(?:current\\s+)?location|current\\s+location"
+            + "|what(?:'?s|\\s+is)\\s+my\\s+location"
+            + "|which\\s+(?:city|place|area|town)\\s+am\\s+i(?:\\s+in)?)\\b.*",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern NOTIFICATION_PATTERN = Pattern.compile(
             ".*\\bnotifications?\\b.*"
             + "|.*\\bwho\\s+(?:texted|messaged|pinged)\\s+me\\b.*"
@@ -650,6 +656,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
+        // 5e. Location ("where am I", "my location")
+        if (LOCATION_PATTERN.matcher(normalized).matches() && !containsCallVerb(normalized)) {
+            handleLocation();
+            return;
+        }
+
         // 6. Call patterns (English)
         Matcher matcher = CALL_PATTERN.matcher(normalized);
         String requested = null;
@@ -783,6 +795,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (out.matches(".*\\[BATTERY\\].*")) { handleQuickAction("battery"); return; }
         // [WEATHER]
         if (out.matches(".*\\[WEATHER\\].*")) { handleWeather("weather"); return; }
+        if (out.matches(".*\\[LOCATION\\].*")) { handleLocation(); return; }
         // [NOTIFICATIONS]
         if (out.matches(".*\\[NOTIFICATIONS\\].*")) { handleNotifications("notifications"); return; }
         // [REDIAL]
@@ -1221,6 +1234,75 @@ public class IrisListeningService extends Service implements RecognitionListener
         fetchWeatherFor(loc, normalized);
     }
 
+    /** Tell the user their current place name (reverse-geocoded). */
+    private void handleLocation() {
+        if (!hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+                && !hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            String msg = "I need location permission for that. Open the IRIS app and grant location access.";
+            broadcastMessage(msg);
+            speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "LOCATION", "No location permission");
+            return;
+        }
+        android.location.Location cached = lastKnownLocation();
+        if (cached != null) { describeLocation(cached); return; }
+        broadcastMessage("\uD83D\uDCCD Getting your location\u2026");
+        requestFreshLocation(fresh -> {
+            if (fresh == null) {
+                String msg = "I couldn't get your location. Make sure location is turned on.";
+                broadcastMessage(msg);
+                speakThenRun(msg, this::rearmAfterAction);
+                LogStore.append(this, "LOCATION", "No location fix");
+            } else {
+                describeLocation(fresh);
+            }
+        });
+    }
+
+    /** Reverse-geocode a location to a friendly place name and speak it. */
+    private void describeLocation(android.location.Location loc) {
+        broadcastMessage("\uD83D\uDCCD Finding where you are\u2026");
+        final double lat = loc.getLatitude();
+        final double lon = loc.getLongitude();
+        new Thread(() -> {
+            String place = null;
+            try {
+                android.location.Geocoder geo = new android.location.Geocoder(this, java.util.Locale.getDefault());
+                java.util.List<android.location.Address> results = geo.getFromLocation(lat, lon, 1);
+                if (results != null && !results.isEmpty()) {
+                    android.location.Address a = results.get(0);
+                    String locality = a.getLocality();        // city
+                    String sub = a.getSubLocality();           // area/neighbourhood
+                    String admin = a.getAdminArea();           // state
+                    StringBuilder sb = new StringBuilder();
+                    if (sub != null && !sub.isEmpty()) sb.append(sub);
+                    if (locality != null && !locality.isEmpty()) {
+                        if (sb.length() > 0) sb.append(", ");
+                        sb.append(locality);
+                    }
+                    if (admin != null && !admin.isEmpty()) {
+                        if (sb.length() > 0) sb.append(", ");
+                        sb.append(admin);
+                    }
+                    if (sb.length() == 0 && a.getFeatureName() != null) sb.append(a.getFeatureName());
+                    place = sb.length() > 0 ? sb.toString() : null;
+                }
+            } catch (Exception e) {
+                LogStore.append(this, "LOCATION", "Geocode failed: " + e.getMessage());
+            }
+            final String placeName = place;
+            handler.post(() -> {
+                String msg = placeName != null
+                        ? "You're in " + placeName + "."
+                        : String.format(java.util.Locale.US,
+                            "I couldn't name the place, but you're near %.4f, %.4f.", lat, lon);
+                broadcastMessage(msg);
+                LogStore.append(this, "LOCATION", msg);
+                speakThenRun(msg, this::rearmAfterAction);
+            });
+        }, "IRIS-Geocode").start();
+    }
+
     /** Request a single fresh location update with a timeout; callback gets null on failure. */
     private void requestFreshLocation(java.util.function.Consumer<android.location.Location> cb) {
         try {
@@ -1580,7 +1662,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         LogStore.append(this, "CONFIRM VOICE", answer);
         // "no" first so "no" never gets misread as yes. "call" is NOT a yes —
         // it's ambiguous with a fresh command and caused wrong-contact calls.
-        if (answer.matches("^(?:no|nope|nah|nahi|cancel|wrong|not\\s+\\w+|stop|never\\s*mind|ruk|bas)\\b.*")) {
+        if (answer.matches("^(?:no|nope|nah|nahi|cancel|wrong|not\\s+\\w+|stop|kill|abort|forget\\s*it|leave\\s*it|hang\\s*up|don'?t|end\\s*it|nvm|never\\s*mind|ruk|bas|chhod)\\b.*")) {
             if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
             cancelCallNotification();
             // If there are more candidates, ask about the next one

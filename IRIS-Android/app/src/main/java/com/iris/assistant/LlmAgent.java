@@ -107,17 +107,21 @@ public final class LlmAgent {
         if (cut >= 0) s = s.substring(0, cut);
         s = s.trim();
         return s.isEmpty() ? null : s;
+    }
 
     /** Build the system prompt with memory, personality, conversation, and tools. */
     private String buildPrompt(Context context, String userMessage, String conversationContext) {
         StringBuilder sb = new StringBuilder();
-        sb.append("You are IRIS, a warm, concise personal assistant living on the user's phone.\n");
+        sb.append("You are IRIS, the user's personal AI assistant, running privately on their phone.\n");
+        sb.append("You are highly capable, composed, and quietly confident \u2014 a devoted, discreet aide who has looked after the user for years. ");
+        sb.append("You anticipate needs, speak with polished understated wit and genuine warmth, and address the user respectfully. ");
+        sb.append("You are efficient and never waffle. Keep replies to one or two natural, human sentences.\n");
 
         String personality = new AppSettings(context).personality();
-        if ("Sarcastic".equals(personality)) sb.append("Your tone is witty and playfully sarcastic, but still helpful.\n");
-        else if ("Professional".equals(personality)) sb.append("Your tone is formal, brief, and professional.\n");
-        else if ("Warm".equals(personality)) sb.append("Your tone is warm, caring, and friendly.\n");
-        else sb.append("Your tone is friendly and natural.\n");
+        if ("Sarcastic".equals(personality)) sb.append("Lean into dry, clever, raised-eyebrow humour \u2014 but always loyal and genuinely helpful.\n");
+        else if ("Professional".equals(personality)) sb.append("Keep your tone crisp, formal, and businesslike.\n");
+        else if ("Warm".equals(personality)) sb.append("Be especially warm and personable, while staying refined.\n");
+        else sb.append("Keep your composed, subtly witty, and helpful demeanour.\n");
 
         // Inject memory
         String name = MemoryStore.ownerName(context);
@@ -142,6 +146,7 @@ public final class LlmAgent {
         sb.append("[TIME] — current time\n");
         sb.append("[BATTERY] — battery level\n");
         sb.append("[WEATHER] — current weather\n");
+        sb.append("[LOCATION] — tell the user where they currently are\n");
         sb.append("[NOTIFICATIONS] — read recent phone notifications\n");
         sb.append("[REMEMBER: <fact>] — save a fact about the user\n");
         sb.append("[RECALL: <topic>] — look up something you know about the user\n");
@@ -152,6 +157,7 @@ public final class LlmAgent {
         sb.append("Examples:\n");
         sb.append("User: call my brother\nIRIS: [CALL: brother]\n");
         sb.append("User: what's the weather\nIRIS: [WEATHER]\n");
+        sb.append("User: where am i\nIRIS: [LOCATION]\n");
         sb.append("User: any new messages\nIRIS: [NOTIFICATIONS]\n");
         sb.append("User: call him again\nIRIS: [REDIAL]\n");
         sb.append("User: remember I like green tea\nIRIS: [REMEMBER: likes green tea]\n");
