@@ -100,6 +100,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern MEMORY_PATTERN = Pattern.compile(
             "^(?:remember|note|save|store)\\s+(?:that\\s+)?(.+)$",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern OPEN_APP_PATTERN = Pattern.compile(
+            "^(?:please\\s+)?(?:open|launch|start|run)\\s+(?:the\\s+)?(.+?)(?:\\s+app)?$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern FORGET_PATTERN = Pattern.compile(
             "^(?:forget|delete|remove)\\s+(?:that|the\\s+last\\s+(?:memory|thing)|it)$",
             Pattern.CASE_INSENSITIVE);
@@ -123,6 +126,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     private String recognitionLabel = "System speech service";
     private String pendingName;
     private String pendingNumber;
+    private java.util.List<ContactMatch> pendingCandidates;
+    private int pendingCandidateIndex;
     private AudioManager audioManager;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
     private AudioDeviceCallback audioDeviceCallback;
@@ -548,8 +553,9 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
-        // 4. Quick actions (time, battery, stop, help)
-        if (QUICK_ACTION_PATTERN.matcher(normalized).matches()) {
+        // 4. Quick actions (time, battery, stop, help) — lenient matching so
+        // "tell me the time", "what's the time", "time now" all work
+        if (isQuickAction(normalized)) {
             handleQuickAction(normalized);
             return;
         }
@@ -558,6 +564,13 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (REDIAL_PATTERN.matcher(normalized).matches()) {
             handleRedial(store);
             return;
+        }
+
+        // 5b. Open an installed app ("open WhatsApp", "launch camera")
+        Matcher openMatcher = OPEN_APP_PATTERN.matcher(normalized);
+        if (openMatcher.matches() && !containsCallVerb(normalized)) {
+            if (openApp(openMatcher.group(1).trim())) return;
+            // if no app matched, fall through to other handlers / chat
         }
 
         // 6. Call patterns (English)
@@ -591,10 +604,26 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         ContactMatch first = candidates.get(0);
-        if (candidates.size() > 1 && candidates.get(1).score >= .72
-                && first.score - candidates.get(1).score < .09) {
-            requestDisambiguation(candidates.subList(0, Math.min(3, candidates.size())));
-        } else requestCallConfirmation(first.name, first.number);
+        // Verbally confirm the best match; "no" walks to the next candidate.
+        pendingCandidates = candidates;
+        pendingCandidateIndex = 0;
+        confirmCandidate(0);
+    }
+
+    /** Verbally confirm a contact candidate by index; "no" advances to the next. */
+    private void confirmCandidate(int index) {
+        if (pendingCandidates == null || index >= pendingCandidates.size()) {
+            cancelCallNotification();
+            broadcastMessage("Okay, I won't call anyone.");
+            speakThenRun("Okay, I won't call anyone.", this::rearmAfterAction);
+            pendingCandidates = null;
+            return;
+        }
+        pendingCandidateIndex = index;
+        ContactMatch c = pendingCandidates.get(index);
+        boolean multiple = pendingCandidates.size() > 1;
+        String prompt = multiple ? "Did you mean " + c.name + "?" : "Call " + c.name + "?";
+        requestCallConfirmation(c.name, c.number, prompt);
     }
 
     /**
@@ -777,6 +806,20 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
+    /** Lenient quick-action detection so many phrasings work. */
+    private boolean isQuickAction(String n) {
+        if (containsCallVerb(n)) return false; // never swallow a call command
+        if (n.matches(".*\\btime\\b.*")) return true;
+        if (n.matches(".*\\bbattery\\b.*")) return true;
+        if (n.matches("^(?:stop|shut\\s*up|quiet|silence|go\\s+to\\s+sleep|sleep|never\\s*mind)$")) return true;
+        if (n.matches(".*\\b(?:what\\s+can\\s+you\\s+do|help\\s+me|^help$)\\b.*")) return true;
+        return false;
+    }
+
+    private boolean containsCallVerb(String n) {
+        return n.matches(".*\\b(?:call|dial|phone|ring)\\b.*");
+    }
+
     private void handleQuickAction(String normalized) {
         if (normalized.matches(".*\\b(time|what time)\\b.*")) {
             Calendar cal = Calendar.getInstance();
@@ -808,6 +851,48 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         rearmAfterAction();
+    }
+
+    /**
+     * Launch an installed app by spoken name. Matches against installed app
+     * labels (fuzzy) and launches the best match. Returns true if launched.
+     */
+    private boolean openApp(String spokenName) {
+        String target = ProfileStore.normalize(spokenName);
+        if (target.isEmpty()) return false;
+        android.content.pm.PackageManager pm = getPackageManager();
+        List<android.content.pm.ApplicationInfo> apps =
+                pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA);
+        String bestPkg = null; String bestLabel = null; double bestScore = 0;
+        for (android.content.pm.ApplicationInfo app : apps) {
+            // Only apps that have a launcher entry
+            if (pm.getLaunchIntentForPackage(app.packageName) == null) continue;
+            String label = ProfileStore.normalize(pm.getApplicationLabel(app).toString());
+            if (label.isEmpty()) continue;
+            double score;
+            if (label.equals(target)) score = 1.0;
+            else if (label.contains(target) || target.contains(label)) score = 0.85;
+            else score = nameScore(target, label);
+            if (score > bestScore) { bestScore = score; bestPkg = app.packageName; bestLabel = pm.getApplicationLabel(app).toString(); }
+        }
+        if (bestPkg != null && bestScore >= 0.7) {
+            Intent launch = pm.getLaunchIntentForPackage(bestPkg);
+            if (launch != null) {
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    startActivity(launch);
+                    LogStore.append(this, "OPEN APP", bestLabel + " (" + bestPkg + ")");
+                    broadcastMessage("Opening " + bestLabel + ".");
+                    speakThenRun("Opening " + bestLabel + ".", this::rearmAfterAction);
+                    return true;
+                } catch (Exception e) {
+                    LogStore.append(this, "OPEN APP ERROR", e.getMessage());
+                }
+            }
+        }
+        broadcastMessage("I couldn't find an app called " + spokenName + ".");
+        speakThenRun("I couldn't find " + spokenName + ".", this::rearmAfterAction);
+        return true; // handled (told the user), don't fall through to chat
     }
 
     private void handleRedial(ProfileStore store) {
@@ -972,12 +1057,22 @@ public class IrisListeningService extends Service implements RecognitionListener
         LogStore.append(this, "CONFIRM VOICE", answer);
         if (answer.matches(".*\\b(yes|call|confirm|do it|haan|ha)\\b.*")) {
             if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
+            pendingCandidates = null;
             placeCall(pendingName, pendingNumber);
         } else if (answer.matches(".*\\b(no|cancel|stop|nope|nahi|shut up|quiet|ruk|bas|never mind)\\b.*")) {
             if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
             cancelCallNotification();
-            broadcastMessage("Call cancelled.");
-            rearmAfterAction();
+            // If there are more candidates, ask about the next one
+            if (pendingCandidates != null && pendingCandidateIndex + 1 < pendingCandidates.size()) {
+                int next = pendingCandidateIndex + 1;
+                LogStore.append(this, "CONFIRM", "Declined, trying next: "
+                        + pendingCandidates.get(next).name);
+                handler.postDelayed(() -> confirmCandidate(next), 300);
+            } else {
+                pendingCandidates = null;
+                broadcastMessage("Call cancelled.");
+                speakThenRun("Okay, cancelled.", this::rearmAfterAction);
+            }
         } else if (confirmationRetries++ < 1) {
             broadcastMessage("Say “Call” or “Cancel”, or use the buttons.");
             handler.postDelayed(this::startConfirmationRecognition, 450);
@@ -1105,6 +1200,10 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void requestCallConfirmation(String name, String number) {
+        requestCallConfirmation(name, number, null);
+    }
+
+    private void requestCallConfirmation(String name, String number, String customPrompt) {
         if (name == null || number == null) {
             rearmAfterAction();
             return;
@@ -1122,7 +1221,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         LogStore.append(this, "CONFIRM", "Waiting to call " + name);
         broadcastCallPrompt(name, number);
         showCallNotification(name, number);
-        String confirmText = personalityLine("confirm", name);
+        String confirmText = customPrompt != null ? customPrompt : personalityLine("confirm", name);
         if (settings.voiceReplies() && ttsReady && confirmText != null) {
             textToSpeech.speak(confirmText, TextToSpeech.QUEUE_FLUSH, null, "iris_confirm");
             textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {

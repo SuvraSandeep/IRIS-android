@@ -91,6 +91,30 @@ public final class MemoryStore {
             try {
                 JSONArray memories = root.optJSONArray("memories");
                 if (memories == null) memories = new JSONArray();
+
+                // Upsert: for single-valued keys (everything except free-form
+                // "note"), replace an existing memory with the same category+key
+                // so "remember my name is X" updates instead of piling up ignored
+                // duplicates (findByKey returns the first match).
+                boolean multiValued = memory.key != null && memory.key.equalsIgnoreCase("note");
+                if (!multiValued && memory.key != null) {
+                    for (int i = 0; i < memories.length(); i++) {
+                        JSONObject item = memories.getJSONObject(i);
+                        if (memory.category != null && memory.category.equals(item.optString("category"))
+                                && memory.key.equalsIgnoreCase(item.optString("key"))) {
+                            item.put("value", memory.value);
+                            if (memory.detail != null) item.put("detail", memory.detail);
+                            item.put("source", memory.source);
+                            item.put("updatedAt", System.currentTimeMillis());
+                            memory.id = item.optString("id", memory.id);
+                            root.put("memories", memories);
+                            root.put("updatedAt", System.currentTimeMillis());
+                            writeRoot(context, root);
+                            return;
+                        }
+                    }
+                }
+
                 if (memories.length() >= MAX_MEMORIES) return;
                 memories.put(memoryToJson(memory));
                 root.put("memories", memories);
