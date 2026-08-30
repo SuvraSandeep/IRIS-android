@@ -756,6 +756,19 @@ public class MainActivity extends Activity {
 
         TextView brainStatus = view.findViewById(R.id.brainStatus);
         Button brainButton = view.findViewById(R.id.downloadBrainButton);
+        EditText hfTokenInput = view.findViewById(R.id.hfTokenInput);
+        Button saveTokenButton = view.findViewById(R.id.saveTokenButton);
+        if (hfTokenInput != null) {
+            String existing = settings.hfToken();
+            if (!existing.isEmpty()) hfTokenInput.setText(existing);
+        }
+        if (saveTokenButton != null) {
+            saveTokenButton.setOnClickListener(v -> {
+                String tok = hfTokenInput.getText().toString().trim();
+                settings.setHfToken(tok);
+                toast(tok.isEmpty() ? "Token cleared." : "Token saved \u2705");
+            });
+        }
         if (ModelManager.gemmaPresent(this)) {
             brainStatus.setText("\uD83E\uDDE0 AI brain: installed \u2705 — conversational AI active");
             brainButton.setText("\uD83E\uDDE0 Re-download AI brain");

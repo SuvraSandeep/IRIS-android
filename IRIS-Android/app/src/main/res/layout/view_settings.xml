@@ -72,6 +72,18 @@
             <TextView android:id="@+id/brainStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="6dp" android:text="AI brain: not installed (using rule-based replies)"
                 android:textColor="@color/text_muted" android:textSize="12sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Gemma is license-gated. One-time free setup: 1) open huggingface.co/litert-community/Gemma3-1B-IT and click Agree/Acknowledge, 2) create a token at huggingface.co/settings/tokens, 3) paste it below."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
+            <EditText android:id="@+id/hfTokenInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary" android:padding="12dp"
+                android:hint="Paste Hugging Face token (hf_...)" android:textColorHint="@color/text_muted"
+                android:textColor="@color/text_primary" android:textSize="13sp" android:inputType="textNoSuggestions"
+                android:maxLines="1" android:importantForAutofill="no" />
+            <Button android:id="@+id/saveTokenButton" android:layout_width="match_parent" android:layout_height="48dp"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
+                android:text="Save token" android:textAllCaps="false" android:textColor="@color/text_primary" />
         </LinearLayout>
 
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"

@@ -144,10 +144,18 @@ public final class ModelManager {
                 c.setReadTimeout(60_000);
                 c.setInstanceFollowRedirects(true);
                 c.setRequestProperty("User-Agent", "IRIS-Android");
+                String token = new AppSettings(context).hfToken();
+                if (token != null && !token.isEmpty()) {
+                    c.setRequestProperty("Authorization", "Bearer " + token);
+                }
                 c.connect();
                 int code = c.getResponseCode();
                 if (code == 401 || code == 403) {
-                    main.post(() -> listener.onError("Model is gated. Accept the Gemma license on Hugging Face, or adb-push the .task file into the app model folder."));
+                    boolean hasToken = token != null && !token.isEmpty();
+                    String msg = hasToken
+                            ? "Access denied. Make sure you clicked Agree/Acknowledge on the license at huggingface.co/litert-community/Gemma3-1B-IT with the same account as your token."
+                            : "Model is gated. In Settings, paste a Hugging Face token (after accepting the license at huggingface.co/litert-community/Gemma3-1B-IT).";
+                    main.post(() -> listener.onError(msg));
                     return;
                 }
                 long total = c.getContentLengthLong();

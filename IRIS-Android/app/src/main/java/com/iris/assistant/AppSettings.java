@@ -45,6 +45,8 @@ public final class AppSettings {
     }
     public float textScale() { return prefs.getFloat("text_scale", 1.0f); }
     public void setTextScale(float value) { prefs.edit().putFloat("text_scale", value).apply(); }
+    public String hfToken() { return prefs.getString("hf_token", ""); }
+    public void setHfToken(String value) { prefs.edit().putString("hf_token", value == null ? "" : value.trim()).apply(); }
     public boolean speakerVerification() { return prefs.getBoolean("speaker_verification", true); }
     public void setSpeakerVerification(boolean value) { prefs.edit().putBoolean("speaker_verification", value).apply(); }
     public float speakerThreshold() { return prefs.getFloat("speaker_threshold", 0.70f); }
