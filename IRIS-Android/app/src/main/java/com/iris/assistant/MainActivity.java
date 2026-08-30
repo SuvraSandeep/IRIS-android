@@ -187,7 +187,11 @@ public class MainActivity extends Activity {
         showAssistant();
         handleLaunchIntent(getIntent());
         // Auto-download the AI brain in the background (any network) with progress notifications
-        ModelManager.autoDownloadGemmaIfNeeded(this);
+        try {
+            ModelManager.autoDownloadGemmaIfNeeded(this);
+        } catch (Throwable t) {
+            android.util.Log.w("IRIS", "Auto model download skipped: " + t.getMessage());
+        }
     }
 
     @Override
