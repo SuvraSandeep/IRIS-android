@@ -65,6 +65,13 @@
             <Button android:id="@+id/downloadModelButton" android:layout_width="match_parent" android:layout_height="52dp"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
                 android:text="Check / download offline language" android:textAllCaps="false" android:textColor="@color/text_primary" />
+            <Button android:id="@+id/downloadBrainButton" android:layout_width="match_parent" android:layout_height="52dp"
+                android:layout_marginTop="8dp" android:background="@drawable/bg_button_primary"
+                android:text="\uD83E\uDDE0 Download AI brain (Gemma, ~550 MB)" android:textAllCaps="false"
+                android:textColor="@color/text_primary" android:textStyle="bold" />
+            <TextView android:id="@+id/brainStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="AI brain: not installed (using rule-based replies)"
+                android:textColor="@color/text_muted" android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"

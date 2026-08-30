@@ -748,6 +748,48 @@ public class MainActivity extends Activity {
         });
         view.findViewById(R.id.downloadModelButton).setOnClickListener(v -> downloadOfflineModel());
 
+        TextView brainStatus = view.findViewById(R.id.brainStatus);
+        Button brainButton = view.findViewById(R.id.downloadBrainButton);
+        if (ModelManager.gemmaPresent(this)) {
+            brainStatus.setText("\uD83E\uDDE0 AI brain: installed \u2705 — conversational AI active");
+            brainButton.setText("\uD83E\uDDE0 Re-download AI brain");
+        }
+        brainButton.setOnClickListener(v -> {
+            if (ModelManager.gemmaPresent(this)) {
+                toast("AI brain already installed.");
+                return;
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("\uD83E\uDDE0 Download AI brain?")
+                    .setMessage("This downloads Google Gemma (~550 MB) so IRIS can chat with real AI, fully offline.\n\nUse WiFi. This is a one-time download.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Download", (d, w) -> {
+                        brainButton.setEnabled(false);
+                        brainStatus.setText("\u2B07\uFE0F Starting download…");
+                        ModelManager.downloadGemma(this, new ModelManager.LlmDownloadListener() {
+                            @Override public void onProgress(int percent, long done, long total) {
+                                String mb = total > 0
+                                        ? (done / 1048576) + " / " + (total / 1048576) + " MB"
+                                        : (done / 1048576) + " MB";
+                                brainStatus.setText("\u2B07\uFE0F Downloading AI brain: "
+                                        + (percent >= 0 ? percent + "% • " : "") + mb);
+                            }
+                            @Override public void onComplete(java.io.File model) {
+                                brainStatus.setText("\uD83E\uDDE0 AI brain installed \u2705 — restart IRIS listening to activate");
+                                brainButton.setText("\uD83E\uDDE0 Re-download AI brain");
+                                brainButton.setEnabled(true);
+                                toast("\u2705 AI brain ready! Restart IRIS to use it.");
+                                LogStore.append(MainActivity.this, "LLM", "Gemma model downloaded");
+                            }
+                            @Override public void onError(String message) {
+                                brainStatus.setText("\u274C Download failed: " + message);
+                                brainButton.setEnabled(true);
+                                toast("Download failed: " + message);
+                            }
+                        });
+                    }).show();
+        });
+
         Spinner personality = view.findViewById(R.id.personalitySpinner);
         String[] personalities = {"Sarcastic", "Warm", "Professional", "Silent"};
         setSpinner(personality, personalities, settings.personality());

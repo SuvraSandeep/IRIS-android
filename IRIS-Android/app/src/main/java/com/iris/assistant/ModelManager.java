@@ -33,6 +33,81 @@ public final class ModelManager {
 
     private ModelManager() { }
 
+    // ─── Gemma LLM model ───
+
+    /** Candidate filenames the LlmAgent looks for. */
+    public static final String GEMMA_FILE = "gemma3-1b-it-int4.task";
+
+    /**
+     * Public URL for the Gemma 3 1B int4 .task model (LiteRT community build).
+     * If this becomes gated, the user can adb-push the .task file into the model
+     * dir manually instead.
+     */
+    private static final String GEMMA_URL =
+            "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task?download=true";
+
+    public interface LlmDownloadListener {
+        void onProgress(int percent, long downloadedBytes, long totalBytes);
+        void onComplete(File model);
+        void onError(String message);
+    }
+
+    public static boolean gemmaPresent(Context context) {
+        File f = new File(modelDir(context), GEMMA_FILE);
+        return f.exists() && f.length() > 100_000_000L; // > 100 MB sanity check
+    }
+
+    /** Download the Gemma LLM model (~550 MB) on a background thread. */
+    public static void downloadGemma(Context context, LlmDownloadListener listener) {
+        new Thread(() -> {
+            File dir = modelDir(context);
+            File target = new File(dir, GEMMA_FILE);
+            if (gemmaPresent(context)) { main.post(() -> listener.onComplete(target)); return; }
+            File temp = new File(dir, GEMMA_FILE + ".tmp");
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(GEMMA_URL).openConnection();
+                c.setConnectTimeout(20_000);
+                c.setReadTimeout(60_000);
+                c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", "IRIS-Android");
+                c.connect();
+                int code = c.getResponseCode();
+                if (code == 401 || code == 403) {
+                    main.post(() -> listener.onError("Model is gated. Accept the Gemma license on Hugging Face, or adb-push the .task file into the app model folder."));
+                    return;
+                }
+                long total = c.getContentLengthLong();
+                try (InputStream in = c.getInputStream();
+                     FileOutputStream out = new FileOutputStream(temp)) {
+                    byte[] buf = new byte[65536];
+                    long done = 0; int r; long lastPost = 0;
+                    while ((r = in.read(buf)) != -1) {
+                        out.write(buf, 0, r);
+                        done += r;
+                        long now = System.currentTimeMillis();
+                        if (now - lastPost > 500) {
+                            lastPost = now;
+                            long d = done; long t = total;
+                            int pct = t > 0 ? (int) (100L * d / t) : -1;
+                            main.post(() -> listener.onProgress(pct, d, t));
+                        }
+                    }
+                    out.getFD().sync();
+                }
+                if (temp.length() < 100_000_000L) {
+                    temp.delete();
+                    main.post(() -> listener.onError("Download incomplete or blocked. Try again on WiFi, or adb-push the model."));
+                    return;
+                }
+                if (!temp.renameTo(target)) { main.post(() -> listener.onError("Could not save model.")); return; }
+                main.post(() -> listener.onComplete(target));
+            } catch (Exception e) {
+                try { temp.delete(); } catch (Exception ignored) { }
+                main.post(() -> listener.onError(e.getMessage()));
+            }
+        }, "IRIS-GemmaDownload").start();
+    }
+
     /** Get the model directory path. */
     public static File modelDir(Context context) {
         File dir = new File(context.getFilesDir(), MODEL_DIR);

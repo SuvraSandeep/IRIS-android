@@ -10,8 +10,8 @@ android {
         applicationId 'com.iris.assistant'
         minSdk 26
         targetSdk 35
-        versionCode 210
-        versionName '6.6.3'
+        versionCode 211
+        versionName '6.7.0'
     }
 
     signingConfigs {
@@ -49,7 +49,7 @@ android {
 
 dependencies {
     implementation 'com.alphacephei:vosk-android:0.3.75'
-    // NOTE: MediaPipe tasks-genai (Gemma LLM) removed — Google forbids bundling
-    // the model in an APK, it needs adb push + a flagship phone. LlmAgent uses
-    // reflection so it stays ready if we add a runtime model download later.
+    // MediaPipe LLM runtime (library only — the Gemma model is downloaded at
+    // runtime via ModelManager.downloadGemma(), never bundled in the APK).
+    implementation 'com.google.mediapipe:tasks-genai:0.10.24'
 }

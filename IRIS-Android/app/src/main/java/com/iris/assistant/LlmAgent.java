@@ -109,11 +109,26 @@ public final class LlmAgent {
         }
 
         // Tool instructions
-        sb.append("\nIf the user wants to call someone, reply with exactly: [CALL: <name>]\n");
-        sb.append("If they ask the time, reply with exactly: [TIME]\n");
-        sb.append("If they ask battery level, reply with exactly: [BATTERY]\n");
-        sb.append("If they tell you to remember something, reply with exactly: [REMEMBER: <fact>]\n");
+        sb.append("\nYou can take actions by replying with EXACTLY one tag:\n");
+        sb.append("[CALL: <name>] — call a contact\n");
+        sb.append("[REDIAL] — call the last person again\n");
+        sb.append("[CALL_HISTORY] — tell who they called recently\n");
+        sb.append("[TIME] — current time\n");
+        sb.append("[BATTERY] — battery level\n");
+        sb.append("[WEATHER] — current weather\n");
+        sb.append("[NOTIFICATIONS] — read recent phone notifications\n");
+        sb.append("[REMEMBER: <fact>] — save a fact about the user\n");
+        sb.append("[RECALL: <topic>] — look up something you know about the user\n");
         sb.append("Otherwise, reply conversationally in one or two short sentences.\n\n");
+
+        // Few-shot examples so the small model reliably uses tags
+        sb.append("Examples:\n");
+        sb.append("User: call my brother\nIRIS: [CALL: brother]\n");
+        sb.append("User: what's the weather\nIRIS: [WEATHER]\n");
+        sb.append("User: any new messages\nIRIS: [NOTIFICATIONS]\n");
+        sb.append("User: call him again\nIRIS: [REDIAL]\n");
+        sb.append("User: remember I like green tea\nIRIS: [REMEMBER: likes green tea]\n");
+        sb.append("User: how are you\nIRIS: I'm doing great, thanks for asking! How can I help?\n\n");
 
         // Conversation context window — so IRIS remembers what was just said
         if (conversationContext != null && !conversationContext.isEmpty()) {

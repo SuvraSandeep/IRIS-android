@@ -781,10 +781,31 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (out.matches(".*\\[TIME\\].*")) { handleQuickAction("time"); return; }
         // [BATTERY]
         if (out.matches(".*\\[BATTERY\\].*")) { handleQuickAction("battery"); return; }
+        // [WEATHER]
+        if (out.matches(".*\\[WEATHER\\].*")) { handleWeather("weather"); return; }
+        // [NOTIFICATIONS]
+        if (out.matches(".*\\[NOTIFICATIONS\\].*")) { handleNotifications("notifications"); return; }
+        // [REDIAL]
+        if (out.matches(".*\\[REDIAL\\].*")) { handleRedial(store); return; }
+        // [CALL_HISTORY]
+        if (out.matches(".*\\[CALL_HISTORY\\].*")) { handleHistory("who did i call", store); return; }
         // [REMEMBER: fact]
         java.util.regex.Matcher rem = java.util.regex.Pattern
                 .compile("\\[REMEMBER:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
         if (rem.find()) { handleRemember(rem.group(1).trim()); return; }
+        // [RECALL: topic]
+        java.util.regex.Matcher rec = java.util.regex.Pattern
+                .compile("\\[RECALL:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (rec.find()) {
+            String topic = rec.group(1).trim();
+            java.util.List<MemoryStore.Memory> hits = MemoryStore.search(this, topic);
+            String reply = hits.isEmpty()
+                    ? "I don't have anything about " + topic + " yet."
+                    : hits.get(0).key + ": " + hits.get(0).value;
+            broadcastMessage(reply);
+            speakThenRun(reply, this::rearmAfterAction);
+            return;
+        }
 
         // Plain conversational reply — strip any stray brackets
         String clean = out.replaceAll("\\[.*?\\]", "").trim();
