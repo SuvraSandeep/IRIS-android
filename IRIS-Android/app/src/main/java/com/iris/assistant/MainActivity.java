@@ -186,7 +186,7 @@ public class MainActivity extends Activity {
         tabSettings.setOnClickListener(v -> showSettings());
         showAssistant();
         handleLaunchIntent(getIntent());
-        // Auto-download the AI brain in the background (WiFi only) with notifications
+        // Auto-download the AI brain in the background (any network) with progress notifications
         ModelManager.autoDownloadGemmaIfNeeded(this);
     }
 

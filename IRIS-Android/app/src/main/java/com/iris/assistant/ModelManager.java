@@ -39,10 +39,9 @@ public final class ModelManager {
     private static final int DL_NOTIF_ID = 4301;
 
     /**
-     * Automatically download the Gemma AI brain if missing.
-     * Skips silently if present or offline. On mobile data, notifies to use WiFi.
-     * On WiFi, downloads in background with a live progress notification and a
-     * completion notification when the AI brain is ready.
+     * Automatically download the Gemma AI brain if missing, on ANY network.
+     * Shows a live progress notification and a completion notification.
+     * Notes if it's using mobile data. Retries next launch on failure.
      */
     public static void autoDownloadGemmaIfNeeded(Context context) {
         if (gemmaPresent(context)) return;
@@ -50,21 +49,22 @@ public final class ModelManager {
                 (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null) return;
         android.net.Network net = cm.getActiveNetwork();
-        if (net == null) return;
+        if (net == null) {
+            createDownloadChannel(context);
+            notify(context, "\uD83E\uDDE0 IRIS AI brain", "Waiting for a connection to download the AI brain (~550 MB).", false);
+            return;
+        }
         android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(net);
         if (caps == null || !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)) return;
         boolean unmetered = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
         createDownloadChannel(context);
-        if (!unmetered) {
-            notify(context, "\uD83E\uDDE0 IRIS AI brain", "Connect to WiFi to auto-download the AI brain (~550 MB).", false);
-            return;
-        }
-        notify(context, "\uD83E\uDDE0 Downloading IRIS AI brain", "Starting\u2026 (~550 MB, one time)", true);
+        String netNote = unmetered ? "" : " (using mobile data)";
+        notify(context, "\uD83E\uDDE0 Downloading IRIS AI brain", "Starting\u2026 (~550 MB, one time)" + netNote, true);
         downloadGemma(context, new LlmDownloadListener() {
             @Override public void onProgress(int percent, long done, long total) {
                 String mb = total > 0 ? (done / 1048576) + " / " + (total / 1048576) + " MB" : (done / 1048576) + " MB";
                 notifyProgress(context, "\uD83E\uDDE0 Downloading IRIS AI brain",
-                        (percent >= 0 ? percent + "% \u2022 " : "") + mb, percent);
+                        (percent >= 0 ? percent + "% \u2022 " : "") + mb + netNote, percent);
             }
             @Override public void onComplete(File model) {
                 notify(context, "\u2705 IRIS AI brain ready!",
@@ -72,7 +72,7 @@ public final class ModelManager {
             }
             @Override public void onError(String message) {
                 notify(context, "\u26A0\uFE0F AI brain download failed",
-                        message + " \u2014 will retry next time on WiFi.", false);
+                        message + " \u2014 will retry next time you open IRIS.", false);
             }
         });
     }
