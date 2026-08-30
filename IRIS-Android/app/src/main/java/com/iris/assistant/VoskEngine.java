@@ -26,9 +26,9 @@ import java.io.File;
 public final class VoskEngine {
     private static final float SAMPLE_RATE = 16_000f;
     private static final Handler main = new Handler(Looper.getMainLooper());
-    private static final String MODEL_DIR_NAME = "vosk-model-en-us-0.15";
+    private static final String MODEL_DIR_NAME = "vosk-model-en-in-0.4";
     private static final String MODEL_URL =
-            "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip";
+            "https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip";
 
     private Model model;
     private volatile boolean modelLoaded;

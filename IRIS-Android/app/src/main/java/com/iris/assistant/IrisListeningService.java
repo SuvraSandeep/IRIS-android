@@ -166,7 +166,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         textToSpeech = new TextToSpeech(this, status -> {
             ttsReady = status == TextToSpeech.SUCCESS;
             if (ttsReady) {
-                textToSpeech.setLanguage(Locale.getDefault());
+                configureVoice();
                 // Warm up TTS engine with silent utterance — some devices need this
                 textToSpeech.speak(" ", TextToSpeech.QUEUE_FLUSH, null, "warmup");
                 LogStore.append(IrisListeningService.this, "TTS", "Ready: " + textToSpeech.getDefaultEngine());
@@ -2025,6 +2025,48 @@ public class IrisListeningService extends Service implements RecognitionListener
             try { recognizer.cancel(); } catch (Exception ignored) { }
             recognizer.destroy();
             recognizer = null;
+        }
+    }
+
+    /** Pick the most natural available voice (Indian English preferred) and tune pacing. */
+    private void configureVoice() {
+        if (textToSpeech == null) return;
+        try {
+            // Prefer Indian English, fall back to device locale
+            Locale indian = new Locale("en", "IN");
+            int langResult = textToSpeech.setLanguage(indian);
+            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                textToSpeech.setLanguage(Locale.getDefault());
+            }
+            // Choose the highest-quality voice for the chosen locale, preferring non-robotic
+            try {
+                android.speech.tts.Voice best = null;
+                for (android.speech.tts.Voice v : textToSpeech.getVoices()) {
+                    if (v == null || v.getLocale() == null) continue;
+                    String lang = v.getLocale().getLanguage();
+                    if (!"en".equals(lang)) continue;
+                    boolean indianV = "IN".equals(v.getLocale().getCountry());
+                    boolean notRobotic = v.getQuality() >= android.speech.tts.Voice.QUALITY_HIGH;
+                    boolean notNetworkOnly = !v.isNetworkConnectionRequired();
+                    // Score: prefer Indian + high quality + offline
+                    if (best == null) { best = v; continue; }
+                    int score = (indianV ? 4 : 0) + (notRobotic ? 2 : 0) + (notNetworkOnly ? 1 : 0);
+                    boolean bestIndian = "IN".equals(best.getLocale().getCountry());
+                    int bestScore = (bestIndian ? 4 : 0)
+                            + (best.getQuality() >= android.speech.tts.Voice.QUALITY_HIGH ? 2 : 0)
+                            + (!best.isNetworkConnectionRequired() ? 1 : 0);
+                    if (score > bestScore) best = v;
+                }
+                if (best != null) {
+                    textToSpeech.setVoice(best);
+                    LogStore.append(this, "TTS", "Voice: " + best.getName() + " (" + best.getLocale() + ")");
+                }
+            } catch (Exception ignored) { }
+            // Natural pacing — slightly slower and normal pitch feels less robotic
+            textToSpeech.setSpeechRate(0.95f);
+            textToSpeech.setPitch(1.02f);
+        } catch (Exception e) {
+            LogStore.append(this, "TTS", "configureVoice error: " + e.getMessage());
         }
     }
 

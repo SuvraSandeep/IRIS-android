@@ -78,10 +78,10 @@ jobs:
             mkdir -p "$ASSETS_DIR"
             rm -rf "$MODEL_DIR"
             if curl -fSL --retry 2 --max-time 180 -o "$ASSETS_DIR/vosk-model.zip" \
-                 https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip \
+                 https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip \
                && unzip -q "$ASSETS_DIR/vosk-model.zip" -d "$ASSETS_DIR"; then
-              mv "$ASSETS_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR" || true
-              echo "Vosk model bundled."
+              mv "$ASSETS_DIR/vosk-model-small-en-in-0.4" "$MODEL_DIR" || true
+              echo "Vosk Indian-English model bundled."
             else
               echo "::warning::Vosk download failed — app downloads it at runtime."
             fi
