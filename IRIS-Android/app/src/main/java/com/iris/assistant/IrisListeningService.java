@@ -57,7 +57,6 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String EXTRA_TEXT = "text";
     public static final String EXTRA_NAME = "name";
     public static final String EXTRA_NUMBER = "number";
-    public static final String EXTRA_TEXT = "text";
     public static final String EXTRA_NAMES = "names";
     public static final String EXTRA_NUMBERS = "numbers";
     public static final String EXTRA_MIC = "mic";

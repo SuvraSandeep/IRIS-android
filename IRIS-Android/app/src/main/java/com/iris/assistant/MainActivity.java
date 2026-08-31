@@ -444,7 +444,6 @@ public class MainActivity extends Activity {
         if (editChips != null) editChips.setOnClickListener(v -> showChipEditor());
     }
 
-    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
     private int getColorCompat(int res) { return getResources().getColor(res, getTheme()); }
 
     private void showTraining() {
