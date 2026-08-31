@@ -808,6 +808,15 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void handleChat(String original, String normalized, ProfileStore store) {
         LogStore.append(this, "CHAT", original);
 
+        // Identity questions: answer instantly and deterministically. These are
+        // handled well by the rule-based replies and don't need the (slower) AI —
+        // routing them here also sidesteps odd model behaviour on these prompts.
+        if (normalized.matches(".*\\b(who am i|who are you|what are you|your name"
+                + "|what.?s my name|what is my name|who made you|who created you|who built you)\\b.*")) {
+            ruleBasedChat(original, normalized, store);
+            return;
+        }
+
         // Try the real AI (Gemma) first, on a background thread
         if (llmReady && llmAgent != null && llmAgent.isReady()) {
             broadcastMessage("Thinking…");
@@ -817,8 +826,14 @@ public class IrisListeningService extends Service implements RecognitionListener
                     if (llmOut == null || llmOut.isEmpty()) {
                         ruleBasedChat(original, normalized, store); // fallback
                     } else {
-                        conversation.add(original, llmOut.replaceAll("\\[.*?\\]", "").trim());
-                        handleLlmOutput(llmOut, store);
+                        try {
+                            conversation.add(original, llmOut.replaceAll("\\[.*?\\]", "").trim());
+                            handleLlmOutput(llmOut, store);
+                        } catch (Throwable t) {
+                            LogStore.append(this, "LLM ERROR",
+                                    "reply handling crashed: " + t + " | reply was: " + llmOut);
+                            ruleBasedChat(original, normalized, store); // safe fallback
+                        }
                     }
                 });
             }, "IRIS-LLM-Gen").start();
