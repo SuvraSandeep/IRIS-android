@@ -630,7 +630,23 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
+    /** Guarded entry point: no command-handling error may crash the app. */
     private void handleCommand(String heard) {
+        try {
+            handleCommandInner(heard);
+        } catch (Throwable t) {
+            LogStore.append(this, "COMMAND ERROR",
+                    "Crash handling command: " + t + " | heard: " + heard);
+            try {
+                broadcastMessage("Sorry, something went wrong.");
+                speakThenRun("Sorry, something went wrong.", this::rearmAfterAction);
+            } catch (Throwable ignored) {
+                rearmAfterAction();
+            }
+        }
+    }
+
+    private void handleCommandInner(String heard) {
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         String clean = heard == null ? "" : heard.trim();
         if (clean.isEmpty()) {
