@@ -518,7 +518,11 @@ public class MainActivity extends Activity {
         contentHost.addView(view);
         TextView logText = view.findViewById(R.id.logText);
         String logs = LogStore.readNewestFirst(this);
+        final String allLogs = logs;
         logText.setText(logs.isEmpty() ? "No activity yet. IRIS is impressively innocent." : logs);
+        // Filter chips
+        LinearLayout filterRow = view.findViewById(R.id.logFilterRow);
+        buildLogFilters(filterRow, logText, allLogs);
         view.findViewById(R.id.exportLogsButton).setOnClickListener(v ->
                 authenticateThen("Export private activity", this::createLogDocument));
         view.findViewById(R.id.clearLogsButton).setOnClickListener(v -> new AlertDialog.Builder(this)
@@ -532,7 +536,52 @@ public class MainActivity extends Activity {
         updateTabs();
     }
 
-    private void showMemory() {
+    /** Category filter definitions for the Activity log: {label, matching tags CSV}. */
+    private static final String[][] LOG_FILTERS = {
+            {"All", ""},
+            {"Calls", "CALL,REDIAL,CONFIRM,DIAL"},
+            {"Messages", "SMS,WHATSAPP,NOTIFICATION"},
+            {"AI", "LLM,CHAT,MEMORY"},
+            {"Actions", "ALARM,TIMER,REMINDER,TORCH,VOLUME,SEARCH,WEATHER,LOCATION,CONNECTIVITY"},
+            {"Errors", "ERROR,FAILED,CANCELLED"},
+    };
+
+    /** Build the Activity filter chips and wire them to filter the log text. */
+    private void buildLogFilters(LinearLayout row, TextView logText, String allLogs) {
+        if (row == null) return;
+        row.removeAllViews();
+        for (String[] f : LOG_FILTERS) {
+            final String tagsCsv = f[1];
+            Button chip = new Button(this);
+            chip.setText(f[0]);
+            chip.setAllCaps(false);
+            chip.setTextColor(getColorCompat(R.color.text_secondary));
+            chip.setTextSize(12f);
+            chip.setBackgroundResource(R.drawable.bg_chip);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, dp(38));
+            lp.rightMargin = dp(8);
+            chip.setLayoutParams(lp);
+            chip.setPadding(dp(14), 0, dp(14), 0);
+            chip.setOnClickListener(v -> logText.setText(filterLogs(allLogs, tagsCsv)));
+            row.addView(chip);
+        }
+    }
+
+    /** Keep only log lines whose tag matches one of the CSV tags (empty CSV = all). */
+    private String filterLogs(String allLogs, String tagsCsv) {
+        if (allLogs == null || allLogs.isEmpty()) return "No activity yet. IRIS is impressively innocent.";
+        if (tagsCsv == null || tagsCsv.isEmpty()) return allLogs;
+        String[] tags = tagsCsv.split(",");
+        StringBuilder sb = new StringBuilder();
+        for (String line : allLogs.split("\n")) {
+            String upper = line.toUpperCase(Locale.ROOT);
+            for (String tag : tags) {
+                if (upper.contains(tag)) { sb.append(line).append("\n"); break; }
+            }
+        }
+        return sb.length() == 0 ? "Nothing here yet." : sb.toString().trim();
+    }
         selectedTab = 3;
         contentHost.removeAllViews();
         View view = LayoutInflater.from(this).inflate(R.layout.view_memory, contentHost, false);
