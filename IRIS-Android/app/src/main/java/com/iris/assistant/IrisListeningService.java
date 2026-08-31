@@ -158,6 +158,14 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern NAV_PATTERN = Pattern.compile(
             "^(?:navigate\\s+to|directions\\s+to|take\\s+me\\s+to|route\\s+to|how\\s+do\\s+i\\s+get\\s+to|navigate)\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
+    // "email mom about dinner" / "send an email to john@x.com saying hi"
+    private static final Pattern EMAIL_PATTERN = Pattern.compile(
+            "^(?:send\\s+(?:an?\\s+)?email\\s+to|email)\\s+(.+?)(?:\\s+(?:about|saying|regarding|that|re)\\s+(.+))?$",
+            Pattern.CASE_INSENSITIVE);
+    // "add a meeting X at 3 pm" / "schedule an event Y" / "create an appointment Z on monday"
+    private static final Pattern CALENDAR_PATTERN = Pattern.compile(
+            "^(?:add|create|schedule|set\\s+up)\\s+(?:an?\\s+)?(?:event|meeting|appointment)\\s+(.+?)(?:\\s+(?:at|on)\\s+(.+))?$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern NOTIFICATION_PATTERN = Pattern.compile(
             ".*\\bnotifications?\\b.*"
             + "|.*\\bwho\\s+(?:texted|messaged|pinged)\\s+me\\b.*"
@@ -753,6 +761,16 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (webM.matches()) { handleWebSearch(webM.group(1).trim()); return; }
         Matcher navM = NAV_PATTERN.matcher(clean);
         if (navM.matches() && !containsCallVerb(normalized)) { handleNavigate(navM.group(1).trim()); return; }
+        Matcher emailM = EMAIL_PATTERN.matcher(clean);
+        if (emailM.matches()) {
+            handleEmail(emailM.group(1).trim(), emailM.group(2) == null ? "" : emailM.group(2).trim());
+            return;
+        }
+        Matcher calM = CALENDAR_PATTERN.matcher(clean);
+        if (calM.matches()) {
+            handleCalendar(calM.group(1).trim(), calM.group(2) == null ? null : calM.group(2).trim());
+            return;
+        }
 
         // 6. Call patterns (English)
         Matcher matcher = CALL_PATTERN.matcher(normalized);
@@ -942,6 +960,20 @@ public class IrisListeningService extends Service implements RecognitionListener
         java.util.regex.Matcher navTag = java.util.regex.Pattern
                 .compile("\\[NAVIGATE:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
         if (navTag.find()) { handleNavigate(navTag.group(1).trim()); return; }
+        // [EMAIL: recipient | subject]
+        java.util.regex.Matcher emailTag = java.util.regex.Pattern
+                .compile("\\[EMAIL:\\s*([^|\\]]+)(?:\\|([^\\]]+))?\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (emailTag.find()) {
+            handleEmail(emailTag.group(1).trim(), emailTag.group(2) == null ? "" : emailTag.group(2).trim());
+            return;
+        }
+        // [CALENDAR: title | when]
+        java.util.regex.Matcher calTag = java.util.regex.Pattern
+                .compile("\\[CALENDAR:\\s*([^|\\]]+)(?:\\|([^\\]]+))?\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (calTag.find()) {
+            handleCalendar(calTag.group(1).trim(), calTag.group(2) == null ? null : calTag.group(2).trim());
+            return;
+        }
         // [NOTIFICATIONS]
         if (out.matches(".*\\[NOTIFICATIONS\\].*")) { handleNotifications("notifications"); return; }
         // [REDIAL]
@@ -1730,6 +1762,92 @@ public class IrisListeningService extends Service implements RecognitionListener
             LogStore.append(this, "NAVIGATE", "Failed: " + e.getMessage());
         }
     }
+    /** Compose an email (resolves a contact's address when possible). */
+    private void handleEmail(String recipient, String body) {
+        try {
+            String to = recipient;
+            if (!recipient.contains("@")) {
+                String resolved = resolveEmail(recipient);
+                if (resolved != null) to = resolved;
+            }
+            Intent i = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:"));
+            if (to.contains("@")) i.putExtra(Intent.EXTRA_EMAIL, new String[]{to});
+            if (!body.isEmpty()) i.putExtra(Intent.EXTRA_SUBJECT, body);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            String msg = to.contains("@")
+                    ? "Opening an email to " + recipient + "."
+                    : "Opening an email \u2014 add " + recipient + "'s address.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "EMAIL", "To " + recipient);
+        } catch (Exception e) {
+            broadcastMessage("I couldn't open an email app.");
+            speakThenRun("I couldn't open an email app.", this::rearmAfterAction);
+            LogStore.append(this, "EMAIL", "Failed: " + e.getMessage());
+        }
+    }
+
+    /** Open the calendar to create an event, pre-filling title and time. */
+    private void handleCalendar(String title, String when) {
+        try {
+            Intent i = new Intent(Intent.ACTION_INSERT);
+            i.setData(android.provider.CalendarContract.Events.CONTENT_URI);
+            i.putExtra(android.provider.CalendarContract.Events.TITLE, title);
+            String spokenWhen = "";
+            if (when != null) {
+                int[] hm = parseClockTime(when);
+                if (hm != null) {
+                    Calendar cal = Calendar.getInstance();
+                    cal.set(Calendar.HOUR_OF_DAY, hm[0]);
+                    cal.set(Calendar.MINUTE, hm[1]);
+                    cal.set(Calendar.SECOND, 0);
+                    cal.set(Calendar.MILLISECOND, 0);
+                    if (when.toLowerCase(Locale.ROOT).contains("tomorrow")) cal.add(Calendar.DAY_OF_MONTH, 1);
+                    else if (cal.getTimeInMillis() <= System.currentTimeMillis()) cal.add(Calendar.DAY_OF_MONTH, 1);
+                    i.putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, cal.getTimeInMillis());
+                    i.putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME,
+                            cal.getTimeInMillis() + 3600000L);
+                    spokenWhen = " at " + formatClock(hm[0], hm[1]);
+                }
+            }
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            String msg = "Opening your calendar to add \u201C" + title + "\u201D" + spokenWhen + ".";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "CALENDAR", title + spokenWhen);
+        } catch (Exception e) {
+            broadcastMessage("I couldn't open the calendar.");
+            speakThenRun("I couldn't open the calendar.", this::rearmAfterAction);
+            LogStore.append(this, "CALENDAR", "Failed: " + e.getMessage());
+        }
+    }
+
+    /** Resolve a spoken name to a contact's email address, or null. */
+    private String resolveEmail(String name) {
+        if (!hasPermission(Manifest.permission.READ_CONTACTS)) return null;
+        String target = ProfileStore.normalize(name).replaceAll("^my\\s+", "");
+        try (Cursor c = getContentResolver().query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                new String[]{ContactsContract.CommonDataKinds.Email.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Email.ADDRESS},
+                null, null, null)) {
+            if (c == null) return null;
+            String best = null;
+            double bestScore = 0;
+            while (c.moveToNext()) {
+                String dn = c.getString(0);
+                String addr = c.getString(1);
+                if (dn == null || addr == null) continue;
+                double score = nameScore(target, ProfileStore.normalize(dn));
+                if (score > bestScore && score >= .72) { bestScore = score; best = addr; }
+            }
+            return best;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Resolve a spoken name to the best-matching contact number, or null. */
     private String resolveNumber(String who) {
         if (who == null || who.trim().isEmpty()) return null;
         // Relationship first ("my brother")

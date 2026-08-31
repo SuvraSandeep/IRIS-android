@@ -222,6 +222,8 @@ public final class LlmAgent {
         sb.append("[BLUETOOTH] — open Bluetooth settings\n");
         sb.append("[SEARCH: <query>] — search the web\n");
         sb.append("[NAVIGATE: <place>] — get directions / open maps to a place\n");
+        sb.append("[EMAIL: <name or address> | <subject>] — compose an email\n");
+        sb.append("[CALENDAR: <title> | <time>] — add a calendar event\n");
         sb.append("Only use a tag when the user actually wants that action done.\n");
         sb.append("You CANNOT (be honest and say so, don't pretend): send email, post to social media, "
                 + "directly switch Wi-Fi/Bluetooth on or off (you can only open their settings), "
@@ -248,6 +250,8 @@ public final class LlmAgent {
         sb.append("User: turn up the volume\nIRIS: [VOLUME: up]\n");
         sb.append("User: search for the tallest mountain\nIRIS: [SEARCH: tallest mountain]\n");
         sb.append("User: navigate to the airport\nIRIS: [NAVIGATE: airport]\n");
+        sb.append("User: email mom about dinner tonight\nIRIS: [EMAIL: mom | dinner tonight]\n");
+        sb.append("User: add a meeting with Sam at 4 pm\nIRIS: [CALENDAR: meeting with Sam | 4 pm]\n");
         sb.append("User: any new messages\nIRIS: [NOTIFICATIONS]\n");
         sb.append("User: call him again\nIRIS: [REDIAL]\n");
         sb.append("User: remember I like green tea\nIRIS: [REMEMBER: likes green tea]\n");
