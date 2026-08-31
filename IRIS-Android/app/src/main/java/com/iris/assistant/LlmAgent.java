@@ -255,14 +255,20 @@ public final class LlmAgent {
 
     private File findModel(Context context) {
         File dir = ModelManager.modelDir(context);
+        // Prefer the currently-configured model file.
+        File configured = new File(dir, ModelManager.GEMMA_FILE);
+        if (configured.exists() && configured.length() > 1_000_000) return configured;
         for (String name : MODEL_NAMES) {
             File f = new File(dir, name);
             if (f.exists() && f.length() > 1_000_000) return f;
         }
-        // Also check for any .task file
+        // Also check for any .task/.bin file, but skip very large models (>1.2 GB):
+        // they risk out-of-memory kills during inference on typical phones.
         File[] tasks = dir.listFiles((d, n) -> n.endsWith(".task") || n.endsWith(".bin"));
         if (tasks != null) {
-            for (File f : tasks) if (f.length() > 1_000_000) return f;
+            for (File f : tasks) {
+                if (f.length() > 1_000_000 && f.length() < 1_200_000_000L) return f;
+            }
         }
         return null;
     }
