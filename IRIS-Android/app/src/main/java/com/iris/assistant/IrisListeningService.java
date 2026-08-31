@@ -154,6 +154,10 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern WEBSEARCH_PATTERN = Pattern.compile(
             "^(?:search\\s+(?:the\\s+web\\s+)?for|search|google|look\\s+up|web\\s+search\\s+for)\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
+    // "navigate to X" / "directions to X" / "take me to X"
+    private static final Pattern NAV_PATTERN = Pattern.compile(
+            "^(?:navigate\\s+to|directions\\s+to|take\\s+me\\s+to|route\\s+to|how\\s+do\\s+i\\s+get\\s+to|navigate)\\s+(.+)$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern NOTIFICATION_PATTERN = Pattern.compile(
             ".*\\bnotifications?\\b.*"
             + "|.*\\bwho\\s+(?:texted|messaged|pinged)\\s+me\\b.*"
@@ -747,6 +751,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (connM.matches()) { handleConnectivity(connM.group(2)); return; }
         Matcher webM = WEBSEARCH_PATTERN.matcher(clean);
         if (webM.matches()) { handleWebSearch(webM.group(1).trim()); return; }
+        Matcher navM = NAV_PATTERN.matcher(clean);
+        if (navM.matches() && !containsCallVerb(normalized)) { handleNavigate(navM.group(1).trim()); return; }
 
         // 6. Call patterns (English)
         Matcher matcher = CALL_PATTERN.matcher(normalized);
@@ -932,6 +938,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         java.util.regex.Matcher searchTag = java.util.regex.Pattern
                 .compile("\\[SEARCH:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
         if (searchTag.find()) { handleWebSearch(searchTag.group(1).trim()); return; }
+        // [NAVIGATE: place]
+        java.util.regex.Matcher navTag = java.util.regex.Pattern
+                .compile("\\[NAVIGATE:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
+        if (navTag.find()) { handleNavigate(navTag.group(1).trim()); return; }
         // [NOTIFICATIONS]
         if (out.matches(".*\\[NOTIFICATIONS\\].*")) { handleNotifications("notifications"); return; }
         // [REDIAL]
@@ -1698,7 +1708,28 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
-    /** Resolve a spoken name to the best-matching contact number, or null. */
+    /** Start turn-by-turn navigation (or a map) to a destination. */
+    private void handleNavigate(String destination) {
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("google.navigation:q=" + Uri.encode(destination)));
+            i.setPackage("com.google.android.apps.maps");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (i.resolveActivity(getPackageManager()) == null) {
+                // Google Maps not available — fall back to a generic geo map query.
+                i = new Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(destination)));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+            startActivity(i);
+            String msg = "Getting directions to " + destination + ".";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "NAVIGATE", destination);
+        } catch (Exception e) {
+            broadcastMessage("I couldn't open maps.");
+            speakThenRun("I couldn't open maps.", this::rearmAfterAction);
+            LogStore.append(this, "NAVIGATE", "Failed: " + e.getMessage());
+        }
+    }
     private String resolveNumber(String who) {
         if (who == null || who.trim().isEmpty()) return null;
         // Relationship first ("my brother")

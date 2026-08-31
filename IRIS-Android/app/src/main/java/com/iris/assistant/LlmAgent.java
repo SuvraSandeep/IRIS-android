@@ -35,6 +35,23 @@ public final class LlmAgent {
             ready = false;
             return false;
         }
+        // Memory safety: on-device LLM inference needs ~1.3 GB+ RAM. If free
+        // memory is too low, skip loading and fall back to rule-based chat so
+        // we never get out-of-memory killed mid-reply.
+        try {
+            android.app.ActivityManager am =
+                    (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am != null) {
+                android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+                am.getMemoryInfo(mi);
+                long availMb = mi.availMem / (1024 * 1024);
+                if (mi.lowMemory || availMb < 1100) {
+                    android.util.Log.w("IRIS", "LLM: low memory (" + availMb + "MB free), using rule-based chat");
+                    ready = false;
+                    return false;
+                }
+            }
+        } catch (Throwable ignored) { }
         try {
             // Reflectively build LlmInferenceOptions and create LlmInference
             Class<?> llmClass = Class.forName(
@@ -204,6 +221,7 @@ public final class LlmAgent {
         sb.append("[WIFI] — open Wi-Fi settings\n");
         sb.append("[BLUETOOTH] — open Bluetooth settings\n");
         sb.append("[SEARCH: <query>] — search the web\n");
+        sb.append("[NAVIGATE: <place>] — get directions / open maps to a place\n");
         sb.append("Only use a tag when the user actually wants that action done.\n");
         sb.append("You CANNOT (be honest and say so, don't pretend): send email, post to social media, "
                 + "directly switch Wi-Fi/Bluetooth on or off (you can only open their settings), "
@@ -229,6 +247,7 @@ public final class LlmAgent {
         sb.append("User: turn on the flashlight\nIRIS: [TORCH: on]\n");
         sb.append("User: turn up the volume\nIRIS: [VOLUME: up]\n");
         sb.append("User: search for the tallest mountain\nIRIS: [SEARCH: tallest mountain]\n");
+        sb.append("User: navigate to the airport\nIRIS: [NAVIGATE: airport]\n");
         sb.append("User: any new messages\nIRIS: [NOTIFICATIONS]\n");
         sb.append("User: call him again\nIRIS: [REDIAL]\n");
         sb.append("User: remember I like green tea\nIRIS: [REMEMBER: likes green tea]\n");
