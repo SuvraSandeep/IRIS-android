@@ -584,6 +584,8 @@ public class MainActivity extends Activity {
         }
         return sb.length() == 0 ? "Nothing here yet." : sb.toString().trim();
     }
+
+    private void showMemory() {
         selectedTab = 3;
         contentHost.removeAllViews();
         View view = LayoutInflater.from(this).inflate(R.layout.view_memory, contentHost, false);
