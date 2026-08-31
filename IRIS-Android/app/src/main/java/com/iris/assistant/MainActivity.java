@@ -309,7 +309,7 @@ public class MainActivity extends Activity {
             chip.setTextSize(12f);
             chip.setBackgroundResource(R.drawable.bg_chip);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
+                    LinearLayout.LayoutParams.WRAP_CONTENT, dp(44));
             lp.rightMargin = dp(8);
             chip.setLayoutParams(lp);
             chip.setPadding(dp(16), 0, dp(16), 0);
@@ -324,7 +324,7 @@ public class MainActivity extends Activity {
         edit.setTextSize(12f);
         edit.setBackgroundResource(R.drawable.bg_chip);
         LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(44));
         edit.setLayoutParams(elp);
         edit.setPadding(dp(16), 0, dp(16), 0);
         edit.setOnClickListener(v -> showChipEditor());
@@ -406,7 +406,7 @@ public class MainActivity extends Activity {
                 int color;
                 try { color = Color.parseColor(preset[1]); } catch (Exception e) { continue; }
                 View sw = new View(this);
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(36), dp(36));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(44), dp(44));
                 lp.rightMargin = dp(10);
                 sw.setLayoutParams(lp);
                 android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
@@ -414,6 +414,8 @@ public class MainActivity extends Activity {
                 gd.setColor(color);
                 if (color == current) gd.setStroke(dp(3), 0xFFFFFFFF);
                 sw.setBackground(gd);
+                sw.setContentDescription(preset[0] + " accent"
+                        + (color == current ? ", selected" : ""));
                 final String hex = preset[1];
                 sw.setOnClickListener(v -> { settings.setAccentColor(hex); recreate(); });
                 accentRow.addView(sw);
@@ -559,7 +561,7 @@ public class MainActivity extends Activity {
             chip.setTextSize(12f);
             chip.setBackgroundResource(R.drawable.bg_chip);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, dp(38));
+                    LinearLayout.LayoutParams.WRAP_CONTENT, dp(44));
             lp.rightMargin = dp(8);
             chip.setLayoutParams(lp);
             chip.setPadding(dp(14), 0, dp(14), 0);

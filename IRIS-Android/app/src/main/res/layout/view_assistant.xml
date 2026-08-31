@@ -99,6 +99,7 @@
                 android:layout_height="52dp"
                 android:layout_marginLeft="8dp"
                 android:background="@drawable/bg_button_primary"
+                android:contentDescription="Send command"
                 android:text="\u27A4"
                 android:textAllCaps="false"
                 android:textColor="@color/text_primary"
