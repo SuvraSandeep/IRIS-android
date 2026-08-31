@@ -55,6 +55,12 @@
                 android:layout_height="wrap_content" android:layout_marginTop="10dp"
                 android:text="Compact layout" android:textColor="@color/text_primary" android:textSize="14sp" />
 
+            <Button android:id="@+id/editChipsButton" android:layout_width="match_parent"
+                android:layout_height="48dp" android:layout_marginTop="12dp"
+                android:background="@drawable/bg_button_secondary"
+                android:text="Edit home quick actions" android:textAllCaps="false"
+                android:textColor="@color/text_primary" android:textSize="14sp" />
+
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="8dp" android:text="Theme and accent apply instantly."
                 android:textColor="@color/text_muted" android:textSize="11sp" />

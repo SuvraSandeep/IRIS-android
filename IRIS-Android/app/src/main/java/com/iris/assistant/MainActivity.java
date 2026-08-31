@@ -316,6 +316,48 @@ public class MainActivity extends Activity {
             chip.setOnClickListener(v -> onQuickChip(cmd));
             row.addView(chip);
         }
+        // Trailing "Edit" chip to customize the row
+        Button edit = new Button(this);
+        edit.setText("\uFF0B Edit");
+        edit.setAllCaps(false);
+        edit.setTextColor(getColorCompat(R.color.text_muted));
+        edit.setTextSize(12f);
+        edit.setBackgroundResource(R.drawable.bg_chip);
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
+        edit.setLayoutParams(elp);
+        edit.setPadding(dp(16), 0, dp(16), 0);
+        edit.setOnClickListener(v -> showChipEditor());
+        row.addView(edit);
+    }
+
+    /** Multi-select editor for which quick-action chips appear on the home screen. */
+    private void showChipEditor() {
+        AppSettings settings = new AppSettings(this);
+        List<String> current = Arrays.asList(settings.homeChips().split(","));
+        String[] labels = new String[CHIP_DEFS.length];
+        boolean[] checked = new boolean[CHIP_DEFS.length];
+        for (int i = 0; i < CHIP_DEFS.length; i++) {
+            labels[i] = CHIP_DEFS[i][1];
+            checked[i] = current.contains(CHIP_DEFS[i][0]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Home quick actions")
+                .setMultiChoiceItems(labels, checked, (d, which, isChecked) -> checked[which] = isChecked)
+                .setPositiveButton("Save", (d, w) -> {
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < CHIP_DEFS.length; i++) {
+                        if (checked[i]) {
+                            if (sb.length() > 0) sb.append(",");
+                            sb.append(CHIP_DEFS[i][0]);
+                        }
+                    }
+                    settings.setHomeChips(sb.toString());
+                    if (selectedTab == 0) showAssistant();
+                    else toast("Quick actions updated.");
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     /** Handle a quick-action chip: send a command, or prompt for the missing detail. */
@@ -396,6 +438,8 @@ public class MainActivity extends Activity {
             density.setOnCheckedChangeListener((b, checked) ->
                     settings.setDensity(checked ? AppSettings.DENSITY_COMPACT : AppSettings.DENSITY_COMFORTABLE));
         }
+        Button editChips = view.findViewById(R.id.editChipsButton);
+        if (editChips != null) editChips.setOnClickListener(v -> showChipEditor());
     }
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
