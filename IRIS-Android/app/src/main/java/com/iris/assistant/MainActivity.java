@@ -174,6 +174,18 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         contentHost = findViewById(R.id.contentHost);
+        // Apply the user's theme (Dark keeps the gradient; AMOLED = pure black).
+        try {
+            AppSettings appSettings = new AppSettings(this);
+            View root = findViewById(R.id.rootLayout);
+            if (AppSettings.THEME_AMOLED.equals(appSettings.theme())) {
+                if (root != null) root.setBackgroundColor(0xFF000000);
+                if (getWindow() != null) {
+                    getWindow().setStatusBarColor(0xFF000000);
+                    getWindow().setNavigationBarColor(0xFF000000);
+                }
+            }
+        } catch (Throwable ignored) { }
         tabAssistant = findViewById(R.id.tabAssistant);
         tabTraining = findViewById(R.id.tabTraining);
         tabLogs = findViewById(R.id.tabLogs);
@@ -236,10 +248,158 @@ public class MainActivity extends Activity {
         phaseChip = view.findViewById(R.id.phaseChip);
         frequentContactsText = view.findViewById(R.id.frequentContactsText);
         irisOrb.setOnClickListener(v -> toggleIris());
+        // Apply appearance to the orb
+        AppSettings appearance = new AppSettings(this);
+        irisOrb.setAccent(ThemeManager.accent(appearance));
+        irisOrb.setReduceMotion(appearance.reduceMotion());
+
+        // Text command input + send
+        EditText commandInput = view.findViewById(R.id.commandInput);
+        Button sendCommandButton = view.findViewById(R.id.sendCommandButton);
+        ThemeManager.primaryButton(sendCommandButton, ThemeManager.accent(appearance));
+        Runnable sendTyped = () -> {
+            String text = commandInput.getText().toString().trim();
+            if (text.isEmpty()) return;
+            sendTextCommand(text);
+            commandInput.setText("");
+        };
+        sendCommandButton.setOnClickListener(v -> sendTyped.run());
+        commandInput.setOnEditorActionListener((tv, actionId, e) -> { sendTyped.run(); return true; });
+
+        // Customizable quick-action chips
+        LinearLayout chipsRow = view.findViewById(R.id.quickChipsRow);
+        buildQuickChips(chipsRow, appearance);
+
         updateFrequentContacts();
         updateTabs();
         updateAssistantState(IrisListeningService.isRunning, IrisListeningService.currentPhase);
     }
+
+    /** Map a chip id to its label and the command text it sends. */
+    private static final String[][] CHIP_DEFS = {
+            {"call", "\u260E Call", "__PROMPT_CALL__"},
+            {"text", "\u2709 Text", "__PROMPT_TEXT__"},
+            {"alarm", "\u23F0 Alarm", "__PROMPT_ALARM__"},
+            {"weather", "\u2600 Weather", "what's the weather"},
+            {"torch", "\uD83D\uDD26 Torch", "turn on the flashlight"},
+            {"time", "\uD83D\uDD52 Time", "what time is it"},
+            {"battery", "\uD83D\uDD0B Battery", "battery level"},
+            {"location", "\uD83D\uDCCD Location", "where am i"},
+            {"notifications", "\uD83D\uDCEC Notifications", "read my notifications"},
+    };
+
+    /** Build the home quick-action chips from the user's saved selection. */
+    private void buildQuickChips(LinearLayout row, AppSettings appearance) {
+        if (row == null) return;
+        row.removeAllViews();
+        int accent = ThemeManager.accent(appearance);
+        String csv = appearance.homeChips();
+        List<String> ids = Arrays.asList(csv.split(","));
+        for (String id : ids) {
+            String label = null, command = null;
+            for (String[] def : CHIP_DEFS) {
+                if (def[0].equals(id.trim())) { label = def[1]; command = def[2]; break; }
+            }
+            if (label == null) continue;
+            final String cmd = command;
+            Button chip = new Button(this);
+            chip.setText(label);
+            chip.setAllCaps(false);
+            chip.setTextColor(getColorCompat(R.color.text_primary));
+            chip.setTextSize(12f);
+            chip.setBackgroundResource(R.drawable.bg_chip);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
+            lp.rightMargin = dp(8);
+            chip.setLayoutParams(lp);
+            chip.setPadding(dp(16), 0, dp(16), 0);
+            chip.setOnClickListener(v -> onQuickChip(cmd));
+            row.addView(chip);
+        }
+    }
+
+    /** Handle a quick-action chip: send a command, or prompt for the missing detail. */
+    private void onQuickChip(String command) {
+        if ("__PROMPT_CALL__".equals(command)) { promptForCommand("Call who?", "Call "); }
+        else if ("__PROMPT_TEXT__".equals(command)) { promptForCommand("Text who, and what?", "Text "); }
+        else if ("__PROMPT_ALARM__".equals(command)) { promptForCommand("Alarm for when? (e.g. 7:30 am)", "Set an alarm for "); }
+        else sendTextCommand(command);
+    }
+
+    /** Show a small input dialog prefilled with a command stub, then send it. */
+    private void promptForCommand(String title, String prefix) {
+        final EditText input = new EditText(this);
+        input.setText(prefix);
+        input.setSelection(prefix.length());
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(input)
+                .setPositiveButton("Send", (d, w) -> {
+                    String text = input.getText().toString().trim();
+                    if (!text.isEmpty()) sendTextCommand(text);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** Send a typed/chip command to the listening service. */
+    private void sendTextCommand(String text) {
+        try {
+            Intent i = new Intent(this, IrisListeningService.class);
+            i.setAction(IrisListeningService.ACTION_PROCESS_TEXT);
+            i.putExtra(IrisListeningService.EXTRA_TEXT, text);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
+        } catch (Exception e) {
+            toast("Couldn't run that command.");
+        }
+    }
+
+    /** Wire the Appearance section: accent swatches, AMOLED, reduce motion, density. */
+    private void wireAppearance(View view, AppSettings settings) {
+        LinearLayout accentRow = view.findViewById(R.id.accentRow);
+        if (accentRow != null) {
+            accentRow.removeAllViews();
+            int current = ThemeManager.accent(settings);
+            for (String[] preset : ThemeManager.ACCENTS) {
+                int color;
+                try { color = Color.parseColor(preset[1]); } catch (Exception e) { continue; }
+                View sw = new View(this);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(36), dp(36));
+                lp.rightMargin = dp(10);
+                sw.setLayoutParams(lp);
+                android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+                gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                gd.setColor(color);
+                if (color == current) gd.setStroke(dp(3), 0xFFFFFFFF);
+                sw.setBackground(gd);
+                final String hex = preset[1];
+                sw.setOnClickListener(v -> { settings.setAccentColor(hex); recreate(); });
+                accentRow.addView(sw);
+            }
+        }
+        Switch amoled = view.findViewById(R.id.amoledSwitch);
+        if (amoled != null) {
+            amoled.setChecked(AppSettings.THEME_AMOLED.equals(settings.theme()));
+            amoled.setOnCheckedChangeListener((b, checked) -> {
+                settings.setTheme(checked ? AppSettings.THEME_AMOLED : AppSettings.THEME_DARK);
+                recreate();
+            });
+        }
+        Switch reduce = view.findViewById(R.id.reduceMotionSwitch);
+        if (reduce != null) {
+            reduce.setChecked(settings.reduceMotion());
+            reduce.setOnCheckedChangeListener((b, checked) -> settings.setReduceMotion(checked));
+        }
+        Switch density = view.findViewById(R.id.densitySwitch);
+        if (density != null) {
+            density.setChecked(AppSettings.DENSITY_COMPACT.equals(settings.density()));
+            density.setOnCheckedChangeListener((b, checked) ->
+                    settings.setDensity(checked ? AppSettings.DENSITY_COMPACT : AppSettings.DENSITY_COMFORTABLE));
+        }
+    }
+
+    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+    private int getColorCompat(int res) { return getResources().getColor(res, getTheme()); }
 
     private void showTraining() {
         selectedTab = 1;
@@ -700,6 +860,7 @@ public class MainActivity extends Activity {
         View view = LayoutInflater.from(this).inflate(R.layout.view_settings, contentHost, false);
         contentHost.addView(view);
         AppSettings settings = new AppSettings(this);
+        wireAppearance(view, settings);
         RadioGroup modes = view.findViewById(R.id.listeningModeGroup);
         RadioButton wake = view.findViewById(R.id.modeWake);
         RadioButton tap = view.findViewById(R.id.modeTap);

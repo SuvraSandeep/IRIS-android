@@ -44,6 +44,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String ACTION_CONFIRM_CALL = "com.iris.assistant.CONFIRM_CALL";
     public static final String ACTION_CANCEL_CALL = "com.iris.assistant.CANCEL_CALL";
     public static final String ACTION_CHOOSE_CONTACT = "com.iris.assistant.CHOOSE_CONTACT";
+    public static final String ACTION_PROCESS_TEXT = "com.iris.assistant.PROCESS_TEXT";
     public static final String EVENT_STATE = "com.iris.assistant.EVENT_STATE";
     public static final String EVENT_TRANSCRIPT = "com.iris.assistant.EVENT_TRANSCRIPT";
     public static final String EVENT_CALL_PROMPT = "com.iris.assistant.EVENT_CALL_PROMPT";
@@ -56,6 +57,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String EXTRA_TEXT = "text";
     public static final String EXTRA_NAME = "name";
     public static final String EXTRA_NUMBER = "number";
+    public static final String EXTRA_TEXT = "text";
     public static final String EXTRA_NAMES = "names";
     public static final String EXTRA_NUMBERS = "numbers";
     public static final String EXTRA_MIC = "mic";
@@ -273,6 +275,28 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         if (ACTION_CHOOSE_CONTACT.equals(action)) {
             requestCallConfirmation(intent.getStringExtra(EXTRA_NAME), intent.getStringExtra(EXTRA_NUMBER));
+            return START_STICKY;
+        }
+
+        if (ACTION_PROCESS_TEXT.equals(action)) {
+            String text = intent == null ? null : intent.getStringExtra(EXTRA_TEXT);
+            if (text == null || text.trim().isEmpty()) return START_STICKY;
+            final String typed = text.trim();
+            // Bring us to foreground so TTS/actions run reliably.
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(LISTENING_NOTIFICATION, listeningNotification(),
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+            } else {
+                startForeground(LISTENING_NOTIFICATION, listeningNotification());
+            }
+            if (!isRunning) {
+                isRunning = true;
+                recognitionLabel = resolveRecognitionLabel();
+                microphoneLabel = configureAudioRoute();
+                registerAudioChanges();
+            }
+            broadcastState(true, PHASE_COMMAND);
+            handler.post(() -> handleCommand(typed));
             return START_STICKY;
         }
 

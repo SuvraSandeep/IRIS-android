@@ -34,6 +34,40 @@
             android:orientation="vertical">
 
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="APPEARANCE" android:textColor="@color/magenta" android:textSize="11sp" android:textStyle="bold" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" android:text="Accent colour"
+                android:textColor="@color/text_secondary" android:textSize="13sp" />
+            <LinearLayout android:id="@+id/accentRow" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                android:orientation="horizontal" />
+
+            <Switch android:id="@+id/amoledSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="14dp"
+                android:text="AMOLED black background" android:textColor="@color/text_primary" android:textSize="14sp" />
+
+            <Switch android:id="@+id/reduceMotionSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="10dp"
+                android:text="Reduce motion" android:textColor="@color/text_primary" android:textSize="14sp" />
+
+            <Switch android:id="@+id/densitySwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="10dp"
+                android:text="Compact layout" android:textColor="@color/text_primary" android:textSize="14sp" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" android:text="Theme and accent apply instantly."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="11dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical">
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="LISTENING MODE" android:textColor="@color/cyan" android:textSize="11sp" android:textStyle="bold" />
             <RadioGroup
                 android:id="@+id/listeningModeGroup"

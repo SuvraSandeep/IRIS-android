@@ -27,6 +27,31 @@ public class IrisOrbView extends View {
     private int cachedHeight;
     private String cachedPhase = "";
     private ValueAnimator pulseAnimator;
+    private int accentColor = 0xFF22D3EE;
+    private boolean reduceMotion = false;
+
+    private static int withAlpha(int color, int alpha) { return (alpha << 24) | (color & 0xFFFFFF); }
+    private static int darker(int c) {
+        int r = (int) (((c >> 16) & 0xFF) * 0.55f);
+        int g = (int) (((c >> 8) & 0xFF) * 0.55f);
+        int b = (int) ((c & 0xFF) * 0.55f);
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    /** Set the user's accent colour; the halo and armed orb use it. */
+    public void setAccent(int color) { this.accentColor = color; invalidate(); }
+
+    /** Freeze the breathing animation when the user prefers reduced motion. */
+    public void setReduceMotion(boolean reduce) {
+        this.reduceMotion = reduce;
+        if (reduce) {
+            if (pulseAnimator != null && pulseAnimator.isStarted()) pulseAnimator.pause();
+        } else if (active && pulseAnimator != null) {
+            if (!pulseAnimator.isStarted()) pulseAnimator.start();
+            else if (pulseAnimator.isPaused()) pulseAnimator.resume();
+        }
+        invalidate();
+    }
 
     public IrisOrbView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -49,7 +74,7 @@ public class IrisOrbView extends View {
             phase = "off";
             if (pulseAnimator != null && pulseAnimator.isStarted()) pulseAnimator.pause();
         } else {
-            if (pulseAnimator != null) {
+            if (pulseAnimator != null && !reduceMotion) {
                 if (!pulseAnimator.isStarted()) pulseAnimator.start();
                 else if (pulseAnimator.isPaused()) pulseAnimator.resume();
             }
@@ -62,7 +87,7 @@ public class IrisOrbView extends View {
         this.phase = phase == null ? "off" : phase;
         this.active = !"off".equals(this.phase);
         if (!"confirm".equals(this.phase)) contactImage = null;
-        if (active && pulseAnimator != null) {
+        if (active && pulseAnimator != null && !reduceMotion) {
             if (!pulseAnimator.isStarted()) pulseAnimator.start();
             else if (pulseAnimator.isPaused()) pulseAnimator.resume();
         } else if (!active && pulseAnimator != null && pulseAnimator.isStarted()) {
@@ -100,23 +125,24 @@ public class IrisOrbView extends View {
         if (active) {
             float halo = base * (1.45f + pulse * 0.18f + voiceLevel * .22f);
             paint.setShader(new RadialGradient(cx, cy, halo,
-                    new int[]{0x668B5CF6, 0x3322D3EE, Color.TRANSPARENT},
+                    new int[]{withAlpha(accentColor, 0x66), withAlpha(accentColor, 0x33), Color.TRANSPARENT},
                     new float[]{0f, .58f, 1f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(cx, cy, halo, paint);
             paint.setShader(null);
 
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(5f);
-            paint.setColor(0xAA22D3EE);
+            paint.setColor(withAlpha(accentColor, 0xAA));
             canvas.drawCircle(cx, cy, base * (1.12f + pulse * .08f + voiceLevel * .08f), paint);
         }
 
         paint.setStyle(Paint.Style.FILL);
-        int inner = active ? 0xFF8B5CF6 : 0xFF2A2D4B;
-        int outer = active ? 0xFF22D3EE : 0xFF414665;
+        int inner = active ? accentColor : 0xFF2A2D4B;
+        int outer = active ? darker(accentColor) : 0xFF414665;
         if ("command".equals(phase)) { inner = 0xFF22D3EE; outer = 0xFF34D399; }
         else if ("confirm".equals(phase)) { inner = 0xFFF472B6; outer = 0xFF8B5CF6; }
         else if ("thinking".equals(phase)) { inner = 0xFFF59E0B; outer = 0xFFF472B6; }
+        else if ("speaking".equals(phase)) { inner = 0xFF34D399; outer = 0xFF22D3EE; }
         paint.setShader(new RadialGradient(cx - base * .25f, cy - base * .3f, base * 1.45f,
                 new int[]{0xFFF8FAFC, inner, outer},
                 new float[]{0f, .27f, 1f}, Shader.TileMode.CLAMP));
@@ -150,6 +176,7 @@ public class IrisOrbView extends View {
         else if ("command".equals(phase)) label = "LISTENING";
         else if ("confirm".equals(phase)) label = "YOUR DECISION";
         else if ("thinking".equals(phase)) label = "THINKING";
+        else if ("speaking".equals(phase)) label = "SPEAKING";
         canvas.drawText(label, cx, cy + base * 1.42f, paint);
         paint.setFakeBoldText(false);
     }

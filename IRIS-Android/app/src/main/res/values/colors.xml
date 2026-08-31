@@ -21,4 +21,21 @@
     <color name="glow_cyan">#3322D3EE</color>
     <color name="border_subtle">#1E293B</color>
     <color name="border_accent">#334155</color>
+
+    <!-- Semantic tokens (layouts reference these; themes/accent remap them) -->
+    <color name="accent">#22D3EE</color>
+    <color name="accent_dim">#0E7490</color>
+    <color name="positive">#34D399</color>
+    <color name="warning">#FBBF24</color>
+
+    <!-- Accent preset swatches for the picker -->
+    <color name="accent_cyan">#22D3EE</color>
+    <color name="accent_violet">#8B5CF6</color>
+    <color name="accent_mint">#34D399</color>
+    <color name="accent_amber">#FBBF24</color>
+    <color name="accent_magenta">#F472B6</color>
+    <color name="accent_rose">#FB7185</color>
+
+    <!-- AMOLED base -->
+    <color name="ink_amoled">#000000</color>
 </resources>

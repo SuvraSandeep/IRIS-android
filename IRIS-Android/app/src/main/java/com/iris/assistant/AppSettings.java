@@ -47,6 +47,25 @@ public final class AppSettings {
     public void setTextScale(float value) { prefs.edit().putFloat("text_scale", value).apply(); }
     public String hfToken() { return prefs.getString("hf_token", ""); }
     public void setHfToken(String value) { prefs.edit().putString("hf_token", value == null ? "" : value.trim()).apply(); }
+
+    // ---------------- Appearance / customization ----------------
+    public static final String THEME_DARK = "dark";
+    public static final String THEME_AMOLED = "amoled";
+    public static final String DENSITY_COMFORTABLE = "comfortable";
+    public static final String DENSITY_COMPACT = "compact";
+    public static final String DEFAULT_ACCENT = "#22D3EE";
+
+    public String accentColor() { return prefs.getString("accent_color", DEFAULT_ACCENT); }
+    public void setAccentColor(String hex) { prefs.edit().putString("accent_color", hex).apply(); }
+    public String theme() { return prefs.getString("ui_theme", THEME_DARK); }
+    public void setTheme(String value) { prefs.edit().putString("ui_theme", value).apply(); }
+    public boolean reduceMotion() { return prefs.getBoolean("reduce_motion", false); }
+    public void setReduceMotion(boolean value) { prefs.edit().putBoolean("reduce_motion", value).apply(); }
+    public String density() { return prefs.getString("ui_density", DENSITY_COMFORTABLE); }
+    public void setDensity(String value) { prefs.edit().putString("ui_density", value).apply(); }
+    /** CSV of quick-action chip ids shown on the home screen. */
+    public String homeChips() { return prefs.getString("home_chips", "call,text,alarm,weather,torch,time"); }
+    public void setHomeChips(String csv) { prefs.edit().putString("home_chips", csv).apply(); }
     public boolean speakerVerification() { return prefs.getBoolean("speaker_verification", true); }
     public void setSpeakerVerification(boolean value) { prefs.edit().putBoolean("speaker_verification", value).apply(); }
     public float speakerThreshold() { return prefs.getFloat("speaker_threshold", 0.70f); }

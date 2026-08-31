@@ -11,61 +11,115 @@
         android:orientation="vertical"
         android:paddingBottom="18dp">
 
+        <!-- Orb hero -->
+        <com.iris.assistant.IrisOrbView
+            android:id="@+id/irisOrb"
+            android:layout_width="230dp"
+            android:layout_height="230dp"
+            android:layout_marginTop="12dp"
+            android:contentDescription="Turn IRIS on or off" />
+
         <TextView
             android:id="@+id/statusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="10dp"
             android:text="IRIS is resting"
             android:textColor="@color/text_primary"
-            android:textSize="24sp"
+            android:textSize="22sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/subStatusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="4dp"
             android:gravity="center"
-            android:text="Tap the orb when you need me."
+            android:text="Tap the orb, or type a command below."
             android:textColor="@color/text_muted"
-            android:textSize="14sp" />
+            android:textSize="13sp" />
 
         <TextView
             android:id="@+id/phaseChip"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="10dp"
             android:background="@drawable/bg_chip"
             android:paddingLeft="16dp"
-            android:paddingTop="8dp"
+            android:paddingTop="7dp"
             android:paddingRight="16dp"
-            android:paddingBottom="8dp"
+            android:paddingBottom="7dp"
             android:text="\u2B24  OFFLINE"
             android:textColor="@color/text_muted"
             android:textSize="11sp"
             android:textStyle="bold" />
 
-        <com.iris.assistant.IrisOrbView
-            android:id="@+id/irisOrb"
-            android:layout_width="260dp"
-            android:layout_height="260dp"
-            android:layout_marginTop="20dp"
-            android:contentDescription="Turn IRIS on or off" />
-
+        <!-- Live transcript / last reply -->
         <TextView
             android:id="@+id/liveTranscript"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="14dp"
             android:background="@drawable/bg_card_accent"
             android:gravity="center"
-            android:minHeight="78dp"
+            android:minHeight="64dp"
             android:text="Say \u201CCall &lt;contact name&gt;\u201D"
             android:textColor="@color/text_secondary"
-            android:textSize="16sp"
+            android:textSize="15sp"
             android:textStyle="italic" />
 
+        <!-- Text command input -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/commandInput"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_button_secondary"
+                android:hint="Type a command\u2026"
+                android:imeOptions="actionSend"
+                android:importantForAutofill="no"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingLeft="16dp"
+                android:paddingRight="16dp"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_muted"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/sendCommandButton"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_marginLeft="8dp"
+                android:background="@drawable/bg_button_primary"
+                android:text="\u27A4"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp" />
+        </LinearLayout>
+
+        <!-- Customizable quick-action chips -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/quickChipsRow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <!-- System status -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
