@@ -51,6 +51,9 @@ public final class AppSettings {
      *  the rule-based engine handles all commands reliably without it. */
     public boolean aiEnabled() { return prefs.getBoolean("ai_enabled", false); }
     public void setAiEnabled(boolean value) { prefs.edit().putBoolean("ai_enabled", value).apply(); }
+    /** Let IRIS act on commands while the phone is locked (UI actions prompt a quick unlock). */
+    public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }
+    public void setLockScreenControl(boolean value) { prefs.edit().putBoolean("lock_screen_control", value).apply(); }
 
     // ---------------- Appearance / customization ----------------
     public static final String THEME_DARK = "dark";

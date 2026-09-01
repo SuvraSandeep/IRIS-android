@@ -1552,8 +1552,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 i.setPackage("com.whatsapp");
                 i.putExtra(Intent.EXTRA_TEXT, message);
             }
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
+            launchViaLock(i);
             String msg = number != null
                     ? "Opening WhatsApp to " + who + " — just tap send."
                     : "Opening WhatsApp — pick " + who + " and tap send.";
@@ -1736,8 +1735,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             } else {
                 i = new Intent(android.provider.Settings.ACTION_WIFI_SETTINGS);
             }
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
+            launchViaLock(i);
             String label = bt ? "Bluetooth" : "Wi-Fi";
             String msg = "Android won't let me flip that directly — here's " + label + " settings, toggle it here.";
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
@@ -1753,8 +1751,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         try {
             Intent i = new Intent(Intent.ACTION_VIEW,
                     Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)));
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
+            launchViaLock(i);
             String msg = "Searching the web for " + query + ".";
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
             LogStore.append(this, "SEARCH", query);
@@ -1776,7 +1773,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 i = new Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(destination)));
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             }
-            startActivity(i);
+            launchViaLock(i);
             String msg = "Getting directions to " + destination + ".";
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
             LogStore.append(this, "NAVIGATE", destination);
@@ -1797,8 +1794,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             Intent i = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:"));
             if (to.contains("@")) i.putExtra(Intent.EXTRA_EMAIL, new String[]{to});
             if (!body.isEmpty()) i.putExtra(Intent.EXTRA_SUBJECT, body);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
+            launchViaLock(i);
             String msg = to.contains("@")
                     ? "Opening an email to " + recipient + "."
                     : "Opening an email \u2014 add " + recipient + "'s address.";
@@ -1834,8 +1830,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     spokenWhen = " at " + formatClock(hm[0], hm[1]);
                 }
             }
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
+            launchViaLock(i);
             String msg = "Opening your calendar to add \u201C" + title + "\u201D" + spokenWhen + ".";
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
             LogStore.append(this, "CALENDAR", title + spokenWhen);
@@ -2151,7 +2146,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             if (launch != null) {
                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
-                    startActivity(launch);
+                    launchViaLock(launch);
                     LogStore.append(this, "OPEN APP", bestLabel + " (" + bestPkg + ")");
                     broadcastMessage("Opening " + bestLabel + ".");
                     speakThenRun("Opening " + bestLabel + ".", this::rearmAfterAction);
@@ -2522,7 +2517,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-        if (settings.requireUnlock() && keyguard != null && keyguard.isDeviceLocked()) {
+        if (settings.requireUnlock() && !settings.lockScreenControl() && keyguard != null && keyguard.isDeviceLocked()) {
             cancelCallNotification();
             requestUnlockForCall(name, number);
             return;
@@ -2575,6 +2570,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** True (and tells the user) if an action must wait for unlock while the phone is locked. */
     private boolean blockedWhileLocked(String actionLabel) {
+        if (settings.lockScreenControl()) return false; // user opted into lock-screen control
         KeyguardManager kg = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         if (settings.requireUnlock() && kg != null && kg.isDeviceLocked()) {
             String msg = "Please unlock your phone first to " + actionLabel + ".";
@@ -2584,6 +2580,26 @@ public class IrisListeningService extends Service implements RecognitionListener
             return true;
         }
         return false;
+    }
+
+    /** Launch another app's screen. While locked with lock-screen control on, route
+     *  through UnlockActivity so the user authenticates once, then it opens. */
+    private void launchViaLock(Intent target) {
+        try {
+            KeyguardManager kg = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+            boolean locked = kg != null && kg.isDeviceLocked();
+            if (locked && settings.lockScreenControl()) {
+                Intent u = new Intent(this, UnlockActivity.class);
+                u.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                u.putExtra(UnlockActivity.EXTRA_TARGET, target);
+                startActivity(u);
+            } else {
+                target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(target);
+            }
+        } catch (Exception e) {
+            try { startActivity(target); } catch (Exception ignored) { }
+        }
     }
 
     private void rearmAfterAction() {

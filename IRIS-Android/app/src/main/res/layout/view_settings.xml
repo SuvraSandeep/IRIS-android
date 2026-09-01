@@ -105,6 +105,13 @@
             <Button android:id="@+id/downloadModelButton" android:layout_width="match_parent" android:layout_height="52dp"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
                 android:text="Offline speech model — check status" android:textAllCaps="false" android:textColor="@color/text_primary" />
+            <Switch android:id="@+id/lockControlSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="10dp"
+                android:text="Control from lock screen" android:textColor="@color/text_primary" android:textSize="14sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Let IRIS act while your phone is locked. Quick actions (texts, torch, volume, info, reminders) run instantly; opening apps (WhatsApp, Maps, email…) asks for a fingerprint/PIN first."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
             <Switch android:id="@+id/aiEnabledSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="10dp"
                 android:text="Use AI brain (experimental)" android:textColor="@color/text_primary" android:textSize="14sp" />

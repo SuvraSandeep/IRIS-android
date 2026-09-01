@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.9.0";
+const BUILD_VERSION = "7.10.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -310,6 +310,10 @@ const FEATURES = [
    tagline:"You choose the brain.",
    desc:"Run the rock-solid rule-based engine, or opt into experimental conversational AI — your call, any time.",
    examples:["Settings → Use AI brain (experimental)"], version:"7.8.0"},
+  {id:"lockcontrol", cat:"Privacy, Safety & Robustness", icon:"🔓", title:"Control From Lock Screen",
+   tagline:"Get things done without unlocking — safely.",
+   desc:"Optional (off by default). When on, IRIS acts while your phone is locked: quick actions (texts, torch, volume, time, weather, reminders, calls) run instantly; opening another app's screen (WhatsApp, Maps, email, calendar) pops a fingerprint/PIN prompt first, then completes — because Android requires unlock to show app UIs. IRIS never bypasses authentication. Needs battery optimization disabled so IRIS keeps listening when the screen is off.",
+   examples:["Settings → Control from lock screen","(locked) “text mom I'm on my way” → sends","(locked) “navigate home” → unlock → Maps opens"], version:"7.10.0"},
 ];
 
 /* ============================================================

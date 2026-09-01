@@ -1016,6 +1016,16 @@ public class MainActivity extends Activity {
 
         TextView brainStatus = view.findViewById(R.id.brainStatus);
         Button brainButton = view.findViewById(R.id.downloadBrainButton);
+        Switch lockControlSwitch = view.findViewById(R.id.lockControlSwitch);
+        if (lockControlSwitch != null) {
+            lockControlSwitch.setChecked(settings.lockScreenControl());
+            lockControlSwitch.setOnCheckedChangeListener((b, checked) -> {
+                settings.setLockScreenControl(checked);
+                toast(checked
+                        ? "Lock-screen control on. Keep IRIS listening (disable battery optimization for reliability)."
+                        : "Lock-screen control off.");
+            });
+        }
         Switch aiEnabledSwitch = view.findViewById(R.id.aiEnabledSwitch);
         if (aiEnabledSwitch != null) {
             aiEnabledSwitch.setChecked(settings.aiEnabled());
