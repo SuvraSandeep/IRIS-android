@@ -1940,7 +1940,7 @@ public class MainActivity extends Activity {
             String[] f = getAssets().list("model-en-us");
             bundled = f != null && f.length > 0;
         } catch (Exception ignored) { }
-        File extracted = new File(getFilesDir(), "vosk-model-en-in-0.4");
+        java.io.File extracted = new java.io.File(getFilesDir(), "vosk-model-en-in-0.4");
         boolean downloaded = extracted.exists() && extracted.list() != null && extracted.list().length > 0;
         boolean ready = bundled || downloaded;
         String status = ready
