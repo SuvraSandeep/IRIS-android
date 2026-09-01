@@ -394,7 +394,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 // Voice verification: only wake for the enrolled owner's voice.
                 if (!isOwnerVoice(voiceEmbedding)) {
                     LogStore.append(IrisListeningService.this, "WAKE REJECT", "voice not recognized");
-                    if (PersonalProfile.notRecognizedCueEnabled(IrisListeningService.this)
+                    if (settings.voiceCueEnabled()
                             && !"Silent".equals(settings.personality())) {
                         speak(notRecognizedLine());
                     }

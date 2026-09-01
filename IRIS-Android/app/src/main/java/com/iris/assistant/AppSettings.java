@@ -57,6 +57,9 @@ public final class AppSettings {
     /** Voice-verification strictness 0=lenient .. 1=strict (default 0.5). */
     public float voiceSensitivity() { return prefs.getFloat("voice_sensitivity", 0.5f); }
     public void setVoiceSensitivity(float value) { prefs.edit().putFloat("voice_sensitivity", value).apply(); }
+    /** Speak a cue when a wake voice isn't recognized as the owner. */
+    public boolean voiceCueEnabled() { return prefs.getBoolean("voice_cue_enabled", true); }
+    public void setVoiceCueEnabled(boolean value) { prefs.edit().putBoolean("voice_cue_enabled", value).apply(); }
 
     // ---------------- Appearance / customization ----------------
     public static final String THEME_DARK = "dark";

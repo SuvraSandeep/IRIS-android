@@ -1027,6 +1027,41 @@ public class MainActivity extends Activity {
                         : "Lock-screen control off.");
             });
         }
+        // Voice security
+        android.widget.SeekBar sensSeek = view.findViewById(R.id.sensitivitySeek);
+        if (sensSeek != null) {
+            sensSeek.setProgress(Math.round(settings.voiceSensitivity() * 100));
+            sensSeek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(android.widget.SeekBar sb, int p, boolean fromUser) { }
+                @Override public void onStartTrackingTouch(android.widget.SeekBar sb) { }
+                @Override public void onStopTrackingTouch(android.widget.SeekBar sb) {
+                    settings.setVoiceSensitivity(sb.getProgress() / 100f);
+                    toast("Voice sensitivity: " + sb.getProgress() + "%");
+                }
+            });
+        }
+        Switch voiceCueSwitch = view.findViewById(R.id.voiceCueSwitch);
+        if (voiceCueSwitch != null) {
+            voiceCueSwitch.setChecked(settings.voiceCueEnabled());
+            voiceCueSwitch.setOnCheckedChangeListener((b, checked) -> settings.setVoiceCueEnabled(checked));
+        }
+        TextView voiceprintStatus = view.findViewById(R.id.voiceprintStatus);
+        if (voiceprintStatus != null) {
+            boolean enrolled = new ProfileStore(this).getVoiceprint() != null;
+            voiceprintStatus.setText(enrolled
+                    ? "Voiceprint: enrolled \u2705 — IRIS wakes only for your voice."
+                    : "Voiceprint: not enrolled — train your wake phrase to enroll.");
+        }
+        Button clearVoiceprintButton = view.findViewById(R.id.clearVoiceprintButton);
+        if (clearVoiceprintButton != null) {
+            clearVoiceprintButton.setOnClickListener(v -> {
+                new ProfileStore(this).setVoiceprint(null);
+                if (voiceprintStatus != null)
+                    voiceprintStatus.setText("Voiceprint: cleared. Wake works for any voice until you re-enroll.");
+                toast("Voice security cleared.");
+            });
+        }
+
         Switch aiEnabledSwitch = view.findViewById(R.id.aiEnabledSwitch);
         if (aiEnabledSwitch != null) {
             aiEnabledSwitch.setChecked(settings.aiEnabled());
