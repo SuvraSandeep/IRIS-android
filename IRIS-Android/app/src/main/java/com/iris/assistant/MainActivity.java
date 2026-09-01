@@ -1061,6 +1061,33 @@ public class MainActivity extends Activity {
                 toast("Voice security cleared.");
             });
         }
+        Button feedbackMissed = view.findViewById(R.id.feedbackMissedButton);
+        if (feedbackMissed != null) {
+            feedbackMissed.setOnClickListener(v -> {
+                ProfileStore ps = new ProfileStore(this);
+                float[] pending = ps.getPendingVoiceSample();
+                boolean learned = pending != null && ps.mergeVoiceprint(pending);
+                if (learned) ps.setPendingVoiceSample(null);
+                // ease the threshold a little
+                float s = Math.max(0f, settings.voiceSensitivity() - 0.08f);
+                settings.setVoiceSensitivity(s);
+                if (sensSeek != null) sensSeek.setProgress(Math.round(s * 100));
+                toast(learned
+                        ? "Learned your voice from the last miss + eased sensitivity."
+                        : "Eased sensitivity. (No recent missed sample to learn from.)");
+                LogStore.append(this, "VOICE FEEDBACK", "missed → " + (learned ? "merged sample, " : "") + "sensitivity " + Math.round(s * 100) + "%");
+            });
+        }
+        Button feedbackFalse = view.findViewById(R.id.feedbackFalseButton);
+        if (feedbackFalse != null) {
+            feedbackFalse.setOnClickListener(v -> {
+                float s = Math.min(1f, settings.voiceSensitivity() + 0.08f);
+                settings.setVoiceSensitivity(s);
+                if (sensSeek != null) sensSeek.setProgress(Math.round(s * 100));
+                toast("Made voice matching stricter.");
+                LogStore.append(this, "VOICE FEEDBACK", "false wake → sensitivity " + Math.round(s * 100) + "%");
+            });
+        }
 
         Switch aiEnabledSwitch = view.findViewById(R.id.aiEnabledSwitch);
         if (aiEnabledSwitch != null) {

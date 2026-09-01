@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.13.1";
+const BUILD_VERSION = "7.14.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -150,6 +150,10 @@ const FEATURES = [
    tagline:"Wakes for you — not other people or the TV.",
    desc:"Uses Vosk speaker recognition (x-vectors, on-device, free). Your voiceprint is built when you train the wake phrase; on each wake IRIS compares the voice and only responds if it's you. If it isn't, it gives a tone-aware \u201Cnot recognised\u201D cue and stays asleep. A sensitivity control trades misses vs false wakes. Note: voice ID is a strong spam filter, not unbreakable — sensitive actions still require unlock.",
    examples:["Train the wake phrase → voiceprint enrolls automatically","(someone else) “Hello IRIS” → ignored"], version:"7.12.0"},
+  {id:"voicefeedback", cat:"Voice & Recognition", icon:"🎚️", title:"Adaptive Voice Feedback",
+   tagline:"Teach it when it gets the wake wrong.",
+   desc:"Two one-tap feedback buttons in Settings → Voice Security: “It missed me” learns your voice from the last rejected attempt and eases the threshold; “It woke for someone else” tightens it. A sensitivity slider gives manual control, and your voiceprint is included in Export Profile so it backs up to Drive/GitHub and never gets lost.",
+   examples:["Settings → Voice Security → It missed me / stricter","Training → Export profile (backs up voiceprint)"], version:"7.14.0"},
   {id:"stt", cat:"Voice & Recognition", icon:"🗣️", title:"Offline Indian-English Recognition",
    tagline:"Understands your accent — no internet.",
    desc:"Uses the Vosk small en-IN model bundled in the app. Speech never leaves your phone; recognition works fully offline.",

@@ -168,6 +168,42 @@ public final class ProfileStore {
         } catch (Exception e) { return null; }
     }
 
+    /** Store the most recent rejected wake embedding so feedback can learn from it. */
+    public synchronized boolean setPendingVoiceSample(float[] v) {
+        try {
+            JSONObject r = root();
+            if (v == null || v.length == 0) { r.remove("pendingVoice"); }
+            else {
+                JSONArray a = new JSONArray();
+                for (float x : v) a.put(Math.round(x * 1000000f) / 1000000.0);
+                r.put("pendingVoice", a);
+            }
+            persist(r);
+            return true;
+        } catch (Exception e) { return false; }
+    }
+
+    public synchronized float[] getPendingVoiceSample() {
+        try {
+            JSONArray a = root().optJSONArray("pendingVoice");
+            if (a == null || a.length() == 0) return null;
+            float[] o = new float[a.length()];
+            for (int i = 0; i < o.length; i++) o[i] = (float) a.getDouble(i);
+            return o;
+        } catch (Exception e) { return null; }
+    }
+
+    /** Blend a new sample into the enrolled voiceprint (adaptive learning). */
+    public synchronized boolean mergeVoiceprint(float[] sample) {
+        if (sample == null || sample.length == 0) return false;
+        float[] cur = getVoiceprint();
+        if (cur == null) return setVoiceprint(sample);
+        if (cur.length != sample.length) return false;
+        float[] merged = new float[cur.length];
+        for (int i = 0; i < merged.length; i++) merged[i] = cur[i] * 0.7f + sample[i] * 0.3f;
+        return setVoiceprint(merged);
+    }
+
     public synchronized java.util.Map<String, String[]> getRelationships() {
         java.util.Map<String, String[]> result = new java.util.LinkedHashMap<>();
         try {

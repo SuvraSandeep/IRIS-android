@@ -131,6 +131,18 @@
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
                 android:text="Clear voice security" android:textAllCaps="false" android:textColor="@color/danger" android:textSize="13sp" />
 
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" android:text="TEACH IRIS (feedback)"
+                android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
+            <Button android:id="@+id/feedbackMissedButton" android:layout_width="match_parent" android:layout_height="46dp"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
+                android:text="It missed me — learn my voice &amp; ease up" android:textAllCaps="false"
+                android:textColor="@color/text_primary" android:textSize="13sp" />
+            <Button android:id="@+id/feedbackFalseButton" android:layout_width="match_parent" android:layout_height="46dp"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
+                android:text="It woke for someone else — make it stricter" android:textAllCaps="false"
+                android:textColor="@color/text_primary" android:textSize="13sp" />
+
             <Switch android:id="@+id/aiEnabledSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="14dp"
                 android:text="Use AI brain (experimental)" android:textColor="@color/text_primary" android:textSize="14sp" />
