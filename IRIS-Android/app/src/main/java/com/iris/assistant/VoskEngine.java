@@ -8,7 +8,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.vosk.Model;
 import org.vosk.Recognizer;
-import org.vosk.SpkModel;
 import org.vosk.android.RecognitionListener;
 import org.vosk.android.SpeechService;
 import org.vosk.android.StorageService;
@@ -37,7 +36,7 @@ public final class VoskEngine {
 
     private Model model;
     private volatile boolean modelLoaded;
-    private SpkModel spkModel;
+    private Object spkModel;   // org.vosk.SpkModel via reflection (may be absent)
     private volatile boolean spkReady;
     private SpeechService speechService;
 
@@ -217,7 +216,11 @@ public final class VoskEngine {
             String grammar = "[\"" + phrase + "\", \"[unk]\"]";
             Recognizer recognizer = new Recognizer(model, SAMPLE_RATE, grammar);
             if (spkReady && spkModel != null) {
-                try { recognizer.setSpkModel(spkModel); } catch (Throwable ignored) { }
+                try {
+                    recognizer.getClass()
+                            .getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
+                            .invoke(recognizer, spkModel);
+                } catch (Throwable ignored) { }
             }
             speechService = new SpeechService(recognizer, SAMPLE_RATE);
             speechService.startListening(new RecognitionListener() {
@@ -296,7 +299,7 @@ public final class VoskEngine {
             model = null;
         }
         if (spkModel != null) {
-            try { spkModel.close(); } catch (Exception ignored) { }
+            try { spkModel.getClass().getMethod("close").invoke(spkModel); } catch (Throwable ignored) { }
             spkModel = null;
         }
         spkReady = false;
@@ -337,7 +340,8 @@ public final class VoskEngine {
                     zip.delete();
                 }
                 if (isValidSpkDir(dir)) {
-                    spkModel = new SpkModel(dir.getAbsolutePath());
+                    Class<?> spkClass = Class.forName("org.vosk.SpkModel");
+                    spkModel = spkClass.getConstructor(String.class).newInstance(dir.getAbsolutePath());
                     spkReady = true;
                     android.util.Log.i("IRIS", "Vosk speaker model ready");
                 }
@@ -382,7 +386,10 @@ public final class VoskEngine {
     public float[] embed(short[] pcm) {
         if (!isReady() || !isSpeakerReady() || pcm == null || pcm.length < 3200) return null;
         try {
-            Recognizer rec = new Recognizer(model, SAMPLE_RATE, spkModel);
+            Class<?> spkClass = Class.forName("org.vosk.SpkModel");
+            Recognizer rec = (Recognizer) Recognizer.class
+                    .getConstructor(Model.class, float.class, spkClass)
+                    .newInstance(model, SAMPLE_RATE, spkModel);
             rec.acceptWaveForm(pcm, pcm.length);
             String json = rec.getFinalResult();
             rec.close();
