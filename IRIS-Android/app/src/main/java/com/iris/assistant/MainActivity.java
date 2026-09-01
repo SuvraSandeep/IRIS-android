@@ -1403,18 +1403,18 @@ public class MainActivity extends Activity {
                     for (short s : audio) rmsVal += (double) s * s;
                     rmsVal = Math.sqrt(rmsVal / Math.max(1, audio.length));
 
-                    // REJECT unclear samples — require clear, loud-enough speech
-                    if (rmsVal < 500) {
-                        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C Too quiet \u2014 speak louder and clearer");
-                        wakeTrainingStatus.setText("Rejected: too quiet. Retrying sample " + (wakeSampleIndex + 1) + "...");
-                        toast("\u274C Too quiet \u2014 say it louder");
+                    // REJECT only near-silent samples — normal speaking voice is fine
+                    if (rmsVal < 150) {
+                        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C I didn't hear anything — speak normally toward the phone");
+                        wakeTrainingStatus.setText("Rejected: silent. Retrying sample " + (wakeSampleIndex + 1) + "...");
+                        toast("\u274C Didn't hear you — say it in your normal voice");
                         rejectTone();
                         handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
                         return;
                     }
 
                     float[][] features = WakeWordEngine.extractFeatures(audio);
-                    if (features.length < 15) {
+                    if (features.length < 8) {
                         if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C Didn't catch it \u2014 say the whole phrase clearly");
                         wakeTrainingStatus.setText("Rejected: unclear. Retrying...");
                         toast("\u274C Unclear \u2014 say the full phrase");
@@ -1424,16 +1424,8 @@ public class MainActivity extends Activity {
                     }
 
                     float snr = (float) (rmsVal / 300.0);
-                    String quality = snr >= 4 ? "Clear" : snr >= 2.5 ? "Usable" : "Quiet";
-                    // REJECT Quiet quality — only accept Clear or Usable
-                    if ("Quiet".equals(quality)) {
-                        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C Not clear enough \u2014 try again");
-                        wakeTrainingStatus.setText("Rejected: not clear. Retrying...");
-                        toast("\u274C Not clear enough");
-                        rejectTone();
-                        handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
-                        return;
-                    }
+                    String quality = snr >= 3 ? "Clear" : snr >= 1.2 ? "Usable" : "Quiet";
+                    // Accept all captured phrases (even quiet); normal voice is fine.
 
                     wakeTemplates.add(features);
                     wakeRawSamples.add(audio);

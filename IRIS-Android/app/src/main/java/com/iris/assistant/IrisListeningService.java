@@ -173,11 +173,16 @@ public class IrisListeningService extends Service implements RecognitionListener
             + "|.*\\b(?:how\\s+many|any|check|latest|last|read|unread|new)\\b.*\\b(?:message|messages|text|texts|whatsapp|sms)\\b.*"
             + "|.*\\b(?:message|messages|text|texts)\\s+from\\b.*",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern CLEAR_NOTIFICATION_PATTERN = Pattern.compile(
+            "^(?:clear|dismiss|delete|remove|clean)\\s+(?:all\\s+|my\\s+|the\\s+)*notifications?.*$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern FORGET_PATTERN = Pattern.compile(
             "^(?:forget|delete|remove)\\s+(?:that|the\\s+last\\s+(?:memory|thing)|it)$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern RECALL_PATTERN = Pattern.compile(
-            "^(?:what\\s+do\\s+you\\s+(?:know|remember)|tell\\s+me\\s+about\\s+(?:me|myself)|my\\s+(?:memories|info|memory))$",
+            ".*\\b(?:what\\s+do\\s+you\\s+(?:know|remember)|know\\s+about\\s+me"
+            + "|tell\\s+me\\s+about\\s+(?:me|myself)|what.?s?\\s+in\\s+my\\s+memory"
+            + "|my\\s+(?:memories|info|memory|details|profile))\\b.*",
             Pattern.CASE_INSENSITIVE);
     private static final String PHASE_WAKE = "wake";
     private static final String PHASE_COMMAND = "command";
@@ -759,6 +764,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
 
         // 5c. Read phone notifications ("read my notifications", "who texted me")
+        if (CLEAR_NOTIFICATION_PATTERN.matcher(normalized).matches()) {
+            boolean dismissed = IrisNotificationListener.dismissAll();
+            NotificationStore.clearAll(this);
+            String msg = dismissed ? "Cleared your notifications." : "Cleared the ones I had. Grant notification access to clear the rest.";
+            broadcastMessage(msg);
+            speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "NOTIF", "Cleared (system dismissed=" + dismissed + ")");
+            return;
+        }
         if (NOTIFICATION_PATTERN.matcher(normalized).matches() && !containsCallVerb(normalized)) {
             handleNotifications(normalized);
             return;
@@ -2236,6 +2250,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         rearmAfterAction();
     }
 
+    private static String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
     private void handleRecall() {
         int count = MemoryStore.count(this);
         String name = MemoryStore.ownerName(this);
@@ -2243,14 +2262,21 @@ public class IrisListeningService extends Service implements RecognitionListener
             speak("I don\u2019t know anything about you yet. Say \u201Cremember\u201D followed by a fact.");
             broadcastMessage("\uD83E\uDDE0 No memories yet.");
         } else {
-            StringBuilder response = new StringBuilder();
-            if (name != null) response.append("I know your name is ").append(name).append(". ");
-            response.append("I have ").append(count).append(" ").append(count == 1 ? "memory" : "memories");
-            List<MemoryStore.Memory> people = MemoryStore.getByCategory(this, MemoryStore.CAT_PEOPLE);
-            if (!people.isEmpty()) response.append(", including ").append(people.size()).append(" about people");
-            response.append(".");
-            speak(response.toString());
-            broadcastMessage("\uD83E\uDDE0 " + response);
+            StringBuilder response = new StringBuilder("Here's what I know about you. ");
+            if (name != null) response.append("Your name is ").append(name).append(". ");
+            int listed = 0;
+            for (MemoryStore.Memory m : MemoryStore.getAll(this)) {
+                if (m.key == null || m.value == null) continue;
+                if (m.key.equalsIgnoreCase("name")) continue;
+                response.append(capitalize(m.key)).append(": ").append(m.value).append(". ");
+                if (++listed >= 10) break;
+            }
+            if (listed == 0 && name == null) {
+                response.append("I have ").append(count).append(count == 1 ? " memory." : " memories.");
+            }
+            String out = response.toString().trim();
+            speak(out);
+            broadcastMessage("\uD83E\uDDE0 " + out);
         }
         LogStore.append(this, "RECALL", "Memories: " + count);
         rearmAfterAction();
@@ -2889,6 +2915,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
+    private static int qualityScore(android.speech.tts.Voice v) {
+        int q = v.getQuality();
+        if (q >= android.speech.tts.Voice.QUALITY_VERY_HIGH) return 5;
+        if (q >= android.speech.tts.Voice.QUALITY_HIGH) return 3;
+        if (q >= android.speech.tts.Voice.QUALITY_NORMAL) return 1;
+        return 0;
+    }
+
     /** Pick the most natural available voice (Indian English preferred) and tune pacing. */
     private void configureVoice() {
         if (textToSpeech == null) return;
@@ -2911,11 +2945,9 @@ public class IrisListeningService extends Service implements RecognitionListener
                     boolean notNetworkOnly = !v.isNetworkConnectionRequired();
                     // Score: prefer Indian + high quality + offline
                     if (best == null) { best = v; continue; }
-                    int score = (indianV ? 4 : 0) + (notRobotic ? 2 : 0) + (notNetworkOnly ? 1 : 0);
+                    int score = (indianV ? 3 : 0) + qualityScore(v);
                     boolean bestIndian = "IN".equals(best.getLocale().getCountry());
-                    int bestScore = (bestIndian ? 4 : 0)
-                            + (best.getQuality() >= android.speech.tts.Voice.QUALITY_HIGH ? 2 : 0)
-                            + (!best.isNetworkConnectionRequired() ? 1 : 0);
+                    int bestScore = (bestIndian ? 3 : 0) + qualityScore(best);
                     if (score > bestScore) best = v;
                 }
                 if (best != null) {
@@ -2923,9 +2955,9 @@ public class IrisListeningService extends Service implements RecognitionListener
                     LogStore.append(this, "TTS", "Voice: " + best.getName() + " (" + best.getLocale() + ")");
                 }
             } catch (Exception ignored) { }
-            // Natural pacing — slightly slower and normal pitch feels less robotic
-            textToSpeech.setSpeechRate(0.95f);
-            textToSpeech.setPitch(1.02f);
+            // Natural pacing — neutral rate/pitch sounds least robotic
+            textToSpeech.setSpeechRate(1.0f);
+            textToSpeech.setPitch(1.0f);
         } catch (Exception e) {
             LogStore.append(this, "TTS", "configureVoice error: " + e.getMessage());
         }

@@ -16,6 +16,28 @@ import android.service.notification.StatusBarNotification;
  */
 public class IrisNotificationListener extends NotificationListenerService {
 
+    private static IrisNotificationListener instance;
+
+    @Override public void onListenerConnected() {
+        instance = this;
+        // Seed with notifications already showing in the shade
+        try {
+            StatusBarNotification[] active = getActiveNotifications();
+            if (active != null) {
+                for (StatusBarNotification sbn : active) onNotificationPosted(sbn);
+            }
+        } catch (Exception ignored) { }
+    }
+    @Override public void onListenerDisconnected() { if (instance == this) instance = null; }
+    @Override public void onDestroy() { if (instance == this) instance = null; super.onDestroy(); }
+
+    /** Dismiss all clearable system notifications, if access is granted. Returns true if attempted. */
+    public static boolean dismissAll() {
+        if (instance == null) return false;
+        try { instance.cancelAllNotifications(); return true; }
+        catch (Throwable t) { return false; }
+    }
+
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         try {
@@ -47,17 +69,6 @@ public class IrisNotificationListener extends NotificationListenerService {
 
     @Override
     public void onNotificationRemoved(StatusBarNotification sbn) { }
-
-    @Override
-    public void onListenerConnected() {
-        // Seed with notifications already showing in the shade
-        try {
-            StatusBarNotification[] active = getActiveNotifications();
-            if (active != null) {
-                for (StatusBarNotification sbn : active) onNotificationPosted(sbn);
-            }
-        } catch (Exception ignored) { }
-    }
 
     private String resolveAppLabel(String pkg) {
         try {

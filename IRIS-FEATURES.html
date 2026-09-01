@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.14.0";
+const BUILD_VERSION = "7.15.1";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -204,6 +204,10 @@ const FEATURES = [
    tagline:"What did I miss?",
    desc:"Reads out recent phone notifications and messages.",
    examples:["read my notifications","who texted me","what did I miss"], version:"6.x"},
+  {id:"clearnotif", cat:"Communication", icon:"🧹", title:"Clear Notifications",
+   tagline:"Wipe the notification shade by voice.",
+   desc:"Dismisses your notifications hands-free (needs Notification access granted). Clears both IRIS's stored list and the system shade.",
+   examples:["clear all notifications","dismiss my notifications"], version:"7.15.0"},
 
   // ---- Productivity ----
   {id:"alarm", cat:"Productivity", icon:"⏰", title:"Set Alarm",
