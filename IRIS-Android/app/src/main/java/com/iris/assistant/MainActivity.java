@@ -1011,7 +1011,8 @@ public class MainActivity extends Activity {
                     android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "test");
             handler.postDelayed(testTts::shutdown, 5000);
         });
-        view.findViewById(R.id.downloadModelButton).setOnClickListener(v -> downloadOfflineModel());
+        view.findViewById(R.id.downloadModelButton).setOnClickListener(v -> showOfflineSpeechStatus());
+        view.findViewById(R.id.testTtsButton).setOnClickListener(v -> testVoice());
 
         TextView brainStatus = view.findViewById(R.id.brainStatus);
         Button brainButton = view.findViewById(R.id.downloadBrainButton);
@@ -1900,6 +1901,49 @@ public class MainActivity extends Activity {
         }
     }
 
+    private android.speech.tts.TextToSpeech testTts;
+
+    /** Speak a short sample so the user can hear IRIS's voice. */
+    private void testVoice() {
+        if (testTts != null) { speakVoiceSample(); return; }
+        toast("Preparing voice\u2026");
+        testTts = new android.speech.tts.TextToSpeech(this, status -> {
+            if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                try { testTts.setLanguage(new Locale("en", "IN")); } catch (Exception ignored) { }
+                speakVoiceSample();
+            } else {
+                runOnUiThread(() -> toast("Text-to-speech isn't available on this phone."));
+            }
+        });
+    }
+
+    private void speakVoiceSample() {
+        if (testTts == null) return;
+        testTts.speak("Hello, I'm IRIS, your assistant. This is how I sound.",
+                android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "iris_voice_test");
+    }
+
+    /** Report the status of IRIS's own offline speech model (Vosk, Indian English). */
+    private void showOfflineSpeechStatus() {
+        boolean bundled = false;
+        try {
+            String[] f = getAssets().list("model-en-us");
+            bundled = f != null && f.length > 0;
+        } catch (Exception ignored) { }
+        File extracted = new File(getFilesDir(), "vosk-model-en-in-0.4");
+        boolean downloaded = extracted.exists() && extracted.list() != null && extracted.list().length > 0;
+        boolean ready = bundled || downloaded;
+        String status = ready
+                ? "\u2705 Ready. IRIS uses its own offline Indian-English speech model "
+                  + (bundled ? "(built into the app)." : "(downloaded).")
+                : "\u2b07\uFE0F Not yet downloaded. It downloads automatically the first time IRIS listens, then works fully offline.";
+        new AlertDialog.Builder(this)
+                .setTitle("Offline speech model")
+                .setMessage(status + "\n\nEverything runs on-device \u2014 no internet needed for recognition. There's nothing you need to do here.")
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
     private void downloadOfflineModel() {
         if (Build.VERSION.SDK_INT < 33 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
             toast("This phone does not expose downloadable on-device speech models to IRIS.");
@@ -2112,6 +2156,7 @@ public class MainActivity extends Activity {
         handler.removeCallbacksAndMessages(null);
         destroyTrainingRecognizer();
         destroyDryRunRecognizer();
+        if (testTts != null) { testTts.stop(); testTts.shutdown(); testTts = null; }
         if (timedRecorder != null) { timedRecorder.stop(); timedRecorder = null; }
         stopWakeTrainingEngine();
         super.onDestroy();

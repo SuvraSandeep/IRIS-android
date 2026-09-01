@@ -104,7 +104,7 @@
                 android:text="\uD83D\uDD0A Test voice — tap to hear IRIS" android:textAllCaps="false" android:textColor="@color/text_primary" />
             <Button android:id="@+id/downloadModelButton" android:layout_width="match_parent" android:layout_height="52dp"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
-                android:text="Check / download offline language" android:textAllCaps="false" android:textColor="@color/text_primary" />
+                android:text="Offline speech model — check status" android:textAllCaps="false" android:textColor="@color/text_primary" />
             <Switch android:id="@+id/aiEnabledSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="10dp"
                 android:text="Use AI brain (experimental)" android:textColor="@color/text_primary" android:textSize="14sp" />
