@@ -198,9 +198,11 @@ public class MainActivity extends Activity {
         tabSettings.setOnClickListener(v -> showSettings());
         showAssistant();
         handleLaunchIntent(getIntent());
-        // Auto-download the AI brain in the background (any network) with progress notifications
+        // Auto-download the AI brain in the background only if the user enabled AI
         try {
-            ModelManager.autoDownloadGemmaIfNeeded(this);
+            if (new AppSettings(this).aiEnabled()) {
+                ModelManager.autoDownloadGemmaIfNeeded(this);
+            }
         } catch (Throwable t) {
             android.util.Log.w("IRIS", "Auto model download skipped: " + t.getMessage());
         }
@@ -1013,6 +1015,19 @@ public class MainActivity extends Activity {
 
         TextView brainStatus = view.findViewById(R.id.brainStatus);
         Button brainButton = view.findViewById(R.id.downloadBrainButton);
+        Switch aiEnabledSwitch = view.findViewById(R.id.aiEnabledSwitch);
+        if (aiEnabledSwitch != null) {
+            aiEnabledSwitch.setChecked(settings.aiEnabled());
+            aiEnabledSwitch.setOnCheckedChangeListener((b, checked) -> {
+                settings.setAiEnabled(checked);
+                if (checked) {
+                    toast("AI enabled. Download the brain if needed, then restart IRIS listening.");
+                    try { ModelManager.autoDownloadGemmaIfNeeded(this); } catch (Throwable ignored) { }
+                } else {
+                    toast("AI disabled. Using reliable rule-based replies.");
+                }
+            });
+        }
         EditText hfTokenInput = view.findViewById(R.id.hfTokenInput);
         Button saveTokenButton = view.findViewById(R.id.saveTokenButton);
         if (hfTokenInput != null) {

@@ -47,6 +47,10 @@ public final class AppSettings {
     public void setTextScale(float value) { prefs.edit().putFloat("text_scale", value).apply(); }
     public String hfToken() { return prefs.getString("hf_token", ""); }
     public void setHfToken(String value) { prefs.edit().putString("hf_token", value == null ? "" : value.trim()).apply(); }
+    /** Whether the on-device AI brain (LLM) is used. Off by default for stability;
+     *  the rule-based engine handles all commands reliably without it. */
+    public boolean aiEnabled() { return prefs.getBoolean("ai_enabled", false); }
+    public void setAiEnabled(boolean value) { prefs.edit().putBoolean("ai_enabled", value).apply(); }
 
     // ---------------- Appearance / customization ----------------
     public static final String THEME_DARK = "dark";

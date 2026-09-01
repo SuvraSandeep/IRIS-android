@@ -254,13 +254,19 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this, "VOSK", "Model unavailable, using fallback: " + message);
             }
         });
-        // Load the Gemma LLM on a background thread (heavy — may take several seconds)
+        // Load the AI brain only if the user has opted in (off by default for
+        // stability — some devices crash natively during on-device inference).
         llmAgent = new LlmAgent();
-        new Thread(() -> {
-            boolean ok = llmAgent.loadModel(this);
-            llmReady = ok;
-            LogStore.append(this, "LLM", ok ? "Gemma AI ready" : "No LLM model, using rule-based chat");
-        }, "IRIS-LLM-Load").start();
+        if (settings.aiEnabled()) {
+            new Thread(() -> {
+                boolean ok = llmAgent.loadModel(this);
+                llmReady = ok;
+                LogStore.append(this, "LLM", ok ? "AI brain ready" : "No LLM model, using rule-based chat");
+            }, "IRIS-LLM-Load").start();
+        } else {
+            llmReady = false;
+            LogStore.append(this, "LLM", "AI brain disabled in Settings — using rule-based chat");
+        }
     }
 
     @Override

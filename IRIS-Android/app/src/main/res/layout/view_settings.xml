@@ -105,6 +105,13 @@
             <Button android:id="@+id/downloadModelButton" android:layout_width="match_parent" android:layout_height="52dp"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
                 android:text="Check / download offline language" android:textAllCaps="false" android:textColor="@color/text_primary" />
+            <Switch android:id="@+id/aiEnabledSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="10dp"
+                android:text="Use AI brain (experimental)" android:textColor="@color/text_primary" android:textSize="14sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Off by default. Rule-based replies handle all commands reliably. Turn on for conversational AI (may be unstable on some phones)."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
             <Button android:id="@+id/downloadBrainButton" android:layout_width="match_parent" android:layout_height="52dp"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_primary"
                 android:text="\uD83E\uDDE0 Download AI brain (~550 MB)" android:textAllCaps="false"
