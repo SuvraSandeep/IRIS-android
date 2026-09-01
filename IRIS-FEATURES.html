@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IRIS — Feature Deck</title>
+<style>
+  :root{
+    --ink:#070816; --surface:#0f1028; --surface2:#181a36; --elevated:#1e2045;
+    --cyan:#22d3ee; --violet:#8b5cf6; --magenta:#f472b6; --mint:#34d399; --amber:#fbbf24; --rose:#fb7185;
+    --text:#f1f5f9; --text2:#cbd5e1; --muted:#64748b; --border:#1e293b;
+    --accent:var(--cyan);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:radial-gradient(1200px 800px at 20% -10%, #141634 0%, var(--ink) 55%);
+    color:var(--text); overflow:hidden;
+  }
+  #app{height:100vh;display:flex;flex-direction:column}
+
+  /* Header */
+  header{
+    display:flex;align-items:center;gap:16px;padding:16px 26px;border-bottom:1px solid var(--border);
+    background:rgba(15,16,40,.6);backdrop-filter:blur(6px);z-index:10;
+  }
+  .logo{font-size:26px;font-weight:800;letter-spacing:.22em;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--magenta));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--muted);font-size:11px;margin-top:2px}
+  header .spacer{flex:1}
+  .pill{border:1px solid var(--border);border-radius:999px;padding:7px 14px;font-size:11px;color:var(--mint);font-weight:700}
+  .btn{cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--text);
+    border-radius:12px;padding:9px 14px;font-size:13px;transition:.15s}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* Views */
+  main{flex:1;position:relative;overflow:hidden}
+  .view{position:absolute;inset:0;overflow:auto;padding:26px;opacity:0;transform:translateY(10px);
+    pointer-events:none;transition:opacity .22s, transform .22s}
+  .view.active{opacity:1;transform:none;pointer-events:auto}
+
+  /* Index */
+  .searchbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
+  #search{flex:1;min-width:220px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;
+    padding:13px 16px;color:var(--text);font-size:15px;outline:none}
+  #search:focus{border-color:var(--accent)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{cursor:pointer;border:1px solid var(--border);background:var(--surface);border-radius:999px;
+    padding:8px 14px;font-size:12px;color:var(--text2);transition:.15s;white-space:nowrap}
+  .chip:hover{border-color:var(--accent)}
+  .chip.active{background:var(--accent);color:#07121a;border-color:var(--accent);font-weight:700}
+
+  .catTitle{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--magenta);
+    font-weight:800;margin:22px 4px 12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+  .card{cursor:pointer;background:linear-gradient(160deg,var(--surface2),var(--surface));
+    border:1px solid var(--border);border-radius:18px;padding:18px;transition:.16s;position:relative;overflow:hidden}
+  .card:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 10px 30px rgba(34,211,238,.12)}
+  .card .ic{font-size:30px}
+  .card h3{font-size:16px;margin:10px 0 4px}
+  .card p{font-size:12.5px;color:var(--muted);line-height:1.45}
+  .card .ver{position:absolute;top:12px;right:12px;font-size:10px;color:var(--muted);
+    border:1px solid var(--border);border-radius:999px;padding:2px 8px}
+  .count{color:var(--muted);font-size:13px;margin-left:auto}
+
+  /* Feature page */
+  .fpage{max-width:820px;margin:0 auto}
+  .fp-top{display:flex;align-items:center;gap:16px;margin-bottom:6px}
+  .fp-ic{font-size:56px;filter:drop-shadow(0 6px 16px rgba(34,211,238,.35))}
+  .fp-cat{color:var(--accent);font-size:12px;letter-spacing:.12em;text-transform:uppercase;font-weight:700}
+  .fp-title{font-size:34px;font-weight:800;line-height:1.1;margin-top:2px}
+  .fp-tag{color:var(--text2);font-size:17px;margin:14px 0 20px;font-style:italic}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px}
+  .panel h4{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mint);margin-bottom:10px}
+  .panel p{color:var(--text2);line-height:1.6;font-size:15px}
+  .say{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);
+    border:1px solid var(--border);border-radius:12px;margin-top:8px;font-size:15px}
+  .say .q{color:var(--muted)}
+  .say b{color:var(--text)}
+  .fp-meta{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:12px;margin-top:6px}
+
+  /* Footer nav */
+  footer{display:flex;align-items:center;gap:12px;padding:14px 26px;border-top:1px solid var(--border);
+    background:rgba(15,16,40,.6);backdrop-filter:blur(6px)}
+  .progress{flex:1;height:6px;background:var(--surface2);border-radius:999px;overflow:hidden}
+  .progress>i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--violet));width:0;transition:.25s}
+  .navbtn{cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--text);
+    border-radius:12px;padding:10px 16px;font-size:14px;transition:.15s;user-select:none}
+  .navbtn:hover{border-color:var(--accent);color:var(--accent)}
+  .navbtn[disabled]{opacity:.35;pointer-events:none}
+  .kbd{color:var(--muted);font-size:11px}
+  .hidden{display:none!important}
+  ::-webkit-scrollbar{width:10px}::-webkit-scrollbar-thumb{background:#232544;border-radius:8px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div>
+      <div class="logo">IRIS</div>
+      <div class="sub">Intelligent Responsive Interaction System — Feature Deck</div>
+    </div>
+    <div class="spacer"></div>
+    <span class="pill">• ON DEVICE</span>
+    <button class="btn" id="homeBtn">☰ Index</button>
+    <button class="btn" id="accentBtn">🎨 Accent</button>
+  </header>
+
+  <main>
+    <!-- INDEX -->
+    <section class="view active" id="indexView">
+      <div class="searchbar">
+        <input id="search" placeholder="🔎 Search features… (e.g. alarm, whatsapp, weather)" />
+        <div class="chips" id="catChips"></div>
+      </div>
+      <div id="cardHost"></div>
+    </section>
+
+    <!-- FEATURE -->
+    <section class="view" id="featureView">
+      <div class="fpage" id="featurePage"></div>
+    </section>
+  </main>
+
+  <footer>
+    <button class="navbtn" id="prevBtn">← Prev</button>
+    <div class="progress"><i id="bar"></i></div>
+    <span class="kbd" id="posLabel"></span>
+    <button class="navbtn" id="nextBtn">Next →</button>
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+   IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
+   ============================================================ */
+const BUILD_VERSION = "7.9.0";
+
+const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
+  "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
+
+const FEATURES = [
+  // ---- Voice & Recognition ----
+  {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
+   tagline:"IRIS wakes only when you say your phrase.",
+   desc:"Train your own wake phrase; IRIS listens silently in the background and springs to life only on an exact match — no beeps, no false triggers.",
+   examples:["“Hey IRIS” (or whatever you trained)"], version:"5.x"},
+  {id:"stt", cat:"Voice & Recognition", icon:"🗣️", title:"Offline Indian-English Recognition",
+   tagline:"Understands your accent — no internet.",
+   desc:"Uses the Vosk small en-IN model bundled in the app. Speech never leaves your phone; recognition works fully offline.",
+   examples:["Just talk — recognition is automatic"], version:"6.8.0"},
+  {id:"tts", cat:"Voice & Recognition", icon:"🔊", title:"Natural Voice",
+   tagline:"Warm en-IN voice, not a robot.",
+   desc:"Picks the highest-quality Indian-English voice with natural pace and pitch. Try it from Settings → Test voice.",
+   examples:["Settings → “Test voice — tap to hear IRIS”"], version:"6.8.0"},
+  {id:"train", cat:"Voice & Recognition", icon:"🎯", title:"Voice Training Wizard",
+   tagline:"Teach IRIS your voice and phrases.",
+   desc:"A guided wizard records samples, checks quality, and lets you retrain the wake phrase and trained commands.",
+   examples:["Training tab → Set Up Wake Phrase"], version:"5.x"},
+  {id:"type", cat:"Voice & Recognition", icon:"⌨️", title:"Type a Command",
+   tagline:"Voice-first, not voice-only.",
+   desc:"A text box on the home screen runs the same commands by typing — great in noisy rooms or for accessibility.",
+   examples:["Type “what's the weather” → ➤"], version:"7.2.0"},
+
+  // ---- Communication ----
+  {id:"call", cat:"Communication", icon:"📞", title:"Call a Contact",
+   tagline:"Fuzzy-matched, always confirmed.",
+   desc:"Finds the closest contact even with slight mispronunciations and confirms before dialing. Say “no”, “kill”, or “cancel” to stop.",
+   examples:["call Rahul","phone the office","dial 98765 43210"], version:"1.x"},
+  {id:"rel", cat:"Communication", icon:"👨‍👩‍👧", title:"Call by Relationship",
+   tagline:"“Call my brother.”",
+   desc:"Teach IRIS who people are and call them by relationship instead of name.",
+   examples:["call my mom","ring my brother"], version:"1.x"},
+  {id:"redial", cat:"Communication", icon:"🔁", title:"Redial / Call Back",
+   tagline:"Reach the last person again.",
+   desc:"Instantly call the last number again.",
+   examples:["call him again","redial"], version:"1.x"},
+  {id:"history", cat:"Communication", icon:"📜", title:"Call History",
+   tagline:"Who did I call?",
+   desc:"IRIS tells you your recent calls.",
+   examples:["who did I call today","recent calls"], version:"1.x"},
+  {id:"sms", cat:"Communication", icon:"✉️", title:"Send SMS",
+   tagline:"Texts sent hands-free.",
+   desc:"Composes and sends a real SMS via the system — works even while the phone is locked (see lock-screen note).",
+   examples:["text mom saying I'll be late","message Rahul that I'm coming"], version:"7.0.0"},
+  {id:"whatsapp", cat:"Communication", icon:"💬", title:"WhatsApp Message",
+   tagline:"Chat opens pre-filled.",
+   desc:"Opens the WhatsApp chat with your message ready — you tap send (WhatsApp allows no auto-send).",
+   examples:["whatsapp Sam saying on my way"], version:"7.0.0"},
+  {id:"email", cat:"Communication", icon:"📧", title:"Compose Email",
+   tagline:"Drafts an email to a contact.",
+   desc:"Resolves a contact's email address and opens your mail app with the subject pre-filled.",
+   examples:["email mom about dinner tonight","send an email to john@x.com saying hi"], version:"7.7.0"},
+  {id:"notif", cat:"Communication", icon:"📬", title:"Read Notifications",
+   tagline:"What did I miss?",
+   desc:"Reads out recent phone notifications and messages.",
+   examples:["read my notifications","who texted me","what did I miss"], version:"6.x"},
+
+  // ---- Productivity ----
+  {id:"alarm", cat:"Productivity", icon:"⏰", title:"Set Alarm",
+   tagline:"“Wake me at 6:30.”",
+   desc:"Sets a system alarm, parsing spoken times like “7:30 am”.",
+   examples:["set an alarm for 6:30 am","wake me up at 7"], version:"7.0.0"},
+  {id:"timer", cat:"Productivity", icon:"⏲️", title:"Set Timer",
+   tagline:"Countdowns by voice.",
+   desc:"Starts a system countdown timer from minutes/seconds you say.",
+   examples:["set a timer for 10 minutes"], version:"7.0.0"},
+  {id:"reminder", cat:"Productivity", icon:"🔔", title:"Reminders",
+   tagline:"IRIS nudges you later.",
+   desc:"Schedules a reminder (via AlarmManager) that pops a notification even if the app is closed.",
+   examples:["remind me to call dad in 2 hours","remind me to take medicine at 9 pm"], version:"7.0.0"},
+  {id:"calendar", cat:"Productivity", icon:"📅", title:"Calendar Events",
+   tagline:"Add events with a sentence.",
+   desc:"Opens your calendar's new-event screen with the title and time pre-filled.",
+   examples:["add a meeting with Sam at 4 pm","schedule an event dentist at 9"], version:"7.7.0"},
+  {id:"openapp", cat:"Productivity", icon:"📱", title:"Open Apps",
+   tagline:"Launch anything by name.",
+   desc:"Opens any installed app by voice.",
+   examples:["open WhatsApp","launch camera"], version:"1.x"},
+  {id:"search", cat:"Productivity", icon:"🔍", title:"Web Search",
+   tagline:"Look things up fast.",
+   desc:"Runs a web search in your browser.",
+   examples:["search for the tallest mountain","google IRIS assistant"], version:"7.0.0"},
+  {id:"nav", cat:"Productivity", icon:"🧭", title:"Navigation / Maps",
+   tagline:"Turn-by-turn directions.",
+   desc:"Launches Google Maps navigation to a destination (falls back to a map if Maps isn't installed).",
+   examples:["navigate to the airport","directions to home","take me to Koramangala"], version:"7.6.0"},
+
+  // ---- Info & Awareness ----
+  {id:"weather", cat:"Info & Awareness", icon:"⛅", title:"Weather",
+   tagline:"Now and the forecast.",
+   desc:"Free, offline-friendly weather via Open-Meteo for your current location.",
+   examples:["what's the weather","will it rain tomorrow"], version:"6.x"},
+  {id:"location", cat:"Info & Awareness", icon:"📍", title:"Location",
+   tagline:"“Where am I?”",
+   desc:"Reverse-geocodes your GPS fix and names your area, city, and state.",
+   examples:["where am I","what's my location"], version:"6.12.0"},
+  {id:"time", cat:"Info & Awareness", icon:"🕒", title:"Time & Date",
+   tagline:"Quick clock check.",
+   desc:"Tells the current time and date.",
+   examples:["what time is it","what's the date"], version:"1.x"},
+  {id:"battery", cat:"Info & Awareness", icon:"🔋", title:"Battery",
+   tagline:"Level & charging status.",
+   desc:"Reports battery percentage and whether you're charging.",
+   examples:["battery level","how much battery"], version:"1.x"},
+  {id:"aware", cat:"Info & Awareness", icon:"🌐", title:"Situational Awareness",
+   tagline:"IRIS knows the context.",
+   desc:"When AI is on, IRIS is fed live context — date, part of day, battery, network, and who it's talking to — for smarter replies.",
+   examples:["good night → time-aware reply"], version:"7.1.0"},
+
+  // ---- Intelligence & Memory ----
+  {id:"ai", cat:"Intelligence & Memory", icon:"🧠", title:"Conversational AI (opt-in)",
+   tagline:"Real on-device chat.",
+   desc:"Optional Qwen 0.5B model (ungated, ~550 MB) for free-form conversation, fully offline. Off by default; enable in Settings → “Use AI brain (experimental)”.",
+   examples:["Settings → Use AI brain → chat naturally"], version:"6.11.0"},
+  {id:"caps", cat:"Intelligence & Memory", icon:"✅", title:"Capability Awareness",
+   tagline:"Knows what it can & can't do.",
+   desc:"The AI is told its exact tools and limits, so it answers “can you…?” honestly instead of pretending.",
+   examples:["can you send an email? → honest answer"], version:"7.1.0"},
+  {id:"memory", cat:"Intelligence & Memory", icon:"💾", title:"Persistent Memory",
+   tagline:"Teach IRIS about you.",
+   desc:"Remembers facts you tell it and recalls them later; forget on request. Stored privately on-device.",
+   examples:["remember I like green tea","what do you know about me","forget that"], version:"2.x"},
+  {id:"persona", cat:"Intelligence & Memory", icon:"🎩", title:"Refined Persona",
+   tagline:"A composed, witty aide.",
+   desc:"IRIS speaks like a loyal, quietly-confident assistant with understated wit; tone adapts to your personality setting.",
+   examples:["Settings → Personality (Sarcastic/Warm/…)"], version:"6.12.0"},
+  {id:"rulechat", cat:"Intelligence & Memory", icon:"⚡", title:"Smart Rule-Based Replies",
+   tagline:"Instant, reliable, no model needed.",
+   desc:"Even with AI off, IRIS handles greetings, identity, jokes, well-being and every command with fast built-in responses.",
+   examples:["hi","who are you","tell me a joke"], version:"1.x"},
+
+  // ---- Personalization & UI ----
+  {id:"themes", cat:"Personalization & UI", icon:"🌗", title:"Themes",
+   tagline:"Dark & true-black AMOLED.",
+   desc:"Switch between the deep-ink Dark theme and battery-saving AMOLED black, applied instantly.",
+   examples:["Settings → Appearance → AMOLED black"], version:"7.2.0"},
+  {id:"accent", cat:"Personalization & UI", icon:"🎨", title:"Accent Colours",
+   tagline:"Recolour the whole app.",
+   desc:"Pick from Cyan, Violet, Mint, Amber, Magenta, Rose — the orb and highlights retint live.",
+   examples:["Settings → Appearance → accent swatches"], version:"7.2.0"},
+  {id:"chips", cat:"Personalization & UI", icon:"🔲", title:"Editable Quick Actions",
+   tagline:"Your one-tap shortcuts.",
+   desc:"Choose which action chips appear on the home screen via the “＋ Edit” chip or Settings.",
+   examples:["Home → ＋ Edit → tick your actions"], version:"7.3.0"},
+  {id:"a11y", cat:"Personalization & UI", icon:"♿", title:"Comfort & Accessibility",
+   tagline:"Readable, reachable, calm.",
+   desc:"Text-size scaling, Compact density, Reduce Motion, big touch targets, and screen-reader labels throughout.",
+   examples:["Settings → Appearance → Text size / Reduce motion"], version:"7.4.1"},
+  {id:"activity", cat:"Personalization & UI", icon:"📊", title:"Activity Log + Filters",
+   tagline:"A private, filterable timeline.",
+   desc:"See recognized speech, decisions, and errors, filtered by All / Calls / Messages / AI / Actions / Errors. Stored only on-device.",
+   examples:["Activity tab → tap a filter chip"], version:"7.4.0"},
+
+  // ---- Privacy, Safety & Robustness ----
+  {id:"offline", cat:"Privacy, Safety & Robustness", icon:"🔒", title:"Fully Offline & Private",
+   tagline:"Nothing leaves your phone.",
+   desc:"Recognition, AI, and memory all run on-device. No raw audio is saved; calls are always confirmed.",
+   examples:["Works in airplane mode (after models download)"], version:"1.x"},
+  {id:"lockgate", cat:"Privacy, Safety & Robustness", icon:"🛡️", title:"Lock-Screen Protection",
+   tagline:"Sensitive actions need unlock.",
+   desc:"With “require unlock” on, IRIS won't place calls, send SMS, or send WhatsApp while the phone is locked — it asks you to unlock first, so no one can act as you at your locked phone.",
+   examples:["Settings → require unlock"], version:"7.9.0"},
+  {id:"guards", cat:"Privacy, Safety & Robustness", icon:"🧯", title:"Crash & Memory Guards",
+   tagline:"Built to stay alive.",
+   desc:"Command handling is crash-proofed and logged; the AI is skipped on low memory or oversized models to avoid out-of-memory kills.",
+   examples:["Automatic — see Activity for any COMMAND ERROR"], version:"7.5.0"},
+  {id:"aitoggle", cat:"Privacy, Safety & Robustness", icon:"🎚️", title:"AI On/Off Switch",
+   tagline:"You choose the brain.",
+   desc:"Run the rock-solid rule-based engine, or opt into experimental conversational AI — your call, any time.",
+   examples:["Settings → Use AI brain (experimental)"], version:"7.8.0"},
+];
+
+/* ============================================================
+   APP LOGIC
+   ============================================================ */
+const ACCENTS = ["#22d3ee","#8b5cf6","#34d399","#fbbf24","#f472b6","#fb7185"];
+let accentIdx = 0;
+let activeCat = "All";
+let filtered = FEATURES.slice();
+let current = -1; // index within `filtered` when on a feature page
+
+const $ = s => document.querySelector(s);
+const cardHost = $("#cardHost"), search = $("#search");
+
+function buildChips(){
+  const host = $("#catChips");
+  host.innerHTML = "";
+  ["All",...CATS].forEach(c=>{
+    const el = document.createElement("div");
+    el.className = "chip"+(c===activeCat?" active":"");
+    el.textContent = c==="All" ? "All" : c;
+    el.onclick = ()=>{ activeCat=c; applyFilter(); };
+    host.appendChild(el);
+  });
+}
+
+function applyFilter(){
+  const q = search.value.trim().toLowerCase();
+  filtered = FEATURES.filter(f=>{
+    const inCat = activeCat==="All" || f.cat===activeCat;
+    const inQ = !q || (f.title+" "+f.tagline+" "+f.desc+" "+f.examples.join(" ")).toLowerCase().includes(q);
+    return inCat && inQ;
+  });
+  buildChips();
+  renderIndex();
+}
+
+function renderIndex(){
+  cardHost.innerHTML = "";
+  const cats = activeCat==="All" ? CATS : [activeCat];
+  let any = false;
+  cats.forEach(cat=>{
+    const items = filtered.filter(f=>f.cat===cat);
+    if(!items.length) return;
+    any = true;
+    const t = document.createElement("div"); t.className="catTitle";
+    t.innerHTML = cat + ' <span class="count">'+items.length+'</span>';
+    cardHost.appendChild(t);
+    const grid = document.createElement("div"); grid.className="grid";
+    items.forEach(f=>{
+      const idx = filtered.indexOf(f);
+      const c = document.createElement("div"); c.className="card";
+      c.innerHTML = '<span class="ver">v'+f.version+'</span><div class="ic">'+f.icon+'</div>'+
+        '<h3>'+f.title+'</h3><p>'+f.tagline+'</p>';
+      c.onclick = ()=>openFeature(idx);
+      grid.appendChild(c);
+    });
+    cardHost.appendChild(grid);
+  });
+  if(!any){ cardHost.innerHTML = '<p style="color:var(--muted);padding:30px 4px">No features match “'+search.value+'”.</p>'; }
+}
+
+function openFeature(idx){
+  current = idx;
+  const f = filtered[idx];
+  const saysHtml = f.examples.map(e=>'<div class="say"><span class="q">you say</span> <b>“'+e+'”</b></div>').join("");
+  $("#featurePage").innerHTML =
+    '<div class="fp-top"><div class="fp-ic">'+f.icon+'</div><div>'+
+      '<div class="fp-cat">'+f.cat+'</div><div class="fp-title">'+f.title+'</div></div></div>'+
+    '<div class="fp-tag">'+f.tagline+'</div>'+
+    '<div class="panel"><h4>What it does</h4><p>'+f.desc+'</p></div>'+
+    '<div class="panel"><h4>How to use it</h4>'+saysHtml+'</div>'+
+    '<div class="fp-meta">🏷️ Added in v'+f.version+' &nbsp;•&nbsp; '+(idx+1)+' of '+filtered.length+' in this view</div>';
+  showView("featureView");
+  updateFooter();
+}
+
+function updateFooter(){
+  const onFeature = current>=0 && $("#featureView").classList.contains("active");
+  $("#prevBtn").disabled = !onFeature || current<=0;
+  $("#nextBtn").disabled = !onFeature || current>=filtered.length-1;
+  if(onFeature){
+    $("#bar").style.width = ((current+1)/filtered.length*100)+"%";
+    $("#posLabel").textContent = (current+1)+" / "+filtered.length+"  ·  ← → to navigate";
+  } else {
+    $("#bar").style.width = "0%";
+    $("#posLabel").textContent = FEATURES.length+" features · Updated for v"+BUILD_VERSION;
+  }
+}
+
+function showView(id){
+  document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+  $("#"+id).classList.add("active");
+  updateFooter();
+}
+
+function goHome(){ current=-1; showView("indexView"); }
+
+/* nav */
+$("#prevBtn").onclick = ()=>{ if(current>0) openFeature(current-1); };
+$("#nextBtn").onclick = ()=>{ if(current<filtered.length-1) openFeature(current+1); };
+$("#homeBtn").onclick = goHome;
+$("#accentBtn").onclick = ()=>{ accentIdx=(accentIdx+1)%ACCENTS.length;
+  document.documentElement.style.setProperty("--accent",ACCENTS[accentIdx]); };
+search.oninput = ()=>{ applyFilter(); };
+document.addEventListener("keydown", e=>{
+  if($("#featureView").classList.contains("active")){
+    if(e.key==="ArrowRight") $("#nextBtn").click();
+    else if(e.key==="ArrowLeft") $("#prevBtn").click();
+    else if(e.key==="Escape") goHome();
+  }
+});
+
+/* init */
+buildChips(); applyFilter(); updateFooter();
+</script>
+</body>
+</html>

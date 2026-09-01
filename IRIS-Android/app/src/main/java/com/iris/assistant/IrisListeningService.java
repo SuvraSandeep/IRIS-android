@@ -1507,6 +1507,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Send an SMS to a resolved contact (or number). */
     private void handleSendSms(String who, String message) {
+        if (blockedWhileLocked("send a text")) return;
         if (!hasPermission(Manifest.permission.SEND_SMS)) {
             String msg = "I need SMS permission for that. Open the IRIS app and allow sending texts.";
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
@@ -1536,6 +1537,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Open a WhatsApp chat with the message pre-filled (user taps send). */
     private void handleWhatsApp(String who, String message) {
+        if (blockedWhileLocked("send a WhatsApp message")) return;
         String number = resolveNumber(who);
         try {
             Intent i = new Intent(Intent.ACTION_VIEW);
@@ -2569,6 +2571,19 @@ public class IrisListeningService extends Service implements RecognitionListener
                 .setContentIntent(content).setAutoCancel(true).build();
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(CALL_NOTIFICATION, notification);
         LogStore.append(this, "LOCKED", "Authentication required for " + name);
+    }
+
+    /** True (and tells the user) if an action must wait for unlock while the phone is locked. */
+    private boolean blockedWhileLocked(String actionLabel) {
+        KeyguardManager kg = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        if (settings.requireUnlock() && kg != null && kg.isDeviceLocked()) {
+            String msg = "Please unlock your phone first to " + actionLabel + ".";
+            broadcastMessage(msg);
+            speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "LOCKED", "Blocked \"" + actionLabel + "\" while locked");
+            return true;
+        }
+        return false;
     }
 
     private void rearmAfterAction() {
