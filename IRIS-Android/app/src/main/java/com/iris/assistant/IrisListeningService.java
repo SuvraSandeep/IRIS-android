@@ -221,6 +221,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     public void onCreate() {
         super.onCreate();
         settings = new AppSettings(this);
+        try { PersonalProfile.seedInto(this); } catch (Throwable ignored) { }
         createNotificationChannels();
         textToSpeech = new TextToSpeech(this, status -> {
             ttsReady = status == TextToSpeech.SUCCESS;

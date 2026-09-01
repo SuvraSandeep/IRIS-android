@@ -174,6 +174,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         contentHost = findViewById(R.id.contentHost);
+        try { PersonalProfile.seedInto(this); } catch (Throwable ignored) { }
         // Apply the user's theme (Dark keeps the gradient; AMOLED = pure black).
         try {
             AppSettings appSettings = new AppSettings(this);

@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.10.2";
+const BUILD_VERSION = "7.11.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -262,6 +262,10 @@ const FEATURES = [
    tagline:"Teach IRIS about you.",
    desc:"Remembers facts you tell it and recalls them later; forget on request. Stored privately on-device.",
    examples:["remember I like green tea","what do you know about me","forget that"], version:"2.x"},
+  {id:"profile", cat:"Intelligence & Memory", icon:"🪪", title:"Personal Profile (knows you)",
+   tagline:"IRIS knows you from day one — even with AI off.",
+   desc:"Reads iris-me.json (your name, preferred name, phone/emails, family & contacts, preferences, places, and persona rules) on startup and seeds its memory + relationships. So \u201Ccall my mother\u201D and \u201Cwhat do you know about me\u201D work with no AI, and the AI (when on) follows your JARVIS-style rules. Edit the file at the repo root, or override on-phone at Android/data/<app>/files/iris-me.json.",
+   examples:["what do you know about me","call my mother","who am I"], version:"7.11.0"},
   {id:"persona", cat:"Intelligence & Memory", icon:"🎩", title:"Refined Persona",
    tagline:"A composed, witty aide.",
    desc:"IRIS speaks like a loyal, quietly-confident assistant with understated wit; tone adapts to your personality setting.",

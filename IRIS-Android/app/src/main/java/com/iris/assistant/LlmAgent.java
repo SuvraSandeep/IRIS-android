@@ -187,6 +187,10 @@ public final class LlmAgent {
 
         sb.append(situationContext(context));
 
+        // Owner profile (persona rules + key facts) so IRIS knows the user
+        String profileCtx = PersonalProfile.contextForAI(context);
+        if (profileCtx != null && !profileCtx.isEmpty()) sb.append(profileCtx);
+
         // Inject memory
         String name = MemoryStore.ownerName(context);
         if (name != null) sb.append("The user's name is ").append(name).append(".\n");

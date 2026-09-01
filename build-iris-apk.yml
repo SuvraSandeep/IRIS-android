@@ -89,6 +89,21 @@ jobs:
             rm -f "$ASSETS_DIR/vosk-model.zip" || true
           fi
 
+      - name: Bundle personal profile (iris-me.json, optional)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # The owner's profile lives at the repo root (outside the source zip)
+          # so it's easy to edit. Copy it into assets if present. Non-fatal.
+          ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
+          mkdir -p "$ASSETS_DIR"
+          if [[ -f "$GITHUB_WORKSPACE/iris-me.json" ]]; then
+            cp "$GITHUB_WORKSPACE/iris-me.json" "$ASSETS_DIR/iris-me.json"
+            echo "Bundled iris-me.json into assets."
+          else
+            echo "No iris-me.json at repo root — skipping (app still works without it)."
+          fi
+
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
