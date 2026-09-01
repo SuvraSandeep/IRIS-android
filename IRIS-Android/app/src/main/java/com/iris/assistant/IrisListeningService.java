@@ -2621,23 +2621,38 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (audioManager == null) previousAudioMode = manager.getMode();
         audioManager = manager;
         try {
-            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
             String preference = settings.preferredMicrophone();
             if (Build.VERSION.SDK_INT >= 31) {
                 AudioDeviceInfo chosen = chooseDevice(audioManager.getAvailableCommunicationDevices(), preference);
-                if (chosen != null && audioManager.setCommunicationDevice(chosen)) return readableDeviceName(chosen);
+                if (chosen != null && isBluetoothMic(chosen)) {
+                    // Bluetooth headset mic requires communication mode + routing.
+                    audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                    if (audioManager.setCommunicationDevice(chosen)) return readableDeviceName(chosen);
+                }
+                // Phone / wired mic: stay in NORMAL mode so media (music) keeps its tone.
+                audioManager.setMode(AudioManager.MODE_NORMAL);
+                if (chosen != null && !isBluetoothMic(chosen)) return readableDeviceName(chosen);
             } else {
                 AudioDeviceInfo chosen = chooseDevice(arrayToList(audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)), preference);
-                if (chosen != null) {
-                    if (chosen.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
-                        audioManager.startBluetoothSco();
-                        audioManager.setBluetoothScoOn(true);
-                    }
+                if (chosen != null && chosen.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
+                    audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                    audioManager.startBluetoothSco();
+                    audioManager.setBluetoothScoOn(true);
                     return readableDeviceName(chosen);
                 }
+                audioManager.setMode(AudioManager.MODE_NORMAL);
+                if (chosen != null) return readableDeviceName(chosen);
             }
         } catch (Exception ignored) { return "Active system microphone"; }
         return "Phone microphone";
+    }
+
+    /** True if the mic is a Bluetooth headset (SCO/BLE) that needs communication mode. */
+    private boolean isBluetoothMic(AudioDeviceInfo device) {
+        if (device == null) return false;
+        int t = device.getType();
+        return t == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                || (Build.VERSION.SDK_INT >= 31 && t == AudioDeviceInfo.TYPE_BLE_HEADSET);
     }
 
     private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference) {
