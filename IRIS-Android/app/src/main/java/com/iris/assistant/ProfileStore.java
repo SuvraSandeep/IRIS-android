@@ -33,7 +33,7 @@ public final class ProfileStore {
         public final List<float[][]> templates = new ArrayList<>();
         public float[] voiceprint;
         public boolean isReady() { return !phrase.trim().isEmpty() && templates.size() >= 3; }
-        public boolean isVoiceEnrolled() { return voiceprint != null && voiceprint.length == 192; }
+        public boolean isVoiceEnrolled() { return voiceprint != null && voiceprint.length > 0; }
     }
 
     public static class Match {
@@ -105,9 +105,9 @@ public final class ProfileStore {
                 }
             }
             JSONArray vp = wake.optJSONArray("voiceprint");
-            if (vp != null && vp.length() == 192) {
-                profile.voiceprint = new float[192];
-                for (int i = 0; i < 192; i++) profile.voiceprint[i] = (float) vp.getDouble(i);
+            if (vp != null && vp.length() > 0) {
+                profile.voiceprint = new float[vp.length()];
+                for (int i = 0; i < vp.length(); i++) profile.voiceprint[i] = (float) vp.getDouble(i);
             }
         } catch (Exception ignored) { }
         return profile;
@@ -141,8 +141,8 @@ public final class ProfileStore {
         try {
             JSONObject current = root();
             JSONObject wake = current.optJSONObject("wakeWord");
-            if (wake == null) return false;
-            if (voiceprint != null && voiceprint.length == 192) {
+            if (wake == null) wake = new JSONObject();
+            if (voiceprint != null && voiceprint.length > 0) {
                 JSONArray vp = new JSONArray();
                 for (float v : voiceprint) vp.put(Math.round(v * 1000000f) / 1000000.0);
                 wake.put("voiceprint", vp);
@@ -153,6 +153,19 @@ public final class ProfileStore {
             persist(current);
             return true;
         } catch (Exception ignored) { return false; }
+    }
+
+    /** The enrolled speaker voiceprint (x-vector), or null if none. */
+    public synchronized float[] getVoiceprint() {
+        try {
+            JSONObject wake = root().optJSONObject("wakeWord");
+            if (wake == null) return null;
+            JSONArray vp = wake.optJSONArray("voiceprint");
+            if (vp == null || vp.length() == 0) return null;
+            float[] out = new float[vp.length()];
+            for (int i = 0; i < out.length; i++) out[i] = (float) vp.getDouble(i);
+            return out;
+        } catch (Exception e) { return null; }
     }
 
     public synchronized java.util.Map<String, String[]> getRelationships() {

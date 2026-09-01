@@ -1403,6 +1403,49 @@ public class MainActivity extends Activity {
         }, 2100); // Start recording after 3-2-1 countdown (700ms * 3)
     }
 
+    /** Build a Vosk x-vector voiceprint from recorded samples on a background thread. */
+    private void enrollVoiceprintAsync(java.util.List<short[]> samples) {
+        if (samples == null || samples.isEmpty()) return;
+        final VoskEngine ve = new VoskEngine();
+        ve.init(this, new VoskEngine.InitListener() {
+            @Override public void onReady() {
+                ve.initSpeaker(MainActivity.this);
+                new Thread(() -> {
+                    long deadline = System.currentTimeMillis() + 10000;
+                    while (!ve.isSpeakerReady() && System.currentTimeMillis() < deadline) {
+                        try { Thread.sleep(150); } catch (InterruptedException ignored) { }
+                    }
+                    java.util.List<float[]> vecs = new java.util.ArrayList<>();
+                    if (ve.isSpeakerReady()) {
+                        for (short[] s : samples) {
+                            float[] e = ve.embed(s);
+                            if (e != null) vecs.add(e);
+                        }
+                    }
+                    ve.close();
+                    if (!vecs.isEmpty()) {
+                        float[] avg = averageVectors(vecs);
+                        new ProfileStore(MainActivity.this).setVoiceprint(avg);
+                        LogStore.append(MainActivity.this, "VOICE", "Enrolled voiceprint from " + vecs.size() + " samples");
+                        handler.post(() -> toast("\uD83D\uDD10 Voice enrolled for wake security \u2705"));
+                    } else {
+                        LogStore.append(MainActivity.this, "VOICE", "Enrollment failed (speaker model unavailable)");
+                        handler.post(() -> toast("Voice security not set — speaker model unavailable."));
+                    }
+                }, "IRIS-Enroll").start();
+            }
+            @Override public void onError(String message) { ve.close(); }
+        });
+    }
+
+    private static float[] averageVectors(java.util.List<float[]> vs) {
+        int n = vs.get(0).length;
+        float[] a = new float[n];
+        for (float[] v : vs) for (int i = 0; i < n && i < v.length; i++) a[i] += v[i];
+        for (int i = 0; i < n; i++) a[i] /= vs.size();
+        return a;
+    }
+
     private void finishWakeTraining() {
         // Only use first 3 templates for DTW (remaining are for voice enrollment)
         List<float[][]> dtwTemplates = wakeTemplates.size() > 3
@@ -1412,16 +1455,12 @@ public class MainActivity extends Activity {
             trainWakeButton.setEnabled(true);
             return;
         }
-        // Enroll speaker voiceprint from all samples
-        SpeakerVerifier verifier = new SpeakerVerifier();
-        String enrollStatus = "voice not enrolled (model missing)";
-        if (verifier.loadModel(this) && !wakeRawSamples.isEmpty()) {
-            float[] voiceprint = verifier.enrollFromSamples(wakeRawSamples.toArray(new short[0][]));
-            if (voiceprint != null) {
-                new ProfileStore(this).setVoiceprint(voiceprint);
-                enrollStatus = "voice enrolled \u2705";
-            }
-            verifier.close();
+        // Enroll speaker voiceprint from the recorded samples using Vosk x-vectors.
+        String enrollStatus = "voice enrolling in background\u2026";
+        if (!wakeRawSamples.isEmpty()) {
+            enrollVoiceprintAsync(new java.util.ArrayList<>(wakeRawSamples));
+        } else {
+            enrollStatus = "voice not enrolled (no samples)";
         }
         ProfileStore.WakeProfile saved = new ProfileStore(this).getWakeProfile();
         LogStore.append(this, "WAKE TRAINED", saved.phrase + " with " + dtwTemplates.size()

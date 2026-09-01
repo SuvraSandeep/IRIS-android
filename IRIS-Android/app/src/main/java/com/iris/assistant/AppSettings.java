@@ -54,6 +54,9 @@ public final class AppSettings {
     /** Let IRIS act on commands while the phone is locked (UI actions prompt a quick unlock). */
     public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }
     public void setLockScreenControl(boolean value) { prefs.edit().putBoolean("lock_screen_control", value).apply(); }
+    /** Voice-verification strictness 0=lenient .. 1=strict (default 0.5). */
+    public float voiceSensitivity() { return prefs.getFloat("voice_sensitivity", 0.5f); }
+    public void setVoiceSensitivity(float value) { prefs.edit().putFloat("voice_sensitivity", value).apply(); }
 
     // ---------------- Appearance / customization ----------------
     public static final String THEME_DARK = "dark";

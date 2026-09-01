@@ -104,6 +104,30 @@ jobs:
             echo "No iris-me.json at repo root — skipping (app still works without it)."
           fi
 
+      - name: Download and bundle Vosk speaker model (optional, non-fatal)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # Enables voice verification (only-owner wake). App downloads it at
+          # runtime if this is skipped, so this must NEVER fail the build.
+          ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
+          SPK_DIR="$ASSETS_DIR/spk-model"
+          if [[ -n "$(ls -A "$SPK_DIR" 2>/dev/null)" ]]; then
+            echo "Speaker model already present, skipping."
+          else
+            mkdir -p "$ASSETS_DIR"
+            rm -rf "$SPK_DIR"
+            if curl -fSL --retry 2 --max-time 180 -o "$ASSETS_DIR/spk.zip" \
+                 https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip \
+               && unzip -q "$ASSETS_DIR/spk.zip" -d "$ASSETS_DIR"; then
+              mv "$ASSETS_DIR/vosk-model-spk-0.4" "$SPK_DIR" || true
+              echo "Vosk speaker model bundled."
+            else
+              echo "::warning::Speaker model download failed — app downloads it at runtime."
+            fi
+            rm -f "$ASSETS_DIR/spk.zip" || true
+          fi
+
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |

@@ -4,9 +4,11 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.vosk.Model;
 import org.vosk.Recognizer;
+import org.vosk.SpkModel;
 import org.vosk.android.RecognitionListener;
 import org.vosk.android.SpeechService;
 import org.vosk.android.StorageService;
@@ -29,9 +31,14 @@ public final class VoskEngine {
     private static final String MODEL_DIR_NAME = "vosk-model-en-in-0.4";
     private static final String MODEL_URL =
             "https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip";
+    private static final String SPK_DIR_NAME = "vosk-model-spk-0.4";
+    private static final String SPK_URL =
+            "https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip";
 
     private Model model;
     private volatile boolean modelLoaded;
+    private SpkModel spkModel;
+    private volatile boolean spkReady;
     private SpeechService speechService;
 
     public interface InitListener {
@@ -40,7 +47,8 @@ public final class VoskEngine {
     }
 
     public interface WakeListener {
-        void onWakeDetected();
+        /** @param voiceEmbedding Vosk speaker x-vector for the wake utterance, or null if unavailable. */
+        void onWakeDetected(float[] voiceEmbedding);
         void onError(String message);
     }
 
@@ -208,6 +216,9 @@ public final class VoskEngine {
             String phrase = wakePhrase.toLowerCase().trim();
             String grammar = "[\"" + phrase + "\", \"[unk]\"]";
             Recognizer recognizer = new Recognizer(model, SAMPLE_RATE, grammar);
+            if (spkReady && spkModel != null) {
+                try { recognizer.setSpkModel(spkModel); } catch (Throwable ignored) { }
+            }
             speechService = new SpeechService(recognizer, SAMPLE_RATE);
             speechService.startListening(new RecognitionListener() {
                 @Override public void onPartialResult(String hypothesis) {
@@ -215,12 +226,12 @@ public final class VoskEngine {
                 }
                 @Override public void onResult(String hypothesis) {
                     if (isExactPhrase(hypothesis, phrase)) {
-                        listener.onWakeDetected();
+                        listener.onWakeDetected(extractSpk(hypothesis));
                     }
                 }
                 @Override public void onFinalResult(String hypothesis) {
                     if (isExactPhrase(hypothesis, phrase)) {
-                        listener.onWakeDetected();
+                        listener.onWakeDetected(extractSpk(hypothesis));
                     }
                 }
                 @Override public void onError(Exception e) {
@@ -284,7 +295,116 @@ public final class VoskEngine {
             try { model.close(); } catch (Exception ignored) { }
             model = null;
         }
+        if (spkModel != null) {
+            try { spkModel.close(); } catch (Exception ignored) { }
+            spkModel = null;
+        }
+        spkReady = false;
         modelLoaded = false;
+    }
+
+    // ─── Speaker model (voice verification) ───
+
+    public boolean isSpeakerReady() { return spkReady && spkModel != null; }
+
+    /** Load the Vosk speaker model (bundled in assets/spk-model, else downloaded). Non-fatal. */
+    public void initSpeaker(Context context) {
+        if (spkReady) return;
+        Context app = context.getApplicationContext();
+        new Thread(() -> {
+            try {
+                File dir = new File(app.getFilesDir(), SPK_DIR_NAME);
+                if (!isValidSpkDir(dir)) {
+                    // Try bundled asset folder "spk-model" → copy to files.
+                    if (assetDirExists(app, "spk-model")) {
+                        deleteRecursive(dir);
+                        copyAssetDir(app, "spk-model", dir);
+                    }
+                }
+                if (!isValidSpkDir(dir)) {
+                    // Fall back to a one-time download.
+                    File zip = new File(app.getCacheDir(), "vosk-spk.zip");
+                    downloadFile(SPK_URL, zip);
+                    File tmp = new File(app.getFilesDir(), "spk-tmp");
+                    deleteRecursive(tmp);
+                    unzip(zip, tmp);
+                    File[] kids = tmp.listFiles();
+                    File src = (kids != null && kids.length == 1 && kids[0].isDirectory()) ? kids[0] : tmp;
+                    deleteRecursive(dir);
+                    if (!src.renameTo(dir)) copyRecursive(src, dir);
+                    deleteRecursive(tmp);
+                    //noinspection ResultOfMethodCallIgnored
+                    zip.delete();
+                }
+                if (isValidSpkDir(dir)) {
+                    spkModel = new SpkModel(dir.getAbsolutePath());
+                    spkReady = true;
+                    android.util.Log.i("IRIS", "Vosk speaker model ready");
+                }
+            } catch (Throwable t) {
+                spkReady = false;
+                android.util.Log.w("IRIS", "Speaker model unavailable (voice verification off): " + t.getMessage());
+            }
+        }, "Vosk-Spk-Load").start();
+    }
+
+    private static boolean isValidSpkDir(File dir) {
+        return dir != null && dir.isDirectory() && dir.list() != null && dir.list().length > 0;
+    }
+
+    private static boolean assetDirExists(Context c, String name) {
+        try { String[] f = c.getAssets().list(name); return f != null && f.length > 0; }
+        catch (Exception e) { return false; }
+    }
+
+    private static void copyAssetDir(Context c, String assetPath, File dst) throws Exception {
+        String[] entries = c.getAssets().list(assetPath);
+        if (entries == null || entries.length == 0) return;
+        //noinspection ResultOfMethodCallIgnored
+        dst.mkdirs();
+        for (String e : entries) {
+            String childAsset = assetPath + "/" + e;
+            String[] sub = c.getAssets().list(childAsset);
+            if (sub != null && sub.length > 0) {
+                copyAssetDir(c, childAsset, new File(dst, e));
+            } else {
+                try (java.io.InputStream in = c.getAssets().open(childAsset);
+                     java.io.FileOutputStream out = new java.io.FileOutputStream(new File(dst, e))) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                }
+            }
+        }
+    }
+
+    /** Compute a speaker x-vector for a PCM clip (16kHz mono). Null if unavailable. */
+    public float[] embed(short[] pcm) {
+        if (!isReady() || !isSpeakerReady() || pcm == null || pcm.length < 3200) return null;
+        try {
+            Recognizer rec = new Recognizer(model, SAMPLE_RATE, spkModel);
+            rec.acceptWaveForm(pcm, pcm.length);
+            String json = rec.getFinalResult();
+            rec.close();
+            return extractSpk(json);
+        } catch (Throwable t) {
+            android.util.Log.w("IRIS", "embed failed: " + t.getMessage());
+            return null;
+        }
+    }
+
+    private static float[] extractSpk(String json) {
+        if (json == null) return null;
+        try {
+            JSONObject o = new JSONObject(json);
+            JSONArray spk = o.optJSONArray("spk");
+            if (spk == null) return null;
+            float[] v = new float[spk.length()];
+            for (int i = 0; i < v.length; i++) v[i] = (float) spk.getDouble(i);
+            return v;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ─── Helpers ───

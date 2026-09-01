@@ -241,6 +241,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             @Override public void onReady() {
                 voskReady = true;
                 LogStore.append(IrisListeningService.this, "VOSK", "Voice model ready");
+                // Load the speaker model for voice verification (non-fatal).
+                try { voskEngine.initSpeaker(IrisListeningService.this); } catch (Throwable ignored) { }
                 // If we're currently beeping via the Android recognizer, switch to
                 // silent, continuous Vosk wake immediately.
                 if (isRunning && androidWakeActive && PHASE_WAKE.equals(phase)) {
@@ -387,8 +389,19 @@ public class IrisListeningService extends Service implements RecognitionListener
         updateListeningNotification("Waiting for “" + wake.phrase + "”");
         // Vosk neural grammar-mode wake detection — only fires on the exact phrase
         voskEngine.startWakeDetection(wake.phrase, new VoskEngine.WakeListener() {
-            @Override public void onWakeDetected() {
+            @Override public void onWakeDetected(float[] voiceEmbedding) {
                 if (!isRunning || !PHASE_WAKE.equals(phase)) return;
+                // Voice verification: only wake for the enrolled owner's voice.
+                if (!isOwnerVoice(voiceEmbedding)) {
+                    LogStore.append(IrisListeningService.this, "WAKE REJECT", "voice not recognized");
+                    if (PersonalProfile.notRecognizedCueEnabled(IrisListeningService.this)
+                            && !"Silent".equals(settings.personality())) {
+                        speak(notRecognizedLine());
+                    }
+                    // Stay asleep; keep listening for the owner.
+                    handler.postDelayed(IrisListeningService.this::startWakeDetection, 900);
+                    return;
+                }
                 voskEngine.stop();
                 LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Vosk)");
                 vibrate(45);
@@ -2581,6 +2594,58 @@ public class IrisListeningService extends Service implements RecognitionListener
             return true;
         }
         return false;
+    }
+
+    /** Verify the wake utterance is the enrolled owner. Fail-open if not enrolled / no embedding. */
+    private boolean isOwnerVoice(float[] embedding) {
+        try {
+            float[] print = new ProfileStore(this).getVoiceprint();
+            if (print == null || embedding == null || print.length != embedding.length) return true;
+            double sim = cosine(embedding, print);
+            double threshold = voiceThreshold();
+            LogStore.append(this, "VOICE",
+                    String.format(java.util.Locale.US, "similarity %.3f (need %.2f)", sim, threshold));
+            return sim >= threshold;
+        } catch (Throwable t) {
+            return true; // never lock the user out on error
+        }
+    }
+
+    private double voiceThreshold() {
+        float s = Math.max(0f, Math.min(1f, settings.voiceSensitivity()));
+        return 0.40 + s * 0.40; // lenient 0.40 ↔ strict 0.80 (default 0.60)
+    }
+
+    private static double cosine(float[] a, float[] b) {
+        double dot = 0, na = 0, nb = 0;
+        for (int i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+        if (na == 0 || nb == 0) return 0;
+        return dot / (Math.sqrt(na) * Math.sqrt(nb));
+    }
+
+    private final java.util.Random cueRandom = new java.util.Random();
+    private String lastCue = "";
+
+    /** A varied, tone-aware "voice not recognized" line. */
+    private String notRecognizedLine() {
+        String tone = settings.personality();
+        String owner = PersonalProfile.preferredName(this);
+        if (owner == null) owner = "the owner";
+        String[] pool;
+        if ("Professional".equals(tone)) {
+            pool = new String[]{"Voice not recognised.", "Authentication failed.", "Unrecognised voice."};
+        } else if ("Warm".equals(tone)) {
+            pool = new String[]{"Hmm, that didn't sound like you.", "Sorry, I didn't quite recognise your voice."};
+        } else { // Sarcastic / default
+            pool = new String[]{"Nice try, but you're not " + owner + ".",
+                    "That voice doesn't ring a bell.", "I only answer to " + owner + "."};
+        }
+        String pick = pool[0];
+        int guard = 0;
+        do { pick = pool[cueRandom.nextInt(pool.length)]; }
+        while (pick.equals(lastCue) && ++guard < 5 && pool.length > 1);
+        lastCue = pick;
+        return pick;
     }
 
     /** Launch another app's screen. While locked with lock-screen control on, route
