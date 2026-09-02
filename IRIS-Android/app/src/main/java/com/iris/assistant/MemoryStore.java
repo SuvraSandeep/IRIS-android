@@ -102,6 +102,12 @@ public final class MemoryStore {
                         JSONObject item = memories.getJSONObject(i);
                         if (memory.category != null && memory.category.equals(item.optString("category"))
                                 && memory.key.equalsIgnoreCase(item.optString("key"))) {
+                            // Entries seeded from iris-me.json are read-only from the app:
+                            // only another profile seed may update them.
+                            if ("profile".equals(item.optString("source"))
+                                    && !"profile".equals(memory.source)) {
+                                return;
+                            }
                             item.put("value", memory.value);
                             if (memory.detail != null) item.put("detail", memory.detail);
                             item.put("source", memory.source);
@@ -166,6 +172,26 @@ public final class MemoryStore {
 
     public static int count(Context context) {
         return getAll(context).size();
+    }
+
+    /** Remove every memory with the given source (e.g. "profile" before a re-seed). */
+    public static void deleteBySource(Context context, String source) {
+        if (source == null) return;
+        synchronized (LOCK) {
+            JSONObject root = readRoot(context);
+            try {
+                JSONArray memories = root.optJSONArray("memories");
+                if (memories == null) return;
+                JSONArray filtered = new JSONArray();
+                for (int i = 0; i < memories.length(); i++) {
+                    JSONObject item = memories.getJSONObject(i);
+                    if (!source.equals(item.optString("source"))) filtered.put(item);
+                }
+                root.put("memories", filtered);
+                root.put("updatedAt", System.currentTimeMillis());
+                writeRoot(context, root);
+            } catch (Exception ignored) { }
+        }
     }
 
     public static String exportJson(Context context) {

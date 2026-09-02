@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.17.0";
+const BUILD_VERSION = "7.18.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -272,8 +272,8 @@ const FEATURES = [
    examples:["can you send an email? → honest answer"], version:"7.1.0"},
   {id:"memory", cat:"Intelligence & Memory", icon:"💾", title:"Persistent Memory",
    tagline:"Teach IRIS about you.",
-   desc:"Remembers facts you tell it and recalls them later; forget on request. Stored privately on-device.",
-   examples:["remember I like green tea","what do you know about me","forget that"], version:"2.x"},
+   desc:"Remembers facts you tell it and recalls them later; forget on request. Stored privately on-device (AES-256). A techy HUD-style list groups memories by category with colour-coded accent bars. Entries from your profile show a \uD83D\uDD12 and are read-only in-app (edit iris-me.json to change them); auto-learned entries show \u26A1. About-Me is re-synced from iris-me.json on every app update.",
+   examples:["remember I like green tea","what do you know about me","forget that"], version:"7.18.0"},
   {id:"profile", cat:"Intelligence & Memory", icon:"🪪", title:"Personal Profile (knows you)",
    tagline:"IRIS knows you from day one — even with AI off.",
    desc:"Reads iris-me.json (your name, preferred name, phone/emails, family & contacts, preferences, places, and persona rules) on startup and seeds its memory + relationships. IRIS addresses you by your preferred name (e.g. Mr STG), and you can share profile values by voice — e.g. \u201Ctext my office email to mom\u201D sends your office email over SMS. Works with no AI. Edit the file at the repo root, or override on-phone at Android/data/<app>/files/iris-me.json.",

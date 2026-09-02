@@ -902,41 +902,85 @@ public class MainActivity extends Activity {
             header.setLetterSpacing(0.08f);
             listHost.addView(header);
 
-            for (MemoryStore.Memory m : catMemories) addMemoryCard(listHost, m);
+            for (MemoryStore.Memory m : catMemories) addMemoryCard(listHost, m, getColor(catColors[c]));
         }
     }
 
-    private void addMemoryCard(LinearLayout host, MemoryStore.Memory memory) {
+    private void addMemoryCard(LinearLayout host, MemoryStore.Memory memory, int accent) {
+        boolean locked = "profile".equals(memory.source);       // seeded from iris-me.json
+        boolean auto = "auto_learned".equals(memory.source);
+
+        // Outer row: [accent bar] [content ...........] [action]
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         row.setBackgroundResource(R.drawable.bg_card);
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         rowParams.bottomMargin = dp(6);
         row.setLayoutParams(rowParams);
 
-        TextView text = new TextView(this);
-        String display = memory.key + ": " + memory.value;
-        if (memory.detail != null && !memory.detail.isEmpty()) display += "\n" + memory.detail;
-        text.setText(display);
-        text.setTextColor(getColor(R.color.text_primary));
-        text.setTextSize(12);
-        text.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        // Left accent bar (category colour) — terminal / HUD feel
+        View bar = new View(this);
+        bar.setBackgroundColor(accent);
+        row.addView(bar, new LinearLayout.LayoutParams(dp(3), LinearLayout.LayoutParams.MATCH_PARENT));
 
-        Button delete = new Button(this);
-        delete.setText("\u00D7");
-        delete.setTextColor(getColor(R.color.danger));
-        delete.setTextSize(16);
-        delete.setBackgroundResource(R.drawable.bg_button_secondary);
-        delete.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Delete memory", () -> {
-            MemoryStore.delete(this, memory.id);
-            host.removeView(row);
-            toast("Memory removed.");
-        }));
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(12), dp(10), dp(10), dp(10));
+        LinearLayout.LayoutParams contentParams =
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        content.setLayoutParams(contentParams);
 
-        row.addView(text);
-        row.addView(delete, new LinearLayout.LayoutParams(dp(48), dp(40)));
+        // Key line: monospace, uppercase, accent-coloured, with a lock/auto tag
+        TextView keyView = new TextView(this);
+        String tag = locked ? "  \uD83D\uDD12" : (auto ? "  \u26A1" : "");
+        keyView.setText("\u25B8 " + memory.key.toUpperCase(Locale.ROOT) + tag);
+        keyView.setTextColor(accent);
+        keyView.setTextSize(11);
+        keyView.setLetterSpacing(0.05f);
+        keyView.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        content.addView(keyView);
+
+        TextView valueView = new TextView(this);
+        valueView.setText(memory.value);
+        valueView.setTextColor(getColor(R.color.text_primary));
+        valueView.setTextSize(14);
+        valueView.setPadding(0, dp(3), 0, 0);
+        content.addView(valueView);
+
+        if (memory.detail != null && !memory.detail.isEmpty()) {
+            TextView detailView = new TextView(this);
+            detailView.setText(memory.detail);
+            detailView.setTextColor(getColor(R.color.text_muted));
+            detailView.setTextSize(12);
+            detailView.setPadding(0, dp(2), 0, 0);
+            content.addView(detailView);
+        }
+
+        row.addView(content);
+
+        if (locked) {
+            // Read-only: no delete, tapping explains why.
+            TextView lock = new TextView(this);
+            lock.setText("\uD83D\uDD12");
+            lock.setTextSize(14);
+            lock.setGravity(android.view.Gravity.CENTER);
+            lock.setOnClickListener(v -> toast("From your profile — edit iris-me.json to change this."));
+            row.addView(lock, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        } else {
+            Button delete = new Button(this);
+            delete.setText("\u00D7");
+            delete.setTextColor(getColor(R.color.danger));
+            delete.setTextSize(16);
+            delete.setBackgroundResource(R.drawable.bg_button_secondary);
+            delete.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Delete memory", () -> {
+                MemoryStore.delete(this, memory.id);
+                host.removeView(row);
+                toast("Memory removed.");
+            }));
+            row.addView(delete, new LinearLayout.LayoutParams(dp(48), dp(40)));
+        }
+
         host.addView(row);
     }
 

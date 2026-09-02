@@ -127,10 +127,19 @@ public final class PersonalProfile {
     public static void seedInto(Context context) {
         JSONObject p = get(context);
         if (p == null) return;
-        // Only re-seed when the profile content changes.
+        // Re-seed whenever the profile content changes OR the app version changes,
+        // so About-Me is refreshed from iris-me.json on every new build.
         SharedPreferences prefs = context.getSharedPreferences("iris_profile_seed", Context.MODE_PRIVATE);
-        int hash = (p.toString() + "|seedv2").hashCode();
+        int versionCode = 0;
+        try {
+            versionCode = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), 0).versionCode;
+        } catch (Exception ignored) { }
+        int hash = (p.toString() + "|seedv2|vc" + versionCode).hashCode();
         if (prefs.getInt("seed_hash", 0) == hash) return;
+
+        // Wipe previously-seeded profile entries so removed JSON fields don't linger.
+        MemoryStore.deleteBySource(context, "profile");
 
         try {
             JSONObject id = p.optJSONObject("identity");
