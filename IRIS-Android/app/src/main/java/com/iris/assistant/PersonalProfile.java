@@ -129,14 +129,18 @@ public final class PersonalProfile {
         if (p == null) return;
         // Only re-seed when the profile content changes.
         SharedPreferences prefs = context.getSharedPreferences("iris_profile_seed", Context.MODE_PRIVATE);
-        int hash = p.toString().hashCode();
+        int hash = (p.toString() + "|seedv2").hashCode();
         if (prefs.getInt("seed_hash", 0) == hash) return;
 
         try {
             JSONObject id = p.optJSONObject("identity");
             if (id != null) {
-                putMemory(context, MemoryStore.CAT_ABOUT_ME, "name", id.optString("name", ""));
-                putMemory(context, MemoryStore.CAT_ABOUT_ME, "preferred name", id.optString("preferred_name", ""));
+                String real = id.optString("name", "");
+                String preferred = id.optString("preferred_name", "");
+                // Address the user by their PREFERRED name everywhere.
+                putMemory(context, MemoryStore.CAT_ABOUT_ME, "name",
+                        preferred.isEmpty() ? real : preferred);
+                if (!real.isEmpty()) putMemory(context, MemoryStore.CAT_ABOUT_ME, "full name", real);
                 putMemory(context, MemoryStore.CAT_ABOUT_ME, "phone", id.optString("phone", ""));
                 putMemory(context, MemoryStore.CAT_ABOUT_ME, "email", id.optString("email", ""));
                 putMemory(context, MemoryStore.CAT_ABOUT_ME, "office email", id.optString("office_email", ""));

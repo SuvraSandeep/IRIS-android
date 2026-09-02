@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.15.1";
+const BUILD_VERSION = "7.16.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -158,10 +158,10 @@ const FEATURES = [
    tagline:"Understands your accent — no internet.",
    desc:"Uses the Vosk small en-IN model bundled in the app. Speech never leaves your phone; recognition works fully offline.",
    examples:["Just talk — recognition is automatic"], version:"6.8.0"},
-  {id:"tts", cat:"Voice & Recognition", icon:"🔊", title:"Natural Voice",
-   tagline:"Warm en-IN voice, not a robot.",
-   desc:"Picks the highest-quality Indian-English voice with natural pace and pitch. Try it from Settings → Test voice.",
-   examples:["Settings → “Test voice — tap to hear IRIS”"], version:"6.8.0"},
+  {id:"tts", cat:"Voice & Recognition", icon:"🔊", title:"Natural Female Voice",
+   tagline:"Warm en-IN female voice, not a robot.",
+   desc:"Prefers a female Indian-English voice (IRIS is female) at the highest available quality, with a warmer pitch so it sounds less robotic. Try it from Settings → Test voice. For the best voice, install Google TTS high-quality en-IN data.",
+   examples:["Settings → “Test voice — tap to hear IRIS”"], version:"7.16.0"},
   {id:"train", cat:"Voice & Recognition", icon:"🎯", title:"Voice Training Wizard",
    tagline:"Teach IRIS your voice and phrases.",
    desc:"A guided wizard records samples, checks quality, and lets you retrain the wake phrase and trained commands.",
@@ -264,7 +264,7 @@ const FEATURES = [
   // ---- Intelligence & Memory ----
   {id:"ai", cat:"Intelligence & Memory", icon:"🧠", title:"Conversational AI (opt-in)",
    tagline:"Real on-device chat.",
-   desc:"Optional Qwen 0.5B model (ungated, ~550 MB) for free-form conversation, fully offline. Off by default; enable in Settings → “Use AI brain (experimental)”.",
+   desc:"Optional Qwen 0.5B model (ungated, ~550 MB) for free-form conversation, fully offline. Runs on the CPU backend for stability (the GPU path crashed on some phones) with a low-memory guard. Off by default; enable in Settings → “Use AI brain (experimental)”.",
    examples:["Settings → Use AI brain → chat naturally"], version:"6.11.0"},
   {id:"caps", cat:"Intelligence & Memory", icon:"✅", title:"Capability Awareness",
    tagline:"Knows what it can & can't do.",
@@ -276,8 +276,8 @@ const FEATURES = [
    examples:["remember I like green tea","what do you know about me","forget that"], version:"2.x"},
   {id:"profile", cat:"Intelligence & Memory", icon:"🪪", title:"Personal Profile (knows you)",
    tagline:"IRIS knows you from day one — even with AI off.",
-   desc:"Reads iris-me.json (your name, preferred name, phone/emails, family & contacts, preferences, places, and persona rules) on startup and seeds its memory + relationships. So \u201Ccall my mother\u201D and \u201Cwhat do you know about me\u201D work with no AI, and the AI (when on) follows your JARVIS-style rules. Edit the file at the repo root, or override on-phone at Android/data/<app>/files/iris-me.json.",
-   examples:["what do you know about me","call my mother","who am I"], version:"7.11.0"},
+   desc:"Reads iris-me.json (your name, preferred name, phone/emails, family & contacts, preferences, places, and persona rules) on startup and seeds its memory + relationships. IRIS addresses you by your preferred name (e.g. Mr STG), and you can share profile values by voice — e.g. \u201Ctext my office email to mom\u201D sends your office email over SMS. Works with no AI. Edit the file at the repo root, or override on-phone at Android/data/<app>/files/iris-me.json.",
+   examples:["what do you know about me","text my office email to mom","send my number to dad","call my mother"], version:"7.16.0"},
   {id:"persona", cat:"Intelligence & Memory", icon:"🎩", title:"Refined Persona",
    tagline:"A composed, witty aide.",
    desc:"IRIS speaks like a loyal, quietly-confident assistant with understated wit; tone adapts to your personality setting.",

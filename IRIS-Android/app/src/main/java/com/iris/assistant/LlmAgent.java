@@ -66,6 +66,16 @@ public final class LlmAgent {
                     .invoke(builder, modelFile.getAbsolutePath());
             try { builderClass.getMethod("setMaxTokens", int.class).invoke(builder, 512); } catch (Exception ignored) { }
             try { builderClass.getMethod("setMaxTopK", int.class).invoke(builder, 40); } catch (Exception ignored) { }
+            // Force the CPU backend — the GPU delegate is the most common cause of
+            // native crashes during on-device inference. CPU is slower but stable.
+            try {
+                Class<?> backendCls = Class.forName(
+                        "com.google.mediapipe.tasks.genai.llminference.LlmInference$Backend");
+                @SuppressWarnings({"unchecked", "rawtypes"})
+                Object cpu = Enum.valueOf((Class) backendCls, "CPU");
+                builderClass.getMethod("setPreferredBackend", backendCls).invoke(builder, cpu);
+                android.util.Log.i("IRIS", "LLM: forcing CPU backend");
+            } catch (Throwable ignored) { }
             Object options = builderClass.getMethod("build").invoke(builder);
 
             llmInference = llmClass.getMethod("createFromOptions", Context.class, optionsClass)

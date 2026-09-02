@@ -1501,6 +1501,31 @@ public class MainActivity extends Activity {
     }
 
     private void finishWakeTraining() {
+        // One last, longer sample of natural speech greatly improves the voiceprint.
+        if (wakeWizardPrompt != null)
+            wakeWizardPrompt.setText("\uD83C\uDF99  Last step — say a full sentence in your normal voice");
+        if (wakeWizardFeedback != null)
+            wakeWizardFeedback.setText("Recording 7 seconds… talk naturally (e.g. tell me about your day)");
+        wakeTrainingStatus.setText("Learning your natural voice…");
+        TimedRecorder longRec = new TimedRecorder();
+        longRec.record(7000, new TimedRecorder.Listener() {
+            @Override public void onLevel(float normalizedLevel) {
+                if (wakeWizardFeedback != null) {
+                    int bars = Math.round(normalizedLevel * 20);
+                    StringBuilder bar = new StringBuilder();
+                    for (int i = 0; i < 20; i++) bar.append(i < bars ? "\u2593" : "\u2591");
+                    wakeWizardFeedback.setText("\uD83C\uDF99 " + bar);
+                }
+            }
+            @Override public void onComplete(short[] audio) {
+                if (audio != null && audio.length > 16000) wakeRawSamples.add(audio);
+                finalizeWakeTraining();
+            }
+            @Override public void onError(String message) { finalizeWakeTraining(); }
+        });
+    }
+
+    private void finalizeWakeTraining() {
         // Only use first 3 templates for DTW (remaining are for voice enrollment)
         List<float[][]> dtwTemplates = wakeTemplates.size() > 3
                 ? wakeTemplates.subList(0, 3) : wakeTemplates;

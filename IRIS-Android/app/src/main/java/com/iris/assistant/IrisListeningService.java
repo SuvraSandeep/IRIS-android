@@ -118,6 +118,10 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern SMS_PATTERN = Pattern.compile(
             "^(?:send\\s+(?:a\\s+)?(?:text|message|sms)\\s+to|text|message|sms)\\s+(.+?)\\s+(?:saying|that|:)\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
+    // "text my office email to mom" / "send my number to dad" — share a value/text TO a contact
+    private static final Pattern SHARE_PATTERN = Pattern.compile(
+            "^(?:send|text|share|message|forward)\\s+(.+?)\\s+to\\s+(.+)$",
+            Pattern.CASE_INSENSITIVE);
     // "whatsapp Rahul saying hi" / "send a whatsapp to mom that ..."
     private static final Pattern WHATSAPP_PATTERN = Pattern.compile(
             "^(?:send\\s+(?:a\\s+)?whatsapp(?:\\s+message)?\\s+to|whatsapp(?:\\s+message)?(?:\\s+to)?)\\s+(.+?)\\s+(?:saying|that|:)\\s+(.+)$",
@@ -795,6 +799,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (waM.matches()) { handleWhatsApp(waM.group(1).trim(), waM.group(2).trim()); return; }
         Matcher smsM = SMS_PATTERN.matcher(clean);
         if (smsM.matches()) { handleSendSms(smsM.group(1).trim(), smsM.group(2).trim()); return; }
+        Matcher shareM = SHARE_PATTERN.matcher(clean);
+        if (shareM.matches() && !containsCallVerb(normalized)) {
+            handleShareToContact(shareM.group(1).trim(), shareM.group(2).trim());
+            return;
+        }
         Matcher remM = REMINDER_PATTERN.matcher(clean);
         if (remM.matches()) { handleReminder(remM.group(1).trim(), remM.group(2).trim(), remM.group(3).trim()); return; }
         Matcher almM = ALARM_PATTERN.matcher(clean);
@@ -1535,6 +1544,45 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     // ---------------- Messaging & device action handlers ----------------
+
+    /** "text my office email to mom" — resolve a profile value (or literal) and SMS it to a contact. */
+    private void handleShareToContact(String what, String recipient) {
+        String value = resolveProfileValue(what);
+        String message = (value != null) ? value : what;   // fall back to literal text
+        handleSendSms(recipient, message);
+    }
+
+    /** Map a spoken phrase like "my office email" / "my number" to a value from iris-me.json. Null if not a known field. */
+    private String resolveProfileValue(String phrase) {
+        try {
+            String p = phrase.toLowerCase(Locale.ROOT).replaceAll("^my\\s+", "").trim();
+            org.json.JSONObject prof = PersonalProfile.get(this);
+            if (prof == null) return null;
+            org.json.JSONObject id = prof.optJSONObject("identity");
+            if (id != null) {
+                if (p.contains("office") || p.contains("work")) {
+                    String v = id.optString("office_email", ""); if (!v.isEmpty()) return v;
+                }
+                if (p.contains("email") || p.contains("mail")) {
+                    String v = id.optString("email", ""); if (!v.isEmpty()) return v;
+                }
+                if (p.contains("number") || p.contains("phone") || p.contains("mobile") || p.contains("contact")) {
+                    String v = id.optString("phone", ""); if (!v.isEmpty()) return v;
+                }
+                if (p.contains("blood")) {
+                    String v = id.optString("blood_group", ""); if (!v.isEmpty()) return v;
+                }
+                if (p.equals("name") || p.contains("my name")) {
+                    String pn = PersonalProfile.preferredName(this); if (pn != null) return pn;
+                }
+            }
+            org.json.JSONObject places = prof.optJSONObject("places");
+            if (places != null && (p.contains("address") || p.contains("location") || p.contains("home"))) {
+                String v = places.optString("home_address", ""); if (!v.isEmpty()) return v;
+            }
+            return null;
+        } catch (Throwable t) { return null; }
+    }
 
     /** Send an SMS to a resolved contact (or number). */
     private void handleSendSms(String who, String message) {
@@ -2923,6 +2971,22 @@ public class IrisListeningService extends Service implements RecognitionListener
         return 0;
     }
 
+    /** Heuristic: does this TTS voice sound female? Android doesn't expose gender, so we
+     *  check the voice name/features for common markers used by TTS engines. */
+    private static boolean isFemaleVoice(android.speech.tts.Voice v) {
+        if (v == null) return false;
+        String n = v.getName() == null ? "" : v.getName().toLowerCase(Locale.ROOT);
+        if (n.contains("female") || n.contains("-f-") || n.endsWith("-f")
+                || n.contains("#female") || n.contains("_f_")) return true;
+        try {
+            java.util.Set<String> feats = v.getFeatures();
+            if (feats != null) for (String f : feats) {
+                if (f != null && f.toLowerCase(Locale.ROOT).contains("female")) return true;
+            }
+        } catch (Exception ignored) { }
+        return false;
+    }
+
     /** Pick the most natural available voice (Indian English preferred) and tune pacing. */
     private void configureVoice() {
         if (textToSpeech == null) return;
@@ -2936,28 +3000,28 @@ public class IrisListeningService extends Service implements RecognitionListener
             // Choose the highest-quality voice for the chosen locale, preferring non-robotic
             try {
                 android.speech.tts.Voice best = null;
+                int bestScore = Integer.MIN_VALUE;
                 for (android.speech.tts.Voice v : textToSpeech.getVoices()) {
                     if (v == null || v.getLocale() == null) continue;
                     String lang = v.getLocale().getLanguage();
                     if (!"en".equals(lang)) continue;
                     boolean indianV = "IN".equals(v.getLocale().getCountry());
-                    boolean notRobotic = v.getQuality() >= android.speech.tts.Voice.QUALITY_HIGH;
-                    boolean notNetworkOnly = !v.isNetworkConnectionRequired();
-                    // Score: prefer Indian + high quality + offline
-                    if (best == null) { best = v; continue; }
-                    int score = (indianV ? 3 : 0) + qualityScore(v);
-                    boolean bestIndian = "IN".equals(best.getLocale().getCountry());
-                    int bestScore = (bestIndian ? 3 : 0) + qualityScore(best);
-                    if (score > bestScore) best = v;
+                    // Strongly prefer a female voice (IRIS is female), then Indian, then quality, then offline.
+                    int score = (isFemaleVoice(v) ? 100 : 0)
+                            + (indianV ? 20 : 0)
+                            + qualityScore(v)
+                            + (v.isNetworkConnectionRequired() ? 0 : 3);
+                    if (best == null || score > bestScore) { best = v; bestScore = score; }
                 }
                 if (best != null) {
                     textToSpeech.setVoice(best);
-                    LogStore.append(this, "TTS", "Voice: " + best.getName() + " (" + best.getLocale() + ")");
+                    LogStore.append(this, "TTS", "Voice: " + best.getName() + " (" + best.getLocale()
+                            + ", female=" + isFemaleVoice(best) + ")");
                 }
             } catch (Exception ignored) { }
-            // Natural pacing — neutral rate/pitch sounds least robotic
-            textToSpeech.setSpeechRate(1.0f);
-            textToSpeech.setPitch(1.0f);
+            // Warmer, less-robotic delivery; slightly higher pitch reads as more feminine.
+            textToSpeech.setSpeechRate(0.98f);
+            textToSpeech.setPitch(1.12f);
         } catch (Exception e) {
             LogStore.append(this, "TTS", "configureVoice error: " + e.getMessage());
         }
