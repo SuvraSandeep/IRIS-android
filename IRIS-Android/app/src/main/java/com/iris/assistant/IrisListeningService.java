@@ -695,6 +695,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             rearmAfterAction();
             return;
         }
+        // Map the user's learned pronunciations back to canonical command words.
+        clean = new ProfileStore(this).canonicalize(clean);
         // Immediate cancel commands
         String lower = clean.toLowerCase(Locale.ROOT);
         if (lower.matches("^(stop|cancel|shut up|quiet|go away|never mind|nevermind|nahi|ruk|bas)$")) {

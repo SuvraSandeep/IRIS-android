@@ -382,6 +382,22 @@ public final class VoskEngine {
         }
     }
 
+    /** Transcribe a PCM clip (16kHz mono) with the full vocabulary — used to learn how the
+     *  user pronounces a command word. Returns lowercase text, or "" on failure. */
+    public String transcribe(short[] pcm) {
+        if (!isReady() || pcm == null || pcm.length < 1600) return "";
+        try {
+            Recognizer rec = new Recognizer(model, SAMPLE_RATE);
+            rec.acceptWaveForm(pcm, pcm.length);
+            String json = rec.getFinalResult();
+            rec.close();
+            return extractText(json, "text");
+        } catch (Throwable t) {
+            android.util.Log.w("IRIS", "transcribe failed: " + t.getMessage());
+            return "";
+        }
+    }
+
     /** Compute a speaker x-vector for a PCM clip (16kHz mono). Null if unavailable. */
     public float[] embed(short[] pcm) {
         if (!isReady() || !isSpeakerReady() || pcm == null || pcm.length < 3200) return null;

@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.18.0";
+const BUILD_VERSION = "7.19.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -146,6 +146,10 @@ const FEATURES = [
    tagline:"IRIS wakes only when you say your phrase.",
    desc:"Train your own wake phrase; IRIS listens silently in the background and springs to life only on an exact match — no beeps, no false triggers.",
    examples:["“Hello IRIS” (or whatever you trained)"], version:"5.x"},
+  {id:"voicetrain", cat:"Voice & Recognition", icon:"🎓", title:"Voice & Command Training",
+   tagline:"Reads your talking pattern + learns how you say each command.",
+   desc:"A guided, on-device trainer in two parts. First you read a few sentences aloud so IRIS builds your voice pattern (x-vector) for wake verification. Then it walks through each command word (call, text, alarm, weather…), records how YOU say it, transcribes it, and stores your pronunciation as an alias — so the recognizer maps your accent back to the right command. 100% offline. Honest limit: it can't retrain the speech model itself, but the aliases + voice pattern are the real, free levers that make recognition fit your voice.",
+   examples:["Training → “🎓 Learn My Voice & Commands”"], version:"7.19.0"},
   {id:"voiceid", cat:"Voice & Recognition", icon:"🔐", title:"Voice-Verified Wake (only your voice)",
    tagline:"Wakes for you — not other people or the TV.",
    desc:"Uses Vosk speaker recognition (x-vectors, on-device, free). Your voiceprint is built when you train the wake phrase; on each wake IRIS compares the voice and only responds if it's you. If it isn't, it gives a tone-aware \u201Cnot recognised\u201D cue and stays asleep. A sensitivity control trades misses vs false wakes. Note: voice ID is a strong spam filter, not unbreakable — sensitive actions still require unlock.",

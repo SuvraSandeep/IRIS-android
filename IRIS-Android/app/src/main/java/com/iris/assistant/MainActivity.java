@@ -105,6 +105,32 @@ public class MainActivity extends Activity {
     private String wakePhraseBeingTrained;
     private boolean resumeAfterWakeTraining;
 
+    // Voice & command training
+    private View voiceTrainNormalState;
+    private View voiceTrainWizardState;
+    private TextView voiceTrainStatus;
+    private TextView voiceTrainStep;
+    private TextView voiceTrainPrompt;
+    private TextView voiceTrainFeedback;
+    private Button voiceTrainCancel;
+    private Button startVoiceTrainButton;
+    private VoskEngine trainVosk;
+    private final List<short[]> voiceReadSamples = new ArrayList<>();
+    private int trainPhraseIdx;
+    private int trainCmdIdx;
+    private int learnedAliasCount;
+    private boolean voiceTrainCancelled;
+    private static final String[] TRAIN_PHRASES = {
+            "The quick brown fox jumps over the lazy dog by the river",
+            "I would like to call my family and check the weather today",
+            "Please set an alarm and remind me about the meeting tomorrow"
+    };
+    private static final String[] TRAIN_COMMANDS = {
+            "call", "text", "message", "whatsapp", "email", "alarm", "timer",
+            "reminder", "weather", "battery", "flashlight", "volume",
+            "notifications", "location", "open", "search", "time", "stop", "cancel"
+    };
+
     private TextView trainingStep;
     private TextView trainingContact;
     private TextView trainingPrompt;
@@ -482,6 +508,25 @@ public class MainActivity extends Activity {
 
         // Profile list
         profileListHost = view.findViewById(R.id.profileListHost);
+
+        // Voice & command training
+        voiceTrainNormalState = view.findViewById(R.id.voiceTrainNormalState);
+        voiceTrainWizardState = view.findViewById(R.id.voiceTrainWizardState);
+        voiceTrainStatus = view.findViewById(R.id.voiceTrainStatus);
+        voiceTrainStep = view.findViewById(R.id.voiceTrainStep);
+        voiceTrainPrompt = view.findViewById(R.id.voiceTrainPrompt);
+        voiceTrainFeedback = view.findViewById(R.id.voiceTrainFeedback);
+        voiceTrainCancel = view.findViewById(R.id.voiceTrainCancel);
+        startVoiceTrainButton = view.findViewById(R.id.startVoiceTrainButton);
+        int aliasCount = new ProfileStore(this).commandAliasCount();
+        boolean enrolled = new ProfileStore(this).getWakeProfile().isVoiceEnrolled();
+        voiceTrainStatus.setText((enrolled ? "\u2705 Voice pattern learned" : "\u26A0\uFE0F Voice pattern not set")
+                + " \u2022 " + aliasCount + " command pronunciation" + (aliasCount == 1 ? "" : "s"));
+        startVoiceTrainButton.setText(enrolled || aliasCount > 0
+                ? "\uD83D\uDD04  Retrain Voice & Commands" : "\uD83C\uDF93  Learn My Voice & Commands");
+        startVoiceTrainButton.setOnClickListener(v ->
+                authenticateThen("\uD83D\uDD12 Voice & command training", this::beginVoiceCommandTraining));
+        voiceTrainCancel.setOnClickListener(v -> cancelVoiceCommandTraining());
 
         // Populate wake phrase state
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
@@ -1542,6 +1587,165 @@ public class MainActivity extends Activity {
         for (float[] v : vs) for (int i = 0; i < n && i < v.length; i++) a[i] += v[i];
         for (int i = 0; i < n; i++) a[i] /= vs.size();
         return a;
+    }
+
+    // ─────────── Voice & command training ───────────
+
+    private void beginVoiceCommandTraining() {
+        voiceTrainCancelled = false;
+        trainPhraseIdx = 0; trainCmdIdx = 0; learnedAliasCount = 0;
+        voiceReadSamples.clear();
+        resumeAfterWakeTraining = IrisListeningService.isRunning;
+        if (resumeAfterWakeTraining) stopListeningService();
+        if (voiceTrainNormalState != null) voiceTrainNormalState.setVisibility(View.GONE);
+        if (voiceTrainWizardState != null) voiceTrainWizardState.setVisibility(View.VISIBLE);
+        voiceTrainStep.setText("Preparing…");
+        voiceTrainPrompt.setText("Warming up the voice engine — one moment…");
+        voiceTrainFeedback.setText("");
+        trainVosk = new VoskEngine();
+        trainVosk.init(this, new VoskEngine.InitListener() {
+            @Override public void onReady() {
+                trainVosk.initSpeaker(MainActivity.this);
+                handler.postDelayed(() -> { if (!voiceTrainCancelled) trainReadPhraseStep(); }, 400);
+            }
+            @Override public void onError(String message) {
+                handler.post(() -> { toast("Voice engine not ready: " + message); finishVoiceTrainUi(); });
+            }
+        });
+    }
+
+    /** 3-2-1 countdown, a beep, then a timed recording; delivers the PCM (or null) to onDone. */
+    private void countdownThenRecord(String sayWhat, int durationMs,
+                                     java.util.function.Consumer<short[]> onDone) {
+        if (voiceTrainCancelled) return;
+        voiceTrainFeedback.setText("Get ready… 3");
+        handler.postDelayed(() -> { if (!voiceTrainCancelled) voiceTrainFeedback.setText("Get ready… 2"); }, 600);
+        handler.postDelayed(() -> { if (!voiceTrainCancelled) voiceTrainFeedback.setText("Get ready… 1"); }, 1200);
+        handler.postDelayed(() -> {
+            if (voiceTrainCancelled) return;
+            try {
+                android.media.ToneGenerator tone = new android.media.ToneGenerator(
+                        android.media.AudioManager.STREAM_NOTIFICATION, 90);
+                tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 150);
+                handler.postDelayed(tone::release, 300);
+            } catch (Exception ignored) { }
+            voiceTrainFeedback.setText("\uD83D\uDD34 Recording… " + sayWhat);
+            TimedRecorder rec = new TimedRecorder();
+            timedRecorder = rec;
+            rec.record(durationMs, new TimedRecorder.Listener() {
+                @Override public void onLevel(float lvl) {
+                    if (voiceTrainCancelled) return;
+                    int bars = Math.round(lvl * 16);
+                    StringBuilder b = new StringBuilder("\uD83D\uDD34 ");
+                    for (int i = 0; i < 16; i++) b.append(i < bars ? "\u2593" : "\u2591");
+                    voiceTrainFeedback.setText(b.toString());
+                }
+                @Override public void onComplete(short[] audio) { if (!voiceTrainCancelled) onDone.accept(audio); }
+                @Override public void onError(String message) { if (!voiceTrainCancelled) onDone.accept(null); }
+            });
+        }, 1800);
+    }
+
+    private void trainReadPhraseStep() {
+        if (voiceTrainCancelled) return;
+        if (trainPhraseIdx >= TRAIN_PHRASES.length) { enrollFromReadSamplesThenCommands(); return; }
+        int step = trainPhraseIdx + 1;
+        voiceTrainStep.setText("\uD83D\uDCD6 Read phrase " + step + " of " + TRAIN_PHRASES.length);
+        voiceTrainPrompt.setText("\u201C" + TRAIN_PHRASES[trainPhraseIdx] + "\u201D");
+        countdownThenRecord("read the sentence aloud", 5000, audio -> {
+            if (audio != null && audio.length > 8000) voiceReadSamples.add(audio);
+            trainPhraseIdx++;
+            handler.postDelayed(() -> { if (!voiceTrainCancelled) trainReadPhraseStep(); }, 700);
+        });
+    }
+
+    private void enrollFromReadSamplesThenCommands() {
+        if (voiceTrainCancelled) return;
+        voiceTrainStep.setText("\uD83E\uDDE0 Learning your voice…");
+        voiceTrainPrompt.setText("Building your voice pattern from what you read…");
+        voiceTrainFeedback.setText("");
+        final java.util.List<short[]> samples = new ArrayList<>(voiceReadSamples);
+        new Thread(() -> {
+            long deadline = System.currentTimeMillis() + 10000;
+            while (trainVosk != null && !trainVosk.isSpeakerReady()
+                    && System.currentTimeMillis() < deadline) {
+                try { Thread.sleep(150); } catch (InterruptedException ignored) { }
+            }
+            java.util.List<float[]> vecs = new java.util.ArrayList<>();
+            if (trainVosk != null && trainVosk.isSpeakerReady()) {
+                for (short[] s : samples) { float[] e = trainVosk.embed(s); if (e != null) vecs.add(e); }
+            }
+            if (!vecs.isEmpty()) {
+                new ProfileStore(MainActivity.this).setVoiceprint(averageVectors(vecs));
+                LogStore.append(MainActivity.this, "VOICE",
+                        "Voice pattern enrolled from " + vecs.size() + " read phrases");
+            } else {
+                LogStore.append(MainActivity.this, "VOICE",
+                        "Voice pattern not saved (speaker model unavailable)");
+            }
+            handler.post(() -> { if (!voiceTrainCancelled) trainCommandStep(); });
+        }, "IRIS-VoiceTrain-Enroll").start();
+    }
+
+    private void trainCommandStep() {
+        if (voiceTrainCancelled) return;
+        if (trainCmdIdx >= TRAIN_COMMANDS.length) { finishVoiceCommandTraining(); return; }
+        final String canonical = TRAIN_COMMANDS[trainCmdIdx];
+        voiceTrainStep.setText("\uD83D\uDDE3\uFE0F Command " + (trainCmdIdx + 1) + " of " + TRAIN_COMMANDS.length);
+        voiceTrainPrompt.setText("Say this word:\n\n\u201C" + canonical + "\u201D");
+        countdownThenRecord("say \u201C" + canonical + "\u201D", 2200, audio -> {
+            if (audio == null) {
+                trainCmdIdx++;
+                handler.postDelayed(() -> { if (!voiceTrainCancelled) trainCommandStep(); }, 500);
+                return;
+            }
+            new Thread(() -> {
+                String heard = trainVosk != null ? trainVosk.transcribe(audio) : "";
+                if (heard != null && !heard.trim().isEmpty()) {
+                    ProfileStore ps = new ProfileStore(MainActivity.this);
+                    int before = ps.commandAliasCount();
+                    ps.setCommandAlias(canonical, heard.trim());
+                    if (ps.commandAliasCount() > before) learnedAliasCount++;
+                    LogStore.append(MainActivity.this, "TRAIN",
+                            "\"" + canonical + "\" heard as \"" + heard.trim() + "\"");
+                }
+                handler.post(() -> {
+                    trainCmdIdx++;
+                    if (!voiceTrainCancelled) handler.postDelayed(
+                            () -> { if (!voiceTrainCancelled) trainCommandStep(); }, 500);
+                });
+            }, "IRIS-VoiceTrain-Cmd").start();
+        });
+    }
+
+    private void finishVoiceCommandTraining() {
+        if (trainVosk != null) { trainVosk.close(); trainVosk = null; }
+        voiceTrainStep.setText("\u2705 Training complete");
+        voiceTrainPrompt.setText("IRIS learned your voice and " + learnedAliasCount
+                + " command pronunciation" + (learnedAliasCount == 1 ? "" : "s") + ".");
+        voiceTrainFeedback.setText("");
+        toast("\uD83C\uDF93 Voice & commands trained \u2705");
+        LogStore.append(this, "TRAIN", "Voice+command training done (" + learnedAliasCount + " aliases)");
+        handler.postDelayed(() -> {
+            if (isFinishing()) return;
+            if (resumeAfterWakeTraining) { resumeAfterWakeTraining = false; startListeningService(); }
+            if (selectedTab == 1) showTraining();
+        }, 1600);
+    }
+
+    private void finishVoiceTrainUi() {
+        if (trainVosk != null) { trainVosk.close(); trainVosk = null; }
+        if (resumeAfterWakeTraining) { resumeAfterWakeTraining = false; startListeningService(); }
+        if (selectedTab == 1) showTraining();
+    }
+
+    private void cancelVoiceCommandTraining() {
+        voiceTrainCancelled = true;
+        if (timedRecorder != null) timedRecorder.stop();
+        if (trainVosk != null) { trainVosk.close(); trainVosk = null; }
+        toast("Training cancelled.");
+        if (resumeAfterWakeTraining) { resumeAfterWakeTraining = false; startListeningService(); }
+        if (selectedTab == 1) showTraining();
     }
 
     private void finishWakeTraining() {

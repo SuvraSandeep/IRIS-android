@@ -379,6 +379,94 @@ public final class ProfileStore {
         return best;
     }
 
+    // ─── Command-word pronunciation learning ───
+    // Maps a canonical command word to the way THIS user's speech gets transcribed
+    // by Vosk (their accent/pronunciation), so recognized text can be normalised
+    // back to the canonical command before matching.
+
+    public synchronized void setCommandAlias(String canonical, String heard) {
+        if (canonical == null || heard == null) return;
+        String c = normalize(canonical);
+        String h = normalize(heard);
+        if (c.isEmpty() || h.isEmpty() || h.equals(c)) return; // no alias needed
+        try {
+            JSONObject current = root();
+            JSONObject aliases = current.optJSONObject("commandAliases");
+            if (aliases == null) aliases = new JSONObject();
+            JSONArray arr = aliases.optJSONArray(c);
+            if (arr == null) arr = new JSONArray();
+            boolean exists = false;
+            for (int i = 0; i < arr.length(); i++) {
+                if (h.equals(normalize(arr.optString(i)))) { exists = true; break; }
+            }
+            if (!exists && arr.length() < 8) arr.put(h);
+            aliases.put(c, arr);
+            current.put("commandAliases", aliases);
+            persist(current);
+        } catch (Exception ignored) { }
+    }
+
+    public synchronized Map<String, List<String>> getCommandAliases() {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        try {
+            JSONObject aliases = root().optJSONObject("commandAliases");
+            if (aliases == null) return out;
+            java.util.Iterator<String> keys = aliases.keys();
+            while (keys.hasNext()) {
+                String c = keys.next();
+                JSONArray arr = aliases.optJSONArray(c);
+                List<String> list = new ArrayList<>();
+                if (arr != null) for (int i = 0; i < arr.length(); i++) {
+                    String s = arr.optString(i, "").trim();
+                    if (!s.isEmpty()) list.add(s);
+                }
+                if (!list.isEmpty()) out.put(c, list);
+            }
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    public synchronized int commandAliasCount() {
+        int n = 0;
+        for (List<String> l : getCommandAliases().values()) n += l.size();
+        return n;
+    }
+
+    public synchronized void clearCommandAliases() {
+        try {
+            JSONObject current = root();
+            current.remove("commandAliases");
+            persist(current);
+        } catch (Exception ignored) { }
+    }
+
+    /** Replace learned mispronunciations in recognized text with the canonical command words. */
+    public synchronized String canonicalize(String text) {
+        if (text == null || text.isEmpty()) return text;
+        Map<String, List<String>> aliases = getCommandAliases();
+        if (aliases.isEmpty()) return text;
+        String[] words = text.split("\\s+");
+        StringBuilder out = new StringBuilder();
+        for (String w : words) {
+            String nw = normalize(w);
+            String canonical = null;
+            double best = 0;
+            if (!nw.isEmpty()) {
+                for (Map.Entry<String, List<String>> e : aliases.entrySet()) {
+                    if (nw.equals(e.getKey())) { canonical = null; best = 1; break; } // already canonical
+                    for (String h : e.getValue()) {
+                        String nh = normalize(h);
+                        double score = nw.equals(nh) ? 1.0 : similarity(nw, nh);
+                        if (score >= 0.86 && score > best) { best = score; canonical = e.getKey(); }
+                    }
+                }
+            }
+            if (out.length() > 0) out.append(' ');
+            out.append(canonical != null ? canonical : w);
+        }
+        return out.toString();
+    }
+
     public synchronized String exportJson() {
         try {
             JSONObject result = root();
