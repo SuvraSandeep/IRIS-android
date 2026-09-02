@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.16.1";
+const BUILD_VERSION = "7.17.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -189,9 +189,9 @@ const FEATURES = [
    desc:"IRIS tells you your recent calls.",
    examples:["who did I call today","recent calls"], version:"1.x"},
   {id:"sms", cat:"Communication", icon:"✉️", title:"Send SMS",
-   tagline:"Texts sent hands-free.",
-   desc:"Composes and sends a real SMS via the system — works even while the phone is locked (see lock-screen note).",
-   examples:["text mom saying I'll be late","message Rahul that I'm coming"], version:"7.0.0"},
+   tagline:"Texts sent hands-free — say it naturally.",
+   desc:"Composes and sends a real SMS via the system — works even while the phone is locked. Understands natural phrasing: you no longer need the word \u201Csaying\u201D \u2014 \u201Ctext Mom I'll be late\u201D, \u201Ctell Dad I'm coming\u201D or \u201Clet Mom know I'm safe\u201D all work, and polite wrappers like \u201Ccan you\u2026 / please\u2026\u201D are ignored.",
+   examples:["text mom I'll be late","tell Dad I'm coming","let mom know I'm safe","message Rahul saying call me"], version:"7.17.0"},
   {id:"whatsapp", cat:"Communication", icon:"💬", title:"WhatsApp Message",
    tagline:"Chat opens pre-filled.",
    desc:"Opens the WhatsApp chat with your message ready — you tap send (WhatsApp allows no auto-send).",
@@ -212,8 +212,8 @@ const FEATURES = [
   // ---- Productivity ----
   {id:"alarm", cat:"Productivity", icon:"⏰", title:"Set Alarm",
    tagline:"“Wake me at 6:30.”",
-   desc:"Sets a system alarm, parsing spoken times like “7:30 am”.",
-   examples:["set an alarm for 6:30 am","wake me up at 7"], version:"7.0.0"},
+   desc:"Sets a system alarm, parsing spoken times like “7:30 am”. Flexible phrasing: “set an alarm 7 am”, “wake me at 6”, with or without “for/at”.",
+   examples:["set an alarm for 6:30 am","wake me up at 7","set alarm 6 am"], version:"7.17.0"},
   {id:"timer", cat:"Productivity", icon:"⏲️", title:"Set Timer",
    tagline:"Countdowns by voice.",
    desc:"Starts a system countdown timer from minutes/seconds you say.",

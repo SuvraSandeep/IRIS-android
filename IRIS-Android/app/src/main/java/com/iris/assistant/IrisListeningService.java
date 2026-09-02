@@ -122,17 +122,22 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern SHARE_PATTERN = Pattern.compile(
             "^(?:send|text|share|message|forward)\\s+(.+?)\\s+to\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
+    // Loose, natural texting with NO "saying": "text mom i'll be late", "tell dad i'm coming",
+    // "let mom know i'm safe". Recipient is inferred; only fires if it resolves to a real contact.
+    private static final Pattern SMS_LOOSE_PATTERN = Pattern.compile(
+            "^(?:text|txt|message|msg|sms|tell|let)\\s+(.+)$",
+            Pattern.CASE_INSENSITIVE);
     // "whatsapp Rahul saying hi" / "send a whatsapp to mom that ..."
     private static final Pattern WHATSAPP_PATTERN = Pattern.compile(
             "^(?:send\\s+(?:a\\s+)?whatsapp(?:\\s+message)?\\s+to|whatsapp(?:\\s+message)?(?:\\s+to)?)\\s+(.+?)\\s+(?:saying|that|:)\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
     // "set an alarm for 7:30 am" / "wake me up at 6 am"
     private static final Pattern ALARM_PATTERN = Pattern.compile(
-            "^(?:set\\s+(?:an?\\s+)?alarm\\s+(?:for|at)|wake\\s+me\\s+up\\s+at)\\s+(.+)$",
+            "^(?:set\\s+(?:an?\\s+)?alarm(?:\\s+(?:for|at))?|wake\\s+me(?:\\s+up)?(?:\\s+(?:at|for))?)\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
     // "set a timer for 5 minutes"
     private static final Pattern TIMER_PATTERN = Pattern.compile(
-            "^(?:set\\s+(?:a\\s+)?timer\\s+for|timer\\s+for)\\s+(.+)$",
+            "^(?:set\\s+(?:a\\s+)?timer(?:\\s+for)?|timer(?:\\s+for)?)\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
     // "remind me to call mom in 10 minutes" / "remind me to take medicine at 9 pm"
     private static final Pattern REMINDER_PATTERN = Pattern.compile(
@@ -685,6 +690,11 @@ public class IrisListeningService extends Service implements RecognitionListener
             rearmAfterAction();
             return;
         }
+        clean = stripFiller(clean);   // drop "can you / please / iris ..." wrappers
+        if (clean.isEmpty()) {
+            rearmAfterAction();
+            return;
+        }
         // Immediate cancel commands
         String lower = clean.toLowerCase(Locale.ROOT);
         if (lower.matches("^(stop|cancel|shut up|quiet|go away|never mind|nevermind|nahi|ruk|bas)$")) {
@@ -804,6 +814,9 @@ public class IrisListeningService extends Service implements RecognitionListener
             handleShareToContact(shareM.group(1).trim(), shareM.group(2).trim());
             return;
         }
+        // Natural texting without "saying" — only fires if the recipient resolves to a contact.
+        Matcher looseSmsM = SMS_LOOSE_PATTERN.matcher(clean);
+        if (looseSmsM.matches() && tryFlexibleSms(looseSmsM.group(1).trim())) return;
         Matcher remM = REMINDER_PATTERN.matcher(clean);
         if (remM.matches()) { handleReminder(remM.group(1).trim(), remM.group(2).trim(), remM.group(3).trim()); return; }
         Matcher almM = ALARM_PATTERN.matcher(clean);
@@ -1544,6 +1557,68 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     // ---------------- Messaging & device action handlers ----------------
+
+    /** Remove polite/filler wrappers so natural phrasing matches the command grammar. */
+    private String stripFiller(String s) {
+        if (s == null) return "";
+        String t = s.trim();
+        String prev;
+        do {
+            prev = t;
+            t = t.replaceFirst("(?i)^(hey\\s+|ok(ay)?\\s+|iris[,\\s]+|please\\s+|can\\s+you\\s+"
+                    + "|could\\s+you\\s+|would\\s+you\\s+|will\\s+you\\s+|can\\s+u\\s+|pls\\s+"
+                    + "|i\\s+want\\s+you\\s+to\\s+|i\\s+need\\s+you\\s+to\\s+|i'?d\\s+like\\s+you\\s+to\\s+"
+                    + "|i\\s+would\\s+like\\s+you\\s+to\\s+|kindly\\s+|just\\s+|please\\s+)", "").trim();
+        } while (!t.equals(prev) && !t.isEmpty());
+        t = t.replaceFirst("(?i)[,\\s]+please[.!?]?$", "").trim();
+        return t.isEmpty() ? s.trim() : t;
+    }
+
+    private boolean isSelf(String s) {
+        String t = s == null ? "" : s.toLowerCase(Locale.ROOT).trim();
+        return t.equals("me") || t.equals("myself") || t.equals("i") || t.equals("us")
+                || t.equals("a") || t.equals("an") || t.equals("the")
+                || t.equals("him") || t.equals("her") || t.equals("them") || t.equals("someone");
+    }
+
+    /** Natural texting without a "saying" separator. Returns true only if it found a
+     *  resolvable recipient AND a non-empty message (otherwise let it fall through to chat). */
+    private boolean tryFlexibleSms(String rest) {
+        if (rest == null) return false;
+        rest = rest.trim();
+        if (rest.isEmpty()) return false;
+        String recipient = null, message = null;
+
+        // "let dad know (that) I'm late" / "tell mom (that) I'm coming"
+        Matcher know = Pattern.compile("^(.+?)\\s+know\\s+(?:that\\s+)?(.+)$",
+                Pattern.CASE_INSENSITIVE).matcher(rest);
+        if (know.matches()) {
+            recipient = know.group(1).trim();
+            message = know.group(2).trim();
+        } else {
+            String[] w = rest.split("\\s+");
+            int max = Math.min(3, w.length - 1); // leave at least one word for the message
+            for (int n = max; n >= 1 && recipient == null; n--) {
+                StringBuilder cand = new StringBuilder();
+                for (int i = 0; i < n; i++) { if (i > 0) cand.append(' '); cand.append(w[i]); }
+                String c = cand.toString();
+                if (isSelf(c)) continue;
+                if (resolveNumber(c) != null) {
+                    recipient = c;
+                    StringBuilder msg = new StringBuilder();
+                    for (int i = n; i < w.length; i++) { if (msg.length() > 0) msg.append(' '); msg.append(w[i]); }
+                    message = msg.toString().trim();
+                }
+            }
+        }
+        if (recipient == null || isSelf(recipient)) return false;
+        if (message == null) return false;
+        message = message.replaceFirst("(?i)^(that|saying|to say|to tell (?:him|her|them)|to)\\s+", "").trim();
+        if (message.isEmpty()) return false;
+        if (resolveNumber(recipient) == null) return false;
+        handleSendSms(recipient, message);
+        return true;
+    }
 
     /** "text my office email to mom" — resolve a profile value (or literal) and SMS it to a contact. */
     private void handleShareToContact(String what, String recipient) {
