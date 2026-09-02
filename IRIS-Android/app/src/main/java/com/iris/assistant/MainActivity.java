@@ -903,7 +903,7 @@ public class MainActivity extends Activity {
                         empty.setPadding(0, dp(12), 0, 0);
                         listHost.addView(empty);
                     } else {
-                        for (MemoryStore.Memory m : results) addMemoryCard(listHost, m);
+                        for (MemoryStore.Memory m : results) addMemoryCard(listHost, m, colorForCategory(m.category));
                     }
                 }).show();
     }
@@ -949,6 +949,14 @@ public class MainActivity extends Activity {
 
             for (MemoryStore.Memory m : catMemories) addMemoryCard(listHost, m, getColor(catColors[c]));
         }
+    }
+
+    private int colorForCategory(String category) {
+        if (MemoryStore.CAT_PEOPLE.equals(category)) return getColor(R.color.magenta);
+        if (MemoryStore.CAT_PREFERENCE.equals(category)) return getColor(R.color.violet);
+        if (MemoryStore.CAT_RULE.equals(category)) return getColor(R.color.mint);
+        if (MemoryStore.CAT_CORRECTION.equals(category)) return getColor(R.color.amber);
+        return getColor(R.color.cyan);
     }
 
     private void addMemoryCard(LinearLayout host, MemoryStore.Memory memory, int accent) {
