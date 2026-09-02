@@ -2809,7 +2809,10 @@ public class IrisListeningService extends Service implements RecognitionListener
             if ("Bluetooth".equals(preference) && bluetooth) return device;
             if ("Wired / USB".equals(preference) && wired) return device;
             if ("Phone".equals(preference) && builtIn != null) return builtIn;
-            if ("Automatic".equals(preference) && (bluetooth || wired)) return device;
+            // Automatic: prefer a wired mic (doesn't disturb playback) but NOT Bluetooth —
+            // grabbing the BT mic forces A2DP music down to call-quality SCO. Fall back to
+            // the built-in mic so music keeps its full quality while IRIS listens.
+            if ("Automatic".equals(preference) && wired) return device;
         }
         return builtIn;
     }
