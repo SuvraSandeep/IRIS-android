@@ -1275,12 +1275,17 @@ public class IrisListeningService extends Service implements RecognitionListener
             speakThenRun(bye, this::rearmAfterAction);
             return;
         }
-        // Fallback
+        // Fallback — short and tone-aware; NO long capabilities dump (that only shows for "help").
         else {
-            reply = sarcastic ? pick("That went over my circuits. I can call people, read notifications, check the weather, tell time, or remember things.",
-                                      "Not sure what that means. I can call someone, read your messages, or check the weather though.")
-                    : pick("I didn't quite catch that. I can call contacts, read your notifications, check the weather, tell the time, open apps, or remember things \u2014 what would you like?",
-                           "Hmm, not sure. Try \u201Ccall Mom\u201D, \u201Cwhat's the weather\u201D, \u201Cread my notifications\u201D, or \u201Cremember\u2026\u201D.");
+            reply = sarcastic ? pick("Didn't catch that" + namePart + ".",
+                                      "No idea what that meant" + namePart + ".",
+                                      "Come again" + namePart + "?",
+                                      "That one lost me.")
+                    : professional ? pick("Sorry" + namePart + ", I didn't understand that.",
+                                           "I didn't catch that. Please repeat.")
+                    : warm ? pick("Sorry" + namePart + ", I didn't quite catch that.",
+                                   "I missed that" + namePart + " \u2014 say it again?")
+                    : pick("Didn't catch that" + namePart + ".", "Sorry, say that again?");
         }
 
         conversation.add(original, reply);
