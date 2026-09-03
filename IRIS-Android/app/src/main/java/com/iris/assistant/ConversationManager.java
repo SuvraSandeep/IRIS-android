@@ -41,6 +41,18 @@ public final class ConversationManager {
         return history.isEmpty() ? "" : history.peekLast().user;
     }
 
+    /** Recent turns as a JSON array of {role,text} for the server /chat endpoint. */
+    public synchronized org.json.JSONArray turnsJson() {
+        org.json.JSONArray arr = new org.json.JSONArray();
+        try {
+            for (Turn t : history) {
+                if (!t.user.isEmpty()) arr.put(new org.json.JSONObject().put("role", "user").put("text", t.user));
+                if (!t.assistant.isEmpty()) arr.put(new org.json.JSONObject().put("role", "assistant").put("text", t.assistant));
+            }
+        } catch (Throwable ignored) { }
+        return arr;
+    }
+
     public synchronized void clear() { history.clear(); }
     public synchronized boolean isEmpty() { return history.isEmpty(); }
 }

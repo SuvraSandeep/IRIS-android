@@ -183,6 +183,45 @@
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="SERVER MODE (ONLINE BRAIN)" android:textColor="@color/cyan"
+                android:textSize="11sp" android:textStyle="bold" />
+            <Switch android:id="@+id/serverModeSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                android:text="Use my server when online" android:textColor="@color/text_primary" android:textSize="14sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Off by default. When on and connected, IRIS uses your private server for smarter replies and (optionally) Whisper transcription, and automatically falls back to fully offline when there's no internet or it's slow. Nothing leaves your phone unless this is on. See SERVER-MODE.md."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
+            <EditText android:id="@+id/serverUrlInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary" android:padding="12dp"
+                android:hint="Server URL (https://your-server)" android:textColorHint="@color/text_muted"
+                android:textColor="@color/text_primary" android:textSize="13sp" android:inputType="textUri"
+                android:maxLines="1" android:importantForAutofill="no" />
+            <EditText android:id="@+id/serverTokenInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary" android:padding="12dp"
+                android:hint="Server token (bearer)" android:textColorHint="@color/text_muted"
+                android:textColor="@color/text_primary" android:textSize="13sp" android:inputType="textNoSuggestions"
+                android:maxLines="1" android:importantForAutofill="no" />
+            <Switch android:id="@+id/serverSttSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                android:text="Send audio to server (Whisper) for best accent" android:textColor="@color/text_primary"
+                android:textSize="13sp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" android:orientation="horizontal">
+                <Button android:id="@+id/saveServerButton" android:layout_width="0dp" android:layout_height="48dp"
+                    android:layout_weight="1" android:background="@drawable/bg_button_primary"
+                    android:text="Save" android:textAllCaps="false" android:textColor="@color/text_primary" android:textStyle="bold" />
+                <Button android:id="@+id/testServerButton" android:layout_width="0dp" android:layout_height="48dp"
+                    android:layout_marginLeft="8dp" android:layout_weight="1" android:background="@drawable/bg_button_secondary"
+                    android:text="Test connection" android:textAllCaps="false" android:textColor="@color/text_primary" />
+            </LinearLayout>
+            <TextView android:id="@+id/serverStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="Not configured" android:textColor="@color/text_muted" android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="PERSONALITY &amp; FEEDBACK" android:textColor="@color/magenta" android:textSize="11sp" android:textStyle="bold" />
             <Spinner android:id="@+id/personalitySpinner" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="5dp" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"

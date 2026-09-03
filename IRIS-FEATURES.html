@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.22.0";
+const BUILD_VERSION = "7.23.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -154,10 +154,10 @@ const FEATURES = [
    tagline:"A bigger offline model for tough accents.",
    desc:"Settings toggle to download the large offline Indian-English model (~1GB, one-time) for noticeably better recognition. Uses more storage/RAM and falls back to the fast small model automatically if it can't load. 100% offline.",
    examples:["Settings → “High-accuracy voice model (large, ~1GB)”"], version:"7.22.0"},
-  {id:"servermode", cat:"Voice & Recognition", icon:"🛰️", title:"Server Mode (planned)",
-   tagline:"Optional online brain, offline-first.",
-   desc:"Design for a free, private personal server (Oracle Always-Free + Ollama, or a home PC via Tailscale) that boosts NLP/speech when online — with automatic fallback to fully offline when there's no internet or it's slow. See SERVER-MODE.md for the full plan.",
-   examples:["(planned) Settings → Server mode + URL + token"], version:"7.22.0"},
+  {id:"servermode", cat:"Voice & Recognition", icon:"🛰️", title:"Server Mode (online brain)",
+   tagline:"Optional online power, offline-first.",
+   desc:"Point IRIS at your own free private server (Oracle Always-Free + Ollama, or a home PC via Tailscale) for much smarter replies and Whisper transcription of your accent. Fully opt-in; nothing leaves the phone unless it's on. Automatically falls back to offline when there's no internet or it's slow, with a circuit breaker. Say “go online” / “go offline”. Setup: SERVER-MODE-IMPLEMENTATION.md.",
+   examples:["Settings → Server mode → URL + token → Test","“go offline” / “go online”"], version:"7.23.0"},
   {id:"voiceid", cat:"Voice & Recognition", icon:"🔐", title:"Voice-Verified Wake (only your voice)",
    tagline:"Wakes for you — not other people or the TV.",
    desc:"Uses Vosk speaker recognition (x-vectors, on-device, free). Your voiceprint is built when you train the wake phrase; on each wake IRIS compares the voice and only responds if it's you. If it isn't, it gives a tone-aware \u201Cnot recognised\u201D cue and stays asleep. A sensitivity control trades misses vs false wakes. Note: voice ID is a strong spam filter, not unbreakable — sensitive actions still require unlock.",

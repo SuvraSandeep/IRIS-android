@@ -1203,6 +1203,54 @@ public class MainActivity extends Activity {
             });
         }
 
+        Switch serverModeSwitch = view.findViewById(R.id.serverModeSwitch);
+        EditText serverUrlInput = view.findViewById(R.id.serverUrlInput);
+        EditText serverTokenInput = view.findViewById(R.id.serverTokenInput);
+        Switch serverSttSwitch = view.findViewById(R.id.serverSttSwitch);
+        TextView serverStatus = view.findViewById(R.id.serverStatus);
+        if (serverModeSwitch != null) serverModeSwitch.setChecked(settings.serverModeEnabled());
+        if (serverSttSwitch != null) serverSttSwitch.setChecked(settings.serverStt());
+        if (serverUrlInput != null && !settings.serverUrl().isEmpty()) serverUrlInput.setText(settings.serverUrl());
+        if (serverTokenInput != null && !settings.serverToken().isEmpty()) serverTokenInput.setText(settings.serverToken());
+        if (serverStatus != null) serverStatus.setText(settings.serverModeEnabled()
+                ? (settings.serverUrl().isEmpty() ? "On, but no URL set." : "On \u2022 " + settings.serverUrl())
+                : "Off (offline).");
+        if (serverModeSwitch != null) {
+            serverModeSwitch.setOnCheckedChangeListener((b, checked) -> {
+                settings.setServerModeEnabled(checked);
+                toast(checked ? "Server mode on — falls back offline automatically." : "Server mode off.");
+            });
+        }
+        if (serverSttSwitch != null) {
+            serverSttSwitch.setOnCheckedChangeListener((b, checked) -> settings.setServerStt(checked));
+        }
+        Button saveServerButton = view.findViewById(R.id.saveServerButton);
+        if (saveServerButton != null && serverUrlInput != null && serverTokenInput != null) {
+            saveServerButton.setOnClickListener(v -> {
+                settings.setServerUrl(serverUrlInput.getText().toString().trim());
+                settings.setServerToken(serverTokenInput.getText().toString().trim());
+                toast("Server settings saved.");
+                if (serverStatus != null) serverStatus.setText(settings.serverUrl().isEmpty()
+                        ? "No URL set." : "Saved \u2022 " + settings.serverUrl());
+            });
+        }
+        Button testServerButton = view.findViewById(R.id.testServerButton);
+        if (testServerButton != null) {
+            testServerButton.setOnClickListener(v -> {
+                String url = serverUrlInput != null ? serverUrlInput.getText().toString().trim() : settings.serverUrl();
+                String tok = serverTokenInput != null ? serverTokenInput.getText().toString().trim() : settings.serverToken();
+                if (url.isEmpty()) { toast("Enter a server URL first."); return; }
+                if (serverStatus != null) serverStatus.setText("Testing\u2026");
+                new Thread(() -> {
+                    boolean ok = new ServerClient(url, tok).health(4000);
+                    runOnUiThread(() -> {
+                        toast(ok ? "Connected \u2705" : "Couldn't reach the server.");
+                        if (serverStatus != null) serverStatus.setText(ok ? "Connected \u2705 \u2022 " + url : "Unreachable \u2022 " + url);
+                    });
+                }, "IRIS-ServerTest").start();
+            });
+        }
+
         Switch aiEnabledSwitch = view.findViewById(R.id.aiEnabledSwitch);
         if (aiEnabledSwitch != null) {
             aiEnabledSwitch.setChecked(settings.aiEnabled());

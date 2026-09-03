@@ -55,6 +55,20 @@ public final class AppSettings {
      *  Off by default; falls back to the small model automatically if it can't load. */
     public boolean highAccuracyVoice() { return prefs.getBoolean("high_accuracy_voice", false); }
     public void setHighAccuracyVoice(boolean value) { prefs.edit().putBoolean("high_accuracy_voice", value).apply(); }
+    /** Server mode: use a private online server for smarter NLP/STT; auto-falls back offline. */
+    public boolean serverModeEnabled() { return prefs.getBoolean("server_mode", false); }
+    public void setServerModeEnabled(boolean v) { prefs.edit().putBoolean("server_mode", v).apply(); }
+    public String serverUrl() { return prefs.getString("server_url", ""); }
+    public void setServerUrl(String v) { prefs.edit().putString("server_url", v == null ? "" : v.trim()).apply(); }
+    public String serverToken() { return prefs.getString("server_token", ""); }
+    public void setServerToken(String v) { prefs.edit().putString("server_token", v == null ? "" : v.trim()).apply(); }
+    /** Send audio to the server's Whisper endpoint for transcription (best accent accuracy). */
+    public boolean serverStt() { return prefs.getBoolean("server_stt", true); }
+    public void setServerStt(boolean v) { prefs.edit().putBoolean("server_stt", v).apply(); }
+    public boolean autoOfflineWhenSlow() { return prefs.getBoolean("server_auto_offline_slow", true); }
+    public void setAutoOfflineWhenSlow(boolean v) { prefs.edit().putBoolean("server_auto_offline_slow", v).apply(); }
+    public int serverSlowMs() { return prefs.getInt("server_slow_ms", 8000); }
+    public void setServerSlowMs(int v) { prefs.edit().putInt("server_slow_ms", v).apply(); }
     /** Let IRIS act on commands while the phone is locked (UI actions prompt a quick unlock). */
     public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }
     public void setLockScreenControl(boolean value) { prefs.edit().putBoolean("lock_screen_control", value).apply(); }

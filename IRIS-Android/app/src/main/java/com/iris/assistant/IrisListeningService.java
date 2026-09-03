@@ -230,6 +230,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private boolean voskReady;
     private volatile boolean androidWakeActive;
     private LlmAgent llmAgent;
+    private final ConnectivityMonitor serverMonitor = new ConnectivityMonitor();
     private volatile boolean llmReady;
     private final ConversationManager conversation = new ConversationManager();
     private long lastLevelBroadcast;
@@ -280,6 +281,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         // Load the AI brain only if the user has opted in (off by default for
         // stability — some devices crash natively during on-device inference).
         llmAgent = new LlmAgent();
+        serverMonitor.register(this);
         // Crash-guard: if the app was killed mid-inference last time (native LLM crash),
         // auto-disable the AI brain so we don't crash-loop. The rule-based engine still works.
         android.content.SharedPreferences llmGuard = getSharedPreferences("iris_llm_guard", MODE_PRIVATE);
@@ -574,6 +576,59 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void startCommandRecognition() {
+        // Server STT (Whisper) when server mode is on, online and healthy; else on-device.
+        if (serverMonitor.shouldUseServer(settings) && settings.serverStt()) {
+            startServerSttCommand();
+            return;
+        }
+        startCommandRecognitionLocal();
+    }
+
+    /** Record the command locally and send it to the server's Whisper endpoint; fall back on failure. */
+    private void startServerSttCommand() {
+        stopWakeEngine();
+        if (voskEngine != null) voskEngine.stop();
+        androidWakeActive = false;
+        restoreRecognizerBeep();
+        phase = PHASE_COMMAND;
+        currentPhase = phase;
+        broadcastState(true, phase);
+        updateListeningNotification("Listening (server)\u2026");
+        LogStore.append(this, "LISTEN", "Command window open (server Whisper)");
+        final TimedRecorder rec = new TimedRecorder();
+        commandTimeout = () -> { if (isRunning && PHASE_COMMAND.equals(phase)) rec.stop(); };
+        handler.postDelayed(commandTimeout, 9000);
+        rec.record(6000, new TimedRecorder.Listener() {
+            @Override public void onLevel(float level) { }
+            @Override public void onComplete(short[] audio) {
+                if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                new Thread(() -> {
+                    long t0 = System.currentTimeMillis();
+                    String text = new ServerClient(settings.serverUrl(), settings.serverToken())
+                            .transcribe(audio, 2500, 12000);
+                    long dt = System.currentTimeMillis() - t0;
+                    handler.post(() -> {
+                        if (text != null) {
+                            serverMonitor.recordSuccess(dt);
+                            broadcastTranscript(text);
+                            LogStore.append(IrisListeningService.this, "HEARD CMD", text + " (server)");
+                            handleCommand(text);
+                        } else {
+                            serverMonitor.recordFailure();
+                            LogStore.append(IrisListeningService.this, "SERVER", "transcribe miss \u2192 local STT");
+                            startCommandRecognitionLocal();
+                        }
+                    });
+                }, "IRIS-Whisper").start();
+            }
+            @Override public void onError(String message) {
+                if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                startCommandRecognitionLocal();
+            }
+        });
+    }
+
+    private void startCommandRecognitionLocal() {
         stopWakeEngine();
         if (voskEngine != null) voskEngine.stop();
         androidWakeActive = false;
@@ -831,6 +886,20 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
+        // Server mode voice toggle
+        if (normalized.matches("^(go online|use (?:the )?server|server mode on|online mode)$")) {
+            settings.setServerModeEnabled(true);
+            String m = serverMonitor.isOnline()
+                    ? "Online brain on." : "Server mode on. I'll use it once you're connected.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+            LogStore.append(this, "SERVER", "enabled by voice"); return;
+        }
+        if (normalized.matches("^(go offline|offline mode|server mode off|use offline)$")) {
+            settings.setServerModeEnabled(false);
+            broadcastMessage("Offline mode."); speakThenRun("Offline mode on.", this::rearmAfterAction);
+            LogStore.append(this, "SERVER", "disabled by voice"); return;
+        }
+
         // 5d. Weather / forecast
         if (WEATHER_PATTERN.matcher(normalized).matches()) {
             handleWeather(normalized);
@@ -995,9 +1064,54 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
-        // Try the real AI (Gemma) first, on a background thread
+        // Server brain first — only when server mode is on, online, and healthy.
+        if (serverMonitor.shouldUseServer(settings)) {
+            broadcastMessage("Thinking\u2026");
+            final String msg = original;
+            new Thread(() -> {
+                long t0 = System.currentTimeMillis();
+                String reply = new ServerClient(settings.serverUrl(), settings.serverToken())
+                        .chat(msg, conversation.turnsJson(), profileJson(), 2500, 8000);
+                long dt = System.currentTimeMillis() - t0;
+                handler.post(() -> {
+                    if (reply != null && !reply.isEmpty()) {
+                        serverMonitor.recordSuccess(dt);
+                        try {
+                            conversation.add(msg, reply.replaceAll("\\[.*?\\]", "").trim());
+                            handleLlmOutput(reply, store);
+                        } catch (Throwable t) {
+                            offlineChat(msg, normalized, store);
+                        }
+                    } else {
+                        serverMonitor.recordFailure();
+                        LogStore.append(IrisListeningService.this, "SERVER", "chat miss \u2192 offline");
+                        offlineChat(msg, normalized, store);
+                    }
+                });
+            }, "IRIS-Server-Chat").start();
+            return;
+        }
+
+        offlineChat(original, normalized, store);
+    }
+
+    /** Compact profile block sent to the server (persona + preferred name + tone). */
+    private org.json.JSONObject profileJson() {
+        org.json.JSONObject o = new org.json.JSONObject();
+        try {
+            String pn = PersonalProfile.preferredName(this);
+            if (pn != null) o.put("preferred_name", pn);
+            o.put("tone", settings.personality());
+            String ctx = PersonalProfile.contextForAI(this);
+            if (ctx != null && !ctx.isEmpty()) o.put("context", ctx);
+        } catch (Throwable ignored) { }
+        return o;
+    }
+
+    /** On-device chat: the LLM if ready, else the rule-based engine. */
+    private void offlineChat(String original, String normalized, ProfileStore store) {
         if (llmReady && llmAgent != null && llmAgent.isReady()) {
-            broadcastMessage("Thinking…");
+            broadcastMessage("Thinking\u2026");
             new Thread(() -> {
                 android.content.SharedPreferences guard =
                         getSharedPreferences("iris_llm_guard", MODE_PRIVATE);
@@ -1006,7 +1120,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 guard.edit().putBoolean("inference_active", false).apply();
                 handler.post(() -> {
                     if (llmOut == null || llmOut.isEmpty()) {
-                        ruleBasedChat(original, normalized, store); // fallback
+                        ruleBasedChat(original, normalized, store);
                     } else {
                         try {
                             conversation.add(original, llmOut.replaceAll("\\[.*?\\]", "").trim());
@@ -1014,15 +1128,13 @@ public class IrisListeningService extends Service implements RecognitionListener
                         } catch (Throwable t) {
                             LogStore.append(this, "LLM ERROR",
                                     "reply handling crashed: " + t + " | reply was: " + llmOut);
-                            ruleBasedChat(original, normalized, store); // safe fallback
+                            ruleBasedChat(original, normalized, store);
                         }
                     }
                 });
             }, "IRIS-LLM-Gen").start();
             return;
         }
-
-        // Fallback: rule-based chat
         ruleBasedChat(original, normalized, store);
     }
 
