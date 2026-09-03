@@ -1186,6 +1186,23 @@ public class MainActivity extends Activity {
             });
         }
 
+        Switch highAccSwitch = view.findViewById(R.id.highAccuracyVoiceSwitch);
+        if (highAccSwitch != null) {
+            highAccSwitch.setChecked(settings.highAccuracyVoice());
+            highAccSwitch.setOnCheckedChangeListener((b, checked) -> {
+                settings.setHighAccuracyVoice(checked);
+                if (checked) {
+                    toast("High-accuracy model on. It downloads (~1GB) next time IRIS starts listening.");
+                } else {
+                    toast("Back to the fast small model.");
+                }
+                if (IrisListeningService.isRunning) {
+                    stopListeningService();
+                    handler.postDelayed(this::startListeningService, 600);
+                }
+            });
+        }
+
         Switch aiEnabledSwitch = view.findViewById(R.id.aiEnabledSwitch);
         if (aiEnabledSwitch != null) {
             aiEnabledSwitch.setChecked(settings.aiEnabled());

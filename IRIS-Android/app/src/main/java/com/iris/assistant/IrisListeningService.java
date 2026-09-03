@@ -923,6 +923,13 @@ public class IrisListeningService extends Service implements RecognitionListener
             LogStore.append(this, "CALL", "Refused self-call");
             return;
         }
+        // Direct dial: "call nine eight seven…" or "call 9876543210"
+        String dialNumber = extractPhoneNumber(requested);
+        if (dialNumber != null) {
+            pendingCandidates = null;
+            requestCallConfirmation(dialNumber, dialNumber, "Call " + speakableNumber(dialNumber) + "?");
+            return;
+        }
         // Guard: empty or too-short name — ask who instead of matching randomly
         if (requested.length() < 2) {
             broadcastMessage("Who would you like me to call?");
@@ -1728,9 +1735,18 @@ public class IrisListeningService extends Service implements RecognitionListener
         String recipientName;
         String recipientNumber;
         String message;
+        String pendingMessage;                 // message provided up-front, awaiting recipient
+        java.util.List<ContactMatch> candidates;
+        int candidateIdx;
     }
     private SmsCompose smsCompose;
     private int smsRetry;
+
+    /** A short, in-character line (uses tone + preferred name) for stray input / cancels. */
+    private String smsToneLine(String base) {
+        String name = PersonalProfile.preferredName(this);
+        return name != null ? base + ", " + name + "." : base + ".";
+    }
 
     private static boolean isYes(String n) {
         return n.matches(".*\\b(yes|yeah|yep|yup|ya|sure|ok|okay|correct|right|do it|send|send it"
@@ -1750,22 +1766,56 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         smsCompose = new SmsCompose();
         smsRetry = 0;
-        String number = (who == null || who.trim().isEmpty()) ? null : resolveNumber(who);
-        if (number != null) {
-            smsCompose.recipientName = who.trim();
-            smsCompose.recipientNumber = number;
-            if (message != null && !message.trim().isEmpty()) {
-                smsCompose.message = message.trim();
-                smsCompose.step = SMS_CONFIRM_MESSAGE;
-                askSms("Send \u201C" + smsCompose.message + "\u201D to " + smsCompose.recipientName + "? Say yes or no.");
-            } else {
-                smsCompose.step = SMS_ASK_MESSAGE;
-                askSms("What should I say to " + smsCompose.recipientName + "?");
-            }
+        smsCompose.pendingMessage = (message != null && !message.trim().isEmpty()) ? message.trim() : null;
+        if (who != null && !who.trim().isEmpty()) {
+            smsResolveRecipient(who.trim());
         } else {
             smsCompose.step = SMS_ASK_RECIPIENT;
             askSms("Who should I send the message to?");
         }
+    }
+
+    /** Resolve a spoken recipient: a phone number, then memory/relationships, then contacts
+     *  (best match first, confirmed one at a time). Sets up the confirm step. */
+    private void smsResolveRecipient(String who) {
+        if (smsCompose == null) return;
+        // 1. A phone number spoken/typed directly
+        String dial = extractPhoneNumber(who);
+        if (dial != null) {
+            smsCompose.candidates = null;
+            smsCompose.recipientName = speakableNumber(dial);
+            smsCompose.recipientNumber = dial;
+            smsCompose.step = SMS_CONFIRM_RECIPIENT;
+            askSms("Send to the number " + speakableNumber(dial) + "? Say yes or no.");
+            return;
+        }
+        // 2. Memory / saved relationships first
+        String[] rel = new ProfileStore(this).resolveRelationship(ProfileStore.normalize(who));
+        if (rel != null && rel[1] != null && !rel[1].isEmpty()) {
+            smsCompose.candidates = null;
+            smsCompose.recipientName = (rel[0] != null && !rel[0].isEmpty()) ? rel[0] : who;
+            smsCompose.recipientNumber = rel[1];
+            smsCompose.step = SMS_CONFIRM_RECIPIENT;
+            askSms("I have " + smsCompose.recipientName + " saved. Send to them? Say yes or no.");
+            return;
+        }
+        // 3. Phone contacts — best match first, cycle through on "no"
+        java.util.List<ContactMatch> matches = resolveContacts(who);
+        if (matches.isEmpty()) {
+            smsRetry++;
+            if (smsRetry >= 3) {
+                smsCompose = null;
+                speakThenRun(smsToneLine("I still couldn't find that contact, so I'll stop"),
+                        this::rearmAfterAction);
+                return;
+            }
+            askSms("I couldn't find " + who + " in your contacts. Who should I send it to?");
+            return;
+        }
+        smsCompose.candidates = matches;
+        smsCompose.candidateIdx = 0;
+        smsCompose.step = SMS_CONFIRM_RECIPIENT;
+        askSms("Did you mean " + matches.get(0).name + "? Say yes or no.");
     }
 
     /** Speak a prompt and listen for the next answer in the SMS flow. */
@@ -1789,34 +1839,55 @@ public class IrisListeningService extends Service implements RecognitionListener
             case SMS_ASK_RECIPIENT: {
                 String who = t.replaceFirst("(?i)^(send\\s+)?(it\\s+)?(to\\s+)?(the\\s+)?", "").trim();
                 if (who.isEmpty()) who = t;
-                String number = resolveNumber(who);
-                if (number == null) {
-                    smsRetry++;
-                    if (smsRetry >= 3) {
-                        smsCompose = null;
-                        speakThenRun("I still couldn't find that contact. Let's try again later.",
-                                this::rearmAfterAction);
-                        return;
-                    }
-                    askSms("I couldn't find " + who + " in your contacts. Who should I send it to?");
-                    return;
-                }
-                smsCompose.recipientName = who;
-                smsCompose.recipientNumber = number;
-                smsCompose.step = SMS_CONFIRM_RECIPIENT;
-                askSms("Send it to " + who + "? Say yes or no.");
+                smsResolveRecipient(who);
                 return;
             }
             case SMS_CONFIRM_RECIPIENT: {
-                if (isNo(norm)) {
-                    smsRetry = 0;
-                    smsCompose.step = SMS_ASK_RECIPIENT;
-                    askSms("Okay. Who should I send it to?");
-                } else if (isYes(norm)) {
-                    smsCompose.step = SMS_ASK_MESSAGE;
-                    askSms("What should I say to " + smsCompose.recipientName + "?");
+                if (isYes(norm)) {
+                    if (smsCompose.candidates != null && smsCompose.candidateIdx < smsCompose.candidates.size()) {
+                        ContactMatch c = smsCompose.candidates.get(smsCompose.candidateIdx);
+                        smsCompose.recipientName = c.name;
+                        smsCompose.recipientNumber = c.number;
+                    }
+                    if (smsCompose.pendingMessage != null) {
+                        smsCompose.message = smsCompose.pendingMessage;
+                        smsCompose.step = SMS_CONFIRM_MESSAGE;
+                        askSms("Send \u201C" + smsCompose.message + "\u201D to " + smsCompose.recipientName
+                                + "? Say yes or no.");
+                    } else {
+                        smsCompose.step = SMS_ASK_MESSAGE;
+                        askSms("What should I say to " + smsCompose.recipientName + "?");
+                    }
+                } else if (isNo(norm)) {
+                    if (smsCompose.candidates != null) {
+                        smsCompose.candidateIdx++;
+                        // Offer up to 3 candidates, then give up.
+                        if (smsCompose.candidateIdx < smsCompose.candidates.size()
+                                && smsCompose.candidateIdx < 3) {
+                            askSms("Did you mean " + smsCompose.candidates.get(smsCompose.candidateIdx).name
+                                    + "? Say yes or no.");
+                        } else {
+                            smsCompose = null;
+                            speakThenRun(smsToneLine("Okay, I couldn't find the right contact, so I'll stop"),
+                                    this::rearmAfterAction);
+                        }
+                    } else {
+                        smsRetry++;
+                        if (smsRetry >= 3) {
+                            smsCompose = null;
+                            speakThenRun(smsToneLine("Alright, cancelling"), this::rearmAfterAction);
+                            return;
+                        }
+                        smsCompose.step = SMS_ASK_RECIPIENT;
+                        askSms("Okay. Who should I send it to?");
+                    }
                 } else {
-                    askSms("Please say yes or no. Send it to " + smsCompose.recipientName + "?");
+                    // Stray words — reply in-character and repeat the question (never "couldn't understand").
+                    String who = (smsCompose.candidates != null
+                            && smsCompose.candidateIdx < smsCompose.candidates.size())
+                            ? smsCompose.candidates.get(smsCompose.candidateIdx).name
+                            : smsCompose.recipientName;
+                    askSms(smsToneLine("Just say yes or no") + " Did you mean " + who + "?");
                 }
                 return;
             }
@@ -1839,7 +1910,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     smsCompose.step = SMS_ASK_MESSAGE;
                     askSms("Okay. What should I say instead?");
                 } else {
-                    askSms("Please say yes or no. Shall I send it?");
+                    askSms(smsToneLine("Just say yes or no") + " Shall I send it?");
                 }
                 return;
             }
@@ -1855,6 +1926,13 @@ public class IrisListeningService extends Service implements RecognitionListener
             String msg = "I need SMS permission for that. Open the IRIS app and allow sending texts.";
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
             LogStore.append(this, "SMS", "No SEND_SMS permission"); return;
+        }
+        // Direct SMS to a spoken/typed phone number
+        String dial = extractPhoneNumber(who);
+        if (dial != null) {
+            if (message == null || message.trim().isEmpty()) { beginSms(who, null); return; }
+            sendSmsToNumber(speakableNumber(dial), dial, message);
+            return;
         }
         String number = resolveNumber(who);
         if (number == null) {
@@ -2245,6 +2323,41 @@ public class IrisListeningService extends Service implements RecognitionListener
         for (int i = 0; i < ones.length; i++) NUM_WORDS.put(ones[i], i);
         String[] tens = {"twenty","thirty","forty","fifty"};
         for (int i = 0; i < tens.length; i++) NUM_WORDS.put(tens[i], (i + 2) * 10);
+    }
+
+    /** Convert a spoken/typed phone number ("nine eight seven…", "double five", "9876543210")
+     *  into a digit string. Returns null if it doesn't look like a phone number (≥7 digits). */
+    private String extractPhoneNumber(String text) {
+        if (text == null) return null;
+        String t = text.toLowerCase(Locale.ROOT).trim();
+        String[] toks = t.split("[^a-z0-9+]+");
+        StringBuilder digits = new StringBuilder();
+        int repeat = 1;
+        for (String tok : toks) {
+            if (tok.isEmpty()) continue;
+            if (tok.equals("double")) { repeat = 2; continue; }
+            if (tok.equals("triple")) { repeat = 3; continue; }
+            if (tok.equals("plus")) { digits.append('+'); repeat = 1; continue; }
+            String d = null;
+            if (tok.matches("[0-9]+")) d = tok;
+            else if (tok.equals("oh") || tok.equals("o") || tok.equals("zero")) d = "0";
+            else if (NUM_WORDS.containsKey(tok) && NUM_WORDS.get(tok) <= 9) d = String.valueOf(NUM_WORDS.get(tok));
+            if (d != null) { for (int i = 0; i < repeat; i++) digits.append(d); }
+            repeat = 1;
+        }
+        String justDigits = digits.toString().replaceAll("[^0-9]", "");
+        return justDigits.length() >= 7 ? digits.toString() : null;
+    }
+
+    /** Format a phone number so TTS reads it digit-by-digit ("9 8 7 6…"), not as a magnitude. */
+    private static String speakableNumber(String number) {
+        if (number == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (char c : number.toCharArray()) {
+            if (Character.isDigit(c)) sb.append(c).append(' ');
+            else if (c == '+') sb.append("plus ");
+        }
+        return sb.toString().trim();
     }
 
     /** Parse "5 minutes", "thirty seconds", "an hour", "half an hour" → seconds. 0 if unknown. */

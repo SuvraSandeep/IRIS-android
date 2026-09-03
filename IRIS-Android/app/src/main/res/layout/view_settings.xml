@@ -143,6 +143,15 @@
                 android:text="It woke for someone else — make it stricter" android:textAllCaps="false"
                 android:textColor="@color/text_primary" android:textSize="13sp" />
 
+            <Switch android:id="@+id/highAccuracyVoiceSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="14dp"
+                android:text="High-accuracy voice model (large, ~1GB)" android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Downloads a larger offline Indian-English model for noticeably better recognition of your accent. One-time ~1GB download; uses more storage and RAM. Falls back to the small model automatically if it can't load."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
+
             <Switch android:id="@+id/aiEnabledSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="14dp"
                 android:text="Use AI brain (experimental)" android:textColor="@color/text_primary" android:textSize="14sp" />

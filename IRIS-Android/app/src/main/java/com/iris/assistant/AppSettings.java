@@ -51,6 +51,10 @@ public final class AppSettings {
      *  the rule-based engine handles all commands reliably without it. */
     public boolean aiEnabled() { return prefs.getBoolean("ai_enabled", false); }
     public void setAiEnabled(boolean value) { prefs.edit().putBoolean("ai_enabled", value).apply(); }
+    /** Use the large, high-accuracy Vosk en-IN model (~1GB, downloaded on first use).
+     *  Off by default; falls back to the small model automatically if it can't load. */
+    public boolean highAccuracyVoice() { return prefs.getBoolean("high_accuracy_voice", false); }
+    public void setHighAccuracyVoice(boolean value) { prefs.edit().putBoolean("high_accuracy_voice", value).apply(); }
     /** Let IRIS act on commands while the phone is locked (UI actions prompt a quick unlock). */
     public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }
     public void setLockScreenControl(boolean value) { prefs.edit().putBoolean("lock_screen_control", value).apply(); }

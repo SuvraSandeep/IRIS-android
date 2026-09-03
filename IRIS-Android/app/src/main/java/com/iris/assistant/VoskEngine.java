@@ -30,6 +30,10 @@ public final class VoskEngine {
     private static final String MODEL_DIR_NAME = "vosk-model-en-in-0.4";
     private static final String MODEL_URL =
             "https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip";
+    // Optional high-accuracy model (~1GB), downloaded on first use when the user opts in.
+    private static final String LARGE_DIR_NAME = "vosk-model-en-in-0.5";
+    private static final String LARGE_URL =
+            "https://alphacephei.com/vosk/models/vosk-model-en-in-0.5.zip";
     private static final String SPK_DIR_NAME = "vosk-model-spk-0.4";
     private static final String SPK_URL =
             "https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip";
@@ -61,6 +65,15 @@ public final class VoskEngine {
     public void init(Context context, InitListener listener) {
         if (modelLoaded) { main.post(listener::onReady); return; }
         Context app = context.getApplicationContext();
+        // High-accuracy path (opt-in): use the large en-IN model, downloaded on first use.
+        boolean large = false;
+        try { large = new AppSettings(app).highAccuracyVoice(); } catch (Throwable ignored) { }
+        if (large) {
+            File lg = new File(app.getFilesDir(), LARGE_DIR_NAME);
+            if (isValidModelDir(lg)) { loadFromPath(lg.getAbsolutePath(), listener); return; }
+            downloadAndLoadLarge(app, listener);
+            return;
+        }
         // 0. If we've already downloaded/extracted the model before, load it directly.
         File extracted = new File(app.getFilesDir(), MODEL_DIR_NAME);
         if (isValidModelDir(extracted)) {
@@ -129,6 +142,51 @@ public final class VoskEngine {
 
     private static boolean isValidModelDir(File dir) {
         return dir.isDirectory() && (new File(dir, "am").exists() || new File(dir, "conf").exists());
+    }
+
+    /** Download the large en-IN model (~1GB) and load it; fall back to the small model on any failure. */
+    private void downloadAndLoadLarge(Context context, InitListener listener) {
+        new Thread(() -> {
+            try {
+                File modelDir = new File(context.getFilesDir(), LARGE_DIR_NAME);
+                if (!isValidModelDir(modelDir)) {
+                    File zip = new File(context.getCacheDir(), "vosk-large.zip");
+                    android.util.Log.i("IRIS", "Downloading large Vosk model (~1GB, one-time)…");
+                    downloadFile(LARGE_URL, zip);
+                    File tmp = new File(context.getFilesDir(), "vosk-large-tmp");
+                    deleteRecursive(tmp);
+                    unzip(zip, tmp);
+                    File[] children = tmp.listFiles();
+                    File src = (children != null && children.length == 1 && children[0].isDirectory())
+                            ? children[0] : tmp;
+                    deleteRecursive(modelDir);
+                    if (!src.renameTo(modelDir)) copyRecursive(src, modelDir);
+                    deleteRecursive(tmp);
+                    //noinspection ResultOfMethodCallIgnored
+                    zip.delete();
+                }
+                model = new Model(modelDir.getAbsolutePath());
+                modelLoaded = true;
+                android.util.Log.i("IRIS", "Large Vosk model ready");
+                main.post(listener::onReady);
+            } catch (Throwable t) {
+                android.util.Log.w("IRIS", "Large model unavailable, falling back to small: " + t.getMessage());
+                main.post(() -> fallbackSmall(context, listener));
+            }
+        }, "Vosk-Large-Download").start();
+    }
+
+    /** Load the bundled/small model (used as the automatic fallback). */
+    private void fallbackSmall(Context app, InitListener listener) {
+        File extracted = new File(app.getFilesDir(), MODEL_DIR_NAME);
+        if (isValidModelDir(extracted)) { loadFromPath(extracted.getAbsolutePath(), listener); return; }
+        try {
+            StorageService.unpack(app, "model-en-us", "vosk-model",
+                    (m) -> { model = m; modelLoaded = true; main.post(listener::onReady); },
+                    (e) -> downloadAndLoad(app, listener));
+        } catch (Throwable t) {
+            downloadAndLoad(app, listener);
+        }
     }
 
     private static void downloadFile(String url, File dest) throws Exception {
