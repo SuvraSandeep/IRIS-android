@@ -1600,6 +1600,11 @@ public class MainActivity extends Activity {
     // ─────────── Voice & command training ───────────
 
     private void beginVoiceCommandTraining() {
+        if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            pendingTrainingKind = "voice";
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSION_TRAIN);
+            return;
+        }
         voiceTrainCancelled = false;
         trainPhraseIdx = 0; trainCmdIdx = 0; learnedAliasCount = 0;
         voiceReadSamples.clear();
@@ -1829,6 +1834,10 @@ public class MainActivity extends Activity {
     private void testWakePhrase() {
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
         if (!wake.isReady()) return;
+        if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO, "Microphone");
+            return;
+        }
         if (IrisListeningService.isRunning) stopListeningService();
         stopWakeTrainingEngine();
         wakeTrainingStatus.setText("Test armed • Say “" + wake.phrase + "”. Nothing will be called.");
@@ -2439,7 +2448,7 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_START) {
             if (hasPermission(Manifest.permission.RECORD_AUDIO)) startListeningService();
-            else toast("IRIS cannot listen without microphone access.");
+            else maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO, "Microphone");
         } else if (requestCode == PERMISSION_TRAIN) {
             String kind = pendingTrainingKind;
             pendingTrainingKind = "";
@@ -2448,7 +2457,35 @@ public class MainActivity extends Activity {
                     && hasPermission(Manifest.permission.READ_CONTACTS)) launchContactPicker();
             else if ("correction".equals(kind) && hasPermission(Manifest.permission.READ_CONTACTS)) launchContactPicker();
             else if ("dry".equals(kind) && hasPermission(Manifest.permission.RECORD_AUDIO)) testTrainedCommand();
+            else if ("voice".equals(kind) && hasPermission(Manifest.permission.RECORD_AUDIO)) beginVoiceCommandTraining();
+            else if (!hasPermission(Manifest.permission.RECORD_AUDIO))
+                maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO, "Microphone");
+            else if (!hasPermission(Manifest.permission.READ_CONTACTS))
+                maybeOpenAppSettings(Manifest.permission.READ_CONTACTS, "Contacts");
         }
+    }
+
+    /** When a runtime permission is denied: if the OS will still show the dialog, prompt the user
+     *  to retry; if it's blocked ("Don't ask again"), send them straight to the app's Settings page. */
+    private void maybeOpenAppSettings(String permission, String label) {
+        if (shouldShowRequestPermissionRationale(permission)) {
+            toast(label + " permission is needed for this — please allow it and try again.");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(label + " permission blocked")
+                .setMessage("Android won't show the permission popup anymore, so it can't be granted from here.\n\n"
+                        + "Tap Open Settings → Permissions → " + label + " → Allow, then try again.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Open Settings", (d, w) -> {
+                    try {
+                        Intent i = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                        i.setData(android.net.Uri.fromParts("package", getPackageName(), null));
+                        startActivity(i);
+                    } catch (Exception e) {
+                        toast("Open Settings → Apps → IRIS → Permissions and allow " + label + ".");
+                    }
+                }).show();
     }
 
     private class TrainingListener implements RecognitionListener {
