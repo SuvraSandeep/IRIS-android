@@ -274,6 +274,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         // Load the AI brain only if the user has opted in (off by default for
         // stability — some devices crash natively during on-device inference).
         llmAgent = new LlmAgent();
+        // Crash-guard: if the app was killed mid-inference last time (native LLM crash),
+        // auto-disable the AI brain so we don't crash-loop. The rule-based engine still works.
+        android.content.SharedPreferences llmGuard = getSharedPreferences("iris_llm_guard", MODE_PRIVATE);
+        if (settings.aiEnabled() && llmGuard.getBoolean("inference_active", false)) {
+            settings.setAiEnabled(false);
+            llmGuard.edit().putBoolean("inference_active", false).apply();
+            LogStore.append(this, "LLM", "AI brain crashed during last use — auto-disabled for stability");
+        }
         if (settings.aiEnabled()) {
             new Thread(() -> {
                 boolean ok = llmAgent.loadModel(this);
@@ -580,34 +588,52 @@ public class IrisListeningService extends Service implements RecognitionListener
                     rearmAfterAction();
                 }
             };
-            handler.postDelayed(commandTimeout, 12_000);
-            voskEngine.startListening(new VoskEngine.SttListener() {
-                @Override public void onPartial(String text) {
-                    if (!text.isEmpty()) broadcastTranscript(text);
-                }
-                @Override public void onFinal(String text) {
-                    if (handled[0] || text.isEmpty()) return;
-                    handled[0] = true;
-                    if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
-                    voskEngine.stop();
-                    handleCommand(text);
-                }
-                @Override public void onError(String message) {
-                    if (handled[0]) return;
-                    LogStore.append(IrisListeningService.this, "VOSK STT ERROR", message);
-                    rearmAfterAction();
-                }
-            });
+            // Settle delay: let the wake recognizer's mic fully release before we open a
+            // new AudioRecord — otherwise the command mic can come up silent (= "does nothing").
+            handler.postDelayed(() -> {
+                if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
+                LogStore.append(this, "LISTEN", "Command window open (Vosk)");
+                handler.postDelayed(commandTimeout, 15_000);
+                voskEngine.startListening(new VoskEngine.SttListener() {
+                    @Override public void onPartial(String text) {
+                        if (!text.isEmpty()) broadcastTranscript(text);
+                    }
+                    @Override public void onFinal(String text) {
+                        if (handled[0] || text.isEmpty()) return;
+                        handled[0] = true;
+                        if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                        voskEngine.stop();
+                        LogStore.append(IrisListeningService.this, "HEARD CMD", text);
+                        handleCommand(text);
+                    }
+                    @Override public void onError(String message) {
+                        if (handled[0]) return;
+                        handled[0] = true;
+                        if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                        LogStore.append(IrisListeningService.this, "VOSK STT ERROR", message
+                                + " — falling back to Android recognizer");
+                        startAndroidCommandRecognition();
+                    }
+                });
+            }, 350);
             return;
         }
 
         // Fallback: Android SpeechRecognizer
+        startAndroidCommandRecognition();
+    }
+
+    /** Command capture via Android's SpeechRecognizer (fallback when Vosk STT is unavailable/errors). */
+    private void startAndroidCommandRecognition() {
+        if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
+        if (voskEngine != null) voskEngine.stop();
         createRecognizer();
         if (recognizer == null) {
             broadcastMessage("Speech recognition is unavailable.");
             rearmAfterAction();
             return;
         }
+        LogStore.append(this, "LISTEN", "Command window open (Android STT)");
         recognizerIntent = baseRecognizerIntent();
         handler.postDelayed(this::startRecognizerSafely, 180);
         commandTimeout = () -> { if (isRunning && PHASE_COMMAND.equals(phase)) { broadcastMessage("No command heard. Going back to sleep."); LogStore.append(this, "TIMEOUT", "Command window expired"); rearmAfterAction(); } };
@@ -945,7 +971,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (llmReady && llmAgent != null && llmAgent.isReady()) {
             broadcastMessage("Thinking…");
             new Thread(() -> {
+                android.content.SharedPreferences guard =
+                        getSharedPreferences("iris_llm_guard", MODE_PRIVATE);
+                guard.edit().putBoolean("inference_active", true).apply();
                 String llmOut = llmAgent.generateReply(this, original, conversation.transcript());
+                guard.edit().putBoolean("inference_active", false).apply();
                 handler.post(() -> {
                     if (llmOut == null || llmOut.isEmpty()) {
                         ruleBasedChat(original, normalized, store); // fallback

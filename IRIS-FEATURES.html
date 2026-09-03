@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.19.1";
+const BUILD_VERSION = "7.20.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -268,7 +268,7 @@ const FEATURES = [
   // ---- Intelligence & Memory ----
   {id:"ai", cat:"Intelligence & Memory", icon:"🧠", title:"Conversational AI (opt-in)",
    tagline:"Real on-device chat.",
-   desc:"Optional Qwen 0.5B model (ungated, ~550 MB) for free-form conversation, fully offline. Runs on the CPU backend for stability (the GPU path crashed on some phones) with a low-memory guard. Off by default; enable in Settings → “Use AI brain (experimental)”.",
+   desc:"Optional Qwen 0.5B model (ungated, ~550 MB) for free-form conversation, fully offline. Runs on the CPU backend for stability (the GPU path crashed on some phones) with a low-memory guard, and auto-disables itself if it ever crashes mid-use so it can't crash-loop. Off by default; enable in Settings → “Use AI brain (experimental)”.",
    examples:["Settings → Use AI brain → chat naturally"], version:"6.11.0"},
   {id:"caps", cat:"Intelligence & Memory", icon:"✅", title:"Capability Awareness",
    tagline:"Knows what it can & can't do.",
