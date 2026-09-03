@@ -1,151 +1,172 @@
-name: Build PULSE Control v8.7.1 Standard Debug APK
-
-run-name: PULSE Control v8.7.1 Standard Debug • ${{ github.ref_name }} • ${{ github.sha }}
+name: Build IRIS Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
 
 permissions:
   contents: read
 
-# Single source of truth for this workflow. These values must match
-# app/build.gradle.kts in the v8.7.1 source archive.
-env:
-  PULSE_VERSION: "8.7.1"
-  PULSE_VERSION_CODE: "179"
-  PULSE_SOURCE_ARCHIVE: "PULSE-Control-v8.7.1-debug-source.zip"
-  PULSE_APK_NAME: "PULSE-Control-v8.7.1-standard-debug.apk"
-
 jobs:
-  build-standard-debug:
+  build:
+    name: Build IRIS APK
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 25
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
-
-      - name: Locate PULSE Control v8.7.1 standard project
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          project_dir="$GITHUB_WORKSPACE"
-          archive="$GITHUB_WORKSPACE/PULSE-Control-v8.7.1-debug-source.zip"
-
-          if [[ -f "$archive" ]]; then
-            echo "Using PULSE Control v8.7.1 source archive: $archive"
-            extract_dir="$RUNNER_TEMP/pulse-control-v8.7.1-debug-source"
-            mkdir -p "$extract_dir"
-            unzip -q "$archive" -d "$extract_dir"
-
-            wrapper="$(find "$extract_dir" -type f -name gradlew -print -quit)"
-            if [[ -z "$wrapper" ]]; then
-              echo "::error::The ZIP does not contain an Android Gradle project."
-              exit 1
-            fi
-            project_dir="$(dirname "$wrapper")"
-          elif [[ -f "$project_dir/gradlew" ]]; then
-            echo "Source archive not present; using the extracted repository-root project."
-          else
-            echo "::error::Expected PULSE-Control-v8.7.1-debug-source.zip at repository root or an extracted Android project."
-            exit 1
-          fi
-
-          echo "PROJECT_DIR=$project_dir" >> "$GITHUB_ENV"
-          echo "Android project: $project_dir"
-
-      - name: Verify PULSE Control v8.7.1 source
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          build_file="$PROJECT_DIR/app/build.gradle.kts"
-          if [[ ! -f "$build_file" ]] ||
-             ! grep -q 'versionCode = 179' "$build_file" ||
-             ! grep -q 'versionName = "8.7.1"' "$build_file"; then
-            echo "::error::The selected project is not PULSE Control v8.7.1."
-            exit 1
-          fi
-
-          if [[ -f "$PROJECT_DIR/tools/verify_project.py" ]]; then
-            python3 "$PROJECT_DIR/tools/verify_project.py"
-          fi
-          echo "Confirmed PULSE Control v8.7.1 source."
+        uses: actions/checkout@v5
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Install Android 36 platform
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Build and test Standard debug APK
-        shell: bash
-        run: |
-          set -o pipefail
-          cd "$PROJECT_DIR"
-          chmod +x gradlew
-          ./gradlew --no-daemon --console=plain \
-            :app:compileStandardDebugKotlin \
-            :app:testStandardDebugUnitTest \
-            :app:lintStandardDebug \
-            :app:assembleStandardDebug \
-            --stacktrace 2>&1 | tee "$GITHUB_WORKSPACE/gradle-build.log"
-
-      - name: Verify Play Protect sensitive declarations are absent
+      - name: Locate IRIS project
         shell: bash
         run: |
           set -euo pipefail
-          apk="$PROJECT_DIR/app/build/outputs/apk/standard/debug/app-standard-debug.apk"
-          manifest_text="$(apkanalyzer manifest print "$apk")"
-          if grep -Eq 'BIND_NOTIFICATION_LISTENER_SERVICE|PulseNotificationListenerService|BIND_ACCESSIBILITY_SERVICE|READ_SMS|RECEIVE_SMS' <<< "$manifest_text"; then
-            echo "::error::Standard APK still declares a Play Protect sensitive capability."
+          if [[ -f settings.gradle ]]; then
+            project_dir="."
+          elif [[ -f IRIS-Android/settings.gradle ]]; then
+            project_dir="IRIS-Android"
+          else
+            echo "::error::No settings.gradle found. Extract the IRIS source into the repo."
             exit 1
           fi
-          echo "Standard APK contains no SMS, Notification Listener, or Accessibility declaration."
+          test -f "$project_dir/app/build.gradle"
+          echo "PROJECT_DIR=$project_dir" >> "$GITHUB_ENV"
 
-      - name: Collect Standard debug APK
+      - name: Read version from build.gradle
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/dist"
-          cp "$PROJECT_DIR/app/build/outputs/apk/standard/debug/app-standard-debug.apk" \
-            "$GITHUB_WORKSPACE/dist/$PULSE_APK_NAME"
-          sha256sum "$GITHUB_WORKSPACE/dist/$PULSE_APK_NAME" \
-            > "$GITHUB_WORKSPACE/dist/$PULSE_APK_NAME.sha256"
+          version=$(grep -oP "versionName\s+'\K[^']+" "$PROJECT_DIR/app/build.gradle")
+          echo "VERSION=${version:-unknown}" >> "$GITHUB_ENV"
+          echo "Building IRIS v${version:-unknown}"
 
-      - name: Show compiler errors
-        if: failure()
+      - name: Download and bundle Vosk model (optional, non-fatal)
         shell: bash
+        continue-on-error: true
         run: |
-          if [[ -f "$GITHUB_WORKSPACE/gradle-build.log" ]]; then
-            grep -E '(^e: |\.kt:[0-9]+:[0-9]+|error: |Error: |Lint found|FAILED)' \
-              "$GITHUB_WORKSPACE/gradle-build.log" || true
+          # The app self-downloads the Vosk model at runtime, so this is only a
+          # best-effort speed-up. It must NEVER fail the build.
+          ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
+          MODEL_DIR="$ASSETS_DIR/model-en-us"
+          if [[ -d "$MODEL_DIR/am" ]]; then
+            echo "Vosk model already present, skipping."
+          else
+            echo "Attempting Vosk model download (best-effort)..."
+            mkdir -p "$ASSETS_DIR"
+            rm -rf "$MODEL_DIR"
+            if curl -fSL --retry 2 --max-time 180 -o "$ASSETS_DIR/vosk-model.zip" \
+                 https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip \
+               && unzip -q "$ASSETS_DIR/vosk-model.zip" -d "$ASSETS_DIR"; then
+              mv "$ASSETS_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR" || true
+              echo "Vosk model bundled."
+            else
+              echo "::warning::Vosk model download failed — app will download it at runtime instead."
+            fi
+            rm -f "$ASSETS_DIR/vosk-model.zip" || true
           fi
 
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: PULSE-Control-v8.7.1-standard-debug-build-log
-          path: gradle-build.log
-          if-no-files-found: ignore
-          retention-days: 14
+      - name: Bundle personal profile (iris-me.json, optional)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # The owner's profile lives at the repo root (outside the source zip)
+          # so it's easy to edit. Copy it into assets if present. Non-fatal.
+          ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
+          mkdir -p "$ASSETS_DIR"
+          if [[ -f "$GITHUB_WORKSPACE/iris-me.json" ]]; then
+            cp "$GITHUB_WORKSPACE/iris-me.json" "$ASSETS_DIR/iris-me.json"
+            echo "Bundled iris-me.json into assets."
+          else
+            echo "No iris-me.json at repo root — skipping (app still works without it)."
+          fi
 
-      - name: Upload Standard debug APK
-        uses: actions/upload-artifact@v7
+      - name: Download and bundle Vosk speaker model (optional, non-fatal)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # Enables voice verification (only-owner wake). App downloads it at
+          # runtime if this is skipped, so this must NEVER fail the build.
+          ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
+          SPK_DIR="$ASSETS_DIR/spk-model"
+          if [[ -n "$(ls -A "$SPK_DIR" 2>/dev/null)" ]]; then
+            echo "Speaker model already present, skipping."
+          else
+            mkdir -p "$ASSETS_DIR"
+            rm -rf "$SPK_DIR"
+            if curl -fSL --retry 2 --max-time 180 -o "$ASSETS_DIR/spk.zip" \
+                 https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip \
+               && unzip -q "$ASSETS_DIR/spk.zip" -d "$ASSETS_DIR"; then
+              mv "$ASSETS_DIR/vosk-model-spk-0.4" "$SPK_DIR" || true
+              echo "Vosk speaker model bundled."
+            else
+              echo "::warning::Speaker model download failed — app downloads it at runtime."
+            fi
+            rm -f "$ASSETS_DIR/spk.zip" || true
+          fi
+
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+          build_type="${{ inputs.build_type || 'debug' }}"
+          if [[ "$build_type" == "release" ]]; then
+            ./gradlew :app:assembleRelease --stacktrace
+          else
+            ./gradlew :app:assembleDebug --stacktrace
+          fi
+
+      - name: Run lint
+        working-directory: ${{ env.PROJECT_DIR }}
+        continue-on-error: true
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+          ./gradlew :app:lintDebug --stacktrace 2>/dev/null || gradle :app:lintDebug --stacktrace
+
+      - name: Rename APK
+        run: |
+          build_type="${{ inputs.build_type || 'debug' }}"
+          src="$PROJECT_DIR/app/build/outputs/apk/${build_type}/app-${build_type}.apk"
+          dest="IRIS-v${VERSION}-${build_type}.apk"
+          cp "$src" "$dest"
+          echo "APK_NAME=$dest" >> "$GITHUB_ENV"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          name: PULSE-Control-v8.7.1-standard-debug-APK
-          path: dist
+          name: IRIS-v${{ env.VERSION }}-${{ inputs.build_type || 'debug' }}-apk
+          path: ${{ env.APK_NAME }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: ${{ env.PROJECT_DIR }}/app/build/reports/lint-results-*.html
+          if-no-files-found: ignore
+          retention-days: 7
