@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.20.1";
+const BUILD_VERSION = "7.21.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -193,9 +193,9 @@ const FEATURES = [
    desc:"IRIS tells you your recent calls.",
    examples:["who did I call today","recent calls"], version:"1.x"},
   {id:"sms", cat:"Communication", icon:"✉️", title:"Send SMS",
-   tagline:"Texts sent hands-free — say it naturally.",
-   desc:"Composes and sends a real SMS via the system — works even while the phone is locked. Understands natural phrasing: you no longer need the word \u201Csaying\u201D \u2014 \u201Ctext Mom I'll be late\u201D, \u201Ctell Dad I'm coming\u201D or \u201Clet Mom know I'm safe\u201D all work, and polite wrappers like \u201Ccan you\u2026 / please\u2026\u201D are ignored.",
-   examples:["text mom I'll be late","tell Dad I'm coming","let mom know I'm safe","message Rahul saying call me"], version:"7.17.0"},
+   tagline:"Texts sent hands-free — say it naturally, or let IRIS ask.",
+   desc:"Composes and sends a real SMS via the system — works even while the phone is locked. Understands natural phrasing without the word \u201Csaying\u201D (\u201Ctext Mom I'll be late\u201D). And if you forget the details, IRIS runs a guided flow: just say \u201Csend an SMS\u201D and it asks who to send to, confirms the contact, then asks what to say (spoken in plain natural language) and confirms before sending. Say \u201Ccancel\u201D any time.",
+   examples:["send an sms","text mom I'll be late","send a message to dad","tell Sam I'm coming"], version:"7.21.0"},
   {id:"whatsapp", cat:"Communication", icon:"💬", title:"WhatsApp Message",
    tagline:"Chat opens pre-filled.",
    desc:"Opens the WhatsApp chat with your message ready — you tap send (WhatsApp allows no auto-send).",

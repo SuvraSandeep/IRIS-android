@@ -127,6 +127,12 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern SMS_LOOSE_PATTERN = Pattern.compile(
             "^(?:text|txt|message|msg|sms|tell|let)\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
+    // "send an sms", "send a text to mom", "compose a message" — start the guided compose flow
+    // (IRIS will ask for whoever/whatever is missing).
+    private static final Pattern SMS_START_PATTERN = Pattern.compile(
+            "^(?:send|write|compose|start|create)\\s+(?:a|an)?\\s*(?:sms|text\\s*message|text|message|txt)"
+            + "(?:\\s+to\\s+(.+))?$",
+            Pattern.CASE_INSENSITIVE);
     // "whatsapp Rahul saying hi" / "send a whatsapp to mom that ..."
     private static final Pattern WHATSAPP_PATTERN = Pattern.compile(
             "^(?:send\\s+(?:a\\s+)?whatsapp(?:\\s+message)?\\s+to|whatsapp(?:\\s+message)?(?:\\s+to)?)\\s+(.+?)\\s+(?:saying|that|:)\\s+(.+)$",
@@ -695,6 +701,11 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Guarded entry point: no command-handling error may crash the app. */
     private void handleCommand(String heard) {
+        if (smsCompose != null) {
+            try { handleSmsComposeInput(heard); }
+            catch (Throwable t) { smsCompose = null; LogStore.append(this, "SMS", "compose error: " + t); rearmAfterAction(); }
+            return;
+        }
         try {
             handleCommandInner(heard);
         } catch (Throwable t) {
@@ -844,7 +855,17 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         // Natural texting without "saying" — only fires if the recipient resolves to a contact.
         Matcher looseSmsM = SMS_LOOSE_PATTERN.matcher(clean);
-        if (looseSmsM.matches() && tryFlexibleSms(looseSmsM.group(1).trim())) return;
+        if (looseSmsM.matches()) {
+            String rest = looseSmsM.group(1).trim();
+            if (tryFlexibleSms(rest)) return;
+            // Verb + a recipient but NO message → start the guided compose flow.
+            if (!isSelf(rest) && resolveNumber(rest) != null) { beginSms(rest, null); return; }
+        }
+        Matcher smsStartM = SMS_START_PATTERN.matcher(clean);
+        if (smsStartM.matches()) {
+            beginSms(smsStartM.group(1) == null ? null : smsStartM.group(1).trim(), null);
+            return;
+        }
         Matcher remM = REMINDER_PATTERN.matcher(clean);
         if (remM.matches()) { handleReminder(remM.group(1).trim(), remM.group(2).trim(), remM.group(3).trim()); return; }
         Matcher almM = ALARM_PATTERN.matcher(clean);
@@ -1692,6 +1713,137 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Send an SMS to a resolved contact (or number). */
+    // ─── Guided SMS compose (asks for whoever/whatever you forgot) ───
+    private static final int SMS_ASK_RECIPIENT = 1;
+    private static final int SMS_CONFIRM_RECIPIENT = 2;
+    private static final int SMS_ASK_MESSAGE = 3;
+    private static final int SMS_CONFIRM_MESSAGE = 4;
+    private static final class SmsCompose {
+        int step;
+        String recipientName;
+        String recipientNumber;
+        String message;
+    }
+    private SmsCompose smsCompose;
+    private int smsRetry;
+
+    private static boolean isYes(String n) {
+        return n.matches(".*\\b(yes|yeah|yep|yup|ya|sure|ok|okay|correct|right|do it|send|send it"
+                + "|confirm|confirmed|go ahead|please do|yup|haan|ha|thik|theek)\\b.*");
+    }
+    private static boolean isNo(String n) {
+        return n.matches(".*\\b(no|nope|nah|dont|do not|cancel|wrong|incorrect|change|nahi|galat)\\b.*");
+    }
+
+    /** Entry point for the guided flow. who/message may be null; IRIS asks for whatever is missing. */
+    private void beginSms(String who, String message) {
+        if (blockedWhileLocked("send a text")) return;
+        if (!hasPermission(Manifest.permission.SEND_SMS)) {
+            String msg = "I need SMS permission for that. Open the IRIS app and allow sending texts.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "SMS", "No SEND_SMS permission"); return;
+        }
+        smsCompose = new SmsCompose();
+        smsRetry = 0;
+        String number = (who == null || who.trim().isEmpty()) ? null : resolveNumber(who);
+        if (number != null) {
+            smsCompose.recipientName = who.trim();
+            smsCompose.recipientNumber = number;
+            if (message != null && !message.trim().isEmpty()) {
+                smsCompose.message = message.trim();
+                smsCompose.step = SMS_CONFIRM_MESSAGE;
+                askSms("Send \u201C" + smsCompose.message + "\u201D to " + smsCompose.recipientName + "? Say yes or no.");
+            } else {
+                smsCompose.step = SMS_ASK_MESSAGE;
+                askSms("What should I say to " + smsCompose.recipientName + "?");
+            }
+        } else {
+            smsCompose.step = SMS_ASK_RECIPIENT;
+            askSms("Who should I send the message to?");
+        }
+    }
+
+    /** Speak a prompt and listen for the next answer in the SMS flow. */
+    private void askSms(String prompt) {
+        broadcastMessage(prompt);
+        updateListeningNotification("SMS \u2022 " + prompt);
+        speakThenRun(prompt, this::startCommandRecognition);
+    }
+
+    /** Handle each spoken answer while composing an SMS. */
+    private void handleSmsComposeInput(String heard) {
+        String t = heard == null ? "" : heard.trim();
+        String norm = ProfileStore.normalize(t);
+        if (norm.matches(".*\\b(cancel|stop|forget it|never mind|nevermind|leave it)\\b.*")) {
+            smsCompose = null;
+            broadcastMessage("Okay, cancelled.");
+            speakThenRun("Okay, cancelled the message.", this::rearmAfterAction);
+            return;
+        }
+        switch (smsCompose.step) {
+            case SMS_ASK_RECIPIENT: {
+                String who = t.replaceFirst("(?i)^(send\\s+)?(it\\s+)?(to\\s+)?(the\\s+)?", "").trim();
+                if (who.isEmpty()) who = t;
+                String number = resolveNumber(who);
+                if (number == null) {
+                    smsRetry++;
+                    if (smsRetry >= 3) {
+                        smsCompose = null;
+                        speakThenRun("I still couldn't find that contact. Let's try again later.",
+                                this::rearmAfterAction);
+                        return;
+                    }
+                    askSms("I couldn't find " + who + " in your contacts. Who should I send it to?");
+                    return;
+                }
+                smsCompose.recipientName = who;
+                smsCompose.recipientNumber = number;
+                smsCompose.step = SMS_CONFIRM_RECIPIENT;
+                askSms("Send it to " + who + "? Say yes or no.");
+                return;
+            }
+            case SMS_CONFIRM_RECIPIENT: {
+                if (isNo(norm)) {
+                    smsRetry = 0;
+                    smsCompose.step = SMS_ASK_RECIPIENT;
+                    askSms("Okay. Who should I send it to?");
+                } else if (isYes(norm)) {
+                    smsCompose.step = SMS_ASK_MESSAGE;
+                    askSms("What should I say to " + smsCompose.recipientName + "?");
+                } else {
+                    askSms("Please say yes or no. Send it to " + smsCompose.recipientName + "?");
+                }
+                return;
+            }
+            case SMS_ASK_MESSAGE: {
+                if (t.isEmpty()) { askSms("What should I say?"); return; }
+                smsCompose.message = t;   // natural language, taken verbatim
+                smsCompose.step = SMS_CONFIRM_MESSAGE;
+                askSms("You want me to send: \u201C" + t + "\u201D to " + smsCompose.recipientName
+                        + ". Shall I send it? Say yes or no.");
+                return;
+            }
+            case SMS_CONFIRM_MESSAGE: {
+                if (isYes(norm)) {
+                    String name = smsCompose.recipientName;
+                    String number = smsCompose.recipientNumber;
+                    String msg = smsCompose.message;
+                    smsCompose = null;
+                    sendSmsToNumber(name, number, msg);
+                } else if (isNo(norm)) {
+                    smsCompose.step = SMS_ASK_MESSAGE;
+                    askSms("Okay. What should I say instead?");
+                } else {
+                    askSms("Please say yes or no. Shall I send it?");
+                }
+                return;
+            }
+            default:
+                smsCompose = null;
+                rearmAfterAction();
+        }
+    }
+
     private void handleSendSms(String who, String message) {
         if (blockedWhileLocked("send a text")) return;
         if (!hasPermission(Manifest.permission.SEND_SMS)) {
@@ -1701,9 +1853,23 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         String number = resolveNumber(who);
         if (number == null) {
-            String msg = "I couldn't find " + who + " in your contacts.";
+            // Recipient unknown — fall into the guided flow so IRIS can ask.
+            beginSms(null, message);
+            return;
+        }
+        sendSmsToNumber(who, number, message);
+    }
+
+    /** Actually send an SMS to an already-resolved number. */
+    private void sendSmsToNumber(String who, String number, String message) {
+        if (!hasPermission(Manifest.permission.SEND_SMS)) {
+            String msg = "I need SMS permission for that. Open the IRIS app and allow sending texts.";
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
-            LogStore.append(this, "SMS", "No contact: " + who); return;
+            return;
+        }
+        if (message == null || message.trim().isEmpty()) {
+            beginSms(who, null);   // no body — ask for it
+            return;
         }
         try {
             android.telephony.SmsManager sms = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -2855,6 +3021,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void rearmAfterAction() {
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
+        smsCompose = null;
         pendingName = null;
         pendingNumber = null;
         destroyRecognizer();
