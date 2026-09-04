@@ -12,14 +12,15 @@ Env:
   IRIS_MODEL   (default qwen2.5:3b-instruct)
   IRIS_WHISPER (default small)   faster-whisper size: tiny|base|small|medium
 """
-import os, tempfile, requests
-from fastapi import FastAPI, Header, HTTPException, Request
+import os, tempfile, subprocess, requests
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
 TOKEN   = os.environ["IRIS_TOKEN"]
 MODEL   = os.environ.get("IRIS_MODEL", "qwen2.5:3b-instruct")
 WSIZE   = os.environ.get("IRIS_WHISPER", "small")
 OLLAMA  = os.environ.get("IRIS_OLLAMA", "http://127.0.0.1:11434/api/chat")
+PIPER_MODEL = os.environ.get("IRIS_PIPER_MODEL", "")   # path to a Piper .onnx voice; empty = TTS off
 
 # Lazy-load Whisper so /chat works even if faster-whisper isn't installed yet.
 _asr = None
@@ -56,7 +57,7 @@ class ChatIn(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "model": MODEL, "whisper": WSIZE}
+    return {"ok": True, "model": MODEL, "whisper": WSIZE, "tts": bool(PIPER_MODEL)}
 
 @app.post("/chat")
 def chat(inp: ChatIn, authorization: str = Header("")):
@@ -79,3 +80,19 @@ async def transcribe(request: Request, authorization: str = Header("")):
         f.write(data); f.flush()
         segments, _ = asr().transcribe(f.name, language="en", beam_size=1)
         return {"text": " ".join(s.text for s in segments).strip()}
+
+
+class TtsIn(BaseModel):
+    text: str
+
+@app.post("/tts")
+def tts(inp: TtsIn, authorization: str = Header("")):
+    auth(authorization)
+    if not PIPER_MODEL:
+        raise HTTPException(status_code=503, detail="tts not configured")  # app falls back to Android TTS
+    # Piper reads text on stdin and writes a WAV to stdout ("--output_file -").
+    p = subprocess.run(["piper", "--model", PIPER_MODEL, "--output_file", "-"],
+                       input=inp.text.encode("utf-8"), capture_output=True)
+    if p.returncode != 0 or not p.stdout:
+        raise HTTPException(status_code=500, detail="tts failed")
+    return Response(content=p.stdout, media_type="audio/wav")

@@ -53,6 +53,19 @@ curl -s -X POST localhost:8000/chat -H "Authorization: Bearer $TOKEN" \
 ```
 A reply like `[REMINDER: at 6 pm | call mom]` means the phone will execute it — the tags match `IrisListeningService.handleLlmOutput`.
 
+## Optional: server voice (Piper TTS)
+Off unless you set a voice. To let IRIS speak with a natural Piper voice (falls back to Android TTS if unavailable):
+```bash
+~/iris/venv/bin/pip install piper-tts
+mkdir -p ~/iris/voices && cd ~/iris/voices
+# pick a female English voice, e.g. Amy (US). Browse: https://huggingface.co/rhasspy/piper-voices
+wget https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx
+wget https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx.json
+sudo systemctl set-environment IRIS_PIPER_MODEL=$HOME/iris/voices/en_US-amy-medium.onnx
+sudo systemctl restart iris-api
+```
+Then in the app: **Settings → Server mode → "Use the server's voice (Piper)"**. `/health` will report `"tts": true`.
+
 ## Security
 - Bearer token on every request (over HTTPS or the encrypted Tailscale tunnel).
 - `/chat` is stateless (no content stored). Only `message` + compact `profile` + short `context` are sent.

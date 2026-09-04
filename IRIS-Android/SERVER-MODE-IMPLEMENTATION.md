@@ -296,7 +296,7 @@ Implemented in the app, gated behind the off-by-default **Server mode** toggle:
 
 **Phase D — shipped:** runnable server package in `server/` (`app.py`, `requirements.txt`, `install.sh` one-command setup + systemd, `Caddyfile`, `README.md`). `app.py`'s system prompt enumerates the exact tag vocabulary above.
 
-**Remaining (Phase C, optional):** `/tts` (Piper) so the *online* voice is nicer than Android TTS (needs audio-playback wiring in the app's speak path), and streaming replies for lower latency.
+**Phase C — partly shipped (v7.24.0):** `/tts` (Piper) online voice with automatic fallback to Android TTS — server `/tts` endpoint + `ServerClient.tts()` + `speakServerThenRun` (MediaPlayer) + Settings toggle "Use the server's voice (Piper)". **Remaining:** streaming replies (low ROI for short spoken answers; deferred).
 
 ## 13. Oracle server setup (copy-paste)
 

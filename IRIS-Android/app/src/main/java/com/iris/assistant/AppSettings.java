@@ -65,6 +65,9 @@ public final class AppSettings {
     /** Send audio to the server's Whisper endpoint for transcription (best accent accuracy). */
     public boolean serverStt() { return prefs.getBoolean("server_stt", true); }
     public void setServerStt(boolean v) { prefs.edit().putBoolean("server_stt", v).apply(); }
+    /** Speak replies with the server's Piper voice (falls back to Android TTS if unavailable). */
+    public boolean serverTts() { return prefs.getBoolean("server_tts", false); }
+    public void setServerTts(boolean v) { prefs.edit().putBoolean("server_tts", v).apply(); }
     public boolean autoOfflineWhenSlow() { return prefs.getBoolean("server_auto_offline_slow", true); }
     public void setAutoOfflineWhenSlow(boolean v) { prefs.edit().putBoolean("server_auto_offline_slow", v).apply(); }
     public int serverSlowMs() { return prefs.getInt("server_slow_ms", 8000); }

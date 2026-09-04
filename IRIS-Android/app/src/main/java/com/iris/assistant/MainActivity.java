@@ -1224,6 +1224,11 @@ public class MainActivity extends Activity {
         if (serverSttSwitch != null) {
             serverSttSwitch.setOnCheckedChangeListener((b, checked) -> settings.setServerStt(checked));
         }
+        Switch serverTtsSwitch = view.findViewById(R.id.serverTtsSwitch);
+        if (serverTtsSwitch != null) {
+            serverTtsSwitch.setChecked(settings.serverTts());
+            serverTtsSwitch.setOnCheckedChangeListener((b, checked) -> settings.setServerTts(checked));
+        }
         Button saveServerButton = view.findViewById(R.id.saveServerButton);
         if (saveServerButton != null && serverUrlInput != null && serverTokenInput != null) {
             saveServerButton.setOnClickListener(v -> {

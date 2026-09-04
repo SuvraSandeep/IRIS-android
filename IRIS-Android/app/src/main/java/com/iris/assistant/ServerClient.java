@@ -75,6 +75,22 @@ final class ServerClient {
         } finally { if (c != null) c.disconnect(); }
     }
 
+    /** POST /tts (JSON {text}) → WAV audio bytes, or null on failure. */
+    byte[] tts(String text, int connectMs, int readMs) {
+        if (text == null || text.trim().isEmpty()) return null;
+        HttpURLConnection c = null;
+        try {
+            c = open("/tts", "POST", connectMs, readMs);
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json");
+            writeBody(c, new JSONObject().put("text", text).toString().getBytes(StandardCharsets.UTF_8));
+            if (c.getResponseCode() / 100 != 2) return null;
+            return readBytes(c.getInputStream());
+        } catch (Throwable t) {
+            return null;
+        } finally { if (c != null) c.disconnect(); }
+    }
+
     // ── helpers ──
     private HttpURLConnection open(String path, String method, int connectMs, int readMs) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(baseUrl + path).openConnection();
@@ -91,11 +107,15 @@ final class ServerClient {
     }
 
     private static String readAll(InputStream in) throws Exception {
+        return new String(readBytes(in), StandardCharsets.UTF_8);
+    }
+
+    private static byte[] readBytes(InputStream in) throws Exception {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[4096];
         int n;
         while ((n = in.read(buf)) != -1) bos.write(buf, 0, n);
-        return new String(bos.toByteArray(), StandardCharsets.UTF_8);
+        return bos.toByteArray();
     }
 
     private static String trimSlash(String s) {

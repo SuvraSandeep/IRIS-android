@@ -223,6 +223,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private AudioDeviceCallback audioDeviceCallback;
     private TextToSpeech textToSpeech;
     private boolean ttsReady;
+    private android.media.MediaPlayer serverTtsPlayer;
     private int confirmationRetries;
     private String lastMemoryId;
     private SpeakerVerifier speakerVerifier;
@@ -3537,7 +3538,58 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void speak(String text) {
         if (text == null || text.isEmpty()) return;
         if (!settings.voiceReplies()) return;
+        if (useServerTts()) { speakServerThenRun(text, null); return; }
         speakAndroidTts(text);
+    }
+
+    /** True when the server voice (Piper) should be used for this reply. */
+    private boolean useServerTts() {
+        return settings.serverTts() && serverMonitor.shouldUseServer(settings);
+    }
+
+    private void releaseServerTts() {
+        if (serverTtsPlayer != null) {
+            try { serverTtsPlayer.stop(); } catch (Exception ignored) { }
+            try { serverTtsPlayer.release(); } catch (Exception ignored) { }
+            serverTtsPlayer = null;
+        }
+    }
+
+    /** Fetch the server's Piper audio and play it; fall back to Android TTS on any failure. */
+    private void speakServerThenRun(String text, Runnable afterSpeaking) {
+        new Thread(() -> {
+            byte[] wav = new ServerClient(settings.serverUrl(), settings.serverToken()).tts(text, 2500, 12000);
+            handler.post(() -> {
+                if (wav == null || wav.length < 64) {
+                    speakThenRunLocal(text, afterSpeaking);
+                    return;
+                }
+                try {
+                    java.io.File f = new java.io.File(getCacheDir(), "iris_tts.wav");
+                    try (java.io.FileOutputStream o = new java.io.FileOutputStream(f)) { o.write(wav); }
+                    releaseServerTts();
+                    serverTtsPlayer = new android.media.MediaPlayer();
+                    serverTtsPlayer.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build());
+                    serverTtsPlayer.setDataSource(f.getAbsolutePath());
+                    serverTtsPlayer.setOnCompletionListener(mp -> {
+                        releaseServerTts();
+                        if (afterSpeaking != null) afterSpeaking.run();
+                    });
+                    serverTtsPlayer.setOnErrorListener((mp, what, extra) -> {
+                        releaseServerTts();
+                        if (afterSpeaking != null) afterSpeaking.run();
+                        return true;
+                    });
+                    serverTtsPlayer.prepare();
+                    serverTtsPlayer.start();
+                } catch (Throwable t) {
+                    releaseServerTts();
+                    speakThenRunLocal(text, afterSpeaking);
+                }
+            });
+        }, "IRIS-ServerTTS").start();
     }
 
     private void speakAndroidTts(String text) {
@@ -3581,6 +3633,14 @@ public class IrisListeningService extends Service implements RecognitionListener
      * If voice replies are off or TTS fails, runs the callback after a short delay.
      */
     private void speakThenRun(String text, Runnable afterSpeaking) {
+        if (useServerTts() && text != null && !text.isEmpty() && settings.voiceReplies()) {
+            speakServerThenRun(text, afterSpeaking);
+            return;
+        }
+        speakThenRunLocal(text, afterSpeaking);
+    }
+
+    private void speakThenRunLocal(String text, Runnable afterSpeaking) {
         if (text == null || text.isEmpty() || !settings.voiceReplies() || textToSpeech == null || !ttsReady) {
             // No speech — just run after a brief pause
             handler.postDelayed(afterSpeaking, 600);
@@ -3814,6 +3874,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         releaseAudioRoute();
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }
         if (textToSpeech != null) textToSpeech.shutdown();
+        releaseServerTts();
         if (speakerVerifier != null) { speakerVerifier.close(); speakerVerifier = null; }
         if (voskEngine != null) { voskEngine.close(); voskEngine = null; }
         if (llmAgent != null) { llmAgent.close(); llmAgent = null; }
