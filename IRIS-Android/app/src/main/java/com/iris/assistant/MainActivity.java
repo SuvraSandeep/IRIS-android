@@ -642,6 +642,7 @@ public class MainActivity extends Activity {
 
     /** List the device's offline English voices and let the user pick one for IRIS. */
     private void showVoicePicker() {
+        final AppSettings settings = new AppSettings(this);
         final android.speech.tts.TextToSpeech[] tts = new android.speech.tts.TextToSpeech[1];
         tts[0] = new android.speech.tts.TextToSpeech(this, status -> {
             if (status != android.speech.tts.TextToSpeech.SUCCESS) { runOnUiThread(() -> toast("TTS not available.")); return; }
@@ -699,6 +700,7 @@ public class MainActivity extends Activity {
 
     /** Speak a sample line with the currently selected voice. */
     private void testCurrentVoice() {
+        final AppSettings settings = new AppSettings(this);
         final android.speech.tts.TextToSpeech[] tts = new android.speech.tts.TextToSpeech[1];
         tts[0] = new android.speech.tts.TextToSpeech(this, status -> {
             if (status != android.speech.tts.TextToSpeech.SUCCESS) { runOnUiThread(() -> toast("TTS not available.")); return; }
@@ -736,6 +738,7 @@ public class MainActivity extends Activity {
 
     /** Run a quick health checklist and show it in a dialog. */
     private void runSelfTest() {
+        final AppSettings settings = new AppSettings(this);
         final StringBuilder r = new StringBuilder();
         r.append(testRow("Microphone permission", hasPermission(Manifest.permission.RECORD_AUDIO)));
         r.append(testRow("SMS permission", hasPermission(Manifest.permission.SEND_SMS)));
