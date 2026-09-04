@@ -632,6 +632,148 @@ public class MainActivity extends Activity {
         return sb.length() == 0 ? "Nothing here yet." : sb.toString().trim();
     }
 
+    // ── Voice picker + self-test ──
+
+    private static boolean isFemaleVoiceName(String name) {
+        if (name == null) return false;
+        String n = name.toLowerCase(Locale.ROOT);
+        return n.contains("female") || n.contains("-f-") || n.endsWith("-f") || n.contains("#female") || n.contains("_f_");
+    }
+
+    /** List the device's offline English voices and let the user pick one for IRIS. */
+    private void showVoicePicker() {
+        final android.speech.tts.TextToSpeech[] tts = new android.speech.tts.TextToSpeech[1];
+        tts[0] = new android.speech.tts.TextToSpeech(this, status -> {
+            if (status != android.speech.tts.TextToSpeech.SUCCESS) { runOnUiThread(() -> toast("TTS not available.")); return; }
+            final java.util.List<android.speech.tts.Voice> voices = new ArrayList<>();
+            try {
+                for (android.speech.tts.Voice v : tts[0].getVoices()) {
+                    if (v == null || v.getLocale() == null) continue;
+                    if (!"en".equals(v.getLocale().getLanguage())) continue;
+                    if (v.isNetworkConnectionRequired()) continue; // offline voices only
+                    voices.add(v);
+                }
+            } catch (Exception ignored) { }
+            if (voices.isEmpty()) {
+                runOnUiThread(() -> toast("No offline English voices. Install Google TTS voice data first."));
+                try { tts[0].shutdown(); } catch (Exception ignored) { }
+                return;
+            }
+            // Female + Indian first, then by name.
+            voices.sort((a, b) -> {
+                int fa = (isFemaleVoiceName(a.getName()) ? 2 : 0) + ("IN".equals(a.getLocale().getCountry()) ? 1 : 0);
+                int fb = (isFemaleVoiceName(b.getName()) ? 2 : 0) + ("IN".equals(b.getLocale().getCountry()) ? 1 : 0);
+                if (fa != fb) return fb - fa;
+                return a.getName().compareTo(b.getName());
+            });
+            final String[] labels = new String[voices.size()];
+            int sel = -1;
+            String saved = settings.ttsVoiceName();
+            for (int i = 0; i < voices.size(); i++) {
+                android.speech.tts.Voice v = voices.get(i);
+                labels[i] = v.getLocale().getCountry() + " \u00B7 " + v.getName() + (isFemaleVoiceName(v.getName()) ? "  \u2640" : "");
+                if (v.getName().equals(saved)) sel = i;
+            }
+            final int selected = sel;
+            runOnUiThread(() -> new AlertDialog.Builder(this)
+                    .setTitle("Choose IRIS voice (tap to preview)")
+                    .setSingleChoiceItems(labels, selected, (d, which) -> {
+                        android.speech.tts.Voice v = voices.get(which);
+                        settings.setTtsVoiceName(v.getName());
+                        try {
+                            tts[0].setVoice(v);
+                            tts[0].setPitch(1.12f);
+                            tts[0].setSpeechRate(0.98f);
+                            tts[0].speak("Hi, this is IRIS.", android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "pick");
+                        } catch (Exception ignored) { }
+                    })
+                    .setPositiveButton("Use this voice", (d, w) -> {
+                        toast("Voice saved \u2705");
+                        if (IrisListeningService.isRunning) { stopListeningService(); handler.postDelayed(this::startListeningService, 600); }
+                    })
+                    .setNeutralButton("Auto", (d, w) -> { settings.setTtsVoiceName(""); toast("Back to automatic voice."); })
+                    .setOnDismissListener(d -> { try { tts[0].shutdown(); } catch (Exception ignored) { } })
+                    .show());
+        });
+    }
+
+    /** Speak a sample line with the currently selected voice. */
+    private void testCurrentVoice() {
+        final android.speech.tts.TextToSpeech[] tts = new android.speech.tts.TextToSpeech[1];
+        tts[0] = new android.speech.tts.TextToSpeech(this, status -> {
+            if (status != android.speech.tts.TextToSpeech.SUCCESS) { runOnUiThread(() -> toast("TTS not available.")); return; }
+            try {
+                tts[0].setLanguage(new Locale("en", "IN"));
+                String saved = settings.ttsVoiceName();
+                if (!saved.isEmpty()) {
+                    for (android.speech.tts.Voice v : tts[0].getVoices()) {
+                        if (v != null && saved.equals(v.getName())) { tts[0].setVoice(v); break; }
+                    }
+                }
+                tts[0].setPitch(1.12f);
+                tts[0].setSpeechRate(0.98f);
+                String name = PersonalProfile.preferredName(this);
+                String line = "Hello" + (name != null ? " " + name : "") + ", this is IRIS. How do I sound?";
+                tts[0].setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                    @Override public void onStart(String u) { }
+                    @Override public void onDone(String u) { try { tts[0].shutdown(); } catch (Exception ignored) { } }
+                    @Override public void onError(String u) { try { tts[0].shutdown(); } catch (Exception ignored) { } }
+                });
+                tts[0].speak(line, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "test");
+            } catch (Exception e) { try { tts[0].shutdown(); } catch (Exception ignored) { } }
+        });
+    }
+
+    private String testRow(String label, boolean ok) { return (ok ? "\u2705 " : "\u274C ") + label + "\n"; }
+    private String testLine(String label, String value) { return "\u2022 " + label + ": " + value + "\n"; }
+
+    private boolean notificationAccessGranted() {
+        try {
+            String s = android.provider.Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+            return s != null && s.contains(getPackageName());
+        } catch (Exception e) { return false; }
+    }
+
+    /** Run a quick health checklist and show it in a dialog. */
+    private void runSelfTest() {
+        final StringBuilder r = new StringBuilder();
+        r.append(testRow("Microphone permission", hasPermission(Manifest.permission.RECORD_AUDIO)));
+        r.append(testRow("SMS permission", hasPermission(Manifest.permission.SEND_SMS)));
+        r.append(testRow("Contacts permission", hasPermission(Manifest.permission.READ_CONTACTS)));
+        r.append(testRow("Notification access", notificationAccessGranted()));
+        boolean spk = new java.io.File(getFilesDir(), "vosk-model-spk-0.4").isDirectory();
+        r.append(testRow("Speaker model (voice ID)", spk));
+        ProfileStore ps = new ProfileStore(this);
+        ProfileStore.WakeProfile wp = ps.getWakeProfile();
+        r.append(testRow("Wake phrase trained", wp.isReady()));
+        r.append(testRow("Voice enrolled", wp.isVoiceEnrolled()));
+        r.append(testLine("Command pronunciations", ps.commandAliasCount() + " learned"));
+        r.append(testLine("High-accuracy voice model", settings.highAccuracyVoice() ? "on" : "off"));
+        r.append(testLine("Listening service", IrisListeningService.isRunning ? "running" : "stopped"));
+        r.append(testLine("Voice output", settings.serverTts() ? "server (Piper)"
+                : settings.ttsVoiceName().isEmpty() ? "auto (device)" : settings.ttsVoiceName()));
+        if (settings.serverModeEnabled() && !settings.serverUrl().isEmpty()) {
+            final String url = settings.serverUrl(), tok = settings.serverToken();
+            r.append("\u23F3 Server: checking\u2026\n");
+            new Thread(() -> {
+                boolean ok = new ServerClient(url, tok).health(4000);
+                final String full = r.toString().replace("\u23F3 Server: checking\u2026\n", testRow("Server reachable", ok));
+                runOnUiThread(() -> showReport(full));
+            }, "IRIS-SelfTest").start();
+        } else {
+            r.append(testLine("Server mode", "off"));
+            showReport(r.toString());
+        }
+    }
+
+    private void showReport(String text) {
+        new AlertDialog.Builder(this)
+                .setTitle("IRIS self-test")
+                .setMessage(text)
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
     private void showMemory() {
         selectedTab = 3;
         contentHost.removeAllViews();
@@ -1229,6 +1371,12 @@ public class MainActivity extends Activity {
             serverTtsSwitch.setChecked(settings.serverTts());
             serverTtsSwitch.setOnCheckedChangeListener((b, checked) -> settings.setServerTts(checked));
         }
+        Button chooseVoiceButton = view.findViewById(R.id.chooseVoiceButton);
+        if (chooseVoiceButton != null) chooseVoiceButton.setOnClickListener(v -> showVoicePicker());
+        Button testVoiceButton2 = view.findViewById(R.id.testVoiceButton);
+        if (testVoiceButton2 != null) testVoiceButton2.setOnClickListener(v -> testCurrentVoice());
+        Button selfTestButton = view.findViewById(R.id.selfTestButton);
+        if (selfTestButton != null) selfTestButton.setOnClickListener(v -> runSelfTest());
         Button saveServerButton = view.findViewById(R.id.saveServerButton);
         if (saveServerButton != null && serverUrlInput != null && serverTokenInput != null) {
             saveServerButton.setOnClickListener(v -> {

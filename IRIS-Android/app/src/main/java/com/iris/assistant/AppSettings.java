@@ -32,6 +32,9 @@ public final class AppSettings {
     public void setHaptics(boolean value) { prefs.edit().putBoolean("haptics", value).apply(); }
     public boolean voiceReplies() { return prefs.getBoolean("voice_replies", true); }
     public void setVoiceReplies(boolean value) { prefs.edit().putBoolean("voice_replies", value).apply(); }
+    /** Exact TTS voice name the user picked (empty = auto-select a female en-IN voice). */
+    public String ttsVoiceName() { return prefs.getString("tts_voice_name", ""); }
+    public void setTtsVoiceName(String v) { prefs.edit().putString("tts_voice_name", v == null ? "" : v).apply(); }
     public boolean preferOnDevice() { return prefs.getBoolean("prefer_on_device", true); }
     public void setPreferOnDevice(boolean value) { prefs.edit().putBoolean("prefer_on_device", value).apply(); }
     public String preferredMicrophone() { return prefs.getString("preferred_microphone", "Automatic"); }

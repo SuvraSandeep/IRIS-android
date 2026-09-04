@@ -226,6 +226,21 @@
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="VOICE &amp; DIAGNOSTICS" android:textColor="@color/cyan" android:textSize="11sp" android:textStyle="bold" />
+            <Button android:id="@+id/chooseVoiceButton" android:layout_width="match_parent" android:layout_height="48dp"
+                android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
+                android:text="\uD83D\uDD08 Choose IRIS voice" android:textAllCaps="false" android:textColor="@color/text_primary" android:textSize="13sp" />
+            <Button android:id="@+id/testVoiceButton" android:layout_width="match_parent" android:layout_height="48dp"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
+                android:text="\u25B6 Test voice" android:textAllCaps="false" android:textColor="@color/text_primary" android:textSize="13sp" />
+            <Button android:id="@+id/selfTestButton" android:layout_width="match_parent" android:layout_height="48dp"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_primary"
+                android:text="\uD83E\uDE7A Run self-test" android:textAllCaps="false" android:textColor="@color/text_primary" android:textSize="13sp" android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="PERSONALITY &amp; FEEDBACK" android:textColor="@color/magenta" android:textSize="11sp" android:textStyle="bold" />
             <Spinner android:id="@+id/personalitySpinner" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="5dp" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"

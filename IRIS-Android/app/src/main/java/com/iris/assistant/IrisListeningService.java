@@ -3507,10 +3507,13 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
             // Choose the highest-quality voice for the chosen locale, preferring non-robotic
             try {
+                String savedName = settings.ttsVoiceName();
                 android.speech.tts.Voice best = null;
                 int bestScore = Integer.MIN_VALUE;
                 for (android.speech.tts.Voice v : textToSpeech.getVoices()) {
                     if (v == null || v.getLocale() == null) continue;
+                    // Honor the user's explicit pick if it's still available.
+                    if (!savedName.isEmpty() && savedName.equals(v.getName())) { best = v; bestScore = Integer.MAX_VALUE; break; }
                     String lang = v.getLocale().getLanguage();
                     if (!"en".equals(lang)) continue;
                     boolean indianV = "IN".equals(v.getLocale().getCountry());
@@ -3524,7 +3527,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 if (best != null) {
                     textToSpeech.setVoice(best);
                     LogStore.append(this, "TTS", "Voice: " + best.getName() + " (" + best.getLocale()
-                            + ", female=" + isFemaleVoice(best) + ")");
+                            + (bestScore == Integer.MAX_VALUE ? ", user-picked" : ", female=" + isFemaleVoice(best)) + ")");
                 }
             } catch (Exception ignored) { }
             // Warmer, less-robotic delivery; slightly higher pitch reads as more feminine.
