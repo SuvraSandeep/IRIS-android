@@ -292,7 +292,11 @@ Implemented in the app, gated behind the off-by-default **Server mode** toggle:
 - Voice: "go online" / "go offline". Settings card: URL, token, Whisper toggle, Save, Test connection.
 - Server replies may include `[CALL: …]` / `[SMS: …]` tags → executed on the phone via `handleLlmOutput`.
 
-**Remaining (Phase B/C/D):** streaming replies, `/tts` (Piper), one-command server installer in `server/`.
+**Phase B — already covered:** the server reply routes through `handleLlmOutput`, which parses the full action vocabulary (`[CALL:]`, `[SMS: name | message]`, `[WHATSAPP:]`, `[EMAIL:]`, `[ALARM:]`, `[TIMER:]`, `[REMINDER:]`, `[TORCH:]`, `[VOLUME:]`, `[WIFI]`, `[BLUETOOTH]`, `[SEARCH:]`, `[NAVIGATE:]`, `[CALENDAR:]`, `[TIME]/[BATTERY]/[WEATHER]/[LOCATION]/[NOTIFICATIONS]`, `[REDIAL]`, `[CALL_HISTORY]`, `[REMEMBER:]`, `[RECALL:]`) — so the online brain can already trigger any phone action. Voice "go online/offline", the circuit breaker, and slow-latency auto-offline also shipped in Phase A.
+
+**Phase D — shipped:** runnable server package in `server/` (`app.py`, `requirements.txt`, `install.sh` one-command setup + systemd, `Caddyfile`, `README.md`). `app.py`'s system prompt enumerates the exact tag vocabulary above.
+
+**Remaining (Phase C, optional):** `/tts` (Piper) so the *online* voice is nicer than Android TTS (needs audio-playback wiring in the app's speak path), and streaming replies for lower latency.
 
 ## 13. Oracle server setup (copy-paste)
 

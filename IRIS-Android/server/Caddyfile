@@ -1,0 +1,9 @@
+# Optional public HTTPS front for the IRIS API (auto-TLS via Let's Encrypt).
+# Replace the domain, then: sudo apt install caddy && sudo cp Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# Point your domain's A/AAAA record at the VM's public IP first, and open port 443.
+#
+# If you use Tailscale instead, you don't need this file at all — just use the tailnet IP.
+
+your.domain.com {
+    reverse_proxy 127.0.0.1:8000
+}
