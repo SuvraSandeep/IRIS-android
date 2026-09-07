@@ -88,6 +88,21 @@ public class IrisListeningService extends Service implements RecognitionListener
             "^(?:call\\s+by\\s+spelling|spell(?:ing)?(?:\\s+(?:the\\s+)?(?:name|contact))?"
             + "|spell\\s+(?:the\\s+)?(?:name|contact)|let\\s+me\\s+spell)$",
             Pattern.CASE_INSENSITIVE);
+    // "what version are you", "app version" / "what's new in this version"
+    private static final Pattern VERSION_PATTERN = Pattern.compile(
+            "^(?:(?:what|which)(?:'?s| is)?\\s+(?:your\\s+|the\\s+|iris\\s+|app\\s+)?version(?:\\s+number)?"
+            + "|what\\s+version\\s+are\\s+you|your\\s+version|app\\s+version|version\\s+number|version)$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern WHATSNEW_PATTERN = Pattern.compile(
+            "^(?:what'?s\\s+new(?:\\s+in\\s+(?:this|the\\s+latest)?\\s*(?:version|update|build)?)?"
+            + "|what\\s+is\\s+new|what(?:'?s| did\\s+you)\\s+(?:changed?|add(?:ed)?)"
+            + "|release\\s+notes|change\\s?log|what'?s\\s+in\\s+this\\s+(?:version|update|build))$",
+            Pattern.CASE_INSENSITIVE);
+    // What's-new summary — UPDATE this each release (per PROJECT-RULES).
+    private static final String VERSION_NOTES =
+            "You can now ask my version and what's new by voice. Recent additions: calling by spelling a name, "
+            + "music and media control \u2014 play, pause, next, previous, and set volume by percent \u2014 playing "
+            + "local songs by name, and a wake fix so I always respond to your voice.";
     private static final Pattern QUICK_ACTION_PATTERN = Pattern.compile(
             "^(?:what(?:\\s+is)?\\s+the\\s+time|time\\s*(?:please)?|what\\s+time\\s+is\\s+it"
             + "|battery|battery\\s+level|how\\s+much\\s+battery"
@@ -934,6 +949,10 @@ public class IrisListeningService extends Service implements RecognitionListener
             handleNotifications(normalized);
             return;
         }
+
+        // Version / what's-new
+        if (VERSION_PATTERN.matcher(normalized).matches()) { handleVersion(); return; }
+        if (WHATSNEW_PATTERN.matcher(normalized).matches()) { handleWhatsNew(); return; }
 
         // Server mode voice toggle
         if (normalized.matches("^(go online|use (?:the )?server|server mode on|online mode)$")) {
@@ -2291,6 +2310,24 @@ public class IrisListeningService extends Service implements RecognitionListener
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
             LogStore.append(this, "TORCH", "Failed: " + e.getMessage());
         }
+    }
+
+    /** IRIS's installed version name (from the APK), or "unknown". */
+    private String appVersionName() {
+        try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (Exception e) { return "unknown"; }
+    }
+
+    private void handleVersion() {
+        String msg = "I'm IRIS, version " + appVersionName() + ".";
+        broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+        LogStore.append(this, "VERSION", appVersionName());
+    }
+
+    private void handleWhatsNew() {
+        String msg = "Version " + appVersionName() + ". " + VERSION_NOTES;
+        broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+        LogStore.append(this, "VERSION", "what's new");
     }
 
     /** Control whatever is currently playing (any media app) via media key events. */

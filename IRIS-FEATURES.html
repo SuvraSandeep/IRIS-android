@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.28.0";
+const BUILD_VERSION = "7.29.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -187,6 +187,10 @@ const FEATURES = [
    tagline:"Choose exactly how IRIS sounds.",
    desc:"Settings → “Choose IRIS voice” lists your device's offline English voices (female/Indian first), previews each on tap, and remembers your pick. “Test voice” speaks a sample. Overrides the automatic female-voice heuristic.",
    examples:["Settings → Choose IRIS voice → tap to preview → Use this voice"], version:"7.25.0"},
+  {id:"version", cat:"Voice & Recognition", icon:"🏷️", title:"Version & What's New",
+   tagline:"Ask IRIS its version and what changed.",
+   desc:"Say “what version are you” and IRIS speaks its installed version; say “what's new” for a short summary of the latest additions. The version also shows at the top of the Settings → Self-test report.",
+   examples:["what version are you","what's new"], version:"7.29.0"},
   {id:"selftest", cat:"Voice & Recognition", icon:"🩺", title:"Self-Test / Diagnostics",
    tagline:"One tap: what's working, what's not.",
    desc:"Settings → “Run self-test” checks mic/SMS/contacts/notification permissions, the speaker model, whether the wake phrase is trained and your voice enrolled, learned command pronunciations, the listening service, the chosen voice, and (if on) whether your server is reachable — as a green/red checklist.",

@@ -740,6 +740,10 @@ public class MainActivity extends Activity {
     private void runSelfTest() {
         final AppSettings settings = new AppSettings(this);
         final StringBuilder r = new StringBuilder();
+        String appVer;
+        try { appVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (Exception e) { appVer = "unknown"; }
+        r.append(testLine("IRIS version", appVer));
         r.append(testRow("Microphone permission", hasPermission(Manifest.permission.RECORD_AUDIO)));
         r.append(testRow("SMS permission", hasPermission(Manifest.permission.SEND_SMS)));
         r.append(testRow("Contacts permission", hasPermission(Manifest.permission.READ_CONTACTS)));
