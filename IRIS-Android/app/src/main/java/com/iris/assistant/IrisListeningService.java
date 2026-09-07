@@ -183,7 +183,26 @@ public class IrisListeningService extends Service implements RecognitionListener
             Pattern.CASE_INSENSITIVE);
     // "set volume to 50", "volume 50 percent", "set the volume at 30%"
     private static final Pattern VOLUME_SET_PATTERN = Pattern.compile(
-            "^(?:set\\s+)?(?:the\\s+)?volume\\s+(?:to|at)?\\s*(\\d{1,3})\\s*(?:percent|%)?$",
+            "^(?:set\\s+)?(?:the\\s+)?volume\\s+(?:to\\s+|at\\s+)?(.+?)\\s*(?:percent|%)?$",
+            Pattern.CASE_INSENSITIVE);
+    // Ringer: silent / vibrate / normal
+    private static final Pattern SILENT_PATTERN = Pattern.compile(
+            "^(?:(?:go\\s+|turn\\s+on\\s+)?silent(?:\\s+mode)?|silence\\s+(?:my\\s+)?phone"
+            + "|make\\s+(?:my\\s+)?phone\\s+silent|mute\\s+(?:my\\s+)?phone)$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern VIBRATE_PATTERN = Pattern.compile(
+            "^(?:vibrate(?:\\s+mode|\\s+only)?|(?:go\\s+|turn\\s+on\\s+)?vibrate)$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern NORMAL_RINGER_PATTERN = Pattern.compile(
+            "^(?:normal\\s+mode|ring(?:er)?\\s+mode|sound\\s+on|turn\\s+on\\s+(?:the\\s+)?(?:sound|ringer)"
+            + "|unmute\\s+(?:my\\s+)?phone|general\\s+mode)$",
+            Pattern.CASE_INSENSITIVE);
+    // Do Not Disturb on/off
+    private static final Pattern DND_PATTERN = Pattern.compile(
+            "^(?:turn\\s+on\\s+|enable\\s+|start\\s+)?(?:do\\s+not\\s+disturb|dnd)(?:\\s+on)?$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern DND_OFF_PATTERN = Pattern.compile(
+            "^(?:turn\\s+off|disable|stop|end)\\s+(?:do\\s+not\\s+disturb|dnd)$",
             Pattern.CASE_INSENSITIVE);
     // Control whatever is playing: pause/resume/next/previous
     private static final Pattern MEDIA_CONTROL_PATTERN = Pattern.compile(
@@ -1016,9 +1035,14 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         if (MEDIA_CONTROL_PATTERN.matcher(normalized).matches()) { handleMediaControl(normalized); return; }
+        if (VOLUME_PATTERN.matcher(normalized).matches()) { handleVolume(normalized); return; }
         Matcher volSetM = VOLUME_SET_PATTERN.matcher(normalized);
         if (volSetM.matches()) { handleSetVolumePercent(volSetM.group(1)); return; }
-        if (VOLUME_PATTERN.matcher(normalized).matches()) { handleVolume(normalized); return; }
+        if (DND_OFF_PATTERN.matcher(normalized).matches()) { handleDnd(false); return; }
+        if (DND_PATTERN.matcher(normalized).matches()) { handleDnd(true); return; }
+        if (SILENT_PATTERN.matcher(normalized).matches()) { handleRinger(AudioManager.RINGER_MODE_SILENT); return; }
+        if (VIBRATE_PATTERN.matcher(normalized).matches()) { handleRinger(AudioManager.RINGER_MODE_VIBRATE); return; }
+        if (NORMAL_RINGER_PATTERN.matcher(normalized).matches()) { handleRinger(AudioManager.RINGER_MODE_NORMAL); return; }
         Matcher playM = PLAY_SONG_PATTERN.matcher(clean);
         if (playM.matches() && !containsCallVerb(normalized)) { handlePlaySong(playM.group(1).trim()); return; }
         Matcher connM = CONNECTIVITY_PATTERN.matcher(normalized);
@@ -2350,9 +2374,14 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Set media volume to a percentage (0-100). */
-    private void handleSetVolumePercent(String pctStr) {
+    private void handleSetVolumePercent(String value) {
+        int pct = parseNumberWords(value);
+        if (pct < 0) {
+            String m = "I didn't catch the volume level.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction); return;
+        }
+        pct = Math.max(0, Math.min(100, pct));
         try {
-            int pct = Math.max(0, Math.min(100, Integer.parseInt(pctStr.trim())));
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
             int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
             am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(max * pct / 100f), AudioManager.FLAG_SHOW_UI);
@@ -2363,6 +2392,73 @@ public class IrisListeningService extends Service implements RecognitionListener
             String m = "I couldn't set the volume.";
             broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
         }
+    }
+
+    /** Parse a number from digits or words ("fifty" → 50, "forty five" → 45, "full"/"max" → 100). -1 if none. */
+    private int parseNumberWords(String s) {
+        if (s == null) return -1;
+        s = s.trim().toLowerCase(Locale.ROOT);
+        if (s.matches("\\d{1,3}")) return Integer.parseInt(s);
+        if (s.contains("hundred") || s.equals("full") || s.equals("max") || s.equals("maximum")) return 100;
+        if (s.equals("half")) return 50;
+        int total = 0; boolean found = false;
+        for (String tok : s.split("[^a-z]+")) {
+            Integer v = NUM_WORDS.get(tok);
+            if (v != null) { total += v; found = true; }
+        }
+        return found ? total : -1;
+    }
+
+    /** Silent / vibrate / normal ringer. Needs Do Not Disturb access on modern Android. */
+    private void handleRinger(int mode) {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (Build.VERSION.SDK_INT >= 23 && nm != null && !nm.isNotificationPolicyAccessGranted()
+                    && mode != AudioManager.RINGER_MODE_NORMAL) {
+                requestDndAccess("change the ringer");
+                return;
+            }
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            am.setRingerMode(mode);
+            String msg = mode == AudioManager.RINGER_MODE_SILENT ? "Phone silenced."
+                    : mode == AudioManager.RINGER_MODE_VIBRATE ? "Vibrate mode on."
+                    : "Ringer back to normal.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "RINGER", msg);
+        } catch (Exception e) {
+            String m = "I couldn't change the ringer mode.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+        }
+    }
+
+    /** Toggle Do Not Disturb. Needs DND (notification policy) access. */
+    private void handleDnd(boolean on) {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (Build.VERSION.SDK_INT < 23 || nm == null) {
+                String m = "Do Not Disturb isn't available on this phone.";
+                broadcastMessage(m); speakThenRun(m, this::rearmAfterAction); return;
+            }
+            if (!nm.isNotificationPolicyAccessGranted()) { requestDndAccess("turn Do Not Disturb on or off"); return; }
+            nm.setInterruptionFilter(on ? NotificationManager.INTERRUPTION_FILTER_PRIORITY
+                    : NotificationManager.INTERRUPTION_FILTER_ALL);
+            String msg = on ? "Do Not Disturb is on." : "Do Not Disturb is off.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "DND", msg);
+        } catch (Exception e) {
+            String m = "I couldn't change Do Not Disturb.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+        }
+    }
+
+    private void requestDndAccess(String action) {
+        String msg = "I need Do Not Disturb access to " + action + ". Please allow it for IRIS, then try again.";
+        broadcastMessage(msg);
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception ignored) { }
+        speakThenRun(msg, this::rearmAfterAction);
     }
 
     /** Play a local song/artist by name via any installed music app (offline). */
@@ -2579,7 +2675,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 "ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen",
                 "eighteen","nineteen"};
         for (int i = 0; i < ones.length; i++) NUM_WORDS.put(ones[i], i);
-        String[] tens = {"twenty","thirty","forty","fifty"};
+        String[] tens = {"twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"};
         for (int i = 0; i < tens.length; i++) NUM_WORDS.put(tens[i], (i + 2) * 10);
     }
 

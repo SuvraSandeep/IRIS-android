@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.29.0";
+const BUILD_VERSION = "7.30.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -241,8 +241,16 @@ const FEATURES = [
   // ---- Productivity ----
   {id:"media", cat:"Productivity", icon:"🎵", title:"Media & Music Control",
    tagline:"Run playback and volume by voice.",
-   desc:"Controls whatever's playing (any app) — “pause”, “resume”, “next”, “previous” — via media keys, plus volume: “volume up/down”, “mute”, “max volume”, and “set volume to 50%”. And “play <song>” hands off to your music app to find & play a local track offline.",
-   examples:["pause","next song","previous","set volume to 40 percent","play <song name>"], version:"7.27.0"},
+   desc:"Controls whatever's playing (any app) — “pause”, “resume”, “next”, “previous” — via media keys, plus volume: “volume up/down”, “mute”, “max volume”, and “set volume to 50%” (digits or words like “fifty”). And “play <song>” hands off to your music app to find & play a local track offline.",
+   examples:["pause","next song","set volume to fifty percent","play <song name>"], version:"7.30.0"},
+  {id:"silentdnd", cat:"Productivity", icon:"🔕", title:"Silent & Do Not Disturb",
+   tagline:"“Silence my phone.” / “Do not disturb.”",
+   desc:"Switches the ringer to silent, vibrate, or normal, and toggles Do Not Disturb by voice. Needs one-time Do Not Disturb access — IRIS opens the settings page the first time so you can allow it.",
+   examples:["silent mode","vibrate mode","normal mode","do not disturb","turn off do not disturb"], version:"7.30.0"},
+  {id:"copytext", cat:"Productivity", icon:"📋", title:"Tap to Copy",
+   tagline:"Copy what IRIS heard or said.",
+   desc:"On the Assistant screen, tap the recognized command (or IRIS's reply) to copy it to the clipboard; the text is also selectable.",
+   examples:["tap the “…” transcript to copy"], version:"7.30.0"},
   {id:"alarm", cat:"Productivity", icon:"⏰", title:"Set Alarm",
    tagline:"“Wake me at 6:30.”",
    desc:"Sets a system alarm, parsing spoken times like “7:30 am”. Flexible phrasing: “set an alarm 7 am”, “wake me at 6”, with or without “for/at”.",

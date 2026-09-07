@@ -276,6 +276,18 @@ public class MainActivity extends Activity {
         recognitionText = view.findViewById(R.id.recognitionText);
         phaseChip = view.findViewById(R.id.phaseChip);
         frequentContactsText = view.findViewById(R.id.frequentContactsText);
+        // Tap the recognized text to copy it.
+        if (liveTranscript != null) {
+            liveTranscript.setTextIsSelectable(true);
+            liveTranscript.setOnClickListener(v -> copyToClipboard(liveTranscript.getText().toString(), "Copied \u2713"));
+        }
+        if (recognitionText != null) {
+            recognitionText.setTextIsSelectable(true);
+            recognitionText.setOnClickListener(v -> copyToClipboard(recognitionText.getText().toString(), "Copied \u2713"));
+        }
+        if (subStatusText != null) {
+            subStatusText.setOnClickListener(v -> copyToClipboard(subStatusText.getText().toString(), "Reply copied \u2713"));
+        }
         irisOrb.setOnClickListener(v -> toggleIris());
         // Apply appearance to the orb
         AppSettings appearance = new AppSettings(this);
@@ -771,6 +783,19 @@ public class MainActivity extends Activity {
             r.append(testLine("Server mode", "off"));
             showReport(r.toString());
         }
+    }
+
+    /** Copy text to the clipboard (strips surrounding quotes), with a toast. */
+    private void copyToClipboard(String text, String toastMsg) {
+        if (text == null) return;
+        String t = text.replaceAll("^[\u201C\"]+|[\u201D\"]+$", "").trim();
+        if (t.isEmpty()) return;
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("IRIS", t));
+            toast(toastMsg);
+        } catch (Exception e) { toast("Couldn't copy."); }
     }
 
     private void showReport(String text) {
