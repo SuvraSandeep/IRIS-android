@@ -518,7 +518,7 @@ public final class VoskEngine {
         if (text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)")) return true;
         if (keyWord != null && keyWord.length() >= 3
                 && text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(keyWord) + "(\\s.*|$)")) return true;
-        return wakeSim(text, phrase) >= 0.6;
+        return wakeSim(text, phrase) >= 0.55;
     }
 
     /** Levenshtein similarity ratio (0..1). */

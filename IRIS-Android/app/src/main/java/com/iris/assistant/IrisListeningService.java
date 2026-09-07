@@ -202,7 +202,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             "^(?:turn\\s+on\\s+|enable\\s+|start\\s+)?(?:do\\s+not\\s+disturb|dnd)(?:\\s+on)?$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern DND_OFF_PATTERN = Pattern.compile(
-            "^(?:turn\\s+off|disable|stop|end)\\s+(?:do\\s+not\\s+disturb|dnd)$",
+            "^(?:(?:turn\\s+off|disable|stop|end)\\s+(?:do\\s+not\\s+disturb|dnd)"
+            + "|(?:do\\s+not\\s+disturb|dnd)\\s+off)$",
             Pattern.CASE_INSENSITIVE);
     // Control whatever is playing: pause/resume/next/previous
     private static final Pattern MEDIA_CONTROL_PATTERN = Pattern.compile(

@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.30.1";
+const BUILD_VERSION = "7.31.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -243,10 +243,14 @@ const FEATURES = [
    tagline:"Run playback and volume by voice.",
    desc:"Controls whatever's playing (any app) — “pause”, “resume”, “next”, “previous” — via media keys, plus volume: “volume up/down”, “mute”, “max volume”, and “set volume to 50%” (digits or words like “fifty”). And “play <song>” hands off to your music app to find & play a local track offline.",
    examples:["pause","next song","set volume to fifty percent","play <song name>"], version:"7.30.0"},
+  {id:"guide", cat:"Voice & Recognition", icon:"📖", title:"In-App Feature Guide",
+   tagline:"Tap “📖 Guide” below the orb.",
+   desc:"A “📖 Guide” chip below the orb (with the quick actions) opens a list of every IRIS feature; tap any item to see exactly how to use it with examples.",
+   examples:["Assistant → 📖 Guide → tap a feature"], version:"7.31.0"},
   {id:"silentdnd", cat:"Productivity", icon:"🔕", title:"Silent & Do Not Disturb",
    tagline:"“Silence my phone.” / “Do not disturb.”",
    desc:"Switches the ringer to silent, vibrate, or normal, and toggles Do Not Disturb by voice. Needs one-time Do Not Disturb access — IRIS opens the settings page the first time so you can allow it.",
-   examples:["silent mode","vibrate mode","normal mode","do not disturb","turn off do not disturb"], version:"7.30.0"},
+   examples:["silent mode","vibrate mode","normal mode","do not disturb","dnd off"], version:"7.31.0"},
   {id:"copytext", cat:"Productivity", icon:"📋", title:"Tap to Copy",
    tagline:"Copy what IRIS heard or said.",
    desc:"On the Assistant screen, tap the recognized command (or IRIS's reply) to copy it to the clipboard; the text is also selectable.",

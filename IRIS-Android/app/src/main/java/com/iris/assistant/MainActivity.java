@@ -357,6 +357,21 @@ public class MainActivity extends Activity {
             chip.setOnClickListener(v -> onQuickChip(cmd));
             row.addView(chip);
         }
+        // "Feature guide" chip — lists every feature with how-to
+        Button guide = new Button(this);
+        guide.setText("\uD83D\uDCD6 Guide");
+        guide.setAllCaps(false);
+        guide.setTextColor(getColorCompat(R.color.text_primary));
+        guide.setTextSize(12f);
+        guide.setBackgroundResource(R.drawable.bg_chip);
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(44));
+        glp.rightMargin = dp(8);
+        guide.setLayoutParams(glp);
+        guide.setPadding(dp(16), 0, dp(16), 0);
+        guide.setOnClickListener(v -> showFeatureGuide());
+        row.addView(guide);
+
         // Trailing "Edit" chip to customize the row
         Button edit = new Button(this);
         edit.setText("\uFF0B Edit");
@@ -796,6 +811,50 @@ public class MainActivity extends Activity {
             cm.setPrimaryClip(android.content.ClipData.newPlainText("IRIS", t));
             toast(toastMsg);
         } catch (Exception e) { toast("Couldn't copy."); }
+    }
+
+    // {title, how-to (with examples)} — tap an item in the guide to see this.
+    private static final String[][] FEATURE_GUIDE = {
+        {"📞 Call a contact", "Say “call <name>”. IRIS fuzzy-matches and confirms first.\nExamples: “call mom”, “phone the office”."},
+        {"🔤 Call by spelling", "When a name is mis-heard, say “spell the name”, then spell it (letters or NATO).\nExample: “spell the name” → “Mike Alpha Alpha”."},
+        {"☎️ Call / text a number", "Say the number directly.\nExamples: “call 98765 43210”, “send a text to 9876543210”."},
+        {"✉️ Send SMS", "Say it naturally, no “saying” needed. Or just “send an SMS” and IRIS asks who + what.\nExamples: “text mom I'll be late”, “send an SMS”."},
+        {"💬 WhatsApp", "Opens the chat pre-filled; you tap send.\nExample: “whatsapp Sam saying on my way”."},
+        {"⏰ Alarms & timers", "Examples: “set an alarm for 7 am”, “wake me at 6:30”, “set a timer for 10 minutes”."},
+        {"🔔 Reminders", "Say “remind me to <task> in/at <time>”.\nExample: “remind me to call dad in 10 minutes”."},
+        {"🎵 Media & music", "Control playback: “pause”, “resume”, “next”, “previous”. Play a song: “play <song>”."},
+        {"🔊 Volume", "“volume up/down”, “mute”, “max volume”, “set volume to 50 percent” (digits or words)."},
+        {"🔕 Silent & DND", "“silent mode”, “vibrate mode”, “normal mode”, “do not disturb”, “dnd off”. (Needs DND access once.)"},
+        {"🔦 Torch / flashlight", "“turn on the flashlight”, “torch off”."},
+        {"🌦️ Weather", "“what's the weather”, “weather today”."},
+        {"📍 Location", "“where am I”, “my location”."},
+        {"📬 Notifications", "“read my notifications”, “what did I miss”, “clear all notifications”."},
+        {"🌐 Web & apps", "“search for <query>”, “open <app>”, “navigate to <place>”."},
+        {"🧠 Memory", "“remember I like green tea”, “what do you know about me”, “forget that”. Profile facts are read-only (edit iris-me.json)."},
+        {"🎙️ Wake phrase", "Train it in Training. Say your phrase (e.g. “Hello IRIS”) to wake. Tip: a short distinctive word wakes best."},
+        {"🎓 Voice & command training", "Training → “Learn My Voice & Commands” — read phrases + say each command so IRIS fits your accent."},
+        {"🎚️ Choose voice", "Settings → “Choose IRIS voice” to pick a female/other voice; “Test voice” to preview."},
+        {"🛰️ Server mode", "Settings → Server mode: use your own online brain when connected; auto-falls back offline. Say “go online/offline”."},
+        {"🩺 Self-test", "Settings → “Run self-test” shows what's working + the installed version."},
+        {"🏷️ Version / what's new", "Say “what version are you” or “what's new”."},
+        {"📋 Copy text", "On the Assistant screen, tap the recognized text or IRIS's reply to copy it."},
+        {"🛑 Stop / sleep", "Say “stop” or “go to sleep” to dismiss; “kill” to shut IRIS down."},
+    };
+
+    /** List every feature; tap one to see how to use it. */
+    private void showFeatureGuide() {
+        String[] titles = new String[FEATURE_GUIDE.length];
+        for (int i = 0; i < FEATURE_GUIDE.length; i++) titles[i] = FEATURE_GUIDE[i][0];
+        new AlertDialog.Builder(this)
+                .setTitle("IRIS — features & how to use")
+                .setItems(titles, (d, which) -> new AlertDialog.Builder(this)
+                        .setTitle(FEATURE_GUIDE[which][0])
+                        .setMessage(FEATURE_GUIDE[which][1])
+                        .setPositiveButton("Got it", null)
+                        .setNeutralButton("Back", (dd, w) -> showFeatureGuide())
+                        .show())
+                .setPositiveButton("Close", null)
+                .show();
     }
 
     private void showReport(String text) {
