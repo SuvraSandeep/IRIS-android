@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.30.0";
+const BUILD_VERSION = "7.30.1";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -144,8 +144,8 @@ const FEATURES = [
   // ---- Voice & Recognition ----
   {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
    tagline:"IRIS wakes only when you say your phrase.",
-   desc:"Train your own wake phrase; IRIS listens silently in the background and springs to life only on an exact match — no beeps, no false triggers. It listens without interrupting your music or video: on a mismatch it keeps the same mic session open (no restart) and never talks over active media. Anti-lockout: if voice-verification rejects you 3 times in a row, it wakes anyway so you're never locked out by a strict voiceprint.",
-   examples:["“Hello IRIS” (or whatever you trained)"], version:"7.27.0"},
+   desc:"Train your own wake phrase; IRIS listens silently in the background. Accent‑tolerant matching: it also listens for the distinctive last word and close/fuzzy matches, so it still wakes if the model slightly mis‑hears you. Doesn't interrupt music/video, and anti‑lockout wakes you even if voice‑verification is being fussy.",
+   examples:["“Hello IRIS” (or whatever you trained)"], version:"7.30.1"},
   {id:"voicetrain", cat:"Voice & Recognition", icon:"🎓", title:"Voice & Command Training",
    tagline:"Reads your talking pattern + learns how you say each command.",
    desc:"A guided, on-device trainer in two parts. First you read a few sentences aloud so IRIS builds your voice pattern (x-vector) for wake verification. Then it walks through each command word (call, text, alarm, weather…), records how YOU say it, transcribes it, and stores your pronunciation as an alias — so the recognizer maps your accent back to the right command. 100% offline. Honest limit: it can't retrain the speech model itself, but the aliases + voice pattern are the real, free levers that make recognition fit your voice.",

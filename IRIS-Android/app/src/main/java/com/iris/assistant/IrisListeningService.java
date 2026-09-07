@@ -484,9 +484,9 @@ public class IrisListeningService extends Service implements RecognitionListener
                 // but NEVER lock the owner out: after 3 rejects in a row, accept anyway.
                 if (!isOwnerVoice(voiceEmbedding)) {
                     consecutiveWakeRejects++;
-                    if (consecutiveWakeRejects < 3) {
+                    if (consecutiveWakeRejects < 2) {
                         LogStore.append(IrisListeningService.this, "WAKE REJECT",
-                                "voice not recognized (" + consecutiveWakeRejects + "/3)");
+                                "voice not recognized (" + consecutiveWakeRejects + "/2)");
                         if (voiceEmbedding != null) {
                             new ProfileStore(IrisListeningService.this).setPendingVoiceSample(voiceEmbedding);
                         }

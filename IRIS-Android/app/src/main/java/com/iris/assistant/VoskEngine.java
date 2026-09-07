@@ -271,7 +271,15 @@ public final class VoskEngine {
         stop();
         try {
             String phrase = wakePhrase.toLowerCase().trim();
-            String grammar = "[\"" + phrase + "\", \"[unk]\"]";
+            String[] wakeWords = phrase.split("\\s+");
+            final String keyWord = wakeWords[wakeWords.length - 1];
+            // Grammar = full phrase + the distinctive last word + [unk]. Giving Vosk the short
+            // key word as a target lets it still snap to a wake even if it mis-hears the leading
+            // words (accent-tolerant), instead of dumping everything into [unk].
+            StringBuilder gb = new StringBuilder("[\"" + phrase + "\"");
+            if (!keyWord.equals(phrase) && keyWord.length() >= 3) gb.append(", \"" + keyWord + "\"");
+            gb.append(", \"[unk]\"]");
+            String grammar = gb.toString();
             Recognizer recognizer = new Recognizer(model, SAMPLE_RATE, grammar);
             if (spkReady && spkModel != null) {
                 try {
@@ -286,12 +294,12 @@ public final class VoskEngine {
                     // Do NOT trigger on partial results — too noisy.
                 }
                 @Override public void onResult(String hypothesis) {
-                    if (isExactPhrase(hypothesis, phrase)) {
+                    if (wakeMatches(hypothesis, phrase, keyWord)) {
                         listener.onWakeDetected(extractSpk(hypothesis));
                     }
                 }
                 @Override public void onFinalResult(String hypothesis) {
-                    if (isExactPhrase(hypothesis, phrase)) {
+                    if (wakeMatches(hypothesis, phrase, keyWord)) {
                         listener.onWakeDetected(extractSpk(hypothesis));
                     }
                 }
@@ -499,6 +507,35 @@ public final class VoskEngine {
         // Match the phrase as a whole word within the final text
         return text.equals(phrase)
                 || text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)");
+    }
+
+    /** Accent-tolerant wake match: exact phrase, the distinctive key word present, or a close
+     *  fuzzy match to the phrase. More forgiving than exact grammar matching. */
+    private static boolean wakeMatches(String hypothesisJson, String phrase, String keyWord) {
+        String text = extractText(hypothesisJson, "text");
+        if (text.isEmpty() || text.equals("[unk]")) return false;
+        if (text.equals(phrase)) return true;
+        if (text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)")) return true;
+        if (keyWord != null && keyWord.length() >= 3
+                && text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(keyWord) + "(\\s.*|$)")) return true;
+        return wakeSim(text, phrase) >= 0.6;
+    }
+
+    /** Levenshtein similarity ratio (0..1). */
+    private static double wakeSim(String a, String b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return 0;
+        int[] prev = new int[b.length() + 1];
+        int[] cur = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) prev[j] = j;
+        for (int i = 1; i <= a.length(); i++) {
+            cur[0] = i;
+            for (int j = 1; j <= b.length(); j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                cur[j] = Math.min(Math.min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+            }
+            int[] t = prev; prev = cur; cur = t;
+        }
+        return 1.0 - ((double) prev[b.length()] / Math.max(a.length(), b.length()));
     }
 
     private static String extractText(String json, String field) {
