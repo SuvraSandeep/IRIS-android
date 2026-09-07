@@ -73,7 +73,7 @@ public final class AppSettings {
     public void setServerTts(boolean v) { prefs.edit().putBoolean("server_tts", v).apply(); }
     public boolean autoOfflineWhenSlow() { return prefs.getBoolean("server_auto_offline_slow", true); }
     public void setAutoOfflineWhenSlow(boolean v) { prefs.edit().putBoolean("server_auto_offline_slow", v).apply(); }
-    public int serverSlowMs() { return prefs.getInt("server_slow_ms", 8000); }
+    public int serverSlowMs() { return prefs.getInt("server_slow_ms", 30000); }
     public void setServerSlowMs(int v) { prefs.edit().putInt("server_slow_ms", v).apply(); }
     /** Let IRIS act on commands while the phone is locked (UI actions prompt a quick unlock). */
     public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }

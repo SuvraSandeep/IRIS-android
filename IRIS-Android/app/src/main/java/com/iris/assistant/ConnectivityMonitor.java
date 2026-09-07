@@ -46,7 +46,8 @@ final class ConnectivityMonitor {
     void recordSuccess(long ms) { consecutiveFailures = 0; lastLatencyMs = ms; }
 
     void recordFailure() {
-        if (++consecutiveFailures >= 3) circuitOpenUntil = System.currentTimeMillis() + 60_000L; // 60s cooldown
+        // Tolerant of slow free servers: only open the breaker after several misses, short cooldown.
+        if (++consecutiveFailures >= 5) circuitOpenUntil = System.currentTimeMillis() + 30_000L; // 30s cooldown
     }
 
     boolean isOnline() { return online; }

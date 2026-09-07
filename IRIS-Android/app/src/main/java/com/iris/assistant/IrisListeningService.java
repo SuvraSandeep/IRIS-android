@@ -83,6 +83,11 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern REDIAL_PATTERN = Pattern.compile(
             "^(?:redial|call\\s+(?:again|back|the\\s+last\\s+(?:person|one|contact))|ring\\s+(?:again|back))$",
             Pattern.CASE_INSENSITIVE);
+    // "spell the name", "call by spelling" — enter letter-by-letter contact spelling
+    private static final Pattern SPELL_CALL_PATTERN = Pattern.compile(
+            "^(?:call\\s+by\\s+spelling|spell(?:ing)?(?:\\s+(?:the\\s+)?(?:name|contact))?"
+            + "|spell\\s+(?:the\\s+)?(?:name|contact)|let\\s+me\\s+spell)$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern QUICK_ACTION_PATTERN = Pattern.compile(
             "^(?:what(?:\\s+is)?\\s+the\\s+time|time\\s*(?:please)?|what\\s+time\\s+is\\s+it"
             + "|battery|battery\\s+level|how\\s+much\\s+battery"
@@ -160,6 +165,25 @@ public class IrisListeningService extends Service implements RecognitionListener
             + "|turn\\s+(up|down)\\s+(?:the\\s+)?volume"
             + "|(mute|unmute)(?:\\s+(?:the\\s+)?(?:volume|sound|phone))?"
             + "|(max|maximum)\\s+volume)$",
+            Pattern.CASE_INSENSITIVE);
+    // "set volume to 50", "volume 50 percent", "set the volume at 30%"
+    private static final Pattern VOLUME_SET_PATTERN = Pattern.compile(
+            "^(?:set\\s+)?(?:the\\s+)?volume\\s+(?:to|at)?\\s*(\\d{1,3})\\s*(?:percent|%)?$",
+            Pattern.CASE_INSENSITIVE);
+    // Control whatever is playing: pause/resume/next/previous
+    private static final Pattern MEDIA_CONTROL_PATTERN = Pattern.compile(
+            "^(?:pause(?:\\s+(?:the\\s+)?(?:music|song|media|audio|playback))?"
+            + "|stop\\s+(?:the\\s+)?(?:music|song|media|audio|playback)"
+            + "|resume(?:\\s+(?:the\\s+)?(?:music|song|playback))?"
+            + "|continue(?:\\s+playing)?"
+            + "|play\\s+(?:the\\s+)?(?:music|song|playback)"
+            + "|(?:next|skip)(?:\\s+(?:song|track|this))?"
+            + "|(?:previous|prev|last)(?:\\s+(?:song|track))?"
+            + "|go\\s+back)$",
+            Pattern.CASE_INSENSITIVE);
+    // "play <song/artist>" — hands off to a music app to find & play a local track
+    private static final Pattern PLAY_SONG_PATTERN = Pattern.compile(
+            "^(?:play|put\\s+on)\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
     // "turn on wifi" / "disable bluetooth" / "wifi settings"
     private static final Pattern CONNECTIVITY_PATTERN = Pattern.compile(
@@ -422,20 +446,32 @@ public class IrisListeningService extends Service implements RecognitionListener
         voskEngine.startWakeDetection(wake.phrase, new VoskEngine.WakeListener() {
             @Override public void onWakeDetected(float[] voiceEmbedding) {
                 if (!isRunning || !PHASE_WAKE.equals(phase)) return;
-                // Voice verification: only wake for the enrolled owner's voice.
+                // Voice verification: only wake for the enrolled owner's voice —
+                // but NEVER lock the owner out: after 3 rejects in a row, accept anyway.
                 if (!isOwnerVoice(voiceEmbedding)) {
-                    LogStore.append(IrisListeningService.this, "WAKE REJECT", "voice not recognized");
-                    if (voiceEmbedding != null) {
-                        new ProfileStore(IrisListeningService.this).setPendingVoiceSample(voiceEmbedding);
+                    consecutiveWakeRejects++;
+                    if (consecutiveWakeRejects < 3) {
+                        LogStore.append(IrisListeningService.this, "WAKE REJECT",
+                                "voice not recognized (" + consecutiveWakeRejects + "/3)");
+                        if (voiceEmbedding != null) {
+                            new ProfileStore(IrisListeningService.this).setPendingVoiceSample(voiceEmbedding);
+                        }
+                        // Don't talk over the user's media, and don't nag repeatedly.
+                        boolean mediaActive = audioManager != null && audioManager.isMusicActive();
+                        long now = System.currentTimeMillis();
+                        if (settings.voiceCueEnabled() && !"Silent".equals(settings.personality())
+                                && !mediaActive && now - lastRejectCueAt > 15000) {
+                            lastRejectCueAt = now;
+                            speak(notRecognizedLine());
+                        }
+                        // Re-arm so the owner can try again (silent Vosk restart).
+                        handler.postDelayed(IrisListeningService.this::startWakeDetection, 1000);
+                        return;
                     }
-                    if (settings.voiceCueEnabled()
-                            && !"Silent".equals(settings.personality())) {
-                        speak(notRecognizedLine());
-                    }
-                    // Stay asleep; keep listening for the owner.
-                    handler.postDelayed(IrisListeningService.this::startWakeDetection, 900);
-                    return;
+                    LogStore.append(IrisListeningService.this, "WAKE",
+                            "voiceprint bypassed after repeated rejects (anti-lockout)");
                 }
+                consecutiveWakeRejects = 0;
                 voskEngine.stop();
                 LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Vosk)");
                 vibrate(45);
@@ -548,6 +584,10 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private boolean beepMuted = false;
+    private long lastRejectCueAt = 0;
+    private int consecutiveWakeRejects = 0;
+    private boolean spellingCall = false;
+    private int spellRetry = 0;
 
     /**
      * Silence the recognizer's start/stop beep during continuous wake listening.
@@ -606,7 +646,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 new Thread(() -> {
                     long t0 = System.currentTimeMillis();
                     String text = new ServerClient(settings.serverUrl(), settings.serverToken())
-                            .transcribe(audio, 2500, 12000);
+                            .transcribe(audio, 4000, 25000);
                     long dt = System.currentTimeMillis() - t0;
                     handler.post(() -> {
                         if (text != null) {
@@ -757,6 +797,11 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Guarded entry point: no command-handling error may crash the app. */
     private void handleCommand(String heard) {
+        if (spellingCall) {
+            try { handleSpellInput(heard); }
+            catch (Throwable t) { spellingCall = false; LogStore.append(this, "SPELL", "error: " + t); rearmAfterAction(); }
+            return;
+        }
         if (smsCompose != null) {
             try { handleSmsComposeInput(heard); }
             catch (Throwable t) { smsCompose = null; LogStore.append(this, "SMS", "compose error: " + t); rearmAfterAction(); }
@@ -865,6 +910,9 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
+        // Spell a contact's name letter-by-letter (helps when speech mis-hears names)
+        if (SPELL_CALL_PATTERN.matcher(normalized).matches()) { beginSpellCall(); return; }
+
         // 5b. Open an installed app ("open WhatsApp", "launch camera")
         Matcher openMatcher = OPEN_APP_PATTERN.matcher(normalized);
         if (openMatcher.matches() && !containsCallVerb(normalized)) {
@@ -948,7 +996,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             handleTorch("on".equalsIgnoreCase(s));
             return;
         }
+        if (MEDIA_CONTROL_PATTERN.matcher(normalized).matches()) { handleMediaControl(normalized); return; }
+        Matcher volSetM = VOLUME_SET_PATTERN.matcher(normalized);
+        if (volSetM.matches()) { handleSetVolumePercent(volSetM.group(1)); return; }
         if (VOLUME_PATTERN.matcher(normalized).matches()) { handleVolume(normalized); return; }
+        Matcher playM = PLAY_SONG_PATTERN.matcher(clean);
+        if (playM.matches() && !containsCallVerb(normalized)) { handlePlaySong(playM.group(1).trim()); return; }
         Matcher connM = CONNECTIVITY_PATTERN.matcher(normalized);
         if (connM.matches()) { handleConnectivity(connM.group(2)); return; }
         Matcher webM = WEBSEARCH_PATTERN.matcher(clean);
@@ -1072,7 +1125,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             new Thread(() -> {
                 long t0 = System.currentTimeMillis();
                 String reply = new ServerClient(settings.serverUrl(), settings.serverToken())
-                        .chat(msg, conversation.turnsJson(), profileJson(), 2500, 8000);
+                        .chat(msg, conversation.turnsJson(), profileJson(), 4000, 25000);
                 long dt = System.currentTimeMillis() - t0;
                 handler.post(() -> {
                     if (reply != null && !reply.isEmpty()) {
@@ -2240,6 +2293,61 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
+    /** Control whatever is currently playing (any media app) via media key events. */
+    private void handleMediaControl(String n) {
+        int key; String msg;
+        if (n.matches(".*\\b(next|skip)\\b.*")) { key = android.view.KeyEvent.KEYCODE_MEDIA_NEXT; msg = "Next track."; }
+        else if (n.matches(".*\\b(previous|prev|last|back)\\b.*")) { key = android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS; msg = "Previous track."; }
+        else if (n.matches(".*\\b(pause|stop)\\b.*")) { key = android.view.KeyEvent.KEYCODE_MEDIA_PAUSE; msg = "Paused."; }
+        else { key = android.view.KeyEvent.KEYCODE_MEDIA_PLAY; msg = "Playing."; }
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            am.dispatchMediaKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, key));
+            am.dispatchMediaKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, key));
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "MEDIA", msg);
+        } catch (Exception e) {
+            String m = "I couldn't control playback.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+        }
+    }
+
+    /** Set media volume to a percentage (0-100). */
+    private void handleSetVolumePercent(String pctStr) {
+        try {
+            int pct = Math.max(0, Math.min(100, Integer.parseInt(pctStr.trim())));
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(max * pct / 100f), AudioManager.FLAG_SHOW_UI);
+            String msg = "Volume set to " + pct + " percent.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "VOLUME", msg);
+        } catch (Exception e) {
+            String m = "I couldn't set the volume.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+        }
+    }
+
+    /** Play a local song/artist by name via any installed music app (offline). */
+    private void handlePlaySong(String query) {
+        if (query == null || query.trim().isEmpty()) { handleMediaControl("play"); return; }
+        try {
+            Intent i = new Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH);
+            i.putExtra(android.provider.MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/audio");
+            i.putExtra(android.app.SearchManager.QUERY, query);
+            i.putExtra(android.provider.MediaStore.EXTRA_MEDIA_TITLE, query);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            String msg = "Playing " + query + ".";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "MEDIA", "Play from search: " + query);
+        } catch (Exception e) {
+            String msg = "I couldn't find a music app to play that.";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "MEDIA", "Play failed: " + e.getMessage());
+        }
+    }
+
     /** Adjust media volume. */
     private void handleVolume(String normalized) {
         try {
@@ -2436,6 +2544,89 @@ public class IrisListeningService extends Service implements RecognitionListener
         for (int i = 0; i < ones.length; i++) NUM_WORDS.put(ones[i], i);
         String[] tens = {"twenty","thirty","forty","fifty"};
         for (int i = 0; i < tens.length; i++) NUM_WORDS.put(tens[i], (i + 2) * 10);
+    }
+
+    // Spoken-letter → character map (letter names + NATO phonetic) for spell-mode calling.
+    private static final java.util.Map<String, Character> LETTER_MAP = new java.util.HashMap<>();
+    static {
+        String[][] rows = {
+            {"a","a","ay","eh","alpha"}, {"b","b","be","bee","bravo"}, {"c","c","see","sea","cee","charlie"},
+            {"d","d","dee","delta"}, {"e","e","ee","echo"}, {"f","f","ef","eff","foxtrot"},
+            {"g","g","gee","golf"}, {"h","h","aitch","haitch","hotel"}, {"i","i","eye","india"},
+            {"j","j","jay","juliet","juliett"}, {"k","k","kay","kilo"}, {"l","l","el","ell","lima"},
+            {"m","m","em","mike"}, {"n","n","en","november"}, {"o","o","oh","oscar"},
+            {"p","p","pee","papa"}, {"q","q","cue","queue","quebec"}, {"r","r","ar","are","romeo"},
+            {"s","s","es","ess","sierra"}, {"t","t","tee","tea","tango"}, {"u","u","you","yu","uniform"},
+            {"v","v","vee","victor"}, {"w","w","whiskey"}, {"x","x","ex","xray"},
+            {"y","y","why","yankee"}, {"z","z","zee","zed","zulu"}
+        };
+        for (String[] row : rows) {
+            char c = row[0].charAt(0);
+            for (int i = 1; i < row.length; i++) LETTER_MAP.put(row[i], c);
+        }
+    }
+
+    /** Begin letter-by-letter contact spelling (for names speech keeps mis-hearing). */
+    private void beginSpellCall() {
+        spellingCall = true;
+        spellRetry = 0;
+        askSpell("Spell the name letter by letter \u2014 or use the phonetic alphabet, like Mike, Alpha, Alpha.");
+    }
+
+    private void askSpell(String prompt) {
+        broadcastMessage(prompt);
+        updateListeningNotification("Spell the name\u2026");
+        speakThenRun(prompt, this::startCommandRecognition);
+    }
+
+    /** Turn spoken letters into a name string, then match contacts and confirm the closest. */
+    private void handleSpellInput(String heard) {
+        String norm = ProfileStore.normalize(heard == null ? "" : heard);
+        if (norm.matches(".*\\b(cancel|stop|never mind|nevermind|forget it)\\b.*")) {
+            spellingCall = false;
+            broadcastMessage("Cancelled.");
+            speakThenRun("Okay, cancelled.", this::rearmAfterAction);
+            return;
+        }
+        String spelled = parseSpelledLetters(norm);
+        if (spelled.length() < 1) {
+            spellRetry++;
+            if (spellRetry >= 3) {
+                spellingCall = false;
+                speakThenRun("I still couldn't get the letters. Let's try again later.", this::rearmAfterAction);
+                return;
+            }
+            askSpell("I didn't catch the letters. Spell it slowly \u2014 for example, Mike, Alpha, Alpha.");
+            return;
+        }
+        spellingCall = false;
+        broadcastMessage("Spelled: " + spelled.toUpperCase(Locale.ROOT));
+        LogStore.append(this, "SPELL", "Spelled name \u2192 " + spelled);
+        List<ContactMatch> candidates = resolveContacts(spelled);
+        if (candidates.isEmpty()) {
+            String msg = "I couldn't find a contact spelled " + spelled.toUpperCase(Locale.ROOT) + ".";
+            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            return;
+        }
+        // Hand off to the normal call confirmation ("Did you mean X?" cycles on "no").
+        pendingCandidates = candidates;
+        pendingCandidateIndex = 0;
+        confirmCandidate(0);
+    }
+
+    private String parseSpelledLetters(String norm) {
+        String[] toks = norm.split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        int mapped = 0;
+        for (String tok : toks) {
+            if (tok.isEmpty()) continue;
+            Character c = LETTER_MAP.get(tok);
+            if (c != null) { sb.append(c); mapped++; }
+            else if (tok.length() == 1 && tok.charAt(0) >= 'a' && tok.charAt(0) <= 'z') { sb.append(tok); mapped++; }
+        }
+        // If nothing looked like spelled letters but they just said a word, use it as the name.
+        if (mapped == 0 && toks.length == 1 && toks[0].matches("[a-z]{2,}")) return toks[0];
+        return sb.toString();
     }
 
     /** Convert a spoken/typed phone number ("nine eight seven…", "double five", "9876543210")
@@ -3253,6 +3444,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
         smsCompose = null;
+        spellingCall = false;
         pendingName = null;
         pendingNumber = null;
         destroyRecognizer();
