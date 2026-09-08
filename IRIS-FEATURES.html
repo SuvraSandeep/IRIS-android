@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.36.0";
+const BUILD_VERSION = "7.37.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -144,8 +144,8 @@ const FEATURES = [
   // ---- Voice & Recognition ----
   {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
    tagline:"IRIS wakes only when you say your phrase.",
-   desc:"Train your own wake phrase; IRIS listens silently in the background. You can add up to 2 extra wake phrases (e.g. “Hello IRIS”, “IRIS you there”, “wake up IRIS”) — the primary one is voice-trained, extras are recognised as text (no separate training). Accent‑tolerant matching (distinctive last word + fuzzy), wakes on the first try (lenient verification), and doesn't interrupt music/video.",
-   examples:["“Hello IRIS”, or any extra phrase you add"], version:"7.35.0"},
+   desc:"Train your own wake phrase; IRIS listens silently in the background. You can add up to 2 extra wake phrases (e.g. “Hello IRIS”, “IRIS you there”, “wake up IRIS”) — the primary one is voice-trained, extras are recognised as text. Robust triggering: speaker-lock is OFF by default so it wakes on the phrase alone (turn it back on in Settings → Voice Security), and phrase matching is accent-tolerant (fuzzy + distinctive last word). The active microphone is shown on the orb and Training screens. Doesn't interrupt music/video.",
+   examples:["“Hello IRIS”, or any extra phrase you add"], version:"7.37.0"},
   {id:"cmdstt", cat:"Voice & Recognition", icon:"👂", title:"Accurate Commands (Google speech)",
    tagline:"Understands you like your watch does.",
    desc:"After waking, commands are recognised with Google's speech engine (far better with accents and fumbles), and IRIS falls back to the offline Vosk model automatically when there's no internet or Google errors. A short beep tells you exactly when it's listening.",

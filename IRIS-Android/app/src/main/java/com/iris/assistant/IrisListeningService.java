@@ -272,6 +272,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     private AppSettings settings;
     private String phase = PHASE_WAKE;
     private String microphoneLabel = "Phone microphone";
+    /** Last mic route IRIS configured — readable by the UI even between broadcasts. */
+    public static volatile String currentMic = "";
     private String recognitionLabel = "System speech service";
     private String pendingName;
     private String pendingNumber;
@@ -3537,6 +3539,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     /** Verify the wake utterance is the enrolled owner. Fail-open if not enrolled / no embedding. */
     private boolean isOwnerVoice(float[] embedding) {
         try {
+            if (!settings.speakerVerification()) return true;   // speaker-lock off → wake on phrase alone
             float[] print = new ProfileStore(this).getVoiceprint();
             if (print == null || embedding == null || print.length != embedding.length) return true;
             double sim = cosine(embedding, print);
@@ -4157,6 +4160,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void broadcastState(boolean active, String statePhase) {
+        currentMic = microphoneLabel;
         sendBroadcast(new Intent(EVENT_STATE).setPackage(getPackageName())
                 .putExtra(EXTRA_ACTIVE, active).putExtra(EXTRA_PHASE, statePhase)
                 .putExtra(EXTRA_MIC, microphoneLabel).putExtra(EXTRA_RECOGNITION, recognitionLabel));

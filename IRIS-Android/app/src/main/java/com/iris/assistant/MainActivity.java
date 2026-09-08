@@ -573,6 +573,8 @@ public class MainActivity extends Activity {
 
         // Wire up buttons
         configureWakeButton();
+        TextView micLabelTraining = view.findViewById(R.id.micLabelTraining);
+        if (micLabelTraining != null) micLabelTraining.setText("\uD83C\uDF99 Listening mic: " + micLabel());
         testWakeButton.setOnClickListener(v -> testWakePhrase());
         wakeWizardCancel.setOnClickListener(v -> cancelWakeTraining());
 
@@ -1761,9 +1763,18 @@ public class MainActivity extends Activity {
             phaseChip.setTextColor(getColor(R.color.cyan));
         }
         statusText.setTextColor(active ? getColor(R.color.cyan) : getColor(R.color.text_primary));
-        micRouteText.setText("\uD83C\uDF99  Microphone: " + lastMicRoute);
+        micRouteText.setText("\uD83C\uDF99  Microphone: " + micLabel());
         recognitionText.setText("\uD83E\uDDE0  Recognition: " + lastRecognition);
         updateFrequentContacts();
+    }
+
+    /** Best-known mic route: live broadcast → service static → the configured preference. */
+    private String micLabel() {
+        if (lastMicRoute != null && !lastMicRoute.isEmpty()) return lastMicRoute;
+        String s = IrisListeningService.currentMic;
+        if (s != null && !s.isEmpty()) return s;
+        String pref = new AppSettings(this).preferredMicrophone();
+        return (pref == null || pref.isEmpty() || "Automatic".equals(pref)) ? "Phone microphone (auto)" : pref;
     }
 
     private void showAssistantMessage(String message) {

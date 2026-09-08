@@ -570,7 +570,7 @@ public final class VoskEngine {
         if (text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)")) return true;
         if (keyWord != null && keyWord.length() >= 3
                 && text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(keyWord) + "(\\s.*|$)")) return true;
-        return wakeSim(text, phrase) >= 0.55;
+        return wakeSim(text, phrase) >= 0.45;
     }
 
     /** Multi-phrase variant of wakeMatches — true if any phrase (or its key word) matches. */
@@ -581,7 +581,7 @@ public final class VoskEngine {
         for (String phrase : phrases) {
             if (text.equals(phrase)) return true;
             if (text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)")) return true;
-            if (wakeSim(text, phrase) >= 0.55) return true;
+            if (wakeSim(text, phrase) >= 0.45) return true;
         }
         for (String kw : keyWords) {
             if (kw.length() >= 3

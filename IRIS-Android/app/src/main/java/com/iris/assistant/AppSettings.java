@@ -106,7 +106,7 @@ public final class AppSettings {
     /** CSV of quick-action chip ids shown on the home screen. */
     public String homeChips() { return prefs.getString("home_chips", "call,text,alarm,weather,torch,time"); }
     public void setHomeChips(String csv) { prefs.edit().putString("home_chips", csv).apply(); }
-    public boolean speakerVerification() { return prefs.getBoolean("speaker_verification", true); }
+    public boolean speakerVerification() { return prefs.getBoolean("speaker_verification", false); }
     public void setSpeakerVerification(boolean value) { prefs.edit().putBoolean("speaker_verification", value).apply(); }
     public float speakerThreshold() { return prefs.getFloat("speaker_threshold", 0.70f); }
     public void setSpeakerThreshold(float value) { prefs.edit().putFloat("speaker_threshold", value).apply(); }

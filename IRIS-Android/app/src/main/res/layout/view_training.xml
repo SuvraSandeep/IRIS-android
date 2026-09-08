@@ -27,6 +27,15 @@
                 android:textSize="11sp"
                 android:textStyle="bold" />
 
+            <TextView
+                android:id="@+id/micLabelTraining"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="\uD83C\uDF99 Listening mic: —"
+                android:textColor="@color/text_muted"
+                android:textSize="12sp" />
+
             <!-- Normal state (not training) -->
             <LinearLayout
                 android:id="@+id/wakeNormalState"
