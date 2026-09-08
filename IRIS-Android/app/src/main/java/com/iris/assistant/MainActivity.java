@@ -226,7 +226,7 @@ public class MainActivity extends Activity {
         tabLogs.setOnClickListener(v -> showLogs());
         tabMemory.setOnClickListener(v -> showMemory());
         tabSettings.setOnClickListener(v -> showSettings());
-        showAssistant();
+        showTabByIndex(getSharedPreferences("iris_ui", MODE_PRIVATE).getInt("last_tab", 0));
         handleLaunchIntent(getIntent());
         // Auto-download the AI brain in the background only if the user enabled AI
         try {
@@ -256,7 +256,18 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         try { unregisterReceiver(irisEvents); } catch (Exception ignored) { }
+        try { getSharedPreferences("iris_ui", MODE_PRIVATE).edit().putInt("last_tab", selectedTab).apply(); } catch (Exception ignored) { }
         super.onStop();
+    }
+
+    private void showTabByIndex(int i) {
+        switch (i) {
+            case 1: showTraining(); break;
+            case 2: showLogs(); break;
+            case 3: showMemory(); break;
+            case 4: showSettings(); break;
+            default: showAssistant();
+        }
     }
 
     @Override
@@ -875,7 +886,7 @@ public class MainActivity extends Activity {
         {"📅 Calendar", "Say: “add a meeting tomorrow at 5”, “create an event <title> <when>”. Opens your calendar pre-filled."},
         {"🎵 Media & music", "Control any player: “pause”, “resume”, “next” / “next song”, “previous”, “stop music”.\nPlay a local track: “play <song or artist>” (hands off to your music app)."},
         {"🔊 Volume", "Say: “volume up/down”, “mute”, “max volume”, “set volume to 50 percent”."},
-        {"🖥 Screenshot & screen recording", "Capture what's on your screen.\nSay: “take a screenshot” (saved to Pictures/IRIS), or “record the screen 30” / “screen record 20” (saved to Movies/IRIS, with mic audio). Stop early with “stop screen recording” or the Stop button in the notification.\nThe first time, Android shows a “Start recording/casting?” consent — allow it (you can tick “don't ask again”). Note: some secure screens (banking, DRM video) show up black by Android's design."},
+        {"🖥 Screenshot & screen recording", "Capture what's on your screen.\nScreenshot: say “take a screenshot” — saved to Pictures/IRIS (or your system Screenshots folder).\nScreen recording: say “record the screen” (defaults to 1 minute) or “record the screen for 2 minutes”; saved to Movies/IRIS with mic audio. Stop early with “stop screen recording” or the Stop button.\nNo pop-up option: enable IRIS in Settings → Accessibility → Installed services, and screenshots are taken instantly with no permission prompt. Otherwise Android shows a one-time “Start recording/casting?” consent (tick “don't ask again”). Secure screens (banking, DRM) appear black by Android's design."},
         {"🎬 Video recording", "Record a short video, saved to Movies/IRIS.\nSay: “start recording 30” (back camera), “record video 20”, “record front camera video 15”, “record selfie video 10”. Choose the lens with “front/selfie” or “back/rear”.\nIt can record over the lock screen on many phones (needs the Camera permission granted once; some phones need battery optimisation off for IRIS). Auto-stops after the time you set. Note: locked/background camera behaviour varies by phone."},
         {"⚡ More ways to trigger IRIS", "Besides the wake word:\n• Notification: tap the “🎙 Talk” button on IRIS's notification (works on the lock screen).\n• Quick Settings tile: add the IRIS tile to your shade and tap it.\n• Assistant: set IRIS as your device's Digital Assistant (Settings → Default apps) — then the assist gesture (long-press power/home) opens IRIS anywhere.\n• Shake to talk (optional): enable in Settings, then shake the phone.\n• Headset button (optional): enable in Settings, then double-press your earphone button."},
         {"🎙 Voice recording", "Record a timed voice memo, saved as an .m4a in Recordings/IRIS (or Music/IRIS on older phones).\nSay: “record voice 20”, “voice memo 30”, “record audio for 1 minute”. Stop early with “stop recording” or the Stop button in the notification (works on the lock screen).\nPick a mic: add “using earphone / bluetooth / phone mic” — e.g. “record voice using bluetooth 30”. Otherwise it uses your Settings → Microphone choice. IRIS speaks first so its own voice isn't captured, and confirms where it saved."},
@@ -943,15 +954,17 @@ public class MainActivity extends Activity {
         int[] accents = { R.color.cyan, R.color.magenta, R.color.mint };
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(0xFF0E1116);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
+        col.setBackgroundColor(0xFF0E1116);
         int pad = (int) (18 * d);
-        col.setPadding(pad, (int) (8 * d), pad, pad);
+        col.setPadding(pad, (int) (10 * d), pad, pad);
         scroll.addView(col);
 
         TextView intro = new TextView(this);
         intro.setText("Tap any card to expand it. Wake IRIS (say your phrase or tap the orb), wait for the beep, then speak your command.");
-        intro.setTextColor(getColor(R.color.text_muted));
+        intro.setTextColor(0xFFB8C0CC);
         intro.setTextSize(12.5f);
         intro.setLineSpacing((int) (3 * d), 1f);
         col.addView(intro);
@@ -985,11 +998,11 @@ public class MainActivity extends Activity {
                 LinearLayout card = new LinearLayout(this);
                 card.setOrientation(LinearLayout.VERTICAL);
                 GradientDrawable bg = new GradientDrawable();
-                bg.setColor(0x14FFFFFF);
+                bg.setColor(0xFF1A1F2B);
                 bg.setCornerRadius(14 * d);
-                bg.setStroke((int) (1 * d), (accent & 0x00FFFFFF) | 0x40000000);
+                bg.setStroke((int) (1.5f * d), (accent & 0x00FFFFFF) | 0x66000000);
                 card.setBackground(bg);
-                int cp = (int) (13 * d);
+                int cp = (int) (14 * d);
                 card.setPadding(cp, cp, cp, cp);
                 LinearLayout.LayoutParams cpm = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -997,16 +1010,16 @@ public class MainActivity extends Activity {
                 card.setLayoutParams(cpm);
 
                 final TextView tv = new TextView(this);
-                tv.setTextColor(getColor(R.color.text_primary));
+                tv.setTextColor(0xFFFFFFFF);
                 tv.setTextSize(15.5f);
                 tv.setTypeface(null, Typeface.BOLD);
                 card.addView(tv);
 
                 final TextView bv = new TextView(this);
                 bv.setText(body);
-                bv.setTextColor(getColor(R.color.text_muted));
-                bv.setTextSize(13.5f);
-                bv.setLineSpacing((int) (4 * d), 1f);
+                bv.setTextColor(0xFFD7DDE6);
+                bv.setTextSize(14f);
+                bv.setLineSpacing((int) (5 * d), 1f);
                 LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 bp.topMargin = (int) (9 * d);

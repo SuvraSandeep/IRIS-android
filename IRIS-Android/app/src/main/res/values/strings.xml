@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="iris_accessibility_desc">Lets IRIS take screenshots instantly by voice, without the screen-capture permission pop-up. IRIS never reads your screen content — it only performs the screenshot action when you ask.</string>
+</resources>

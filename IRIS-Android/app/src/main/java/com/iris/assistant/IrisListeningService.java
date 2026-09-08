@@ -231,35 +231,26 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final String MIC_WORDS =
             "(phone|built-?in|internal|earphones?|earbuds?|headset|headphones?|wired|usb|bluetooth|bt)";
     private static final Pattern VOICE_RECORD_PATTERN = Pattern.compile(
-            "^(?:record|start|take|capture)?\\s*(?:a\\s+)?(?:voice|audio)(?:\\s+memo)?(?:\\s+recording)?"
-            + "(?:\\s+(?:for|of))?"
-            + "(?:\\s+(?:using|with|on|through|via)\\s+(?:my\\s+|the\\s+)?" + MIC_WORDS + ")?"
-            + "(?:\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|s|m)?)?"
-            + "(?:\\s+(?:using|with|on|through|via)\\s+(?:my\\s+|the\\s+)?" + MIC_WORDS + ")?$",
+            "^(?:record|start|take|capture)?\\s*(?:a\\s+)?(?:voice|audio)(?:\\s+memo)?(?:\\s+recording)?\\b.*$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern STOP_RECORD_PATTERN = Pattern.compile(
             "^(?:stop|end|finish|cancel)\\s+(?:the\\s+)?(?:voice\\s+)?(?:recording|record|memo|audio)$",
             Pattern.CASE_INSENSITIVE);
     // Video: "record video 30", "record front camera video 20", "record video with back cam".
     private static final Pattern VIDEO_RECORD_PATTERN = Pattern.compile(
-            "^(?:record|start|take|capture)\\s+(?:a\\s+)?(?:(front|selfie|back|rear)\\s+)?(?:camera\\s+)?video"
-            + "(?:\\s+recording)?"
-            + "(?:\\s+(?:with|using)\\s+(?:the\\s+)?(front|selfie|back|rear)\\s*(?:camera|cam)?)?"
-            + "(?:\\s+(?:for|of))?"
-            + "(?:\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|s|m)?)?$",
+            "^(?:record|start|take|capture)\\s+(?:a\\s+)?(?:(?:front|selfie|back|rear)\\s+)?(?:camera\\s+)?video\\b.*$",
             Pattern.CASE_INSENSITIVE);
     // Your phrasing: "start recording 30" → video on the back camera.
     private static final Pattern START_RECORDING_PATTERN = Pattern.compile(
-            "^start\\s+recording(?:\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|s|m)?)?$",
-            Pattern.CASE_INSENSITIVE);
-    // Screenshot: "screenshot", "take a screenshot", "capture the screen".
+            "^start\\s+recording\\b.*$", Pattern.CASE_INSENSITIVE);
+    // Screenshot: "screenshot", "take a screenshot", "capture the screen" (NOT recording).
     private static final Pattern SCREENSHOT_PATTERN = Pattern.compile(
-            "^(?:(?:take|grab|capture)\\s+(?:a\\s+|the\\s+|my\\s+)?screen(?:\\s?shot)?|(?:a\\s+)?screen\\s?shot)$",
+            "^(?:(?:take|grab|capture|get)\\s+(?:a\\s+|the\\s+|my\\s+)?screen(?:\\s?shot)?"
+            + "|(?:a\\s+)?screen\\s?shot|screen\\s+capture)\\b.*$",
             Pattern.CASE_INSENSITIVE);
-    // Screen recording: "record the screen 30", "screen record 20", "screen recording".
+    // Screen recording: must involve the word record/recording. "record the screen 30", "screen record".
     private static final Pattern SCREEN_REC_PATTERN = Pattern.compile(
-            "^(?:(?:record|start|capture)\\s+(?:the\\s+|my\\s+)?screen(?:\\s+recording)?|screen\\s+record(?:ing)?)"
-            + "(?:\\s+(?:for|of))?(?:\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|s|m)?)?$",
+            "^(?:(?:record|start)\\s+(?:the\\s+|my\\s+)?screen(?:\\s+recording)?|screen\\s+record(?:ing)?)\\b.*$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern SCREEN_REC_STOP_PATTERN = Pattern.compile(
             "^(?:stop|end|finish)\\s+(?:the\\s+)?screen\\s+record(?:ing)?$",
@@ -1225,29 +1216,16 @@ public class IrisListeningService extends Service implements RecognitionListener
             try { startService(new Intent(this, ScreenCaptureService.class).setAction(ScreenCaptureService.ACTION_STOP)); } catch (Exception ignored) { }
             return;
         }
+        if (SCREEN_REC_PATTERN.matcher(normalized).matches()) { beginScreenRecording(parseDuration(normalized, 60)); return; }
         if (SCREENSHOT_PATTERN.matcher(normalized).matches()) { handleScreenshot(); return; }
-        Matcher scr = SCREEN_REC_PATTERN.matcher(normalized);
-        if (scr.matches()) { beginScreenRecording(parseSecs(scr.group(1), scr.group(2), 30)); return; }
-        Matcher vid = VIDEO_RECORD_PATTERN.matcher(normalized);
-        if (vid.matches()) {
-            String cam = vid.group(1) != null ? vid.group(1) : vid.group(2);
-            beginVideoRecording(parseSecs(vid.group(3), vid.group(4), 15), cam);
-            return;
+        if (VIDEO_RECORD_PATTERN.matcher(normalized).matches()) {
+            beginVideoRecording(parseDuration(normalized, 60), extractCamWord(normalized)); return;
         }
-        Matcher srec = START_RECORDING_PATTERN.matcher(normalized);
-        if (srec.matches()) { beginVideoRecording(parseSecs(srec.group(1), srec.group(2), 15), "back"); return; }
-        Matcher vrec = VOICE_RECORD_PATTERN.matcher(normalized);
-        if (vrec.matches() && (vrec.group(1) != null || vrec.group(2) != null || vrec.group(4) != null
-                || normalized.startsWith("record") || normalized.startsWith("start") || normalized.startsWith("take"))) {
-            String micWord = vrec.group(1) != null ? vrec.group(1) : vrec.group(4);
-            int secs = 0;
-            if (vrec.group(2) != null) {
-                int n = Integer.parseInt(vrec.group(2));
-                String unit = vrec.group(3) == null ? "" : vrec.group(3).toLowerCase(Locale.ROOT);
-                secs = (unit.startsWith("m")) ? n * 60 : n;
-            }
-            beginVoiceRecording(secs, micWord);
-            return;
+        if (START_RECORDING_PATTERN.matcher(normalized).matches()) {
+            beginVideoRecording(parseDuration(normalized, 60), "back"); return;
+        }
+        if (VOICE_RECORD_PATTERN.matcher(normalized).matches()) {
+            beginVoiceRecording(parseDuration(normalized, 60), extractMicWord(normalized)); return;
         }
         if (STATUS_PATTERN.matcher(normalized).matches()) { handlePhoneStatus(); return; }
         Matcher modeQ = MODE_QUERY_PATTERN.matcher(normalized);
@@ -2635,8 +2613,15 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Silent / vibrate / normal ringer. Needs Do Not Disturb access on modern Android. */
-    /** Take a single screenshot via MediaProjection (asks for consent the first time). */
+    /** Take a single screenshot. Prefers the no-dialog accessibility path; falls back to MediaProjection. */
     private void handleScreenshot() {
+        if (Build.VERSION.SDK_INT >= 30 && IrisAccessibilityService.available()
+                && IrisAccessibilityService.instance.takeScreenshotNow()) {
+            String m = "Screenshot taken.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+            return;
+        }
+        // Fallback: MediaProjection (Android shows a one-time capture consent).
         String m = "Taking a screenshot.";
         broadcastMessage(m);
         speakThenRun(m, () -> launchScreenCapture("shot", 0));
@@ -2644,8 +2629,8 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Record the screen (with mic audio) for a set time via MediaProjection. */
     private void beginScreenRecording(int seconds) {
-        int secs = seconds > 0 ? Math.min(seconds, 600) : 30;
-        String m = "Recording the screen for " + secs + " seconds.";
+        int secs = seconds > 0 ? Math.min(seconds, 3600) : 60;
+        String m = "Recording the screen for " + humanizeDuration(secs) + ".";
         broadcastMessage(m);
         speakThenRun(m, () -> { pauseListeningForCapture(); launchScreenCapture("rec", secs); });
     }
@@ -2677,8 +2662,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         final boolean front = camWord != null
                 && (camWord.toLowerCase(Locale.ROOT).startsWith("front") || camWord.toLowerCase(Locale.ROOT).startsWith("selfie"));
-        final int secs = seconds > 0 ? Math.min(seconds, 600) : 15;
-        String intro = "Recording " + secs + " seconds on the " + (front ? "front" : "back") + " camera.";
+        final int secs = seconds > 0 ? Math.min(seconds, 3600) : 60;
+        String intro = "Recording " + humanizeDuration(secs) + " on the " + (front ? "front" : "back") + " camera.";
         broadcastMessage(intro);
         speakThenRun(intro, () -> {
             pauseListeningForCapture();
@@ -2718,6 +2703,80 @@ public class IrisListeningService extends Service implements RecognitionListener
         } catch (Exception e) { return fallback; }
     }
 
+    /** Parse a spoken duration anywhere in the phrase: seconds/minutes/hours, digits or words,
+     *  "a/an" = 1, "half an hour" = 30 min. Returns fallback when none is present. */
+    private int parseDuration(String s, int fallbackSecs) {
+        if (s == null) return fallbackSecs;
+        String t = s.toLowerCase(Locale.ROOT);
+        if (t.matches(".*\\bhalf\\s+(?:an?\\s+)?hour\\b.*")) return clampDur(1800, fallbackSecs);
+        if (t.matches(".*\\bhalf\\s+(?:a\\s+)?(?:minute|min)\\b.*")) return clampDur(30, fallbackSecs);
+        Matcher m = Pattern.compile(
+                "\\b(\\d+|an|a|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|fifty|sixty|ninety|hundred)"
+                + "\\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\\b",
+                Pattern.CASE_INSENSITIVE).matcher(t);
+        if (m.find()) {
+            int qty = wordToNum(m.group(1));
+            String u = m.group(2).toLowerCase(Locale.ROOT);
+            int mult = u.startsWith("h") ? 3600 : (u.startsWith("m") ? 60 : 1);
+            return clampDur(qty * mult, fallbackSecs);
+        }
+        Matcher n = Pattern.compile("\\b(\\d+)\\b").matcher(t);
+        if (n.find()) { try { return clampDur(Integer.parseInt(n.group(1)), fallbackSecs); } catch (Exception e) { return fallbackSecs; } }
+        return fallbackSecs;
+    }
+
+    private static int clampDur(int secs, int fallback) {
+        if (secs <= 0) return fallback;
+        return Math.min(secs, 3600);
+    }
+
+    private static int wordToNum(String w) {
+        if (w == null) return 1;
+        w = w.trim().toLowerCase(Locale.ROOT);
+        try { return Integer.parseInt(w); } catch (Exception ignored) { }
+        switch (w) {
+            case "a": case "an": case "one": return 1;
+            case "two": return 2; case "three": return 3; case "four": return 4;
+            case "five": return 5; case "six": return 6; case "seven": return 7;
+            case "eight": return 8; case "nine": return 9; case "ten": return 10;
+            case "fifteen": return 15; case "twenty": return 20; case "thirty": return 30;
+            case "forty": return 40; case "fifty": return 50; case "sixty": return 60;
+            case "ninety": return 90; case "hundred": return 100;
+            default: return 1;
+        }
+    }
+
+    /** Human-friendly duration, e.g. 90 → "1 minute 30 seconds", 3600 → "1 hour". */
+    private static String humanizeDuration(int secs) {
+        if (secs >= 3600 && secs % 3600 == 0) { int h = secs / 3600; return h + (h == 1 ? " hour" : " hours"); }
+        if (secs >= 60) {
+            int mm = secs / 60, ss = secs % 60;
+            String out = mm + (mm == 1 ? " minute" : " minutes");
+            if (ss > 0) out += " " + ss + (ss == 1 ? " second" : " seconds");
+            return out;
+        }
+        return secs + (secs == 1 ? " second" : " seconds");
+    }
+
+    private String extractMicWord(String s) {
+        if (s == null) return null;
+        String t = s.toLowerCase(Locale.ROOT);
+        if (t.contains("bluetooth") || t.matches(".*\\bbt\\b.*")) return "bluetooth";
+        if (t.contains("earphone") || t.contains("earbud") || t.contains("headset")
+                || t.contains("headphone") || t.contains("wired") || t.contains("usb")) return "headset";
+        if (t.contains("phone mic") || t.contains("built-in") || t.contains("built in")
+                || t.contains("internal") || t.contains("phone microphone")) return "phone";
+        return null;
+    }
+
+    private String extractCamWord(String s) {
+        if (s == null) return null;
+        String t = s.toLowerCase(Locale.ROOT);
+        if (t.contains("front") || t.contains("selfie")) return "front";
+        if (t.contains("back") || t.contains("rear")) return "back";
+        return null;
+    }
+
     /** Open the command window immediately (used by notification/tile/headset/shake/assist triggers). */
     private void triggerTalk(String source) {
         if (memoRecorder != null && memoRecorder.isRecording()) return;
@@ -2740,11 +2799,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (memoRecorder != null && memoRecorder.isRecording()) { inform("I'm already recording."); return; }
         final AudioDeviceInfo dev = resolveInputDevice(micWordToPreference(micWord));
         final String micName = dev != null ? readableDeviceName(dev) : "the phone mic";
-        final int cappedSecs = seconds > 0 ? Math.min(seconds, 600) : 0;   // safety cap 10 min
+        final int cappedSecs = seconds > 0 ? Math.min(seconds, 3600) : 60;   // default 1 minute
         final int durMs = cappedSecs * 1000;
-        String intro = cappedSecs > 0
-                ? "Recording " + cappedSecs + " second" + (cappedSecs == 1 ? "" : "s") + " using " + micName + "."
-                : "Recording using " + micName + ". Say stop recording, or tap stop, when you're done.";
+        String intro = "Recording " + humanizeDuration(cappedSecs) + " using " + micName + ".";
         broadcastMessage(intro);
         speakThenRun(intro, () -> {
             pauseListeningForCapture();
