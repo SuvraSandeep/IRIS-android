@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.37.0";
+const BUILD_VERSION = "7.38.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -259,10 +259,10 @@ const FEATURES = [
    tagline:"Tap “📖 Guide” below the orb.",
    desc:"A “📖 Guide” chip below the orb opens a complete reference — every feature with what it does, the exact commands to say, tips, plus Getting-started and Troubleshooting sections. Tap any item for details.",
    examples:["Assistant → 📖 Guide → tap a feature"], version:"7.36.0"},
-  {id:"silentdnd", cat:"Productivity", icon:"🔕", title:"Silent & Do Not Disturb",
-   tagline:"“Silence my phone.” / “Do not disturb.”",
-   desc:"Switches the ringer to silent, vibrate, or normal, and toggles Do Not Disturb by voice. Needs one-time Do Not Disturb access — IRIS opens the settings page the first time so you can allow it.",
-   examples:["silent mode","vibrate mode","normal mode","do not disturb","dnd off"], version:"7.31.0"},
+  {id:"silentdnd", cat:"Productivity", icon:"🔕", title:"Phone Modes (silent / DND / airplane)",
+   tagline:"Turn modes on/off, or ask if they're on.",
+   desc:"State-aware control of silent, vibrate, normal, Do Not Disturb, and airplane modes. Turn them on or off (“turn off silent mode”), and IRIS tells you if it's already in that state instead of guessing. Ask “is silent mode on?”, “is airplane mode on?”. Silent/vibrate/DND need one-time DND access; airplane can't be toggled by apps, so IRIS reports it and opens Settings.",
+   examples:["turn off silent mode","vibrate mode","turn on do not disturb","is airplane mode on?"], version:"7.38.0"},
   {id:"copytext", cat:"Productivity", icon:"📋", title:"Tap to Copy",
    tagline:"Copy what IRIS heard or said.",
    desc:"On the Assistant screen, tap the recognized command (or IRIS's reply) to copy it to the clipboard; the text is also selectable.",

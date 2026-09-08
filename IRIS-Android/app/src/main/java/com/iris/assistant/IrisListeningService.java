@@ -205,6 +205,17 @@ public class IrisListeningService extends Service implements RecognitionListener
             "^(?:(?:turn\\s+off|disable|stop|end)\\s+(?:do\\s+not\\s+disturb|dnd)"
             + "|(?:do\\s+not\\s+disturb|dnd)\\s+off)$",
             Pattern.CASE_INSENSITIVE);
+    // Unified mode control (silent/vibrate/normal/dnd/airplane) — on/off/status, state-aware.
+    private static final String MODE_WORDS =
+            "(silent|vibrate|ringer|ring|normal|do\\s+not\\s+disturb|dnd|aeroplane|aero\\s*plane|airplane|air\\s*plane|flight)";
+    private static final Pattern MODE_QUERY_PATTERN = Pattern.compile(
+            "^(?:is|are)\\s+(?:the\\s+|my\\s+)?" + MODE_WORDS
+            + "\\s*(?:mode)?\\s*(?:on|off|active|enabled|turned\\s+on|turned\\s+off)?\\s*\\??$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern MODE_SET_PATTERN = Pattern.compile(
+            "^(?:(turn\\s+on|turn\\s+off|switch\\s+on|switch\\s+off|enable|disable|start|stop|end|go)\\s+)?"
+            + "(?:the\\s+)?" + MODE_WORDS + "\\s*(?:mode)?\\s*(on|off)?$",
+            Pattern.CASE_INSENSITIVE);
     // Control whatever is playing: pause/resume/next/previous
     private static final Pattern MEDIA_CONTROL_PATTERN = Pattern.compile(
             "^(?:pause(?:\\s+(?:the\\s+)?(?:music|song|media|audio|playback))?"
@@ -1064,6 +1075,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (VOLUME_PATTERN.matcher(normalized).matches()) { handleVolume(normalized); return; }
         Matcher volSetM = VOLUME_SET_PATTERN.matcher(normalized);
         if (volSetM.matches()) { handleSetVolumePercent(volSetM.group(1)); return; }
+        Matcher modeQ = MODE_QUERY_PATTERN.matcher(normalized);
+        if (modeQ.matches()) { handleModeQuery(modeQ.group(1)); return; }
+        Matcher modeS = MODE_SET_PATTERN.matcher(normalized);
+        if (modeS.matches()) { handleModeSet(modeS.group(1), modeS.group(2), modeS.group(3)); return; }
         if (DND_OFF_PATTERN.matcher(normalized).matches()) { handleDnd(false); return; }
         if (DND_PATTERN.matcher(normalized).matches()) { handleDnd(true); return; }
         if (SILENT_PATTERN.matcher(normalized).matches()) { handleRinger(AudioManager.RINGER_MODE_SILENT); return; }
@@ -1556,7 +1571,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (n.matches(".*\\bbattery\\b.*")) return true;
         if (n.matches(".*\\b(?:charging|charge|plugged)\\b.*")) return true;
         if (n.matches("^(?:stop|shut\\s*up|quiet|silence|go\\s+to\\s+sleep|go\\s+to\\s+bed|sleep|sleep\\s+now|good\\s*night|goodnight|rest|dismiss|never\\s*mind)$")) return true;
-        if (n.matches(".*\\b(?:kill|shut\\s*down|shutdown|turn\\s+off|power\\s+off|terminate)\\b.*")) return true;
+        if (n.matches("^(?:kill|shut\\s*down|shutdown|power\\s+off|terminate|turn\\s+(?:yourself\\s+)?off|turn\\s+off\\s+iris|shut\\s+(?:yourself\\s+)?down)$")) return true;
         if (n.matches(".*\\b(?:what\\s+can\\s+you\\s+do|help\\s+me|^help$)\\b.*")) return true;
         return false;
     }
@@ -1634,7 +1649,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             speak(helpText);
             broadcastMessage(helpText);
             LogStore.append(this, "QUICK", "Help requested");
-        } else if (normalized.matches(".*\\b(kill|shut\\s*down|shutdown|turn\\s+off|power\\s+off|terminate)\\b.*")) {
+        } else if (normalized.matches("^(?:kill|shut\\s*down|shutdown|power\\s+off|terminate|turn\\s+(?:yourself\\s+)?off|turn\\s+off\\s+iris|shut\\s+(?:yourself\\s+)?down)$")) {
             // KILL — fully stop the service; user must reopen the app to restart
             broadcastMessage("Shutting down. Open the app to start me again.");
             LogStore.append(this, "KILL", "Full shutdown by voice");
@@ -2445,6 +2460,147 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Silent / vibrate / normal ringer. Needs Do Not Disturb access on modern Android. */
+    /** Speak + broadcast a short status line, then return to listening. */
+    private void inform(String msg) {
+        broadcastMessage(msg);
+        speakThenRun(msg, this::rearmAfterAction);
+        LogStore.append(this, "MODE", msg);
+    }
+
+    private static String canonMode(String raw) {
+        String m = raw == null ? "" : raw.toLowerCase(Locale.ROOT).trim();
+        if (m.startsWith("silent")) return "silent";
+        if (m.startsWith("vibrate")) return "vibrate";
+        if (m.startsWith("normal") || m.startsWith("ring")) return "normal";
+        if (m.contains("disturb") || m.equals("dnd")) return "dnd";
+        if (m.contains("plane") || m.equals("flight")) return "airplane";
+        return "";
+    }
+
+    private boolean dndAccess() {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        return Build.VERSION.SDK_INT < 23 || (nm != null && nm.isNotificationPolicyAccessGranted());
+    }
+
+    private boolean airplaneOn() {
+        try {
+            return android.provider.Settings.Global.getInt(getContentResolver(),
+                    android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) == 1;
+        } catch (Exception e) { return false; }
+    }
+
+    /** Turn a phone mode on/off, checking current state and telling the user what happened. */
+    private void handleModeSet(String actionRaw, String modeRaw, String trailingRaw) {
+        String a = actionRaw == null ? "" : actionRaw.toLowerCase(Locale.ROOT);
+        String t = trailingRaw == null ? "" : trailingRaw.toLowerCase(Locale.ROOT);
+        boolean turnOff = a.contains("off") || a.startsWith("disable") || a.startsWith("stop")
+                || a.startsWith("end") || "off".equals(t);
+        boolean turnOn = !turnOff;
+        String mode = canonMode(modeRaw);
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        try {
+            switch (mode) {
+                case "silent": {
+                    boolean isOn = am.getRingerMode() == AudioManager.RINGER_MODE_SILENT;
+                    if (turnOn) {
+                        if (isOn) { inform("Silent mode is already on."); return; }
+                        if (!dndAccess()) { requestDndAccess("silence the phone"); return; }
+                        am.setRingerMode(AudioManager.RINGER_MODE_SILENT); inform("Silent mode on.");
+                    } else {
+                        if (!isOn) { inform("Silent mode is already off."); return; }
+                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform("Silent mode off — ringer is back to normal.");
+                    }
+                    return;
+                }
+                case "vibrate": {
+                    boolean isOn = am.getRingerMode() == AudioManager.RINGER_MODE_VIBRATE;
+                    if (turnOn) {
+                        if (isOn) { inform("Vibrate mode is already on."); return; }
+                        if (!dndAccess()) { requestDndAccess("switch to vibrate"); return; }
+                        am.setRingerMode(AudioManager.RINGER_MODE_VIBRATE); inform("Vibrate mode on.");
+                    } else {
+                        if (!isOn) { inform("Vibrate mode is already off."); return; }
+                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform("Vibrate mode off — ringer is back to normal.");
+                    }
+                    return;
+                }
+                case "normal": {
+                    if (am.getRingerMode() == AudioManager.RINGER_MODE_NORMAL) inform("The ringer is already normal.");
+                    else { am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform("Ringer set to normal."); }
+                    return;
+                }
+                case "dnd": {
+                    NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                    if (nm == null || Build.VERSION.SDK_INT < 23) { inform("Do Not Disturb isn't available here."); return; }
+                    boolean isOn = nm.getCurrentInterruptionFilter() != NotificationManager.INTERRUPTION_FILTER_ALL;
+                    if (turnOn) {
+                        if (isOn) { inform("Do Not Disturb is already on."); return; }
+                        if (!dndAccess()) { requestDndAccess("turn on Do Not Disturb"); return; }
+                        nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY);
+                        inform("Do Not Disturb on.");
+                    } else {
+                        if (!isOn) { inform("Do Not Disturb is already off."); return; }
+                        if (!dndAccess()) { requestDndAccess("turn off Do Not Disturb"); return; }
+                        nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL);
+                        inform("Do Not Disturb off.");
+                    }
+                    return;
+                }
+                case "airplane": handleAirplane(turnOn); return;
+                default: inform("I can set silent, vibrate, normal, Do Not Disturb, or airplane mode.");
+            }
+        } catch (Exception e) {
+            inform("I couldn't change that mode.");
+        }
+    }
+
+    /** Report whether a mode is currently on. */
+    private void handleModeQuery(String modeRaw) {
+        String mode = canonMode(modeRaw);
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        String msg;
+        switch (mode) {
+            case "silent":
+                msg = "Silent mode is " + (am.getRingerMode() == AudioManager.RINGER_MODE_SILENT ? "on." : "off.");
+                break;
+            case "vibrate":
+                msg = "Vibrate mode is " + (am.getRingerMode() == AudioManager.RINGER_MODE_VIBRATE ? "on." : "off.");
+                break;
+            case "normal":
+                msg = am.getRingerMode() == AudioManager.RINGER_MODE_NORMAL ? "The ringer is normal."
+                        : "The ringer isn't normal — it's " + (am.getRingerMode() == AudioManager.RINGER_MODE_SILENT ? "silent." : "on vibrate.");
+                break;
+            case "dnd":
+                msg = "Do Not Disturb is " + (nm != null && Build.VERSION.SDK_INT >= 23
+                        && nm.getCurrentInterruptionFilter() != NotificationManager.INTERRUPTION_FILTER_ALL ? "on." : "off.");
+                break;
+            case "airplane":
+                msg = "Airplane mode is " + (airplaneOn() ? "on." : "off.");
+                break;
+            default:
+                msg = "I can check silent, vibrate, normal, Do Not Disturb, or airplane mode.";
+        }
+        inform(msg);
+    }
+
+    /** Airplane mode can't be toggled by apps — report state and open settings if a change is wanted. */
+    private void handleAirplane(boolean turnOn) {
+        boolean isOn = airplaneOn();
+        if (turnOn == isOn) { inform("Airplane mode is already " + (isOn ? "on." : "off.")); return; }
+        String msg = "I can't switch airplane mode directly — opening settings so you can toggle it.";
+        broadcastMessage(msg);
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_AIRPLANE_MODE_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            try { startActivity(new Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (Exception ignored) { }
+        }
+        speakThenRun(msg, this::rearmAfterAction);
+        LogStore.append(this, "MODE", "airplane → open settings (was " + (isOn ? "on" : "off") + ")");
+    }
+
     private void handleRinger(int mode) {
         try {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
