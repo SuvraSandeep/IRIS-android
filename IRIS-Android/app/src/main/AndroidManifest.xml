@@ -92,6 +92,8 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <service
             android:name=".IrisTileService"

@@ -58,6 +58,7 @@ public final class ScreenCaptureService extends Service {
     private ParcelFileDescriptor pfd;
     private Uri mediaUri;
     private boolean recording;
+    private volatile boolean handled;
     private int seconds = 30;
     private final Runnable autoStop = this::stopRecording;
 
@@ -117,6 +118,7 @@ public final class ScreenCaptureService extends Service {
                     if (image != null) image.close();
                 }
             }, bg);
+            main.postDelayed(() -> finishWith("I couldn't capture the screen."), 3000);  // safety net
         } catch (Throwable t) {
             finishWith("I couldn't take the screenshot.");
         }
@@ -242,6 +244,8 @@ public final class ScreenCaptureService extends Service {
 
     /** Finalise media, tell IRIS to speak the result, release everything, stop the service. */
     private void finishWith(String message) {
+        if (handled) return;
+        handled = true;
         boolean success = message != null && (message.startsWith("Screenshot") || message.startsWith("Saved"));
         if (Build.VERSION.SDK_INT >= 29 && mediaUri != null) {
             try {

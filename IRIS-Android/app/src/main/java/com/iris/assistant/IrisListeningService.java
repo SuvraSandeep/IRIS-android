@@ -48,6 +48,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String ACTION_STOP_RECORDING = "com.iris.assistant.STOP_RECORDING";
     public static final String ACTION_TALK = "com.iris.assistant.TALK";
     public static final String ACTION_CAPTURE_DONE = "com.iris.assistant.CAPTURE_DONE";
+    public static final String ACTION_STOP_SPEAKING = "com.iris.assistant.STOP_SPEAKING";
     public static final String EVENT_STATE = "com.iris.assistant.EVENT_STATE";
     public static final String EVENT_TRANSCRIPT = "com.iris.assistant.EVENT_TRANSCRIPT";
     public static final String EVENT_CALL_PROMPT = "com.iris.assistant.EVENT_CALL_PROMPT";
@@ -218,6 +219,15 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern MODE_SET_PATTERN = Pattern.compile(
             "^(?:(turn\\s+on|turn\\s+off|switch\\s+on|switch\\s+off|enable|disable|start|stop|end|go)\\s+)?"
             + "(?:the\\s+)?" + MODE_WORDS + "\\s*(?:mode)?\\s*(on|off)?$",
+            Pattern.CASE_INSENSITIVE);
+    // Self-awareness: recall / repeat the last action.
+    private static final Pattern LAST_ACTION_PATTERN = Pattern.compile(
+            "^(?:what\\s+did\\s+you\\s+(?:just\\s+)?do|what\\s+was\\s+(?:your\\s+|the\\s+)?last\\s+action"
+            + "|what\\s+did\\s+you\\s+last\\s+do|your\\s+last\\s+action|what\\s+was\\s+that)\\??$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern REPEAT_ACTION_PATTERN = Pattern.compile(
+            "^(?:do\\s+(?:that|it)\\s+again|repeat\\s+(?:that|it|the\\s+last\\s+(?:action|command))"
+            + "|again|same\\s+again|one\\s+more\\s+time)$",
             Pattern.CASE_INSENSITIVE);
     // "phone status" / "how's my phone" — full rundown of ringer, DND, airplane, net, bt, battery.
     private static final Pattern STATUS_PATTERN = Pattern.compile(
@@ -493,6 +503,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         if (ACTION_STOP_RECORDING.equals(action)) {
             stopVoiceRecording();
+            return START_STICKY;
+        }
+        if (ACTION_STOP_SPEAKING.equals(action)) {
+            stopSpeaking();
             return START_STICKY;
         }
         if (ACTION_CAPTURE_DONE.equals(action)) {
@@ -1006,6 +1020,12 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Guarded entry point: no command-handling error may crash the app. */
     private void handleCommand(String heard) {
+        if (heard != null && !heard.trim().isEmpty()) {
+            String hl = heard.trim().toLowerCase(Locale.ROOT);
+            if (!REPEAT_ACTION_PATTERN.matcher(hl).matches() && !LAST_ACTION_PATTERN.matcher(hl).matches()) {
+                lastUserCommand = heard.trim();   // remember only real, repeatable commands
+            }
+        }
         if (spellingCall) {
             try { handleSpellInput(heard); }
             catch (Throwable t) { spellingCall = false; LogStore.append(this, "SPELL", "error: " + t); rearmAfterAction(); }
@@ -1213,6 +1233,20 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (VOLUME_PATTERN.matcher(normalized).matches()) { handleVolume(normalized); return; }
         Matcher volSetM = VOLUME_SET_PATTERN.matcher(normalized);
         if (volSetM.matches()) { handleSetVolumePercent(volSetM.group(1)); return; }
+        if (LAST_ACTION_PATTERN.matcher(normalized).matches()) {
+            String m = (lastActionSummary == null || lastActionSummary.trim().isEmpty())
+                    ? "I haven't done anything yet this session."
+                    : "The last thing I did was: " + lastActionSummary;
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction); return;
+        }
+        if (REPEAT_ACTION_PATTERN.matcher(normalized).matches()) {
+            if (lastUserCommand == null || lastUserCommand.trim().isEmpty()) {
+                String m = "There's nothing to repeat yet."; broadcastMessage(m); speakThenRun(m, this::rearmAfterAction); return;
+            }
+            final String cmd = lastUserCommand;
+            handler.post(() -> handleCommand(cmd));
+            return;
+        }
         if (STOP_RECORD_PATTERN.matcher(normalized).matches()) { stopVoiceRecording(); return; }
         if (SCREEN_REC_STOP_PATTERN.matcher(normalized).matches()) {
             try { startService(new Intent(this, ScreenCaptureService.class).setAction(ScreenCaptureService.ACTION_STOP)); } catch (Exception ignored) { }
@@ -1933,6 +1967,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void reply(String text) {
         broadcastMessage("\uD83D\uDD14 " + text);
+        lastActionSummary = text;
         speakThenRun(text, this::rearmAfterAction);
     }
 
@@ -2638,15 +2673,11 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void launchScreenCapture(String op, int seconds) {
-        try {
-            startActivity(new Intent(this, ScreenCaptureActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    .putExtra(ScreenCaptureActivity.EXTRA_OP, op)
-                    .putExtra(ScreenCaptureActivity.EXTRA_SECONDS, seconds));
-        } catch (Exception e) {
-            String m = "I couldn't open screen capture.";
-            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
-        }
+        Intent i = new Intent(this, ScreenCaptureActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(ScreenCaptureActivity.EXTRA_OP, op)
+                .putExtra(ScreenCaptureActivity.EXTRA_SECONDS, seconds);
+        launchCaptureActivity(i, "IRIS screen capture", "rec".equals(op) ? "Recording screen…" : "Taking screenshot…");
     }
 
     /** Launch the lock-screen-capable camera activity to record a short video. */
@@ -2670,29 +2701,36 @@ public class IrisListeningService extends Service implements RecognitionListener
         speakThenRun(intro, () -> {
             pauseListeningForCapture();
             Intent i = new Intent(this, LockedCaptureActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     .putExtra(LockedCaptureActivity.EXTRA_SECONDS, secs)
                     .putExtra(LockedCaptureActivity.EXTRA_FRONT, front);
-            boolean launched = false;
-            try { startActivity(i); launched = true; } catch (Exception ignored) { }
-            // Full-screen-intent notification: lets the camera come up even over the lock screen.
-            try {
-                PendingIntent pi = PendingIntent.getActivity(this, 9, i,
-                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-                Notification n = new Notification.Builder(this, CALL_CHANNEL)
-                        .setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS camera")
-                        .setContentText("Recording video…")
-                        .setCategory(Notification.CATEGORY_CALL)
-                        .setFullScreenIntent(pi, true)
-                        .setAutoCancel(true).build();
-                ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(0xC0DE, n);
-            } catch (Exception e) {
-                if (!launched) {
-                    String m = "I couldn't open the camera.";
-                    broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
-                }
-            }
+            launchCaptureActivity(i, "IRIS camera", "Recording video…");
         });
+    }
+
+    /** Launch a capture activity exactly ONCE, choosing the path by lock/screen state so we never
+     *  double-launch (a second launch was killing the in-progress recording before it saved). */
+    private void launchCaptureActivity(Intent i, String title, String text) {
+        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        boolean locked = km != null && km.isKeyguardLocked();
+        boolean interactive = pm != null && pm.isInteractive();
+        if (!locked && interactive) {
+            try { startActivity(i); return; } catch (Exception ignored) { }
+        }
+        // Locked or screen-off (or a blocked background start): a full-screen-intent notification
+        // is the reliable way to bring the capture UI up over the lock screen.
+        try {
+            PendingIntent pi = PendingIntent.getActivity(this, 9, i,
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            Notification n = new Notification.Builder(this, CALL_CHANNEL)
+                    .setSmallIcon(R.drawable.ic_iris).setContentTitle(title).setContentText(text)
+                    .setCategory(Notification.CATEGORY_CALL)
+                    .setFullScreenIntent(pi, true).setAutoCancel(true).build();
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(0xC0DE, n);
+        } catch (Exception e) {
+            try { startActivity(i); } catch (Exception ignored) { }
+        }
     }
 
     /** Parse a spoken number + optional unit into seconds ("m"/minutes → ×60), or fallback. */
@@ -2955,6 +2993,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void inform(String msg) {
         broadcastMessage(msg);
         speakThenRun(msg, this::rearmAfterAction);
+        lastActionSummary = msg;
         LogStore.append(this, "MODE", msg);
     }
 
@@ -4397,11 +4436,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         Intent talk = new Intent(this, IrisListeningService.class).setAction(ACTION_TALK);
         PendingIntent talkPending = PendingIntent.getService(this, 8, talk,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Intent shush = new Intent(this, IrisListeningService.class).setAction(ACTION_STOP_SPEAKING);
+        PendingIntent shushPending = PendingIntent.getService(this, 12, shush,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, LISTENING_CHANNEL)
                 .setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS is active")
                 .setContentText(microphoneLabel).setOngoing(true).setOnlyAlertOnce(true)
                 .setContentIntent(content)
                 .addAction(new Notification.Action.Builder(null, "\uD83C\uDF99 Talk", talkPending).build())
+                .addAction(new Notification.Action.Builder(null, "\u23F9 Stop", shushPending).build())
                 .addAction(new Notification.Action.Builder(null, "Turn off", stopPending).build())
                 .build();
     }
@@ -4561,6 +4604,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private Object speechFocusRequest;
+    private volatile boolean speechCancelled;
+    private String lastUserCommand = "";
+    private String lastActionSummary = "";
 
     /** Grab transient audio focus so background music/video pauses while IRIS speaks. */
     private void requestSpeechFocus() {
@@ -4595,6 +4641,16 @@ public class IrisListeningService extends Service implements RecognitionListener
                 am.abandonAudioFocus(null);
             }
         } catch (Exception ignored) { }
+    }
+
+    /** Immediately stop whatever IRIS is saying (TTS or server audio) and return to listening. */
+    private void stopSpeaking() {
+        speechCancelled = true;
+        try { if (textToSpeech != null) textToSpeech.stop(); } catch (Exception ignored) { }
+        try { releaseServerTts(); } catch (Exception ignored) { }
+        abandonSpeechFocus();
+        LogStore.append(this, "STOP", "Speech interrupted by user");
+        if (isRunning) rearmAfterAction();
     }
 
     private void speak(String text) {
@@ -4712,6 +4768,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         final boolean[] ran = {false};
+        speechCancelled = false;
         requestSpeechFocus();
         textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
             @Override public void onStart(String utteranceId) { }
@@ -4723,14 +4780,14 @@ public class IrisListeningService extends Service implements RecognitionListener
                     handler.postDelayed(() -> {
                         textToSpeech.setOnUtteranceProgressListener(null);
                         abandonSpeechFocus();
-                        afterSpeaking.run();
+                        if (!speechCancelled) afterSpeaking.run();
                     }, 300);
                 }
             }
             @Override public void onError(String utteranceId) {
                 if (!ran[0]) {
                     ran[0] = true;
-                    handler.post(() -> { textToSpeech.setOnUtteranceProgressListener(null); abandonSpeechFocus(); afterSpeaking.run(); });
+                    handler.post(() -> { textToSpeech.setOnUtteranceProgressListener(null); abandonSpeechFocus(); if (!speechCancelled) afterSpeaking.run(); });
                 }
             }
         });
@@ -4742,7 +4799,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         // Safety net: if onDone never fires (some TTS engines), run after 6s max
         handler.postDelayed(() -> {
-            if (!ran[0]) { ran[0] = true; textToSpeech.setOnUtteranceProgressListener(null); abandonSpeechFocus(); afterSpeaking.run(); }
+            if (!ran[0]) { ran[0] = true; textToSpeech.setOnUtteranceProgressListener(null); abandonSpeechFocus(); if (!speechCancelled) afterSpeaking.run(); }
         }, 6000);
     }
 

@@ -58,6 +58,7 @@ public final class LockedCaptureActivity extends Activity {
     private int seconds = 15;
     private boolean front;
     private boolean finished;
+    private volatile boolean recording;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -127,6 +128,7 @@ public final class LockedCaptureActivity extends Activity {
                                         android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
                                 s.setRepeatingRequest(b.build(), null, bg);
                                 recorder.start();
+                                recording = true;
                                 main.postDelayed(LockedCaptureActivity.this::stopRecording, seconds * 1000L);
                             } catch (Exception e) {
                                 done("I couldn't start the recording.");
@@ -178,6 +180,7 @@ public final class LockedCaptureActivity extends Activity {
     }
 
     private void stopRecording() {
+        recording = false;
         boolean ok = true;
         try { if (session != null) session.stopRepeating(); } catch (Exception ignored) { }
         try { if (recorder != null) recorder.stop(); } catch (Exception e) { ok = false; }
@@ -234,8 +237,16 @@ public final class LockedCaptureActivity extends Activity {
                 .format(new java.util.Date());
     }
 
+    @Override protected void onNewIntent(Intent intent) {
+        // A second launch (e.g. from a notification) must NOT restart/kill an active recording.
+        super.onNewIntent(intent);
+    }
+
     @Override protected void onDestroy() {
-        done(null);
+        if (!finished) {
+            if (recording) stopRecording();   // save what we captured instead of discarding it
+            else done(null);
+        }
         super.onDestroy();
     }
 }
