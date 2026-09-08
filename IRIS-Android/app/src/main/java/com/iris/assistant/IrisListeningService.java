@@ -361,6 +361,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         super.onCreate();
         settings = new AppSettings(this);
         try { PersonalProfile.seedInto(this); } catch (Throwable ignored) { }
+        try { new ProfileStore(this).seedHardcodedVoiceprint(); } catch (Throwable ignored) { }
         createNotificationChannels();
         textToSpeech = new TextToSpeech(this, status -> {
             ttsReady = status == TextToSpeech.SUCCESS;
@@ -4323,10 +4324,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         if ("Phone".equals(preference)) return builtIn;
         if ("Bluetooth".equals(preference)) return btDev != null ? btDev : builtIn;
         if ("Wired / USB".equals(preference)) return wiredDev != null ? wiredDev : builtIn;
-        // Automatic: use the headset you're actually wearing — wired first (doesn't disturb
-        // playback), then Bluetooth (talk into the headset), then the built-in mic.
+        // Automatic: prefer a wired mic (doesn't disturb playback), then the built-in mic.
+        // Deliberately NOT Bluetooth — grabbing the BT mic forces A2DP music down to
+        // call-quality SCO (changes the music tone). Choose "Bluetooth" in Settings to use it.
         if (wiredDev != null) return wiredDev;
-        if (btDev != null) return btDev;
         return builtIn;
     }
 

@@ -196,6 +196,23 @@ public final class ProfileStore {
         } catch (Exception ignored) { return false; }
     }
 
+    // ===================================================================================
+    // OPTIONAL: hard-coded voiceprint (skip on-device voice training).
+    // Paste a 128-float Vosk speaker x-vector extracted offline with the SAME
+    // vosk-model-spk model IRIS uses at runtime (see HARDCODED-VOICE.md for the script).
+    // Leave empty to keep normal on-device enrollment. Only used when speaker-lock is ON.
+    // ===================================================================================
+    public static final float[] DEFAULT_VOICEPRINT = { /* e.g. 0.0123f, -0.0456f, ... (128 values) */ };
+
+    /** If a hard-coded voiceprint is provided and none is enrolled yet, seed it. */
+    public synchronized void seedHardcodedVoiceprint() {
+        try {
+            if (DEFAULT_VOICEPRINT.length > 0 && getVoiceprint() == null) {
+                setVoiceprint(DEFAULT_VOICEPRINT);
+            }
+        } catch (Throwable ignored) { }
+    }
+
     /** The enrolled speaker voiceprint (x-vector), or null if none. */
     public synchronized float[] getVoiceprint() {
         try {
