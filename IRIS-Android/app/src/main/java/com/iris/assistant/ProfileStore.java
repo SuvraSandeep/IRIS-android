@@ -32,8 +32,18 @@ public final class ProfileStore {
         public long trainedAt;
         public final List<float[][]> templates = new ArrayList<>();
         public float[] voiceprint;
+        public final List<String> altPhrases = new ArrayList<>();
         public boolean isReady() { return !phrase.trim().isEmpty() && templates.size() >= 3; }
         public boolean isVoiceEnrolled() { return voiceprint != null && voiceprint.length > 0; }
+        /** Primary phrase + any alternates, de-duplicated. */
+        public List<String> allPhrases() {
+            List<String> all = new ArrayList<>();
+            if (!phrase.trim().isEmpty()) all.add(phrase.trim());
+            for (String p : altPhrases) {
+                if (p != null && !p.trim().isEmpty() && !all.contains(p.trim())) all.add(p.trim());
+            }
+            return all;
+        }
     }
 
     public static class Match {
@@ -109,6 +119,13 @@ public final class ProfileStore {
                 profile.voiceprint = new float[vp.length()];
                 for (int i = 0; i < vp.length(); i++) profile.voiceprint[i] = (float) vp.getDouble(i);
             }
+            JSONArray alts = wake.optJSONArray("altPhrases");
+            if (alts != null) {
+                for (int i = 0; i < alts.length(); i++) {
+                    String p = alts.optString(i, "").trim();
+                    if (!p.isEmpty()) profile.altPhrases.add(p);
+                }
+            }
         } catch (Exception ignored) { }
         return profile;
     }
@@ -131,6 +148,30 @@ public final class ProfileStore {
                 allTemplates.put(frames);
             }
             wake.put("templates", allTemplates);
+            // Preserve any existing alternate phrases across a retrain of the primary.
+            JSONObject prev = current.optJSONObject("wakeWord");
+            if (prev != null && prev.optJSONArray("altPhrases") != null) {
+                wake.put("altPhrases", prev.optJSONArray("altPhrases"));
+            }
+            current.put("wakeWord", wake);
+            persist(current);
+            return true;
+        } catch (Exception ignored) { return false; }
+    }
+
+    /** Store optional alternate wake phrases (text only — Vosk recognizes them; no separate training). */
+    public synchronized boolean setAltWakePhrases(List<String> phrases) {
+        try {
+            JSONObject current = root();
+            JSONObject wake = current.optJSONObject("wakeWord");
+            if (wake == null) wake = new JSONObject();
+            JSONArray arr = new JSONArray();
+            if (phrases != null) {
+                for (String p : phrases) {
+                    if (p != null && !p.trim().isEmpty() && arr.length() < 3) arr.put(p.trim());
+                }
+            }
+            wake.put("altPhrases", arr);
             current.put("wakeWord", wake);
             persist(current);
             return true;

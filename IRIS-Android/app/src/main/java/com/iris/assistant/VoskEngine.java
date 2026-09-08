@@ -314,6 +314,58 @@ public final class VoskEngine {
     }
 
     /**
+     * Multi-phrase wake detection: fires if ANY of the given phrases is spoken.
+     * Builds a grammar with every phrase (+ its distinctive last word) + [unk].
+     */
+    public void startWakeDetection(java.util.List<String> phrases, WakeListener listener) {
+        if (!isReady()) { listener.onError("Voice model not ready"); return; }
+        if (phrases == null || phrases.isEmpty()) { listener.onError("No wake phrase"); return; }
+        stop();
+        try {
+            final java.util.List<String> norm = new java.util.ArrayList<>();
+            final java.util.List<String> keyWords = new java.util.ArrayList<>();
+            StringBuilder gb = new StringBuilder("[");
+            for (String raw : phrases) {
+                if (raw == null) continue;
+                String phrase = raw.toLowerCase().trim();
+                if (phrase.isEmpty() || norm.contains(phrase)) continue;
+                norm.add(phrase);
+                gb.append("\"").append(phrase).append("\", ");
+                String[] w = phrase.split("\\s+");
+                String kw = w[w.length - 1];
+                if (kw.length() >= 3 && !kw.equals(phrase) && !keyWords.contains(kw)) {
+                    keyWords.add(kw);
+                    gb.append("\"").append(kw).append("\", ");
+                }
+            }
+            if (norm.isEmpty()) { listener.onError("No wake phrase"); return; }
+            gb.append("\"[unk]\"]");
+            Recognizer recognizer = new Recognizer(model, SAMPLE_RATE, gb.toString());
+            if (spkReady && spkModel != null) {
+                try {
+                    recognizer.getClass()
+                            .getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
+                            .invoke(recognizer, spkModel);
+                } catch (Throwable ignored) { }
+            }
+            speechService = new SpeechService(recognizer, SAMPLE_RATE);
+            speechService.startListening(new RecognitionListener() {
+                @Override public void onPartialResult(String hypothesis) { }
+                @Override public void onResult(String hypothesis) {
+                    if (wakeMatchesAny(hypothesis, norm, keyWords)) listener.onWakeDetected(extractSpk(hypothesis));
+                }
+                @Override public void onFinalResult(String hypothesis) {
+                    if (wakeMatchesAny(hypothesis, norm, keyWords)) listener.onWakeDetected(extractSpk(hypothesis));
+                }
+                @Override public void onError(Exception e) { listener.onError(e.getMessage()); }
+                @Override public void onTimeout() { }
+            });
+        } catch (Exception e) {
+            listener.onError(e.getMessage());
+        }
+    }
+
+    /**
      * Start continuous speech-to-text for command recognition.
      * Uses the full vocabulary model.
      */
@@ -519,6 +571,23 @@ public final class VoskEngine {
         if (keyWord != null && keyWord.length() >= 3
                 && text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(keyWord) + "(\\s.*|$)")) return true;
         return wakeSim(text, phrase) >= 0.55;
+    }
+
+    /** Multi-phrase variant of wakeMatches — true if any phrase (or its key word) matches. */
+    private static boolean wakeMatchesAny(String hypothesisJson, java.util.List<String> phrases,
+                                          java.util.List<String> keyWords) {
+        String text = extractText(hypothesisJson, "text");
+        if (text.isEmpty() || text.equals("[unk]")) return false;
+        for (String phrase : phrases) {
+            if (text.equals(phrase)) return true;
+            if (text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)")) return true;
+            if (wakeSim(text, phrase) >= 0.55) return true;
+        }
+        for (String kw : keyWords) {
+            if (kw.length() >= 3
+                    && text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(kw) + "(\\s.*|$)")) return true;
+        }
+        return false;
     }
 
     /** Levenshtein similarity ratio (0..1). */

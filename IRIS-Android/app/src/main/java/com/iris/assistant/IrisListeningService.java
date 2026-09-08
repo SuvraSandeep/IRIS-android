@@ -478,7 +478,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
         updateListeningNotification("Waiting for “" + wake.phrase + "”");
         // Vosk neural grammar-mode wake detection — only fires on the exact phrase
-        voskEngine.startWakeDetection(wake.phrase, new VoskEngine.WakeListener() {
+        voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
             @Override public void onWakeDetected(float[] voiceEmbedding) {
                 if (!isRunning || !PHASE_WAKE.equals(phase)) return;
                 // Voice verification: only wake for the enrolled owner's voice —
@@ -533,7 +533,12 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (!isRunning || !PHASE_WAKE.equals(phase)) return;
         androidWakeActive = true;
         updateListeningNotification("Waiting for “" + wake.phrase + "”");
-        final String target = ProfileStore.normalize(wake.phrase);
+        final java.util.List<String> targets = new java.util.ArrayList<>();
+        for (String p : wake.allPhrases()) {
+            String n = ProfileStore.normalize(p);
+            if (!n.isEmpty()) targets.add(n);
+        }
+        final String target = targets.isEmpty() ? ProfileStore.normalize(wake.phrase) : targets.get(0);
         destroyRecognizer();
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             broadcastMessage("Speech recognition unavailable on this device.");
@@ -559,7 +564,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
             @Override public void onResults(Bundle results) {
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                boolean detected = wakeHeard(matches, target);
+                boolean detected = wakeHeardAny(matches, targets);
                 if (detected && isRunning && PHASE_WAKE.equals(phase)) {
                     androidWakeActive = false;
                     restoreRecognizerBeep(); // unmute so the greeting + TTS are audible
@@ -575,7 +580,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
             @Override public void onPartialResults(Bundle partialResults) {
                 ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                if (wakeHeard(matches, target) && isRunning && PHASE_WAKE.equals(phase)) {
+                if (wakeHeardAny(matches, targets) && isRunning && PHASE_WAKE.equals(phase)) {
                     try { recognizer.stopListening(); } catch (Exception ignored) { }
                 }
             }
@@ -599,6 +604,13 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
             if (all && targetWords.length > 0) return true;
         }
+        return false;
+    }
+
+    /** True if ANY of the wake phrases is heard in the recognition results. */
+    private boolean wakeHeardAny(ArrayList<String> matches, java.util.List<String> targets) {
+        if (matches == null || targets == null) return false;
+        for (String t : targets) if (t != null && !t.isEmpty() && wakeHeard(matches, t)) return true;
         return false;
     }
 

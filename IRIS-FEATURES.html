@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.34.0";
+const BUILD_VERSION = "7.36.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -144,8 +144,8 @@ const FEATURES = [
   // ---- Voice & Recognition ----
   {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
    tagline:"IRIS wakes only when you say your phrase.",
-   desc:"Train your own wake phrase; IRIS listens silently in the background. Accent‑tolerant matching: it also listens for the distinctive last word and close/fuzzy matches, so it still wakes if the model slightly mis‑hears you. Wakes on the first try — voice‑verification is lenient by default (kept on for speaker‑lock, but tuned so it never makes you repeat yourself). Doesn't interrupt music/video.",
-   examples:["“Hello IRIS” (or whatever you trained)"], version:"7.32.0"},
+   desc:"Train your own wake phrase; IRIS listens silently in the background. You can add up to 2 extra wake phrases (e.g. “Hello IRIS”, “IRIS you there”, “wake up IRIS”) — the primary one is voice-trained, extras are recognised as text (no separate training). Accent‑tolerant matching (distinctive last word + fuzzy), wakes on the first try (lenient verification), and doesn't interrupt music/video.",
+   examples:["“Hello IRIS”, or any extra phrase you add"], version:"7.35.0"},
   {id:"cmdstt", cat:"Voice & Recognition", icon:"👂", title:"Accurate Commands (Google speech)",
    tagline:"Understands you like your watch does.",
    desc:"After waking, commands are recognised with Google's speech engine (far better with accents and fumbles), and IRIS falls back to the offline Vosk model automatically when there's no internet or Google errors. A short beep tells you exactly when it's listening.",
@@ -257,8 +257,8 @@ const FEATURES = [
    examples:["pause","next song","set volume to fifty percent","play <song name>"], version:"7.30.0"},
   {id:"guide", cat:"Voice & Recognition", icon:"📖", title:"In-App Feature Guide",
    tagline:"Tap “📖 Guide” below the orb.",
-   desc:"A “📖 Guide” chip below the orb (with the quick actions) opens a list of every IRIS feature; tap any item to see exactly how to use it with examples.",
-   examples:["Assistant → 📖 Guide → tap a feature"], version:"7.31.0"},
+   desc:"A “📖 Guide” chip below the orb opens a complete reference — every feature with what it does, the exact commands to say, tips, plus Getting-started and Troubleshooting sections. Tap any item for details.",
+   examples:["Assistant → 📖 Guide → tap a feature"], version:"7.36.0"},
   {id:"silentdnd", cat:"Productivity", icon:"🔕", title:"Silent & Do Not Disturb",
    tagline:"“Silence my phone.” / “Do not disturb.”",
    desc:"Switches the ringer to silent, vibrate, or normal, and toggles Do Not Disturb by voice. Needs one-time Do Not Disturb access — IRIS opens the settings page the first time so you can allow it.",

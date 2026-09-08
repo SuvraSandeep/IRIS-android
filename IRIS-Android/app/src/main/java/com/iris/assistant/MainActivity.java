@@ -575,6 +575,41 @@ public class MainActivity extends Activity {
         configureWakeButton();
         testWakeButton.setOnClickListener(v -> testWakePhrase());
         wakeWizardCancel.setOnClickListener(v -> cancelWakeTraining());
+
+        // Extra wake phrases (text-only alternates recognised by Vosk — no separate training).
+        EditText altWakeInput = view.findViewById(R.id.altWakeInput);
+        Button addAltWakeButton = view.findViewById(R.id.addAltWakeButton);
+        TextView altWakeList = view.findViewById(R.id.altWakeList);
+        renderAltWakeList(altWakeList);
+        if (addAltWakeButton != null && altWakeInput != null) {
+            addAltWakeButton.setOnClickListener(v -> {
+                String p = altWakeInput.getText().toString().trim();
+                if (p.length() < 2) { altWakeInput.setError("Enter a phrase"); return; }
+                ProfileStore ps = new ProfileStore(this);
+                java.util.List<String> alts = new java.util.ArrayList<>(ps.getWakeProfile().altPhrases);
+                if (alts.size() >= 2) { toast("You can add up to 2 extra phrases."); return; }
+                if (!alts.contains(p)) alts.add(p);
+                ps.setAltWakePhrases(alts);
+                altWakeInput.setText("");
+                renderAltWakeList(altWakeList);
+                toast("Added wake phrase: " + p);
+                if (IrisListeningService.isRunning) { stopListeningService(); handler.postDelayed(this::startListeningService, 500); }
+            });
+        }
+        if (altWakeList != null) {
+            altWakeList.setOnClickListener(v -> {
+                ProfileStore ps = new ProfileStore(this);
+                if (ps.getWakeProfile().altPhrases.isEmpty()) return;
+                new AlertDialog.Builder(this).setTitle("Clear extra wake phrases?")
+                        .setNegativeButton("Keep", null)
+                        .setPositiveButton("Clear", (d, w) -> {
+                            ps.setAltWakePhrases(new java.util.ArrayList<>());
+                            renderAltWakeList(altWakeList);
+                            toast("Extra phrases cleared.");
+                            if (IrisListeningService.isRunning) { stopListeningService(); handler.postDelayed(this::startListeningService, 500); }
+                        }).show();
+            });
+        }
         startTrainingButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Train contact", this::requestContactForTraining));
         contactWizardCancel.setOnClickListener(v -> cancelContactTraining());
         view.findViewById(R.id.testWakeButton2).setOnClickListener(v -> testWakePhrase());
@@ -817,30 +852,44 @@ public class MainActivity extends Activity {
 
     // {title, how-to (with examples)} — tap an item in the guide to see this.
     private static final String[][] FEATURE_GUIDE = {
-        {"📞 Call a contact", "Say “call <name>”. IRIS fuzzy-matches and confirms first.\nExamples: “call mom”, “phone the office”."},
-        {"🔤 Call by spelling", "When a name is mis-heard, say “spell the name”, then spell it (letters or NATO).\nExample: “spell the name” → “Mike Alpha Alpha”."},
-        {"☎️ Call / text a number", "Say the number directly.\nExamples: “call 98765 43210”, “send a text to 9876543210”."},
-        {"✉️ Send SMS", "Say it naturally, no “saying” needed. Or just “send an SMS” and IRIS asks who + what.\nExamples: “text mom I'll be late”, “send an SMS”."},
-        {"💬 WhatsApp", "Opens the chat pre-filled; you tap send.\nExample: “whatsapp Sam saying on my way”."},
-        {"⏰ Alarms & timers", "Examples: “set an alarm for 7 am”, “wake me at 6:30”, “set a timer for 10 minutes”."},
-        {"🔔 Reminders", "Say “remind me to <task> in/at <time>”.\nExample: “remind me to call dad in 10 minutes”."},
-        {"🎵 Media & music", "Control playback: “pause”, “resume”, “next”, “previous”. Play a song: “play <song>”."},
-        {"🔊 Volume", "“volume up/down”, “mute”, “max volume”, “set volume to 50 percent” (digits or words)."},
-        {"🔕 Silent & DND", "“silent mode”, “vibrate mode”, “normal mode”, “do not disturb”, “dnd off”. (Needs DND access once.)"},
-        {"🔦 Torch / flashlight", "“turn on the flashlight”, “torch off”."},
-        {"🌦️ Weather", "“what's the weather”, “weather today”."},
-        {"📍 Location", "“where am I”, “my location”."},
-        {"📬 Notifications", "“read my notifications”, “what did I miss”, “clear all notifications”."},
-        {"🌐 Web & apps", "“search for <query>”, “open <app>”, “navigate to <place>”."},
-        {"🧠 Memory", "“remember I like green tea”, “what do you know about me”, “forget that”. Profile facts are read-only (edit iris-me.json)."},
-        {"🎙️ Wake phrase", "Train it in Training. Say your phrase (e.g. “Hello IRIS”) to wake. Tip: a short distinctive word wakes best."},
-        {"🎓 Voice & command training", "Training → “Learn My Voice & Commands” — read phrases + say each command so IRIS fits your accent."},
-        {"🎚️ Choose voice", "Settings → “Choose IRIS voice” to pick a female/other voice; “Test voice” to preview."},
-        {"🛰️ Server mode", "Settings → Server mode: use your own online brain when connected; auto-falls back offline. Say “go online/offline”."},
-        {"🩺 Self-test", "Settings → “Run self-test” shows what's working + the installed version."},
-        {"🏷️ Version / what's new", "Say “what version are you” or “what's new”."},
+        {"🚀 Getting started", "1) Train a wake phrase (Training tab).\n2) Grant Microphone, Contacts, SMS and Notification access (Settings → Run self-test shows what's missing).\n3) Tap the orb or say your wake phrase, wait for the short beep, then speak your command.\nTip: run Self-test anytime to see what's working."},
+        {"🎙️ Wake phrase", "What: IRIS wakes when you say your trained phrase.\nHow: Training → “Set Up Wake Phrase”, type it, say it 5×, confirm to save.\nSay: your phrase, e.g. “Hello IRIS”.\nTips: 2–3 syllables recognise best; it wakes on the first try; it won't interrupt music/video."},
+        {"➕ Extra wake phrases", "What: add up to 2 more wake phrases besides the main one.\nHow: Training → under the wake card, type a phrase → “＋ Add”. Tap the list to clear.\nSay: any of them, e.g. “IRIS you there”, “wake up IRIS”.\nNote: extras are recognised as text — no separate voice training needed."},
+        {"⏸️ Pause & resume training", "What: long training can be done in parts.\nHow: during wake training tap “Pause (resume later)”. Later, the button shows “▶ Resume training (N/5)” — tap to continue or start over.\nProgress auto-saves after each sample."},
+        {"📞 Call a contact", "What: fuzzy-matched calling with confirmation.\nSay: “call mom”, “phone the office”, “dial Rahul”.\nIRIS asks “Did you mean …?” — say “no” to hear the next match; “yes” to call. Say “cancel” to stop."},
+        {"👨‍👩‍👧 Call by relationship", "What: call people by relationship (from your profile).\nSay: “call my mother”, “ring my brother”.\nSet these up in iris-me.json (family/relationships)."},
+        {"🔤 Call by spelling", "What: for names speech keeps mis-hearing.\nSay: “spell the name”, then spell it — letters or NATO.\nExample: “spell the name” → “Mike Alpha Alpha”. IRIS matches contacts and confirms."},
+        {"☎️ Call / text a number", "What: dial or text a raw number.\nSay: “call 98765 43210”, “send a text to 9876543210”.\nIRIS reads numbers digit-by-digit and confirms before calling."},
+        {"🔁 Redial", "Say: “redial”, “call back”, “call the last person”."},
+        {"✉️ Send SMS", "What: sends a real SMS (works even locked).\nSay naturally (no “saying” needed): “text mom I'll be late”, “tell dad I'm coming”.\nForgot details? Say “send an SMS” — IRIS asks who (checks memory, then contacts, offers matches), confirms, then asks what to say and confirms before sending. Say “cancel” anytime."},
+        {"📇 Share your info", "What: send a saved profile value to someone.\nSay: “text my office email to mom”, “send my number to dad”.\nPulls the value from iris-me.json and texts it."},
+        {"💬 WhatsApp", "What: opens the chat pre-filled; you tap send (WhatsApp allows no auto-send).\nSay: “whatsapp Sam saying on my way”."},
+        {"📧 Email", "Say: “email mom about dinner”, “send an email to john@x.com saying hi”. Opens your mail app pre-filled."},
+        {"⏰ Alarms & timers", "Say: “set an alarm for 7 am”, “wake me at 6:30”, “set alarm 6 am”, “set a timer for 10 minutes”, “timer 5 minutes”."},
+        {"🔔 Reminders", "Say: “remind me to <task> in/at <time>”.\nExamples: “remind me to call dad in 10 minutes”, “remind me to take medicine at 9 pm”."},
+        {"📅 Calendar", "Say: “add a meeting tomorrow at 5”, “create an event <title> <when>”. Opens your calendar pre-filled."},
+        {"🎵 Media & music", "Control any player: “pause”, “resume”, “next” / “next song”, “previous”, “stop music”.\nPlay a local track: “play <song or artist>” (hands off to your music app)."},
+        {"🔊 Volume", "Say: “volume up/down”, “mute”, “max volume”, “set volume to 50 percent”."},
+        {"🔕 Silent & DND", "Say: “silent mode”, “vibrate mode”, “normal mode”, “do not disturb”, “dnd off”. (Grant DND access once when asked.)"},
+        {"🔦 Torch / flashlight", "Say: “turn on the flashlight”, “torch off”."},
+        {"🌦️ Weather", "Say: “what's the weather”, “weather today”. (Uses your location.)"},
+        {"📍 Location", "Say: “where am I”, “my location”."},
+        {"📬 Notifications", "Say: “read my notifications”, “what did I miss”, “who texted me”, “clear all notifications”. (Needs Notification access.)"},
+        {"🌐 Web & apps", "Say: “search for <query>”, “open <app>”, “navigate to <place>”."},
+        {"🧠 Memory", "Say: “remember I like green tea”, “what do you know about me”, “forget that”.\nProfile facts (name, phone, family…) are read-only in-app — edit iris-me.json to change them; they re-sync on each update."},
+        {"🎓 Voice & command training", "What: teach IRIS your accent.\nHow: Training → “Learn My Voice & Commands” — read a few sentences (builds your voice pattern) then say each command word (learns your pronunciation)."},
+        {"🎯 High-accuracy voice model", "Settings → “High-accuracy voice model (~1GB)” downloads a bigger offline model for tougher accents (falls back to the small one automatically). Use Wi-Fi."},
+        {"👂 Command accuracy (Google)", "After the wake beep, commands use Google speech (great with accents/fumbles) and fall back to offline Vosk with no internet. Nothing to set."},
+        {"🎚️ Choose voice", "Settings → “Choose IRIS voice” to pick a female/other voice; “Test voice” to preview. (Install Google TTS en-IN voices for the best quality.)"},
+        {"🎩 How IRIS addresses you", "Like a butler, it varies — mostly nothing, sometimes “sir”, occasionally your name — instead of your name every time."},
+        {"🔐 Voice-verified wake", "Wakes only for your voice (Settings → Voice Security). Sensitivity slider: lenient ↔ strict. If it ever won't wake for you, ease it toward lenient or retrain."},
+        {"🔒 Lock-screen control", "Settings → lock-screen control lets quick actions run while locked; opening another app's screen still asks for unlock (Android requirement)."},
+        {"🛰️ Server mode", "Settings → Server mode: use your own online brain (Ollama + Whisper) when connected; auto-falls back offline. Say “go online” / “go offline”. Setup: server/README.md."},
+        {"🩺 Self-test", "Settings → “Run self-test” checks permissions, models, wake/voiceprint, learned commands, voice, and server — a green/red checklist."},
         {"📋 Copy text", "On the Assistant screen, tap the recognized text or IRIS's reply to copy it."},
         {"🛑 Stop / sleep", "Say “stop” or “go to sleep” to dismiss; “kill” to shut IRIS down."},
+        {"🏷️ Version / what's new", "Say “what version are you” or “what's new”."},
+        {"🧰 Troubleshooting", "Wake not firing: retrain the phrase; ease Voice Security sensitivity; add an extra phrase.\nMis-hears commands: keep internet on (Google STT), run “Learn My Voice & Commands”, or enable the high-accuracy model.\nDoes nothing after wake: wait for the beep, then speak; run Self-test for red items (mic/permissions)."},
     };
 
     /** List every feature; tap one to see how to use it. */
@@ -1732,6 +1781,13 @@ public class MainActivity extends Activity {
         frequentContactsText.setText(called.isEmpty()
                 ? "Frequent calls will appear here after IRIS earns some history."
                 : "MOST CALLED  •  " + String.join("   •   ", called));
+    }
+
+    private void renderAltWakeList(TextView tv) {
+        if (tv == null) return;
+        java.util.List<String> alts = new ProfileStore(this).getWakeProfile().altPhrases;
+        if (alts.isEmpty()) tv.setText("No extra phrases yet — your main phrase always works.");
+        else tv.setText("Extra: " + android.text.TextUtils.join(", ", alts) + "  (tap to clear)");
     }
 
     /** Set the wake button to Resume (if a partial exists) or Set Up/Retrain. */
