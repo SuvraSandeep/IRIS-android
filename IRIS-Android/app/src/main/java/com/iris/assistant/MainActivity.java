@@ -558,19 +558,21 @@ public class MainActivity extends Activity {
         // Populate wake phrase state
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
         if (!wake.phrase.isEmpty()) wakePhraseInput.setText(wake.phrase);
-        if (wake.isReady()) {
+        int savedProgress = TrainingProgress.peekIndex(this);
+        if (savedProgress > 0) {
+            wakeTrainingStatus.setText("\u23F8 Paused at " + savedProgress + "/5 \u2014 Resume or start over.");
+            testWakeButton.setEnabled(wake.isReady());
+        } else if (wake.isReady()) {
             String voiceStatus = wake.isVoiceEnrolled() ? "voice enrolled \u2705" : "voice not enrolled \u26A0\uFE0F";
             wakeTrainingStatus.setText("\u2705  \u201C" + wake.phrase + "\u201D \u2022 " + voiceStatus);
-            trainWakeButton.setText("\uD83D\uDD04  Retrain");
             testWakeButton.setEnabled(true);
         } else {
             wakeTrainingStatus.setText("\u26A0\uFE0F  Not configured yet");
-            trainWakeButton.setText("\uD83C\uDFA4  Set Up Wake Phrase");
             testWakeButton.setEnabled(false);
         }
 
         // Wire up buttons
-        trainWakeButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Train wake phrase", this::beginWakeTraining));
+        configureWakeButton();
         testWakeButton.setOnClickListener(v -> testWakePhrase());
         wakeWizardCancel.setOnClickListener(v -> cancelWakeTraining());
         startTrainingButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Train contact", this::requestContactForTraining));
@@ -1732,6 +1734,57 @@ public class MainActivity extends Activity {
                 : "MOST CALLED  •  " + String.join("   •   ", called));
     }
 
+    /** Set the wake button to Resume (if a partial exists) or Set Up/Retrain. */
+    private void configureWakeButton() {
+        if (trainWakeButton == null) return;
+        int saved = TrainingProgress.peekIndex(this);
+        if (saved > 0) {
+            trainWakeButton.setText("\u25B6 Resume training (" + saved + "/5)");
+            trainWakeButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Resume training", this::showResumeDialog));
+        } else {
+            ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
+            trainWakeButton.setText(wake.isReady() ? "\uD83D\uDD04  Retrain" : "\uD83C\uDFA4  Set Up Wake Phrase");
+            trainWakeButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Train wake phrase", this::beginWakeTraining));
+        }
+        trainWakeButton.setEnabled(true);
+    }
+
+    private void showResumeDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("Resume wake training?")
+                .setMessage("You have a partial training saved. Resume where you left off, or start over?")
+                .setNeutralButton("Cancel", null)
+                .setNegativeButton("Start over", (d, w) -> beginWakeTraining())
+                .setPositiveButton("Resume", (d, w) -> resumeWakeTraining())
+                .show();
+    }
+
+    /** Continue a previously-paused wake training from the saved samples. */
+    private void resumeWakeTraining() {
+        if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            pendingTrainingKind = "wake";
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSION_TRAIN);
+            return;
+        }
+        TrainingProgress.Data d = TrainingProgress.load(this);
+        if (d == null || d.phrase.isEmpty()) { beginWakeTraining(); return; }
+        resumeAfterWakeTraining = IrisListeningService.isRunning;
+        if (resumeAfterWakeTraining) stopListeningService();
+        wakePhraseBeingTrained = d.phrase;
+        if (wakePhraseInput != null) wakePhraseInput.setText(d.phrase);
+        wakeTemplates.clear(); wakeTemplates.addAll(d.templates);
+        wakeRawSamples.clear(); wakeRawSamples.addAll(d.rawSamples);
+        wakeSampleIndex = Math.min(d.sampleIndex, 5);
+        trainWakeButton.setEnabled(false);
+        testWakeButton.setEnabled(false);
+        if (wakeNormalState != null) wakeNormalState.setVisibility(View.GONE);
+        if (wakeWizardState != null) wakeWizardState.setVisibility(View.VISIBLE);
+        if (wakeTrainingStatus != null) wakeTrainingStatus.setText("Resuming at " + wakeSampleIndex + "/5\u2026");
+        toast("Resuming your wake training.");
+        if (wakeSampleIndex >= 5) handler.postDelayed(this::finishWakeTraining, 500);
+        else handler.postDelayed(this::captureNextWakeSample, 600);
+    }
+
     private void beginWakeTraining() {
         String phrase = wakePhraseInput.getText().toString().trim();
         if (phrase.length() < 2) {
@@ -1746,6 +1799,7 @@ public class MainActivity extends Activity {
         resumeAfterWakeTraining = IrisListeningService.isRunning;
         if (resumeAfterWakeTraining) stopListeningService();
         wakePhraseBeingTrained = phrase;
+        TrainingProgress.clear(this);   // fresh start — drop any old partial
         wakeTemplates.clear();
         wakeRawSamples.clear();
         wakeSampleIndex = 0;
@@ -1836,6 +1890,13 @@ public class MainActivity extends Activity {
                     wakeTemplates.add(features);
                     wakeRawSamples.add(audio);
                     wakeSampleIndex++;
+                    // Persist progress so training can be resumed later if the user exits.
+                    final String ph = wakePhraseBeingTrained;
+                    final int idx = wakeSampleIndex;
+                    final java.util.List<float[][]> tSnap = new java.util.ArrayList<>(wakeTemplates);
+                    final java.util.List<short[]> rSnap = new java.util.ArrayList<>(wakeRawSamples);
+                    new Thread(() -> TrainingProgress.save(MainActivity.this, ph, idx, tSnap, rSnap),
+                            "IRIS-TrainSave").start();
                     String icon = "Clear".equals(quality) ? "\u2705" : "\u26A0\uFE0F";
                     if (wakeWizardFeedback != null) wakeWizardFeedback.setText(icon + "  " + quality + " sample accepted!");
                     wakeTrainingStatus.setText(icon + " Sample " + wakeSampleIndex + "/5 done");
@@ -2160,6 +2221,7 @@ public class MainActivity extends Activity {
         }
         // Enroll speaker voiceprint from the recorded samples using Vosk x-vectors.
         String enrollStatus = "voice enrolling in background\u2026";
+        TrainingProgress.clear(this);   // training complete — no partial to resume
         if (!wakeRawSamples.isEmpty()) {
             enrollVoiceprintAsync(new java.util.ArrayList<>(wakeRawSamples));  // restarts service when done
         } else {
@@ -2234,9 +2296,14 @@ public class MainActivity extends Activity {
         wakeSampleIndex = 0;
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.VISIBLE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.GONE);
-        trainWakeButton.setEnabled(true);
+        configureWakeButton();
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
         testWakeButton.setEnabled(wake.isReady());
+        int saved = TrainingProgress.peekIndex(this);
+        if (saved > 0) {
+            wakeTrainingStatus.setText("\u23F8 Paused at " + saved + "/5 \u2014 tap Resume to continue.");
+            toast("Paused \u2014 resume anytime from Training.");
+        }
         if (resumeAfterWakeTraining) {
             resumeAfterWakeTraining = false;
             startListeningService();
