@@ -872,6 +872,8 @@ public class MainActivity extends Activity {
         {"📅 Calendar", "Say: “add a meeting tomorrow at 5”, “create an event <title> <when>”. Opens your calendar pre-filled."},
         {"🎵 Media & music", "Control any player: “pause”, “resume”, “next” / “next song”, “previous”, “stop music”.\nPlay a local track: “play <song or artist>” (hands off to your music app)."},
         {"🔊 Volume", "Say: “volume up/down”, “mute”, “max volume”, “set volume to 50 percent”."},
+        {"🎬 Video recording", "Record a short video, saved to Movies/IRIS.\nSay: “start recording 30” (back camera), “record video 20”, “record front camera video 15”, “record selfie video 10”. Choose the lens with “front/selfie” or “back/rear”.\nIt can record over the lock screen on many phones (needs the Camera permission granted once; some phones need battery optimisation off for IRIS). Auto-stops after the time you set. Note: locked/background camera behaviour varies by phone."},
+        {"⚡ More ways to trigger IRIS", "Besides the wake word:\n• Notification: tap the “🎙 Talk” button on IRIS's notification (works on the lock screen).\n• Quick Settings tile: add the IRIS tile to your shade and tap it.\n• Assistant: set IRIS as your device's Digital Assistant (Settings → Default apps) — then the assist gesture (long-press power/home) opens IRIS anywhere.\n• Shake to talk (optional): enable in Settings, then shake the phone.\n• Headset button (optional): enable in Settings, then double-press your earphone button."},
         {"🎙 Voice recording", "Record a timed voice memo, saved as an .m4a in Recordings/IRIS (or Music/IRIS on older phones).\nSay: “record voice 20”, “voice memo 30”, “record audio for 1 minute”. Stop early with “stop recording” or the Stop button in the notification (works on the lock screen).\nPick a mic: add “using earphone / bluetooth / phone mic” — e.g. “record voice using bluetooth 30”. Otherwise it uses your Settings → Microphone choice. IRIS speaks first so its own voice isn't captured, and confirms where it saved."},
         {"📊 Phone status", "Ask “phone status”, “how's my phone?”, or “mobile status” and IRIS reports it all at once: ringer (silent/vibrate/normal), Do Not Disturb, airplane mode, internet (Wi-Fi or mobile data), Bluetooth, and battery level/charging."},
         {"🔕 Phone modes", "Turn modes on/off and check them; IRIS tells you if it's already in that state.\nSay: “silent mode on/off”, “vibrate mode”, “normal mode”, “turn on/off do not disturb”, “airplane mode on/off”.\nAsk: “is silent mode on?”, “is airplane mode on?”, “is DND on?”.\nNotes: silent/vibrate/DND need Do-Not-Disturb access once. Airplane mode can't be toggled by apps — IRIS opens Settings for you (but can tell you if it's on)."},
@@ -1429,6 +1431,22 @@ public class MainActivity extends Activity {
         if (voiceCueSwitch != null) {
             voiceCueSwitch.setChecked(settings.voiceCueEnabled());
             voiceCueSwitch.setOnCheckedChangeListener((b, checked) -> settings.setVoiceCueEnabled(checked));
+        }
+        Switch shakeSwitch = view.findViewById(R.id.shakeSwitch);
+        if (shakeSwitch != null) {
+            shakeSwitch.setChecked(settings.shakeToWake());
+            shakeSwitch.setOnCheckedChangeListener((b, checked) -> {
+                settings.setShakeToWake(checked);
+                toast("Shake trigger " + (checked ? "on" : "off") + " — restart IRIS to apply.");
+            });
+        }
+        Switch headsetSwitch = view.findViewById(R.id.headsetSwitch);
+        if (headsetSwitch != null) {
+            headsetSwitch.setChecked(settings.headsetTrigger());
+            headsetSwitch.setOnCheckedChangeListener((b, checked) -> {
+                settings.setHeadsetTrigger(checked);
+                toast("Headset trigger " + (checked ? "on" : "off") + " — restart IRIS to apply.");
+            });
         }
         TextView voiceprintStatus = view.findViewById(R.id.voiceprintStatus);
         if (voiceprintStatus != null) {
@@ -2734,6 +2752,15 @@ public class MainActivity extends Activity {
 
     private void handleLaunchIntent(Intent intent) {
         if (intent == null) return;
+        String act = intent.getAction();
+        if (Intent.ACTION_ASSIST.equals(act) || "android.intent.action.VOICE_COMMAND".equals(act)) {
+            intent.setAction(null);
+            Intent talk = new Intent(this, IrisListeningService.class).setAction(IrisListeningService.ACTION_TALK);
+            try {
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(talk); else startService(talk);
+            } catch (Exception ignored) { }
+            return;
+        }
         if (intent.getBooleanExtra(IrisListeningService.EXTRA_TEACH, false)) {
             String heard = intent.getStringExtra(IrisListeningService.EXTRA_TEXT);
             intent.removeExtra(IrisListeningService.EXTRA_TEACH);

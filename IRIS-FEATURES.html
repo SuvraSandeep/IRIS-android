@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.40.0";
+const BUILD_VERSION = "7.41.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -271,6 +271,14 @@ const FEATURES = [
    tagline:"“Record voice 20.”",
    desc:"Timed voice memos saved as compact .m4a in Recordings/IRIS. Say the duration (“record voice 20”, “voice memo 30”, “record audio for 1 minute”) and choose the mic inline (“record voice using bluetooth 30”) or use your default mic. Stop early by voice or the notification's Stop button — works on the lock screen. IRIS speaks first so it doesn't record itself, and any background music now pauses while IRIS talks.",
    examples:["record voice 20","voice memo 30","record voice using earphone 15","stop recording"], version:"7.40.0"},
+  {id:"videorec", cat:"Productivity", icon:"🎬", title:"Video Recording",
+   tagline:"“Start recording 30.”",
+   desc:"Records a short video (front or back camera) to Movies/IRIS, and can capture over the lock screen on supported phones. Say “start recording 30” (back cam), “record video 20”, “record selfie video 15”, or pick a lens with “front/back”. Auto-stops after the set time. Needs the Camera permission once; locked/background camera behaviour varies by device.",
+   examples:["start recording 30","record video 20","record front camera video 15"], version:"7.41.0"},
+  {id:"triggers", cat:"Voice & Wake", icon:"⚡", title:"More Ways to Trigger IRIS",
+   tagline:"Notification, tile, assist, shake, headset.",
+   desc:"Beyond the wake word: a “🎙 Talk” button on IRIS's notification, the Quick Settings tile, and Assistant-app support (set IRIS as your Digital Assistant so the assist gesture summons it anywhere — even on the lock screen). Optional shake-to-talk and double-press-headset-button triggers can be enabled in Settings. When IRIS speaks, background music now pauses and resumes automatically.",
+   examples:["Tap “Talk” on the notification","Set IRIS as the Assist app","Shake to talk (Settings)"], version:"7.41.0"},
   {id:"copytext", cat:"Productivity", icon:"📋", title:"Tap to Copy",
    tagline:"Copy what IRIS heard or said.",
    desc:"On the Assistant screen, tap the recognized command (or IRIS's reply) to copy it to the clipboard; the text is also selectable.",

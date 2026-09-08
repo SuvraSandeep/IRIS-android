@@ -46,6 +46,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String ACTION_CHOOSE_CONTACT = "com.iris.assistant.CHOOSE_CONTACT";
     public static final String ACTION_PROCESS_TEXT = "com.iris.assistant.PROCESS_TEXT";
     public static final String ACTION_STOP_RECORDING = "com.iris.assistant.STOP_RECORDING";
+    public static final String ACTION_TALK = "com.iris.assistant.TALK";
+    public static final String ACTION_CAPTURE_DONE = "com.iris.assistant.CAPTURE_DONE";
     public static final String EVENT_STATE = "com.iris.assistant.EVENT_STATE";
     public static final String EVENT_TRANSCRIPT = "com.iris.assistant.EVENT_TRANSCRIPT";
     public static final String EVENT_CALL_PROMPT = "com.iris.assistant.EVENT_CALL_PROMPT";
@@ -238,6 +240,18 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern STOP_RECORD_PATTERN = Pattern.compile(
             "^(?:stop|end|finish|cancel)\\s+(?:the\\s+)?(?:voice\\s+)?(?:recording|record|memo|audio)$",
             Pattern.CASE_INSENSITIVE);
+    // Video: "record video 30", "record front camera video 20", "record video with back cam".
+    private static final Pattern VIDEO_RECORD_PATTERN = Pattern.compile(
+            "^(?:record|start|take|capture)\\s+(?:a\\s+)?(?:(front|selfie|back|rear)\\s+)?(?:camera\\s+)?video"
+            + "(?:\\s+recording)?"
+            + "(?:\\s+(?:with|using)\\s+(?:the\\s+)?(front|selfie|back|rear)\\s*(?:camera|cam)?)?"
+            + "(?:\\s+(?:for|of))?"
+            + "(?:\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|s|m)?)?$",
+            Pattern.CASE_INSENSITIVE);
+    // Your phrasing: "start recording 30" → video on the back camera.
+    private static final Pattern START_RECORDING_PATTERN = Pattern.compile(
+            "^start\\s+recording(?:\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|s|m)?)?$",
+            Pattern.CASE_INSENSITIVE);
     // Control whatever is playing: pause/resume/next/previous
     private static final Pattern MEDIA_CONTROL_PATTERN = Pattern.compile(
             "^(?:pause(?:\\s+(?:the\\s+)?(?:music|song|media|audio|playback))?"
@@ -333,6 +347,11 @@ public class IrisListeningService extends Service implements RecognitionListener
     private Runnable commandTimeout;
     private Runnable confirmTimeout;
     private PowerManager.WakeLock wakeLock;
+    private android.hardware.SensorManager sensorManager;
+    private android.hardware.SensorEventListener shakeListener;
+    private long lastShakeAt;
+    private android.media.session.MediaSession mediaSession;
+    private long lastHeadsetHookAt;
 
     @Override
     public void onCreate() {
@@ -396,6 +415,68 @@ public class IrisListeningService extends Service implements RecognitionListener
             llmReady = false;
             LogStore.append(this, "LLM", "AI brain disabled in Settings — using rule-based chat");
         }
+        setupTriggers();
+    }
+
+    /** Register optional shake-to-wake and headset-button triggers (both off by default). */
+    private void setupTriggers() {
+        try {
+            if (settings.shakeToWake()) {
+                sensorManager = (android.hardware.SensorManager) getSystemService(SENSOR_SERVICE);
+                android.hardware.Sensor accel = sensorManager == null ? null
+                        : sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER);
+                if (accel != null) {
+                    shakeListener = new android.hardware.SensorEventListener() {
+                        @Override public void onSensorChanged(android.hardware.SensorEvent e) {
+                            float x = e.values[0] / 9.81f, y = e.values[1] / 9.81f, z = e.values[2] / 9.81f;
+                            double g = Math.sqrt(x * x + y * y + z * z);
+                            if (g > 2.7) {
+                                long now = System.currentTimeMillis();
+                                if (now - lastShakeAt > 3000 && PHASE_WAKE.equals(phase)) {
+                                    lastShakeAt = now;
+                                    handler.post(() -> triggerTalk("shake"));
+                                }
+                            }
+                        }
+                        @Override public void onAccuracyChanged(android.hardware.Sensor s, int a) { }
+                    };
+                    sensorManager.registerListener(shakeListener, accel,
+                            android.hardware.SensorManager.SENSOR_DELAY_UI);
+                }
+            }
+        } catch (Throwable ignored) { }
+        try {
+            if (settings.headsetTrigger()) {
+                mediaSession = new android.media.session.MediaSession(this, "IRIS");
+                mediaSession.setCallback(new android.media.session.MediaSession.Callback() {
+                    @Override public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
+                        android.view.KeyEvent ke = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                        if (ke != null && ke.getAction() == android.view.KeyEvent.ACTION_UP
+                                && ke.getKeyCode() == android.view.KeyEvent.KEYCODE_HEADSETHOOK) {
+                            long now = System.currentTimeMillis();
+                            if (now - lastHeadsetHookAt < 700) {       // double-press
+                                lastHeadsetHookAt = 0;
+                                handler.post(() -> triggerTalk("headset"));
+                            } else {
+                                lastHeadsetHookAt = now;
+                            }
+                            return true;
+                        }
+                        return super.onMediaButtonEvent(mediaButtonIntent);
+                    }
+                });
+                android.media.session.PlaybackState ps = new android.media.session.PlaybackState.Builder()
+                        .setActions(android.media.session.PlaybackState.ACTION_PLAY_PAUSE)
+                        .setState(android.media.session.PlaybackState.STATE_PAUSED, 0, 0f).build();
+                mediaSession.setPlaybackState(ps);
+                mediaSession.setActive(true);
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    private void teardownTriggers() {
+        try { if (sensorManager != null && shakeListener != null) sensorManager.unregisterListener(shakeListener); } catch (Throwable ignored) { }
+        try { if (mediaSession != null) { mediaSession.setActive(false); mediaSession.release(); mediaSession = null; } } catch (Throwable ignored) { }
     }
 
     @Override
@@ -407,6 +488,31 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         if (ACTION_STOP_RECORDING.equals(action)) {
             stopVoiceRecording();
+            return START_STICKY;
+        }
+        if (ACTION_CAPTURE_DONE.equals(action)) {
+            String msg = intent == null ? null : intent.getStringExtra(EXTRA_TEXT);
+            if (msg != null && !msg.isEmpty()) { broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction); }
+            else rearmAfterAction();
+            return START_STICKY;
+        }
+        if (ACTION_TALK.equals(action)) {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(LISTENING_NOTIFICATION, listeningNotification(),
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+            } else {
+                startForeground(LISTENING_NOTIFICATION, listeningNotification());
+            }
+            if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                broadcastMessage("Microphone permission is required."); return START_STICKY;
+            }
+            if (!isRunning) {
+                isRunning = true;
+                recognitionLabel = resolveRecognitionLabel();
+                microphoneLabel = configureAudioRoute();
+                registerAudioChanges();
+            }
+            triggerTalk(intent.getStringExtra(EXTRA_TEXT));
             return START_STICKY;
         }
         if (ACTION_CONFIRM_CALL.equals(action)) {
@@ -1103,6 +1209,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         Matcher volSetM = VOLUME_SET_PATTERN.matcher(normalized);
         if (volSetM.matches()) { handleSetVolumePercent(volSetM.group(1)); return; }
         if (STOP_RECORD_PATTERN.matcher(normalized).matches()) { stopVoiceRecording(); return; }
+        Matcher vid = VIDEO_RECORD_PATTERN.matcher(normalized);
+        if (vid.matches()) {
+            String cam = vid.group(1) != null ? vid.group(1) : vid.group(2);
+            beginVideoRecording(parseSecs(vid.group(3), vid.group(4), 15), cam);
+            return;
+        }
+        Matcher srec = START_RECORDING_PATTERN.matcher(normalized);
+        if (srec.matches()) { beginVideoRecording(parseSecs(srec.group(1), srec.group(2), 15), "back"); return; }
         Matcher vrec = VOICE_RECORD_PATTERN.matcher(normalized);
         if (vrec.matches() && (vrec.group(1) != null || vrec.group(2) != null || vrec.group(4) != null
                 || normalized.startsWith("record") || normalized.startsWith("start") || normalized.startsWith("take"))) {
@@ -2502,6 +2616,75 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Silent / vibrate / normal ringer. Needs Do Not Disturb access on modern Android. */
+    /** Launch the lock-screen-capable camera activity to record a short video. */
+    private void beginVideoRecording(int seconds, String camWord) {
+        if (!hasPermission(Manifest.permission.CAMERA)) {
+            String m = "I need camera permission to record video — opening settings so you can allow it.";
+            broadcastMessage(m);
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:" + getPackageName()))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception ignored) { }
+            speakThenRun(m, this::rearmAfterAction);
+            return;
+        }
+        final boolean front = camWord != null
+                && (camWord.toLowerCase(Locale.ROOT).startsWith("front") || camWord.toLowerCase(Locale.ROOT).startsWith("selfie"));
+        final int secs = seconds > 0 ? Math.min(seconds, 600) : 15;
+        String intro = "Recording " + secs + " seconds on the " + (front ? "front" : "back") + " camera.";
+        broadcastMessage(intro);
+        speakThenRun(intro, () -> {
+            pauseListeningForCapture();
+            Intent i = new Intent(this, LockedCaptureActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    .putExtra(LockedCaptureActivity.EXTRA_SECONDS, secs)
+                    .putExtra(LockedCaptureActivity.EXTRA_FRONT, front);
+            boolean launched = false;
+            try { startActivity(i); launched = true; } catch (Exception ignored) { }
+            // Full-screen-intent notification: lets the camera come up even over the lock screen.
+            try {
+                PendingIntent pi = PendingIntent.getActivity(this, 9, i,
+                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                Notification n = new Notification.Builder(this, CALL_CHANNEL)
+                        .setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS camera")
+                        .setContentText("Recording video…")
+                        .setCategory(Notification.CATEGORY_CALL)
+                        .setFullScreenIntent(pi, true)
+                        .setAutoCancel(true).build();
+                ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(0xC0DE, n);
+            } catch (Exception e) {
+                if (!launched) {
+                    String m = "I couldn't open the camera.";
+                    broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+                }
+            }
+        });
+    }
+
+    /** Parse a spoken number + optional unit into seconds ("m"/minutes → ×60), or fallback. */
+    private int parseSecs(String numStr, String unitStr, int fallback) {
+        if (numStr == null) return fallback;
+        try {
+            int n = Integer.parseInt(numStr);
+            String u = unitStr == null ? "" : unitStr.toLowerCase(Locale.ROOT);
+            return u.startsWith("m") ? n * 60 : n;
+        } catch (Exception e) { return fallback; }
+    }
+
+    /** Open the command window immediately (used by notification/tile/headset/shake/assist triggers). */
+    private void triggerTalk(String source) {
+        if (memoRecorder != null && memoRecorder.isRecording()) return;
+        if (PHASE_COMMAND.equals(phase)) return;   // already listening
+        try { if (voskEngine != null) voskEngine.stop(); } catch (Exception ignored) { }
+        vibrate(45);
+        broadcastState(true, PHASE_COMMAND);
+        String greet = wakeGreeting();
+        broadcastMessage(greet);
+        speakThenRun(greet, this::startCommandRecognition);
+        LogStore.append(this, "TRIGGER", source == null ? "manual" : source);
+    }
+
     /** Start a timed voice memo. Speaks first (pausing music), then records so our own voice isn't captured. */
     private void beginVoiceRecording(int seconds, String micWord) {
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
@@ -4106,10 +4289,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         Intent stop = new Intent(this, IrisListeningService.class).setAction(ACTION_STOP);
         PendingIntent stopPending = PendingIntent.getService(this, 1, stop,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Intent talk = new Intent(this, IrisListeningService.class).setAction(ACTION_TALK);
+        PendingIntent talkPending = PendingIntent.getService(this, 8, talk,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, LISTENING_CHANNEL)
                 .setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS is active")
                 .setContentText(microphoneLabel).setOngoing(true).setOnlyAlertOnce(true)
                 .setContentIntent(content)
+                .addAction(new Notification.Action.Builder(null, "\uD83C\uDF99 Talk", talkPending).build())
                 .addAction(new Notification.Action.Builder(null, "Turn off", stopPending).build())
                 .build();
     }
@@ -4661,6 +4848,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     public void onDestroy() {
         isRunning = false;
         handler.removeCallbacksAndMessages(null);
+        teardownTriggers();
+        abandonSpeechFocus();
         restoreRecognizerBeep();
         destroyRecognizer();
         stopWakeEngine();

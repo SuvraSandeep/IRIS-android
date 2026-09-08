@@ -108,6 +108,10 @@ public final class AppSettings {
     public void setHomeChips(String csv) { prefs.edit().putString("home_chips", csv).apply(); }
     public boolean speakerVerification() { return prefs.getBoolean("speaker_verification", false); }
     public void setSpeakerVerification(boolean value) { prefs.edit().putBoolean("speaker_verification", value).apply(); }
+    public boolean shakeToWake() { return prefs.getBoolean("shake_to_wake", false); }
+    public void setShakeToWake(boolean v) { prefs.edit().putBoolean("shake_to_wake", v).apply(); }
+    public boolean headsetTrigger() { return prefs.getBoolean("headset_trigger", false); }
+    public void setHeadsetTrigger(boolean v) { prefs.edit().putBoolean("headset_trigger", v).apply(); }
     public float speakerThreshold() { return prefs.getFloat("speaker_threshold", 0.70f); }
     public void setSpeakerThreshold(float value) { prefs.edit().putFloat("speaker_threshold", value).apply(); }
 }

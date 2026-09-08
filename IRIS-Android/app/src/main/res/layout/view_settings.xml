@@ -127,6 +127,13 @@
             <Switch android:id="@+id/voiceCueSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="6dp"
                 android:text="Speak when a voice isn't recognized" android:textColor="@color/text_primary" android:textSize="14sp" />
+            <Switch android:id="@+id/shakeSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="6dp"
+                android:text="Shake the phone to talk to IRIS" android:textColor="@color/text_primary" android:textSize="14sp" />
+            <Switch android:id="@+id/headsetSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="6dp"
+                android:text="Double-press headset button to talk (may take over the earphone button from music apps)"
+                android:textColor="@color/text_primary" android:textSize="14sp" />
             <Button android:id="@+id/clearVoiceprintButton" android:layout_width="match_parent" android:layout_height="46dp"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
                 android:text="Clear voice security" android:textAllCaps="false" android:textColor="@color/danger" android:textSize="13sp" />
