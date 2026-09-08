@@ -872,6 +872,7 @@ public class MainActivity extends Activity {
         {"📅 Calendar", "Say: “add a meeting tomorrow at 5”, “create an event <title> <when>”. Opens your calendar pre-filled."},
         {"🎵 Media & music", "Control any player: “pause”, “resume”, “next” / “next song”, “previous”, “stop music”.\nPlay a local track: “play <song or artist>” (hands off to your music app)."},
         {"🔊 Volume", "Say: “volume up/down”, “mute”, “max volume”, “set volume to 50 percent”."},
+        {"📊 Phone status", "Ask “phone status”, “how's my phone?”, or “mobile status” and IRIS reports it all at once: ringer (silent/vibrate/normal), Do Not Disturb, airplane mode, internet (Wi-Fi or mobile data), Bluetooth, and battery level/charging."},
         {"🔕 Phone modes", "Turn modes on/off and check them; IRIS tells you if it's already in that state.\nSay: “silent mode on/off”, “vibrate mode”, “normal mode”, “turn on/off do not disturb”, “airplane mode on/off”.\nAsk: “is silent mode on?”, “is airplane mode on?”, “is DND on?”.\nNotes: silent/vibrate/DND need Do-Not-Disturb access once. Airplane mode can't be toggled by apps — IRIS opens Settings for you (but can tell you if it's on)."},
         {"🔦 Torch / flashlight", "Say: “turn on the flashlight”, “torch off”."},
         {"🌦️ Weather", "Say: “what's the weather”, “weather today”. (Uses your location.)"},

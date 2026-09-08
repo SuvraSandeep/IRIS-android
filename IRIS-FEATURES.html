@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.38.0";
+const BUILD_VERSION = "7.39.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -263,6 +263,10 @@ const FEATURES = [
    tagline:"Turn modes on/off, or ask if they're on.",
    desc:"State-aware control of silent, vibrate, normal, Do Not Disturb, and airplane modes. Turn them on or off (“turn off silent mode”), and IRIS tells you if it's already in that state instead of guessing. Ask “is silent mode on?”, “is airplane mode on?”. Silent/vibrate/DND need one-time DND access; airplane can't be toggled by apps, so IRIS reports it and opens Settings.",
    examples:["turn off silent mode","vibrate mode","turn on do not disturb","is airplane mode on?"], version:"7.38.0"},
+  {id:"phonestatus", cat:"Productivity", icon:"📊", title:"Phone Status Report",
+   tagline:"“How's my phone?”",
+   desc:"One question, full rundown: ringer (silent/vibrate/normal), Do Not Disturb, airplane mode, internet (Wi-Fi or mobile data), Bluetooth, and battery level with charging state.",
+   examples:["phone status","how's my phone?","mobile status"], version:"7.39.0"},
   {id:"copytext", cat:"Productivity", icon:"📋", title:"Tap to Copy",
    tagline:"Copy what IRIS heard or said.",
    desc:"On the Assistant screen, tap the recognized command (or IRIS's reply) to copy it to the clipboard; the text is also selectable.",

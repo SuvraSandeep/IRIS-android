@@ -216,6 +216,13 @@ public class IrisListeningService extends Service implements RecognitionListener
             "^(?:(turn\\s+on|turn\\s+off|switch\\s+on|switch\\s+off|enable|disable|start|stop|end|go)\\s+)?"
             + "(?:the\\s+)?" + MODE_WORDS + "\\s*(?:mode)?\\s*(on|off)?$",
             Pattern.CASE_INSENSITIVE);
+    // "phone status" / "how's my phone" — full rundown of ringer, DND, airplane, net, bt, battery.
+    private static final Pattern STATUS_PATTERN = Pattern.compile(
+            "^(?:(?:what(?:'s| is)\\s+(?:my\\s+)?)?(?:phone|mobile|device|system)\\s+status"
+            + "|(?:phone|mobile|device|system)\\s+report"
+            + "|status(?:\\s+report)?"
+            + "|how(?:'s| is)\\s+(?:my\\s+)?(?:phone|mobile|device))\\s*\\??$",
+            Pattern.CASE_INSENSITIVE);
     // Control whatever is playing: pause/resume/next/previous
     private static final Pattern MEDIA_CONTROL_PATTERN = Pattern.compile(
             "^(?:pause(?:\\s+(?:the\\s+)?(?:music|song|media|audio|playback))?"
@@ -1075,6 +1082,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (VOLUME_PATTERN.matcher(normalized).matches()) { handleVolume(normalized); return; }
         Matcher volSetM = VOLUME_SET_PATTERN.matcher(normalized);
         if (volSetM.matches()) { handleSetVolumePercent(volSetM.group(1)); return; }
+        if (STATUS_PATTERN.matcher(normalized).matches()) { handlePhoneStatus(); return; }
         Matcher modeQ = MODE_QUERY_PATTERN.matcher(normalized);
         if (modeQ.matches()) { handleModeQuery(modeQ.group(1)); return; }
         Matcher modeS = MODE_SET_PATTERN.matcher(normalized);
@@ -2460,6 +2468,73 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Silent / vibrate / normal ringer. Needs Do Not Disturb access on modern Android. */
+    /** Full rundown: ringer, DND, airplane, internet/Wi-Fi, Bluetooth, battery. */
+    private void handlePhoneStatus() {
+        StringBuilder sb = new StringBuilder();
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        int rm = am != null ? am.getRingerMode() : AudioManager.RINGER_MODE_NORMAL;
+        String ring = rm == AudioManager.RINGER_MODE_SILENT ? "on silent"
+                : rm == AudioManager.RINGER_MODE_VIBRATE ? "on vibrate" : "on normal ring";
+        sb.append("Ringer is ").append(ring).append(". ");
+        boolean dnd = nm != null && Build.VERSION.SDK_INT >= 23
+                && nm.getCurrentInterruptionFilter() != NotificationManager.INTERRUPTION_FILTER_ALL;
+        sb.append("Do Not Disturb is ").append(dnd ? "on" : "off").append(". ");
+        sb.append("Airplane mode is ").append(airplaneOn() ? "on" : "off").append(". ");
+        sb.append(connectivitySummary());
+        sb.append(bluetoothSummary());
+        sb.append(batterySummary());
+        inform(sb.toString().trim());
+    }
+
+    private String connectivitySummary() {
+        try {
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null) return "";
+            if (Build.VERSION.SDK_INT >= 23) {
+                android.net.Network net = cm.getActiveNetwork();
+                android.net.NetworkCapabilities cap = net == null ? null : cm.getNetworkCapabilities(net);
+                boolean online = cap != null
+                        && cap.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
+                if (!online) return "Not connected to the internet. ";
+                if (cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI))
+                    return "Connected to the internet over Wi-Fi. ";
+                if (cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR))
+                    return "Connected to the internet over mobile data. ";
+                return "Connected to the internet. ";
+            }
+            android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+            if (ni == null || !ni.isConnected()) return "Not connected to the internet. ";
+            return ni.getType() == android.net.ConnectivityManager.TYPE_WIFI
+                    ? "Connected to the internet over Wi-Fi. " : "Connected to the internet over mobile data. ";
+        } catch (Exception e) { return ""; }
+    }
+
+    private String bluetoothSummary() {
+        try {
+            android.bluetooth.BluetoothManager bm =
+                    (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
+            android.bluetooth.BluetoothAdapter ba = bm != null ? bm.getAdapter()
+                    : android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+            if (ba == null) return "";
+            return "Bluetooth is " + (ba.isEnabled() ? "on" : "off") + ". ";
+        } catch (Exception e) { return ""; }
+    }
+
+    private String batterySummary() {
+        try {
+            Intent b = batteryIntent();
+            if (b == null) return "";
+            int level = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+            int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+            int pct = (level >= 0 && scale > 0) ? Math.round(level * 100f / scale) : -1;
+            String s = pct >= 0 ? "Battery is at " + pct + " percent" : "Battery level unknown";
+            if (isCharging()) s += " and charging";
+            return s + ".";
+        } catch (Exception e) { return ""; }
+    }
+
     /** Speak + broadcast a short status line, then return to listening. */
     private void inform(String msg) {
         broadcastMessage(msg);
@@ -3821,21 +3896,23 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference) {
-        AudioDeviceInfo builtIn = null;
+        AudioDeviceInfo builtIn = null, btDev = null, wiredDev = null;
         for (AudioDeviceInfo device : devices) {
             int type = device.getType();
             if (type == AudioDeviceInfo.TYPE_BUILTIN_MIC || type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) builtIn = device;
             boolean bluetooth = type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
                     || (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_HEADSET);
             boolean wired = type == AudioDeviceInfo.TYPE_WIRED_HEADSET || type == AudioDeviceInfo.TYPE_USB_HEADSET;
-            if ("Bluetooth".equals(preference) && bluetooth) return device;
-            if ("Wired / USB".equals(preference) && wired) return device;
-            if ("Phone".equals(preference) && builtIn != null) return builtIn;
-            // Automatic: prefer a wired mic (doesn't disturb playback) but NOT Bluetooth —
-            // grabbing the BT mic forces A2DP music down to call-quality SCO. Fall back to
-            // the built-in mic so music keeps its full quality while IRIS listens.
-            if ("Automatic".equals(preference) && wired) return device;
+            if (bluetooth) btDev = device;
+            if (wired) wiredDev = device;
         }
+        if ("Phone".equals(preference)) return builtIn;
+        if ("Bluetooth".equals(preference)) return btDev != null ? btDev : builtIn;
+        if ("Wired / USB".equals(preference)) return wiredDev != null ? wiredDev : builtIn;
+        // Automatic: use the headset you're actually wearing — wired first (doesn't disturb
+        // playback), then Bluetooth (talk into the headset), then the built-in mic.
+        if (wiredDev != null) return wiredDev;
+        if (btDev != null) return btDev;
         return builtIn;
     }
 
@@ -3846,13 +3923,21 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private String readableDeviceName(AudioDeviceInfo device) {
-        String product = device.getProductName() == null ? "" : device.getProductName().toString();
-        if (!product.trim().isEmpty()) return product + " microphone";
-        switch (device.getType()) {
-            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO: return "Bluetooth headset microphone";
-            case AudioDeviceInfo.TYPE_WIRED_HEADSET: return "Wired headset microphone";
-            case AudioDeviceInfo.TYPE_USB_HEADSET: return "USB headset microphone";
-            default: return "Phone microphone";
+        int type = device.getType();
+        if (type == AudioDeviceInfo.TYPE_BUILTIN_MIC || type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE)
+            return "Phone microphone";
+        String product = device.getProductName() == null ? "" : device.getProductName().toString().trim();
+        switch (type) {
+            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
+                return (product.isEmpty() ? "Bluetooth headset" : product) + " (Bluetooth)";
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET:
+                return (product.isEmpty() ? "Wired headset" : product) + " (wired)";
+            case AudioDeviceInfo.TYPE_USB_HEADSET:
+                return (product.isEmpty() ? "USB headset" : product) + " (USB)";
+            default:
+                if (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+                    return (product.isEmpty() ? "Bluetooth headset" : product) + " (Bluetooth)";
+                return product.isEmpty() ? "Phone microphone" : product + " microphone";
         }
     }
 
