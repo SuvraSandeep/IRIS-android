@@ -33,7 +33,7 @@ public final class ProfileStore {
         public final List<float[][]> templates = new ArrayList<>();
         public float[] voiceprint;
         public final List<String> altPhrases = new ArrayList<>();
-        public boolean isReady() { return !phrase.trim().isEmpty() && templates.size() >= 3; }
+        public boolean isReady() { return !phrase.trim().isEmpty(); }
         public boolean isVoiceEnrolled() { return voiceprint != null && voiceprint.length > 0; }
         /** Primary phrase + any alternates, de-duplicated. */
         public List<String> allPhrases() {
@@ -157,6 +157,27 @@ public final class ProfileStore {
             persist(current);
             return true;
         } catch (Exception ignored) { return false; }
+    }
+
+    /** Seed a ready-to-use text wake phrase (no training needed) if none is set yet — Option A.
+     *  Detection is text-based (Vosk grammar), so no voice templates are required. */
+    public synchronized void seedDefaultWakePhrase() {
+        try {
+            WakeProfile existing = getWakeProfile();
+            if (existing != null && !existing.phrase.trim().isEmpty()) return;   // don't override user's
+            JSONObject current = root();
+            JSONObject wake = current.optJSONObject("wakeWord");
+            if (wake == null) wake = new JSONObject();
+            wake.put("phrase", "Hello IRIS");
+            wake.put("threshold", 1.05);
+            wake.put("trainedAt", System.currentTimeMillis());
+            JSONArray alts = new JSONArray();
+            alts.put("IRIS you there");
+            alts.put("wake up IRIS");
+            wake.put("altPhrases", alts);
+            current.put("wakeWord", wake);
+            persist(current);
+        } catch (Throwable ignored) { }
     }
 
     /** Store optional alternate wake phrases (text only — Vosk recognizes them; no separate training). */
