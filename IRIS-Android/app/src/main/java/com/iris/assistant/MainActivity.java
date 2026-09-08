@@ -14,6 +14,8 @@ import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.hardware.biometrics.BiometricPrompt;
 import android.net.Uri;
 import android.os.Build;
@@ -34,6 +36,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -899,18 +902,135 @@ public class MainActivity extends Activity {
         {"🧰 Troubleshooting", "Wake not firing: retrain the phrase; ease Voice Security sensitivity; add an extra phrase.\nMis-hears commands: keep internet on (Google STT), run “Learn My Voice & Commands”, or enable the high-accuracy model.\nDoes nothing after wake: wait for the beep, then speak; run Self-test for red items (mic/permissions)."},
     };
 
-    /** List every feature; tap one to see how to use it. */
+    /** Ordered categories for the guide. */
+    private static final String[] GUIDE_ORDER = {
+            "Getting started", "Wake & triggers", "Calls & contacts", "Messaging",
+            "Recording & capture", "Reminders & calendar", "Media & device control",
+            "Info & utilities", "Voice & personalization", "Advanced", "Help"
+    };
+
+    /** Map a feature (by its plain title, minus the leading emoji) to a category. */
+    private String guideCategory(String title) {
+        int sp = title.indexOf(' ');
+        String name = sp >= 0 ? title.substring(sp + 1) : title;
+        switch (name) {
+            case "Getting started": return "Getting started";
+            case "Wake phrase": case "Extra wake phrases": case "Pause & resume training":
+            case "More ways to trigger IRIS": case "Voice-verified wake": return "Wake & triggers";
+            case "Call a contact": case "Call by relationship": case "Call by spelling":
+            case "Call / text a number": case "Redial": return "Calls & contacts";
+            case "Send SMS": case "Share your info": case "WhatsApp": case "Email": return "Messaging";
+            case "Voice recording": case "Video recording":
+            case "Screenshot & screen recording": return "Recording & capture";
+            case "Alarms & timers": case "Reminders": case "Calendar": return "Reminders & calendar";
+            case "Media & music": case "Volume": case "Torch / flashlight":
+            case "Phone modes": return "Media & device control";
+            case "Phone status": case "Weather": case "Location": case "Notifications":
+            case "Web & apps": case "Memory": return "Info & utilities";
+            case "Voice & command training": case "High-accuracy voice model":
+            case "Command accuracy (Google)": case "Choose voice":
+            case "How IRIS addresses you": return "Voice & personalization";
+            case "Lock-screen control": case "Server mode": case "Self-test":
+            case "Copy text": case "Stop / sleep": case "Version / what's new": return "Advanced";
+            case "Troubleshooting": return "Help";
+            default: return "Advanced";
+        }
+    }
+
+    /** A friendly, grouped, tap-to-expand guide instead of a flat list. */
     private void showFeatureGuide() {
-        String[] titles = new String[FEATURE_GUIDE.length];
-        for (int i = 0; i < FEATURE_GUIDE.length; i++) titles[i] = FEATURE_GUIDE[i][0];
+        final float d = getResources().getDisplayMetrics().density;
+        int[] accents = { R.color.cyan, R.color.magenta, R.color.mint };
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (18 * d);
+        col.setPadding(pad, (int) (8 * d), pad, pad);
+        scroll.addView(col);
+
+        TextView intro = new TextView(this);
+        intro.setText("Tap any card to expand it. Wake IRIS (say your phrase or tap the orb), wait for the beep, then speak your command.");
+        intro.setTextColor(getColor(R.color.text_muted));
+        intro.setTextSize(12.5f);
+        intro.setLineSpacing((int) (3 * d), 1f);
+        col.addView(intro);
+
+        boolean firstCard = true;
+        int ci = 0;
+        for (String category : GUIDE_ORDER) {
+            int accent = getColor(accents[ci % accents.length]);
+            boolean headerAdded = false;
+            for (String[] item : FEATURE_GUIDE) {
+                if (!category.equals(guideCategory(item[0]))) continue;
+                if (!headerAdded) {
+                    TextView header = new TextView(this);
+                    header.setText("▍ " + category.toUpperCase(Locale.ROOT));
+                    header.setTextColor(accent);
+                    header.setTextSize(12.5f);
+                    header.setLetterSpacing(0.10f);
+                    header.setTypeface(null, Typeface.BOLD);
+                    LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    hp.topMargin = (int) (20 * d);
+                    hp.bottomMargin = (int) (8 * d);
+                    header.setLayoutParams(hp);
+                    col.addView(header);
+                    headerAdded = true;
+                }
+
+                final String title = item[0];
+                final String body = item[1];
+
+                LinearLayout card = new LinearLayout(this);
+                card.setOrientation(LinearLayout.VERTICAL);
+                GradientDrawable bg = new GradientDrawable();
+                bg.setColor(0x14FFFFFF);
+                bg.setCornerRadius(14 * d);
+                bg.setStroke((int) (1 * d), (accent & 0x00FFFFFF) | 0x40000000);
+                card.setBackground(bg);
+                int cp = (int) (13 * d);
+                card.setPadding(cp, cp, cp, cp);
+                LinearLayout.LayoutParams cpm = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                cpm.bottomMargin = (int) (9 * d);
+                card.setLayoutParams(cpm);
+
+                final TextView tv = new TextView(this);
+                tv.setTextColor(getColor(R.color.text_primary));
+                tv.setTextSize(15.5f);
+                tv.setTypeface(null, Typeface.BOLD);
+                card.addView(tv);
+
+                final TextView bv = new TextView(this);
+                bv.setText(body);
+                bv.setTextColor(getColor(R.color.text_muted));
+                bv.setTextSize(13.5f);
+                bv.setLineSpacing((int) (4 * d), 1f);
+                LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                bp.topMargin = (int) (9 * d);
+                bv.setLayoutParams(bp);
+                card.addView(bv);
+
+                final boolean startOpen = firstCard;
+                bv.setVisibility(startOpen ? View.VISIBLE : View.GONE);
+                tv.setText((startOpen ? "▾  " : "▸  ") + title);
+                firstCard = false;
+
+                card.setOnClickListener(v -> {
+                    boolean show = bv.getVisibility() != View.VISIBLE;
+                    bv.setVisibility(show ? View.VISIBLE : View.GONE);
+                    tv.setText((show ? "▾  " : "▸  ") + title);
+                });
+                col.addView(card);
+            }
+            if (headerAdded) ci++;
+        }
+
         new AlertDialog.Builder(this)
-                .setTitle("IRIS — features & how to use")
-                .setItems(titles, (d, which) -> new AlertDialog.Builder(this)
-                        .setTitle(FEATURE_GUIDE[which][0])
-                        .setMessage(FEATURE_GUIDE[which][1])
-                        .setPositiveButton("Got it", null)
-                        .setNeutralButton("Back", (dd, w) -> showFeatureGuide())
-                        .show())
+                .setTitle("IRIS — Features & Guide")
+                .setView(scroll)
                 .setPositiveButton("Close", null)
                 .show();
     }
