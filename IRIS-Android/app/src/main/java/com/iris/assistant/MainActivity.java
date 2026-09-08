@@ -1865,37 +1865,71 @@ public class MainActivity extends Activity {
 
     /** Build a Vosk x-vector voiceprint from recorded samples on a background thread. */
     private void enrollVoiceprintAsync(java.util.List<short[]> samples) {
-        if (samples == null || samples.isEmpty()) return;
+        if (samples == null || samples.isEmpty()) { resumeListeningAfterTraining(); return; }
+        // Cap samples to keep memory/CPU bounded during enrollment.
+        final java.util.List<short[]> capped = samples.size() > 6
+                ? new java.util.ArrayList<>(samples.subList(0, 6)) : samples;
         final VoskEngine ve = new VoskEngine();
         ve.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
                 ve.initSpeaker(MainActivity.this);
                 new Thread(() -> {
-                    long deadline = System.currentTimeMillis() + 10000;
-                    while (!ve.isSpeakerReady() && System.currentTimeMillis() < deadline) {
-                        try { Thread.sleep(150); } catch (InterruptedException ignored) { }
-                    }
-                    java.util.List<float[]> vecs = new java.util.ArrayList<>();
-                    if (ve.isSpeakerReady()) {
-                        for (short[] s : samples) {
-                            float[] e = ve.embed(s);
-                            if (e != null) vecs.add(e);
+                    try {
+                        long deadline = System.currentTimeMillis() + 10000;
+                        while (!ve.isSpeakerReady() && System.currentTimeMillis() < deadline) {
+                            try { Thread.sleep(150); } catch (InterruptedException ignored) { }
                         }
-                    }
-                    ve.close();
-                    if (!vecs.isEmpty()) {
-                        float[] avg = averageVectors(vecs);
-                        new ProfileStore(MainActivity.this).setVoiceprint(avg);
-                        LogStore.append(MainActivity.this, "VOICE", "Enrolled voiceprint from " + vecs.size() + " samples");
-                        handler.post(() -> toast("\uD83D\uDD10 Voice enrolled for wake security \u2705"));
-                    } else {
-                        LogStore.append(MainActivity.this, "VOICE", "Enrollment failed (speaker model unavailable)");
-                        handler.post(() -> toast("Voice security not set — speaker model unavailable."));
+                        java.util.List<float[]> vecs = new java.util.ArrayList<>();
+                        if (ve.isSpeakerReady()) {
+                            int i = 0;
+                            for (short[] s : capped) {
+                                float[] e = null;
+                                try { e = ve.embed(s); } catch (Throwable ignored) { }
+                                if (e != null) vecs.add(e);
+                                final int pct = (int) (100.0 * (++i) / capped.size());
+                                handler.post(() -> { if (wakeTrainingStatus != null)
+                                        wakeTrainingStatus.setText("Learning your voice… " + pct + "%"); });
+                            }
+                        }
+                        if (!vecs.isEmpty()) {
+                            new ProfileStore(MainActivity.this).setVoiceprint(averageVectors(vecs));
+                            LogStore.append(MainActivity.this, "VOICE", "Enrolled voiceprint from " + vecs.size() + " samples");
+                            // Show what IRIS actually heard (engine is already loaded — no extra cost).
+                            String heard = "";
+                            try { heard = ve.transcribe(capped.get(capped.size() - 1)); } catch (Throwable ignored) { }
+                            final String heardF = heard == null ? "" : heard.trim();
+                            handler.post(() -> {
+                                toast("\uD83D\uDD10 Voice enrolled \u2705");
+                                if (wakeTrainingStatus != null && !heardF.isEmpty())
+                                    wakeTrainingStatus.setText("\u2705 Saved. I heard: \u201C" + heardF + "\u201D");
+                            });
+                        } else {
+                            LogStore.append(MainActivity.this, "VOICE", "Enrollment skipped (speaker model unavailable)");
+                            handler.post(() -> toast("Saved. (Voice-lock unavailable on this device.)"));
+                        }
+                    } catch (Throwable t) {
+                        LogStore.append(MainActivity.this, "VOICE", "Enrollment error: " + t);
+                    } finally {
+                        try { ve.close(); } catch (Throwable ignored) { }
+                        // Restart the listening service only NOW that this model is freed —
+                        // avoids two Vosk models in memory at once (the old crash cause).
+                        handler.post(MainActivity.this::resumeListeningAfterTraining);
                     }
                 }, "IRIS-Enroll").start();
             }
-            @Override public void onError(String message) { ve.close(); }
+            @Override public void onError(String message) {
+                try { ve.close(); } catch (Throwable ignored) { }
+                handler.post(MainActivity.this::resumeListeningAfterTraining);
+            }
         });
+    }
+
+    /** Restart the wake listener after training finishes (called once enrollment frees its model). */
+    private void resumeListeningAfterTraining() {
+        if (resumeAfterWakeTraining) {
+            resumeAfterWakeTraining = false;
+            startListeningService();
+        }
     }
 
     private static float[] averageVectors(java.util.List<float[]> vs) {
@@ -2071,6 +2105,26 @@ public class MainActivity extends Activity {
     }
 
     private void finishWakeTraining() {
+        // Confirm before saving — let the user re-record if they're not happy.
+        stopWakeTrainingEngine();
+        if (timedRecorder != null) timedRecorder.stop();
+        new AlertDialog.Builder(this)
+                .setTitle("Save your wake phrase?")
+                .setMessage("I captured \u201C" + wakePhraseBeingTrained + "\u201D with "
+                        + wakeTemplates.size() + " samples.\n\nSave it, or re-record if that didn't feel right?")
+                .setNegativeButton("Re-record", (d, w) -> {
+                    wakeTemplates.clear();
+                    wakeRawSamples.clear();
+                    wakeSampleIndex = 0;
+                    if (wakeWizardFeedback != null) wakeWizardFeedback.setText("Let's try again.");
+                    handler.postDelayed(this::captureNextWakeSample, 400);
+                })
+                .setPositiveButton("Save", (d, w) -> finishWakeTrainingConfirmed())
+                .setCancelable(false)
+                .show();
+    }
+
+    private void finishWakeTrainingConfirmed() {
         // One last, longer sample of natural speech greatly improves the voiceprint.
         if (wakeWizardPrompt != null)
             wakeWizardPrompt.setText("\uD83C\uDF99  Last step — say a full sentence in your normal voice");
@@ -2107,9 +2161,10 @@ public class MainActivity extends Activity {
         // Enroll speaker voiceprint from the recorded samples using Vosk x-vectors.
         String enrollStatus = "voice enrolling in background\u2026";
         if (!wakeRawSamples.isEmpty()) {
-            enrollVoiceprintAsync(new java.util.ArrayList<>(wakeRawSamples));
+            enrollVoiceprintAsync(new java.util.ArrayList<>(wakeRawSamples));  // restarts service when done
         } else {
             enrollStatus = "voice not enrolled (no samples)";
+            resumeListeningAfterTraining();   // nothing to enroll — safe to restart now
         }
         ProfileStore.WakeProfile saved = new ProfileStore(this).getWakeProfile();
         LogStore.append(this, "WAKE TRAINED", saved.phrase + " with " + dtwTemplates.size()
@@ -2134,10 +2189,6 @@ public class MainActivity extends Activity {
                 handler.postDelayed(tone::release, 400);
             }, 250);
         } catch (Exception ignored) { }
-        if (resumeAfterWakeTraining) {
-            resumeAfterWakeTraining = false;
-            handler.postDelayed(this::startListeningService, 500);
-        }
     }
 
     private void testWakePhrase() {

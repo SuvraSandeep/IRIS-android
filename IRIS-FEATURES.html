@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.32.0";
+const BUILD_VERSION = "7.33.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -158,6 +158,10 @@ const FEATURES = [
    tagline:"Reads your talking pattern + learns how you say each command.",
    desc:"A guided, on-device trainer in two parts. First you read a few sentences aloud so IRIS builds your voice pattern (x-vector) for wake verification. Then it walks through each command word (call, text, alarm, weather…), records how YOU say it, transcribes it, and stores your pronunciation as an alias — so the recognizer maps your accent back to the right command. 100% offline. Honest limit: it can't retrain the speech model itself, but the aliases + voice pattern are the real, free levers that make recognition fit your voice.",
    examples:["Training → “🎓 Learn My Voice & Commands”"], version:"7.19.0"},
+  {id:"waketrain", cat:"Voice & Recognition", icon:"🎤", title:"Robust Wake Training",
+   tagline:"Confirm before saving, no lag or crash.",
+   desc:"Wake-phrase training now confirms before saving (“Save or re-record?”), shows what it heard (“I heard: …”), auto re-asks on silent/unclear samples, and enrolls your voiceprint in the background with a live progress %. Fixed the lag/crash: the listener now restarts only after enrollment finishes, so two voice models never load at once. (Partial-training resume is coming next.)",
+   examples:["Training → “Set Up Wake Phrase” → Save / Re-record"], version:"7.33.0"},
   {id:"bigmodel", cat:"Voice & Recognition", icon:"🎯", title:"High-Accuracy Voice Model (opt-in)",
    tagline:"A bigger offline model for tough accents.",
    desc:"Settings toggle to download the large offline Indian-English model (~1GB, one-time) for noticeably better recognition. Uses more storage/RAM and falls back to the fast small model automatically if it can't load. 100% offline.",
