@@ -623,6 +623,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private int consecutiveWakeRejects = 0;
     private boolean spellingCall = false;
     private int spellRetry = 0;
+    private boolean googleCommandActive = false;
 
     /**
      * Silence the recognizer's start/stop beep during continuous wake listening.
@@ -658,6 +659,16 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         startCommandRecognitionLocal();
+    }
+
+    /** Short beep so the user knows exactly when IRIS is listening for a command. */
+    private void playListeningEarcon() {
+        try {
+            android.media.ToneGenerator tg = new android.media.ToneGenerator(
+                    android.media.AudioManager.STREAM_MUSIC, 60);
+            tg.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 120);
+            handler.postDelayed(tg::release, 250);
+        } catch (Exception ignored) { }
     }
 
     /** Record the command locally and send it to the server's Whisper endpoint; fall back on failure. */
@@ -712,65 +723,65 @@ public class IrisListeningService extends Service implements RecognitionListener
         phase = PHASE_COMMAND;
         currentPhase = phase;
         broadcastState(true, phase);
-        updateListeningNotification("Listening for a call command");
+        updateListeningNotification("Listening\u2026");
+        playListeningEarcon();
 
-        // Primary: Vosk streaming STT
-        if (voskReady && voskEngine != null) {
-            final boolean[] handled = {false};
-            commandTimeout = () -> {
-                if (isRunning && PHASE_COMMAND.equals(phase) && !handled[0]) {
-                    voskEngine.stop();
-                    broadcastMessage("No command heard. Going back to sleep.");
-                    LogStore.append(this, "TIMEOUT", "Command window expired");
-                    rearmAfterAction();
-                }
-            };
-            // Settle delay: let the wake recognizer's mic fully release before we open a
-            // new AudioRecord — otherwise the command mic can come up silent (= "does nothing").
-            handler.postDelayed(() -> {
-                if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
-                LogStore.append(this, "LISTEN", "Command window open (Vosk)");
-                handler.postDelayed(commandTimeout, 15_000);
-                voskEngine.startListening(new VoskEngine.SttListener() {
-                    @Override public void onPartial(String text) {
-                        if (!text.isEmpty()) broadcastTranscript(text);
-                    }
-                    @Override public void onFinal(String text) {
-                        if (handled[0] || text.isEmpty()) return;
-                        handled[0] = true;
-                        if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
-                        voskEngine.stop();
-                        LogStore.append(IrisListeningService.this, "HEARD CMD", text);
-                        handleCommand(text);
-                    }
-                    @Override public void onError(String message) {
-                        if (handled[0]) return;
-                        handled[0] = true;
-                        if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
-                        LogStore.append(IrisListeningService.this, "VOSK STT ERROR", message
-                                + " — falling back to Android recognizer");
-                        startAndroidCommandRecognition();
-                    }
-                });
-            }, 350);
+        // Prefer Google STT for accuracy; Vosk is the offline fallback.
+        if (settings.googleSttForCommands() && SpeechRecognizer.isRecognitionAvailable(this)) {
+            startAndroidCommandRecognition();
             return;
         }
-
-        // Fallback: Android SpeechRecognizer
-        startAndroidCommandRecognition();
+        startVoskCommandRecognition();
     }
 
-    /** Command capture via Android's SpeechRecognizer (fallback when Vosk STT is unavailable/errors). */
+    /** Offline Vosk streaming STT for commands (used when Google STT is off/unavailable). */
+    private void startVoskCommandRecognition() {
+        if (!(voskReady && voskEngine != null)) { startAndroidCommandRecognition(); return; }
+        final boolean[] handled = {false};
+        commandTimeout = () -> {
+            if (isRunning && PHASE_COMMAND.equals(phase) && !handled[0]) {
+                voskEngine.stop();
+                broadcastMessage("No command heard. Going back to sleep.");
+                LogStore.append(this, "TIMEOUT", "Command window expired");
+                rearmAfterAction();
+            }
+        };
+        // Settle delay: let the wake recognizer's mic fully release before we open a new AudioRecord.
+        handler.postDelayed(() -> {
+            if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
+            LogStore.append(this, "LISTEN", "Command window open (Vosk)");
+            handler.postDelayed(commandTimeout, 15_000);
+            voskEngine.startListening(new VoskEngine.SttListener() {
+                @Override public void onPartial(String text) {
+                    if (!text.isEmpty()) broadcastTranscript(text);
+                }
+                @Override public void onFinal(String text) {
+                    if (handled[0] || text.isEmpty()) return;
+                    handled[0] = true;
+                    if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                    voskEngine.stop();
+                    LogStore.append(IrisListeningService.this, "HEARD CMD", text);
+                    handleCommand(text);
+                }
+                @Override public void onError(String message) {
+                    if (handled[0]) return;
+                    handled[0] = true;
+                    if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                    LogStore.append(IrisListeningService.this, "VOSK STT ERROR", message);
+                    rearmAfterAction();
+                }
+            });
+        }, 350);
+    }
+
+    /** Command capture via Android's (Google) SpeechRecognizer — best accuracy. */
     private void startAndroidCommandRecognition() {
         if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
         if (voskEngine != null) voskEngine.stop();
         createRecognizer();
-        if (recognizer == null) {
-            broadcastMessage("Speech recognition is unavailable.");
-            rearmAfterAction();
-            return;
-        }
-        LogStore.append(this, "LISTEN", "Command window open (Android STT)");
+        if (recognizer == null) { startVoskCommandRecognition(); return; }
+        googleCommandActive = true;
+        LogStore.append(this, "LISTEN", "Command window open (Google STT)");
         recognizerIntent = baseRecognizerIntent();
         handler.postDelayed(this::startRecognizerSafely, 180);
         commandTimeout = () -> { if (isRunning && PHASE_COMMAND.equals(phase)) { broadcastMessage("No command heard. Going back to sleep."); LogStore.append(this, "TIMEOUT", "Command window expired"); rearmAfterAction(); } };
@@ -1354,6 +1365,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
+    /** Butler-style, varied form of address: mostly nothing, sometimes "sir", occasionally your name. */
+    private String butlerAddress() {
+        String name = MemoryStore.ownerName(this);
+        int r = chatRandom.nextInt(10);
+        if (r < 5) return "";                          // ~50% no name — like a real butler
+        if (r < 8) return " sir";                      // ~30% "sir"
+        return name != null ? " " + name : " sir";     // ~20% your name
+    }
+
     private void ruleBasedChat(String original, String normalized, ProfileStore store) {
         String personality = settings.personality();
         boolean sarcastic = "Sarcastic".equals(personality);
@@ -1362,7 +1382,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         String reply;
 
         String ownerName = MemoryStore.ownerName(this);
-        String namePart = ownerName != null ? " " + ownerName : "";
+        String namePart = butlerAddress();
 
         // Identity questions
         if (normalized.matches(".*\\b(who am i|what.?s my name|what is my name|my name)\\b.*")) {
@@ -4048,7 +4068,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     /** A varied, natural wake greeting so IRIS doesn't sound robotic. */
     private String wakeGreeting() {
         String name = MemoryStore.ownerName(this);
-        String n = name != null ? " " + name : "";
+        String n = butlerAddress();
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         String tod = hour < 6 ? "" : hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : hour < 21 ? "Evening" : "";
         String personality = settings.personality();
@@ -4160,6 +4180,21 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (!isRunning) return;
         if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                 && error != SpeechRecognizer.ERROR_CLIENT) LogStore.append(this, "LISTEN ERROR", speechError(error));
+        // Google STT failed for a command — fall back to offline Vosk on network/availability errors.
+        if (PHASE_COMMAND.equals(phase) && googleCommandActive) {
+            googleCommandActive = false;
+            if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+            boolean networkish = error == SpeechRecognizer.ERROR_NETWORK
+                    || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT
+                    || error == SpeechRecognizer.ERROR_SERVER
+                    || error == SpeechRecognizer.ERROR_CLIENT
+                    || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY;
+            if (networkish && voskReady && voskEngine != null) {
+                LogStore.append(this, "LISTEN", "Google STT " + speechError(error) + " \u2192 Vosk fallback");
+                startVoskCommandRecognition();
+                return;
+            }
+        }
         if (PHASE_CONFIRM.equals(phase)) {
             if (confirmationRetries++ < 1) handler.postDelayed(this::startConfirmationRecognition, 450);
             return;
@@ -4169,6 +4204,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     @Override
     public void onResults(Bundle results) {
+        googleCommandActive = false;
         ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         String heard = matches == null || matches.isEmpty() ? "" : matches.get(0);
         if (PHASE_CONFIRM.equals(phase)) handleConfirmation(heard);

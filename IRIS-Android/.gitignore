@@ -11,3 +11,6 @@ local.properties
 app/src/main/assets/model-en-us/
 # Gemma LLM model — downloaded at build time, not committed
 app/src/main/assets/sherpa-models/
+
+# Internal design note (not committed)
+RECOGNITION-AND-TRAINING-OVERHAUL.md

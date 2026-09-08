@@ -78,9 +78,12 @@ public final class AppSettings {
     /** Let IRIS act on commands while the phone is locked (UI actions prompt a quick unlock). */
     public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }
     public void setLockScreenControl(boolean value) { prefs.edit().putBoolean("lock_screen_control", value).apply(); }
-    /** Voice-verification strictness 0=lenient .. 1=strict (default 0.5). */
-    public float voiceSensitivity() { return prefs.getFloat("voice_sensitivity", 0.5f); }
+    /** Voice-verification strictness 0=lenient .. 1=strict (default lenient so the owner wakes first try). */
+    public float voiceSensitivity() { return prefs.getFloat("voice_sensitivity", 0.2f); }
     public void setVoiceSensitivity(float value) { prefs.edit().putFloat("voice_sensitivity", value).apply(); }
+    /** Use Google Speech Recognition for commands (best accuracy; falls back to Vosk offline). */
+    public boolean googleSttForCommands() { return prefs.getBoolean("google_stt_commands", true); }
+    public void setGoogleSttForCommands(boolean v) { prefs.edit().putBoolean("google_stt_commands", v).apply(); }
     /** Speak a cue when a wake voice isn't recognized as the owner. */
     public boolean voiceCueEnabled() { return prefs.getBoolean("voice_cue_enabled", true); }
     public void setVoiceCueEnabled(boolean value) { prefs.edit().putBoolean("voice_cue_enabled", value).apply(); }

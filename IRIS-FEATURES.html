@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.31.0";
+const BUILD_VERSION = "7.32.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -144,8 +144,16 @@ const FEATURES = [
   // ---- Voice & Recognition ----
   {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
    tagline:"IRIS wakes only when you say your phrase.",
-   desc:"Train your own wake phrase; IRIS listens silently in the background. Accent‑tolerant matching: it also listens for the distinctive last word and close/fuzzy matches, so it still wakes if the model slightly mis‑hears you. Doesn't interrupt music/video, and anti‑lockout wakes you even if voice‑verification is being fussy.",
-   examples:["“Hello IRIS” (or whatever you trained)"], version:"7.30.1"},
+   desc:"Train your own wake phrase; IRIS listens silently in the background. Accent‑tolerant matching: it also listens for the distinctive last word and close/fuzzy matches, so it still wakes if the model slightly mis‑hears you. Wakes on the first try — voice‑verification is lenient by default (kept on for speaker‑lock, but tuned so it never makes you repeat yourself). Doesn't interrupt music/video.",
+   examples:["“Hello IRIS” (or whatever you trained)"], version:"7.32.0"},
+  {id:"cmdstt", cat:"Voice & Recognition", icon:"👂", title:"Accurate Commands (Google speech)",
+   tagline:"Understands you like your watch does.",
+   desc:"After waking, commands are recognised with Google's speech engine (far better with accents and fumbles), and IRIS falls back to the offline Vosk model automatically when there's no internet or Google errors. A short beep tells you exactly when it's listening.",
+   examples:["(just talk after the wake beep)"], version:"7.32.0"},
+  {id:"address", cat:"Voice & Recognition", icon:"🎩", title:"Natural, Butler-style Address",
+   tagline:"Not your name every single time.",
+   desc:"Like a real butler, IRIS varies how it addresses you — mostly nothing, sometimes “sir”, occasionally your name — instead of repeating your name in every reply.",
+   examples:["“Done.” / “Right away, sir.” / “Of course, Mr STG.”"], version:"7.32.0"},
   {id:"voicetrain", cat:"Voice & Recognition", icon:"🎓", title:"Voice & Command Training",
    tagline:"Reads your talking pattern + learns how you say each command.",
    desc:"A guided, on-device trainer in two parts. First you read a few sentences aloud so IRIS builds your voice pattern (x-vector) for wake verification. Then it walks through each command word (call, text, alarm, weather…), records how YOU say it, transcribes it, and stores your pronunciation as an alias — so the recognizer maps your accent back to the right command. 100% offline. Honest limit: it can't retrain the speech model itself, but the aliases + voice pattern are the real, free levers that make recognition fit your voice.",
