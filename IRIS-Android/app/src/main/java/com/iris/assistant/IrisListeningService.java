@@ -45,6 +45,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String ACTION_CANCEL_CALL = "com.iris.assistant.CANCEL_CALL";
     public static final String ACTION_CHOOSE_CONTACT = "com.iris.assistant.CHOOSE_CONTACT";
     public static final String ACTION_PROCESS_TEXT = "com.iris.assistant.PROCESS_TEXT";
+    public static final String ACTION_STOP_RECORDING = "com.iris.assistant.STOP_RECORDING";
     public static final String EVENT_STATE = "com.iris.assistant.EVENT_STATE";
     public static final String EVENT_TRANSCRIPT = "com.iris.assistant.EVENT_TRANSCRIPT";
     public static final String EVENT_CALL_PROMPT = "com.iris.assistant.EVENT_CALL_PROMPT";
@@ -223,6 +224,20 @@ public class IrisListeningService extends Service implements RecognitionListener
             + "|status(?:\\s+report)?"
             + "|how(?:'s| is)\\s+(?:my\\s+)?(?:phone|mobile|device))\\s*\\??$",
             Pattern.CASE_INSENSITIVE);
+    // Timed voice memo: "record voice 20", "voice memo 30", "record audio for 1 minute", with
+    // an optional mic phrase before or after the number ("...using earphone", "with bluetooth").
+    private static final String MIC_WORDS =
+            "(phone|built-?in|internal|earphones?|earbuds?|headset|headphones?|wired|usb|bluetooth|bt)";
+    private static final Pattern VOICE_RECORD_PATTERN = Pattern.compile(
+            "^(?:record|start|take|capture)?\\s*(?:a\\s+)?(?:voice|audio)(?:\\s+memo)?(?:\\s+recording)?"
+            + "(?:\\s+(?:for|of))?"
+            + "(?:\\s+(?:using|with|on|through|via)\\s+(?:my\\s+|the\\s+)?" + MIC_WORDS + ")?"
+            + "(?:\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|s|m)?)?"
+            + "(?:\\s+(?:using|with|on|through|via)\\s+(?:my\\s+|the\\s+)?" + MIC_WORDS + ")?$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern STOP_RECORD_PATTERN = Pattern.compile(
+            "^(?:stop|end|finish|cancel)\\s+(?:the\\s+)?(?:voice\\s+)?(?:recording|record|memo|audio)$",
+            Pattern.CASE_INSENSITIVE);
     // Control whatever is playing: pause/resume/next/previous
     private static final Pattern MEDIA_CONTROL_PATTERN = Pattern.compile(
             "^(?:pause(?:\\s+(?:the\\s+)?(?:music|song|media|audio|playback))?"
@@ -307,6 +322,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private String lastMemoryId;
     private SpeakerVerifier speakerVerifier;
     private VoskEngine voskEngine;
+    private MediaMemoRecorder memoRecorder;
     private boolean voskReady;
     private volatile boolean androidWakeActive;
     private LlmAgent llmAgent;
@@ -388,6 +404,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (ACTION_STOP.equals(action)) {
             stopIris("Listening switched off");
             return START_NOT_STICKY;
+        }
+        if (ACTION_STOP_RECORDING.equals(action)) {
+            stopVoiceRecording();
+            return START_STICKY;
         }
         if (ACTION_CONFIRM_CALL.equals(action)) {
             cancelCallNotification();
@@ -1082,6 +1102,20 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (VOLUME_PATTERN.matcher(normalized).matches()) { handleVolume(normalized); return; }
         Matcher volSetM = VOLUME_SET_PATTERN.matcher(normalized);
         if (volSetM.matches()) { handleSetVolumePercent(volSetM.group(1)); return; }
+        if (STOP_RECORD_PATTERN.matcher(normalized).matches()) { stopVoiceRecording(); return; }
+        Matcher vrec = VOICE_RECORD_PATTERN.matcher(normalized);
+        if (vrec.matches() && (vrec.group(1) != null || vrec.group(2) != null || vrec.group(4) != null
+                || normalized.startsWith("record") || normalized.startsWith("start") || normalized.startsWith("take"))) {
+            String micWord = vrec.group(1) != null ? vrec.group(1) : vrec.group(4);
+            int secs = 0;
+            if (vrec.group(2) != null) {
+                int n = Integer.parseInt(vrec.group(2));
+                String unit = vrec.group(3) == null ? "" : vrec.group(3).toLowerCase(Locale.ROOT);
+                secs = (unit.startsWith("m")) ? n * 60 : n;
+            }
+            beginVoiceRecording(secs, micWord);
+            return;
+        }
         if (STATUS_PATTERN.matcher(normalized).matches()) { handlePhoneStatus(); return; }
         Matcher modeQ = MODE_QUERY_PATTERN.matcher(normalized);
         if (modeQ.matches()) { handleModeQuery(modeQ.group(1)); return; }
@@ -2468,6 +2502,100 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Silent / vibrate / normal ringer. Needs Do Not Disturb access on modern Android. */
+    /** Start a timed voice memo. Speaks first (pausing music), then records so our own voice isn't captured. */
+    private void beginVoiceRecording(int seconds, String micWord) {
+        if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            String m = "I need microphone permission to record.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction); return;
+        }
+        if (memoRecorder != null && memoRecorder.isRecording()) { inform("I'm already recording."); return; }
+        final AudioDeviceInfo dev = resolveInputDevice(micWordToPreference(micWord));
+        final String micName = dev != null ? readableDeviceName(dev) : "the phone mic";
+        final int cappedSecs = seconds > 0 ? Math.min(seconds, 600) : 0;   // safety cap 10 min
+        final int durMs = cappedSecs * 1000;
+        String intro = cappedSecs > 0
+                ? "Recording " + cappedSecs + " second" + (cappedSecs == 1 ? "" : "s") + " using " + micName + "."
+                : "Recording using " + micName + ". Say stop recording, or tap stop, when you're done.";
+        broadcastMessage(intro);
+        speakThenRun(intro, () -> {
+            pauseListeningForCapture();
+            showRecordingNotification();
+            memoRecorder = new MediaMemoRecorder(this);
+            memoRecorder.start(durMs, dev, micName, new MediaMemoRecorder.Listener() {
+                @Override public void onStarted(String mic) {
+                    LogStore.append(IrisListeningService.this, "RECORD", "started via " + mic);
+                }
+                @Override public void onSaved(String location, int secs) {
+                    restoreListeningNotification();
+                    String m = "Saved a " + secs + " second recording to " + location + ".";
+                    broadcastMessage(m); speakThenRun(m, IrisListeningService.this::rearmAfterAction);
+                    LogStore.append(IrisListeningService.this, "RECORD", m);
+                }
+                @Override public void onError(String message) {
+                    restoreListeningNotification();
+                    broadcastMessage(message); speakThenRun(message, IrisListeningService.this::rearmAfterAction);
+                }
+            });
+        });
+    }
+
+    private void stopVoiceRecording() {
+        if (memoRecorder != null && memoRecorder.isRecording()) {
+            memoRecorder.stop();   // fires onSaved → notification restored + re-arm
+        } else {
+            String m = "Nothing is recording right now.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+        }
+    }
+
+    /** Free the mic (stop wake/command listening) so MediaRecorder can grab it. */
+    private void pauseListeningForCapture() {
+        if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+        try { destroyRecognizer(); } catch (Exception ignored) { }
+        try { if (voskEngine != null) voskEngine.stop(); } catch (Exception ignored) { }
+    }
+
+    private String micWordToPreference(String w) {
+        if (w == null) return settings.preferredMicrophone();
+        String m = w.toLowerCase(Locale.ROOT);
+        if (m.startsWith("phone") || m.contains("built") || m.contains("internal")) return "Phone";
+        if (m.contains("bluetooth") || m.equals("bt")) return "Bluetooth";
+        if (m.contains("ear") || m.contains("headset") || m.contains("headphone")
+                || m.contains("wired") || m.contains("usb")) return "Wired / USB";
+        return settings.preferredMicrophone();
+    }
+
+    private AudioDeviceInfo resolveInputDevice(String preference) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (am == null) return null;
+            return chooseDevice(arrayToList(am.getDevices(AudioManager.GET_DEVICES_INPUTS)), preference);
+        } catch (Exception e) { return null; }
+    }
+
+    private void showRecordingNotification() {
+        try {
+            Intent stopRec = new Intent(this, IrisListeningService.class).setAction(ACTION_STOP_RECORDING);
+            PendingIntent stopPending = PendingIntent.getService(this, 7, stopRec,
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            Notification n = new Notification.Builder(this, LISTENING_CHANNEL)
+                    .setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS is recording")
+                    .setContentText("Voice memo in progress").setOngoing(true).setOnlyAlertOnce(true)
+                    .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class),
+                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
+                    .addAction(new Notification.Action.Builder(null, "Stop recording", stopPending).build())
+                    .build();
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(LISTENING_NOTIFICATION, n);
+        } catch (Exception ignored) { }
+    }
+
+    private void restoreListeningNotification() {
+        try {
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
+                    .notify(LISTENING_NOTIFICATION, listeningNotification());
+        } catch (Exception ignored) { }
+    }
+
     /** Full rundown: ringer, DND, airplane, internet/Wi-Fi, Bluetooth, battery. */
     private void handlePhoneStatus() {
         StringBuilder sb = new StringBuilder();
@@ -4140,11 +4268,48 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
+    private Object speechFocusRequest;
+
+    /** Grab transient audio focus so background music/video pauses while IRIS speaks. */
+    private void requestSpeechFocus() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (am == null) return;
+            if (Build.VERSION.SDK_INT >= 26) {
+                android.media.AudioFocusRequest req = new android.media.AudioFocusRequest.Builder(
+                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                        .setAudioAttributes(new android.media.AudioAttributes.Builder()
+                                .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                        .setWillPauseWhenDucked(true)
+                        .build();
+                am.requestAudioFocus(req);
+                speechFocusRequest = req;
+            } else {
+                am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+            }
+        } catch (Exception ignored) { }
+    }
+
+    /** Release focus so the paused music resumes after IRIS finishes speaking. */
+    private void abandonSpeechFocus() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (am == null) return;
+            if (Build.VERSION.SDK_INT >= 26 && speechFocusRequest instanceof android.media.AudioFocusRequest) {
+                am.abandonAudioFocusRequest((android.media.AudioFocusRequest) speechFocusRequest);
+                speechFocusRequest = null;
+            } else {
+                am.abandonAudioFocus(null);
+            }
+        } catch (Exception ignored) { }
+    }
+
     private void speak(String text) {
         if (text == null || text.isEmpty()) return;
         if (!settings.voiceReplies()) return;
         if (useServerTts()) { speakServerThenRun(text, null); return; }
-        speakAndroidTts(text);
+        speakThenRunLocal(text, () -> { });   // reuse the audio-focus-managed path
     }
 
     /** True when the server voice (Piper) should be used for this reply. */
@@ -4180,14 +4345,17 @@ public class IrisListeningService extends Service implements RecognitionListener
                     serverTtsPlayer.setDataSource(f.getAbsolutePath());
                     serverTtsPlayer.setOnCompletionListener(mp -> {
                         releaseServerTts();
+                        abandonSpeechFocus();
                         if (afterSpeaking != null) afterSpeaking.run();
                     });
                     serverTtsPlayer.setOnErrorListener((mp, what, extra) -> {
                         releaseServerTts();
+                        abandonSpeechFocus();
                         if (afterSpeaking != null) afterSpeaking.run();
                         return true;
                     });
                     serverTtsPlayer.prepare();
+                    requestSpeechFocus();
                     serverTtsPlayer.start();
                 } catch (Throwable t) {
                     releaseServerTts();
@@ -4252,6 +4420,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         final boolean[] ran = {false};
+        requestSpeechFocus();
         textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
             @Override public void onStart(String utteranceId) { }
             @Override public void onDone(String utteranceId) {
@@ -4261,6 +4430,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     // mic opens — prevents the greeting being cut off / re-heard.
                     handler.postDelayed(() -> {
                         textToSpeech.setOnUtteranceProgressListener(null);
+                        abandonSpeechFocus();
                         afterSpeaking.run();
                     }, 300);
                 }
@@ -4268,18 +4438,19 @@ public class IrisListeningService extends Service implements RecognitionListener
             @Override public void onError(String utteranceId) {
                 if (!ran[0]) {
                     ran[0] = true;
-                    handler.post(() -> { textToSpeech.setOnUtteranceProgressListener(null); afterSpeaking.run(); });
+                    handler.post(() -> { textToSpeech.setOnUtteranceProgressListener(null); abandonSpeechFocus(); afterSpeaking.run(); });
                 }
             }
         });
         try {
             textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_greet");
         } catch (Exception e) {
+            abandonSpeechFocus();
             handler.postDelayed(afterSpeaking, 600);
         }
         // Safety net: if onDone never fires (some TTS engines), run after 6s max
         handler.postDelayed(() -> {
-            if (!ran[0]) { ran[0] = true; textToSpeech.setOnUtteranceProgressListener(null); afterSpeaking.run(); }
+            if (!ran[0]) { ran[0] = true; textToSpeech.setOnUtteranceProgressListener(null); abandonSpeechFocus(); afterSpeaking.run(); }
         }, 6000);
     }
 

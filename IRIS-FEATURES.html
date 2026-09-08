@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.39.0";
+const BUILD_VERSION = "7.40.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -267,6 +267,10 @@ const FEATURES = [
    tagline:"“How's my phone?”",
    desc:"One question, full rundown: ringer (silent/vibrate/normal), Do Not Disturb, airplane mode, internet (Wi-Fi or mobile data), Bluetooth, and battery level with charging state.",
    examples:["phone status","how's my phone?","mobile status"], version:"7.39.0"},
+  {id:"voicememo", cat:"Productivity", icon:"🎙", title:"Voice Recording",
+   tagline:"“Record voice 20.”",
+   desc:"Timed voice memos saved as compact .m4a in Recordings/IRIS. Say the duration (“record voice 20”, “voice memo 30”, “record audio for 1 minute”) and choose the mic inline (“record voice using bluetooth 30”) or use your default mic. Stop early by voice or the notification's Stop button — works on the lock screen. IRIS speaks first so it doesn't record itself, and any background music now pauses while IRIS talks.",
+   examples:["record voice 20","voice memo 30","record voice using earphone 15","stop recording"], version:"7.40.0"},
   {id:"copytext", cat:"Productivity", icon:"📋", title:"Tap to Copy",
    tagline:"Copy what IRIS heard or said.",
    desc:"On the Assistant screen, tap the recognized command (or IRIS's reply) to copy it to the clipboard; the text is also selectable.",
