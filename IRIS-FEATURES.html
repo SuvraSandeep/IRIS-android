@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "7.41.0";
+const BUILD_VERSION = "8.0.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -275,6 +275,10 @@ const FEATURES = [
    tagline:"“Start recording 30.”",
    desc:"Records a short video (front or back camera) to Movies/IRIS, and can capture over the lock screen on supported phones. Say “start recording 30” (back cam), “record video 20”, “record selfie video 15”, or pick a lens with “front/back”. Auto-stops after the set time. Needs the Camera permission once; locked/background camera behaviour varies by device.",
    examples:["start recording 30","record video 20","record front camera video 15"], version:"7.41.0"},
+  {id:"screencap", cat:"Productivity", icon:"🖥", title:"Screenshot & Screen Recording",
+   tagline:"“Take a screenshot.” / “Record the screen 30.”",
+   desc:"Grabs a screenshot (PNG → Pictures/IRIS) or records the screen with mic audio (MP4 → Movies/IRIS) using Android's screen-capture. Say “take a screenshot”, “record the screen 30”, “screen record 20”, or “stop screen recording”. Android asks for a one-time capture consent the first time. Secure screens (banking/DRM) appear black by design.",
+   examples:["take a screenshot","record the screen 30","stop screen recording"], version:"8.0.0"},
   {id:"triggers", cat:"Voice & Wake", icon:"⚡", title:"More Ways to Trigger IRIS",
    tagline:"Notification, tile, assist, shake, headset.",
    desc:"Beyond the wake word: a “🎙 Talk” button on IRIS's notification, the Quick Settings tile, and Assistant-app support (set IRIS as your Digital Assistant so the assist gesture summons it anywhere — even on the lock screen). Optional shake-to-talk and double-press-headset-button triggers can be enabled in Settings. When IRIS speaks, background music now pauses and resumes automatically.",

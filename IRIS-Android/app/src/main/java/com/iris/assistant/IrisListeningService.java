@@ -252,6 +252,18 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern START_RECORDING_PATTERN = Pattern.compile(
             "^start\\s+recording(?:\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|s|m)?)?$",
             Pattern.CASE_INSENSITIVE);
+    // Screenshot: "screenshot", "take a screenshot", "capture the screen".
+    private static final Pattern SCREENSHOT_PATTERN = Pattern.compile(
+            "^(?:(?:take|grab|capture)\\s+(?:a\\s+|the\\s+|my\\s+)?screen(?:\\s?shot)?|(?:a\\s+)?screen\\s?shot)$",
+            Pattern.CASE_INSENSITIVE);
+    // Screen recording: "record the screen 30", "screen record 20", "screen recording".
+    private static final Pattern SCREEN_REC_PATTERN = Pattern.compile(
+            "^(?:(?:record|start|capture)\\s+(?:the\\s+|my\\s+)?screen(?:\\s+recording)?|screen\\s+record(?:ing)?)"
+            + "(?:\\s+(?:for|of))?(?:\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|s|m)?)?$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern SCREEN_REC_STOP_PATTERN = Pattern.compile(
+            "^(?:stop|end|finish)\\s+(?:the\\s+)?screen\\s+record(?:ing)?$",
+            Pattern.CASE_INSENSITIVE);
     // Control whatever is playing: pause/resume/next/previous
     private static final Pattern MEDIA_CONTROL_PATTERN = Pattern.compile(
             "^(?:pause(?:\\s+(?:the\\s+)?(?:music|song|media|audio|playback))?"
@@ -1209,6 +1221,13 @@ public class IrisListeningService extends Service implements RecognitionListener
         Matcher volSetM = VOLUME_SET_PATTERN.matcher(normalized);
         if (volSetM.matches()) { handleSetVolumePercent(volSetM.group(1)); return; }
         if (STOP_RECORD_PATTERN.matcher(normalized).matches()) { stopVoiceRecording(); return; }
+        if (SCREEN_REC_STOP_PATTERN.matcher(normalized).matches()) {
+            try { startService(new Intent(this, ScreenCaptureService.class).setAction(ScreenCaptureService.ACTION_STOP)); } catch (Exception ignored) { }
+            return;
+        }
+        if (SCREENSHOT_PATTERN.matcher(normalized).matches()) { handleScreenshot(); return; }
+        Matcher scr = SCREEN_REC_PATTERN.matcher(normalized);
+        if (scr.matches()) { beginScreenRecording(parseSecs(scr.group(1), scr.group(2), 30)); return; }
         Matcher vid = VIDEO_RECORD_PATTERN.matcher(normalized);
         if (vid.matches()) {
             String cam = vid.group(1) != null ? vid.group(1) : vid.group(2);
@@ -2616,6 +2635,33 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Silent / vibrate / normal ringer. Needs Do Not Disturb access on modern Android. */
+    /** Take a single screenshot via MediaProjection (asks for consent the first time). */
+    private void handleScreenshot() {
+        String m = "Taking a screenshot.";
+        broadcastMessage(m);
+        speakThenRun(m, () -> launchScreenCapture("shot", 0));
+    }
+
+    /** Record the screen (with mic audio) for a set time via MediaProjection. */
+    private void beginScreenRecording(int seconds) {
+        int secs = seconds > 0 ? Math.min(seconds, 600) : 30;
+        String m = "Recording the screen for " + secs + " seconds.";
+        broadcastMessage(m);
+        speakThenRun(m, () -> { pauseListeningForCapture(); launchScreenCapture("rec", secs); });
+    }
+
+    private void launchScreenCapture(String op, int seconds) {
+        try {
+            startActivity(new Intent(this, ScreenCaptureActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    .putExtra(ScreenCaptureActivity.EXTRA_OP, op)
+                    .putExtra(ScreenCaptureActivity.EXTRA_SECONDS, seconds));
+        } catch (Exception e) {
+            String m = "I couldn't open screen capture.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+        }
+    }
+
     /** Launch the lock-screen-capable camera activity to record a short video. */
     private void beginVideoRecording(int seconds, String camWord) {
         if (!hasPermission(Manifest.permission.CAMERA)) {
