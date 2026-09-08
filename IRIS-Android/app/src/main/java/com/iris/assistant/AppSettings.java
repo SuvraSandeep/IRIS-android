@@ -112,6 +112,10 @@ public final class AppSettings {
     public void setShakeToWake(boolean v) { prefs.edit().putBoolean("shake_to_wake", v).apply(); }
     public boolean headsetTrigger() { return prefs.getBoolean("headset_trigger", false); }
     public void setHeadsetTrigger(boolean v) { prefs.edit().putBoolean("headset_trigger", v).apply(); }
+    public boolean mirrorReplies() { return prefs.getBoolean("mirror_replies", false); }
+    public void setMirrorReplies(boolean v) { prefs.edit().putBoolean("mirror_replies", v).apply(); }
+    public boolean mirrorMajorOnly() { return prefs.getBoolean("mirror_major_only", true); }
+    public void setMirrorMajorOnly(boolean v) { prefs.edit().putBoolean("mirror_major_only", v).apply(); }
     public float speakerThreshold() { return prefs.getFloat("speaker_threshold", 0.70f); }
     public void setSpeakerThreshold(float value) { prefs.edit().putFloat("speaker_threshold", value).apply(); }
 }

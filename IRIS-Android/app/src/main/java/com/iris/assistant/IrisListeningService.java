@@ -49,6 +49,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String ACTION_TALK = "com.iris.assistant.TALK";
     public static final String ACTION_CAPTURE_DONE = "com.iris.assistant.CAPTURE_DONE";
     public static final String ACTION_STOP_SPEAKING = "com.iris.assistant.STOP_SPEAKING";
+    public static final String ACTION_STOP_VIDEO = "com.iris.assistant.STOP_VIDEO";
     public static final String EVENT_STATE = "com.iris.assistant.EVENT_STATE";
     public static final String EVENT_TRANSCRIPT = "com.iris.assistant.EVENT_TRANSCRIPT";
     public static final String EVENT_CALL_PROMPT = "com.iris.assistant.EVENT_CALL_PROMPT";
@@ -509,9 +510,13 @@ public class IrisListeningService extends Service implements RecognitionListener
             stopSpeaking();
             return START_STICKY;
         }
+        if (ACTION_STOP_VIDEO.equals(action)) {
+            LockedCaptureActivity.stopActive();
+            return START_STICKY;
+        }
         if (ACTION_CAPTURE_DONE.equals(action)) {
             String msg = intent == null ? null : intent.getStringExtra(EXTRA_TEXT);
-            if (msg != null && !msg.isEmpty()) { broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction); }
+            if (msg != null && !msg.isEmpty()) { broadcastMessage(msg); nextOutputMajor = true; speakThenRun(msg, this::rearmAfterAction); }
             else rearmAfterAction();
             return START_STICKY;
         }
@@ -1968,6 +1973,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void reply(String text) {
         broadcastMessage("\uD83D\uDD14 " + text);
         lastActionSummary = text;
+        nextOutputMajor = true;
         speakThenRun(text, this::rearmAfterAction);
     }
 
@@ -2992,6 +2998,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     /** Speak + broadcast a short status line, then return to listening. */
     private void inform(String msg) {
         broadcastMessage(msg);
+        nextOutputMajor = true;
         speakThenRun(msg, this::rearmAfterAction);
         lastActionSummary = msg;
         LogStore.append(this, "MODE", msg);
@@ -4607,6 +4614,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private volatile boolean speechCancelled;
     private String lastUserCommand = "";
     private String lastActionSummary = "";
+    private volatile boolean nextOutputMajor;
 
     /** Grab transient audio focus so background music/video pauses while IRIS speaks. */
     private void requestSpeechFocus() {
@@ -4754,11 +4762,37 @@ public class IrisListeningService extends Service implements RecognitionListener
      * If voice replies are off or TTS fails, runs the callback after a short delay.
      */
     private void speakThenRun(String text, Runnable afterSpeaking) {
+        boolean major = nextOutputMajor; nextOutputMajor = false;
+        mirrorToWatch(text, major);
         if (useServerTts() && text != null && !text.isEmpty() && settings.voiceReplies()) {
             speakServerThenRun(text, afterSpeaking);
             return;
         }
         speakThenRunLocal(text, afterSpeaking);
+    }
+
+    /** When the screen is off, also post IRIS's reply as a notification so it shows on a watch. */
+    private void mirrorToWatch(String text, boolean major) {
+        try {
+            if (text == null || text.trim().isEmpty()) return;
+            if (!settings.mirrorReplies()) return;
+            if (settings.mirrorMajorOnly() && !major) return;
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (pm != null && pm.isInteractive()) return;   // screen on → they can see the app
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel("iris_output") == null) {
+                nm.createNotificationChannel(new NotificationChannel("iris_output", "IRIS replies",
+                        NotificationManager.IMPORTANCE_DEFAULT));
+            }
+            Notification.Builder b = (Build.VERSION.SDK_INT >= 26)
+                    ? new Notification.Builder(this, "iris_output") : new Notification.Builder(this);
+            Notification n = b.setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS")
+                    .setContentText(text)
+                    .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setAutoCancel(true).build();
+            nm.notify(0x1815, n);
+        } catch (Throwable ignored) { }
     }
 
     private void speakThenRunLocal(String text, Runnable afterSpeaking) {

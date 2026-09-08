@@ -887,7 +887,8 @@ public class MainActivity extends Activity {
         {"🎵 Media & music", "Control any player: “pause”, “resume”, “next” / “next song”, “previous”, “stop music”.\nPlay a local track: “play <song or artist>” (hands off to your music app)."},
         {"🔊 Volume", "Say: “volume up/down”, “mute”, “max volume”, “set volume to 50 percent”."},
         {"🖥 Screenshot & screen recording", "Capture what's on your screen.\nScreenshot: say “take a screenshot” — saved to Pictures/IRIS (or your system Screenshots folder).\nScreen recording: say “record the screen” (defaults to 1 minute) or “record the screen for 2 minutes”; saved to Movies/IRIS with mic audio. Stop early with “stop screen recording” or the Stop button.\nNo pop-up option: enable IRIS in Settings → Accessibility → Installed services, and screenshots are taken instantly with no permission prompt. Otherwise Android shows a one-time “Start recording/casting?” consent (tick “don't ask again”). Secure screens (banking, DRM) appear black by Android's design."},
-        {"🎬 Video recording", "Record a short video, saved to Movies/IRIS.\nSay: “start recording 30” (back camera), “record video 20”, “record front camera video 15”, “record selfie video 10”. Choose the lens with “front/selfie” or “back/rear”.\nIt can record over the lock screen on many phones (needs the Camera permission granted once; some phones need battery optimisation off for IRIS). Auto-stops after the time you set. Note: locked/background camera behaviour varies by phone."},
+        {"⌚ Replies on your watch", "Turn on Settings → “Show replies as a notification when the screen is off” and IRIS mirrors its reply to a notification whenever the screen is off — so you can read it on your watch. Add “Only major replies” to limit it to action results (saved files, status, notifications) instead of every small acknowledgement."},
+        {"🎬 Video recording", "Record a short video, saved to Movies/IRIS.\nSay: “start recording 30” (back camera, else 1 minute by default), “record video 20”, “record front camera video 15”, “record selfie video 10”. Choose the lens with “front/selfie” or “back/rear”.\nIt auto-stops after the time you set; to end early, tap the ⏹ Stop button on the recording notification (also on the lock screen/watch). Records over the lock screen on many phones (grant the Camera permission once; some phones need battery optimisation off). Locked/background camera behaviour varies by phone."},
         {"⚡ More ways to trigger IRIS", "Besides the wake word:\n• Notification: tap the “🎙 Talk” button on IRIS's notification (works on the lock screen).\n• Quick Settings tile: add the IRIS tile to your shade and tap it.\n• Assistant: set IRIS as your device's Digital Assistant (Settings → Default apps) — then the assist gesture (long-press power/home) opens IRIS anywhere.\n• Shake to talk (optional): enable in Settings, then shake the phone.\n• Headset button (optional): enable in Settings, then double-press your earphone button."},
         {"🎙 Voice recording", "Record a timed voice memo, saved as an .m4a in Recordings/IRIS (or Music/IRIS on older phones).\nSay: “record voice 20”, “voice memo 30”, “record audio for 1 minute”. Stop early with “stop recording” or the Stop button in the notification (works on the lock screen).\nPick a mic: add “using earphone / bluetooth / phone mic” — e.g. “record voice using bluetooth 30”. Otherwise it uses your Settings → Microphone choice. IRIS speaks first so its own voice isn't captured, and confirms where it saved."},
         {"⏹ Stop / interrupt IRIS", "If IRIS is talking too long (e.g. reading many notifications), tap the ⏹ Stop button on IRIS's notification — it cuts the speech off instantly and works on the lock screen. Saying “stop” also works whenever the mic is open. Example: “read my notifications” → tap ⏹ Stop to halt."},
@@ -1583,6 +1584,16 @@ public class MainActivity extends Activity {
                 settings.setHeadsetTrigger(checked);
                 toast("Headset trigger " + (checked ? "on" : "off") + " — restart IRIS to apply.");
             });
+        }
+        Switch mirrorSwitch = view.findViewById(R.id.mirrorSwitch);
+        if (mirrorSwitch != null) {
+            mirrorSwitch.setChecked(settings.mirrorReplies());
+            mirrorSwitch.setOnCheckedChangeListener((b, checked) -> settings.setMirrorReplies(checked));
+        }
+        Switch mirrorMajorSwitch = view.findViewById(R.id.mirrorMajorSwitch);
+        if (mirrorMajorSwitch != null) {
+            mirrorMajorSwitch.setChecked(settings.mirrorMajorOnly());
+            mirrorMajorSwitch.setOnCheckedChangeListener((b, checked) -> settings.setMirrorMajorOnly(checked));
         }
         TextView voiceprintStatus = view.findViewById(R.id.voiceprintStatus);
         if (voiceprintStatus != null) {

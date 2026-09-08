@@ -1,6 +1,10 @@
 package com.iris.assistant;
 
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
@@ -43,6 +47,15 @@ import java.util.Collections;
 public final class LockedCaptureActivity extends Activity {
     public static final String EXTRA_SECONDS = "seconds";
     public static final String EXTRA_FRONT = "front";
+    private static final String CHANNEL = "iris_capture";
+    private static final int REC_NOTIF = 0xC0DF;
+    static volatile LockedCaptureActivity instance;
+
+    /** Stop the active camera recording early (from the notification's Stop button). */
+    static void stopActive() {
+        LockedCaptureActivity a = instance;
+        if (a != null) a.main.post(a::stopRecording);
+    }
 
     private CameraManager cameraManager;
     private CameraDevice camera;
@@ -63,7 +76,8 @@ public final class LockedCaptureActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        seconds = Math.max(1, Math.min(600, getIntent().getIntExtra(EXTRA_SECONDS, 15)));
+        instance = this;
+        seconds = Math.max(1, Math.min(3600, getIntent().getIntExtra(EXTRA_SECONDS, 60)));
         front = getIntent().getBooleanExtra(EXTRA_FRONT, false);
 
         if (Build.VERSION.SDK_INT >= 27) {
@@ -129,6 +143,7 @@ public final class LockedCaptureActivity extends Activity {
                                 s.setRepeatingRequest(b.build(), null, bg);
                                 recorder.start();
                                 recording = true;
+                                main.post(LockedCaptureActivity.this::postRecordingNotification);
                                 main.postDelayed(LockedCaptureActivity.this::stopRecording, seconds * 1000L);
                             } catch (Exception e) {
                                 done("I couldn't start the recording.");
@@ -189,9 +204,33 @@ public final class LockedCaptureActivity extends Activity {
     }
 
     /** Release everything, finalise/cancel the MediaStore entry, tell the service, and finish. */
+    /** Show a "⏹ Stop" notification so the user can end the recording early (works on the watch/lock screen). */
+    private void postRecordingNotification() {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (Build.VERSION.SDK_INT >= 26 && nm != null && nm.getNotificationChannel(CHANNEL) == null) {
+                nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Recording",
+                        NotificationManager.IMPORTANCE_LOW));
+            }
+            PendingIntent stop = PendingIntent.getService(this, 21,
+                    new Intent(this, IrisListeningService.class).setAction(IrisListeningService.ACTION_STOP_VIDEO),
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            Notification.Builder b = (Build.VERSION.SDK_INT >= 26)
+                    ? new Notification.Builder(this, CHANNEL) : new Notification.Builder(this);
+            Notification n = b.setSmallIcon(getApplicationInfo().icon)
+                    .setContentTitle("IRIS is recording video")
+                    .setContentText("Tap Stop to finish now").setOngoing(true).setOnlyAlertOnce(true)
+                    .addAction(new Notification.Action.Builder(null, "\u23F9 Stop", stop).build())
+                    .build();
+            if (nm != null) nm.notify(REC_NOTIF, n);
+        } catch (Throwable ignored) { }
+    }
+
     private void done(String message) {
         if (finished) return;
         finished = true;
+        instance = null;
+        try { ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(REC_NOTIF); } catch (Throwable ignored) { }
         boolean success = message != null && message.startsWith("Saved");
         try { if (session != null) session.close(); } catch (Exception ignored) { }
         session = null;
