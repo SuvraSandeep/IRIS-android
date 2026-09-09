@@ -521,29 +521,7 @@ public final class ProfileStore {
 
     /** Replace learned mispronunciations in recognized text with the canonical command words. */
     public synchronized String canonicalize(String text) {
-        if (text == null || text.isEmpty()) return text;
-        Map<String, List<String>> aliases = getCommandAliases();
-        if (aliases.isEmpty()) return text;
-        String[] words = text.split("\\s+");
-        StringBuilder out = new StringBuilder();
-        for (String w : words) {
-            String nw = normalize(w);
-            String canonical = null;
-            double best = 0;
-            if (!nw.isEmpty()) {
-                for (Map.Entry<String, List<String>> e : aliases.entrySet()) {
-                    if (nw.equals(e.getKey())) { canonical = null; best = 1; break; } // already canonical
-                    for (String h : e.getValue()) {
-                        String nh = normalize(h);
-                        double score = nw.equals(nh) ? 1.0 : similarity(nw, nh);
-                        if (score >= 0.86 && score > best) { best = score; canonical = e.getKey(); }
-                    }
-                }
-            }
-            if (out.length() > 0) out.append(' ');
-            out.append(canonical != null ? canonical : w);
-        }
-        return out.toString();
+        return SpeechText.aliases(text, getCommandAliases());
     }
 
     public synchronized String exportJson() {
