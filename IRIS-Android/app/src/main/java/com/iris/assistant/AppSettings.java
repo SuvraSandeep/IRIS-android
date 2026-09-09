@@ -35,11 +35,11 @@ public final class AppSettings {
     /** Exact TTS voice name the user picked (empty = auto-select a female en-IN voice). */
     public String ttsVoiceName() { return prefs.getString("tts_voice_name", ""); }
     public void setTtsVoiceName(String v) { prefs.edit().putString("tts_voice_name", v == null ? "" : v).apply(); }
-    public boolean preferOnDevice() { return prefs.getBoolean("prefer_on_device", true); }
+    public boolean preferOnDevice() { return prefs.getBoolean("prefer_on_device", false); }
     public void setPreferOnDevice(boolean value) { prefs.edit().putBoolean("prefer_on_device", value).apply(); }
     public String preferredMicrophone() { return prefs.getString("preferred_microphone", "Automatic"); }
     public void setPreferredMicrophone(String value) { prefs.edit().putString("preferred_microphone", value).apply(); }
-    public String languageTag() { return prefs.getString("language_tag", "system"); }
+    public String languageTag() { return prefs.getString("language_tag", "en-IN"); }
     public void setLanguageTag(String value) { prefs.edit().putString("language_tag", value).apply(); }
     public String resolvedLanguageTag() {
         String value = languageTag();
