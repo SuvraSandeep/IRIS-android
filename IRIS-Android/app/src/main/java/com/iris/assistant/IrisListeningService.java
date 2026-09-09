@@ -1206,6 +1206,23 @@ public class IrisListeningService extends Service implements RecognitionListener
         LogStore.append(this, "HEARD", clean);
         broadcastTranscript(clean);
 
+        if (clean.matches("(?i)^(?:reply to (?:a |my |the )?notifications?|open notification replies)$")) {
+            KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+            if (keyguard == null || keyguard.isKeyguardLocked()) {
+                reply("Please unlock your phone to review notification replies.");
+            } else {
+                startActivity(new Intent(this, NotificationReplyActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                reply("Choose a conversation and review your reply before sending.");
+            }
+            return;
+        }
+
+        AppRequest appRequest = AppRequest.parse(clean);
+        if (appRequest != null) {
+            handleAppIntegration(appRequest);
+            return;
+        }
+
         // ── Phase 2: structured understanding, used ONLY to ask for a missing detail. ──
         // Complete commands keep flowing through the proven keyword router below, unchanged.
         Plan plan = IntentParser.parse(clean);
@@ -3198,7 +3215,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 startActivity(Intent.createChooser(share, "Send with")
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                ledger().record("share", ActionLedger.OK, "Shared " + toSend.name, "", "", false);
+                ledger().record("share", ActionLedger.OK, "Opened share sheet for " + toSend.name + "; delivery unverified", "", "", false);
                 LogStore.append(this, "SHARE", toSend.name);
                 rearmAfterAction();
             } catch (Throwable t) {
@@ -3307,6 +3324,14 @@ public class IrisListeningService extends Service implements RecognitionListener
     /** Turn a validated plan into the canonical phrasing the existing handlers already accept. */
     private String commandFor(Plan plan) {
         if (plan == null) return "";
+        // App plans must contain exactly one matching, validated tool. Never ignore extra steps.
+        if (plan.intent() == IrisIntent.APP_SEARCH || plan.intent() == IrisIntent.APP_SHARE) {
+            AppRequest r = AppRequest.fromPlan(plan);
+            if (r == null) return "";
+            if (r.action.equals("search")) return "search " + r.value + " on " + r.app;
+            if (r.action.equals("share_media")) return "share the latest " + r.value + " via " + r.app;
+            return "share via " + r.app + ": " + r.value;
+        }
         switch (plan.intent()) {
             case SET_ALARM:       return "set an alarm for " + plan.entity("time");
             case SET_TIMER:       return "set a timer for " + plan.entity("duration");
@@ -3324,6 +3349,26 @@ public class IrisListeningService extends Service implements RecognitionListener
             case PHONE_STATUS:    return "phone status";
             case READ_NOTIFICATIONS: return "read my notifications";
             default:              return "";
+        }
+    }
+
+    private void handleAppIntegration(AppRequest request) {
+        KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        // Sharing/search payloads can be private, regardless of the camera lock-screen setting.
+        if (keyguard != null && keyguard.isKeyguardLocked()) {
+            reply("Please unlock your phone and repeat that app request.");
+            return;
+        }
+        try {
+            AppIntegrations.Prepared prepared = AppIntegrations.prepare(this, request);
+            if (prepared.intent == null) { reply(prepared.message); return; }
+            startActivity(prepared.intent);
+            ledger().record("app_" + request.action, ActionLedger.OK,
+                    "Requested " + request.action + " in " + request.app + "; completion unverified",
+                    "", "", false);
+            reply(prepared.message);
+        } catch (Exception error) {
+            reply("I couldn't open that app action. Nothing was confirmed as sent.");
         }
     }
 
