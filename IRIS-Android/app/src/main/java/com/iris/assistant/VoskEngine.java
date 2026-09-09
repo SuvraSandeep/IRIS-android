@@ -22,7 +22,7 @@ import java.io.File;
  *    (only accepts the trained phrase; random noise scores as [unk])
  *  - Continuous speech-to-text for commands
  *
- * 100% offline, 100% free (Apache 2.0). Model bundled in assets/model-en-us.
+ * 100% offline, 100% free (Apache 2.0). Model bundled in assets/model-en-in.
  */
 public final class VoskEngine {
     private static final float SAMPLE_RATE = 16_000f;
@@ -80,17 +80,33 @@ public final class VoskEngine {
             loadFromPath(extracted.getAbsolutePath(), listener);
             return;
         }
-        // 1. Try the model bundled in assets (instant, offline).
-        try {
-            StorageService.unpack(app, "model-en-us", "vosk-model",
-                    (m) -> { model = m; modelLoaded = true; main.post(listener::onReady); },
-                    (e) -> {
-                        android.util.Log.w("IRIS", "Vosk assets unpack failed, downloading: " + e.getMessage());
-                        downloadAndLoad(app, listener);
-                    });
-        } catch (Throwable t) {
-            downloadAndLoad(app, listener);
-        }
+        loadBundledIndianOrDownload(app, listener);
+    }
+
+    /** The upstream ZIP has no StorageService uuid asset. Copy into a staged Indian-only directory. */
+    private void loadBundledIndianOrDownload(Context app, InitListener listener) {
+        if (!assetDirExists(app, "model-en-in")) { downloadAndLoad(app, listener); return; }
+        new Thread(() -> {
+            File staging = new File(app.getFilesDir(), "vosk-indian-bundle-staging");
+            File target = new File(app.getFilesDir(), MODEL_DIR_NAME);
+            try {
+                deleteRecursive(staging);
+                copyAssetDir(app, "model-en-in", staging);
+                if (!isValidModelDir(staging)) throw new java.io.IOException("Incomplete Indian voice bundle");
+                if (!isValidModelDir(target)) {
+                    deleteRecursive(target);
+                    if (!staging.renameTo(target)) throw new java.io.IOException("Could not install Indian voice bundle");
+                }
+                deleteRecursive(staging);
+                model = new Model(target.getAbsolutePath());
+                modelLoaded = true;
+                main.post(listener::onReady);
+            } catch (Throwable t) {
+                deleteRecursive(staging);
+                android.util.Log.w("IRIS", "Indian voice bundle unavailable: " + t.getMessage());
+                downloadAndLoad(app, listener);
+            }
+        }, "IRIS-IndianVoice-Install").start();
     }
 
     private void loadFromPath(String path, InitListener listener) {
@@ -141,7 +157,9 @@ public final class VoskEngine {
     }
 
     private static boolean isValidModelDir(File dir) {
-        return dir.isDirectory() && (new File(dir, "am").exists() || new File(dir, "conf").exists());
+        return dir.isDirectory() && new File(dir, "am/final.mdl").length() > 0
+                && new File(dir, "conf/model.conf").length() > 0
+                && new File(dir, "graph").isDirectory();
     }
 
     /** Download the large en-IN model (~1GB) and load it; fall back to the small model on any failure. */
@@ -180,13 +198,7 @@ public final class VoskEngine {
     private void fallbackSmall(Context app, InitListener listener) {
         File extracted = new File(app.getFilesDir(), MODEL_DIR_NAME);
         if (isValidModelDir(extracted)) { loadFromPath(extracted.getAbsolutePath(), listener); return; }
-        try {
-            StorageService.unpack(app, "model-en-us", "vosk-model",
-                    (m) -> { model = m; modelLoaded = true; main.post(listener::onReady); },
-                    (e) -> downloadAndLoad(app, listener));
-        } catch (Throwable t) {
-            downloadAndLoad(app, listener);
-        }
+        loadBundledIndianOrDownload(app, listener);
     }
 
     private static void downloadFile(String url, File dest) throws Exception {
