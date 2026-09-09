@@ -292,16 +292,20 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern SCREEN_REC_STOP_PATTERN = Pattern.compile(
             "^(?:stop|end|finish)\\s+(?:the\\s+)?screen\\s+record(?:ing)?$",
             Pattern.CASE_INSENSITIVE);
-    // Control whatever is playing: pause/resume/next/previous
+    // Control whatever is playing: pause/resume/next/previous.
+    // Note: this must catch "play the next song" BEFORE PLAY_SONG_PATTERN, otherwise "next song"
+    // gets treated as a song title and searched for in a music/video app.
     private static final Pattern MEDIA_CONTROL_PATTERN = Pattern.compile(
             "^(?:pause(?:\\s+(?:the\\s+)?(?:music|song|media|audio|playback))?"
             + "|stop\\s+(?:the\\s+)?(?:music|song|media|audio|playback)"
             + "|resume(?:\\s+(?:the\\s+)?(?:music|song|playback))?"
             + "|continue(?:\\s+playing)?"
             + "|play\\s+(?:the\\s+)?(?:music|song|playback)"
-            + "|(?:next|skip)(?:\\s+(?:song|track|this))?"
-            + "|(?:previous|prev|last)(?:\\s+(?:song|track))?"
-            + "|go\\s+back)$",
+            + "|(?:play\\s+)?(?:the\\s+)?next(?:\\s+(?:song|track|music|one|this))?"
+            + "|(?:play\\s+)?(?:the\\s+)?(?:previous|prev|last)(?:\\s+(?:song|track|music|one))?"
+            + "|skip(?:\\s+(?:this|the)\\s*)?(?:\\s*(?:song|track|music|one))?"
+            + "|go\\s+(?:to\\s+the\\s+)?(?:next|back|previous)(?:\\s+(?:song|track|music))?"
+            + "|forward\\s+(?:the\\s+)?(?:song|track|music))$",
             Pattern.CASE_INSENSITIVE);
     // "play <song/artist>" — hands off to a music app to find & play a local track
     private static final Pattern PLAY_SONG_PATTERN = Pattern.compile(
@@ -3615,21 +3619,72 @@ public class IrisListeningService extends Service implements RecognitionListener
     /** Play a local song/artist by name via any installed music app (offline). */
     private void handlePlaySong(String query) {
         if (query == null || query.trim().isEmpty()) { handleMediaControl("play"); return; }
+        String q = query.trim();
+        String lower = q.toLowerCase(Locale.ROOT);
+        // Only use a video/streaming app when the user actually names one.
+        boolean wantsYouTube = lower.matches(".*\\bon\\s+(youtube|you tube)\\b.*")
+                || lower.matches(".*\\byoutube\\b.*");
+        if (wantsYouTube) {
+            q = q.replaceAll("(?i)\\s*\\bon\\s+(youtube|you tube)\\b", "")
+                 .replaceAll("(?i)\\s*\\byoutube\\b", "").trim();
+        }
         try {
             Intent i = new Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH);
             i.putExtra(android.provider.MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/audio");
-            i.putExtra(android.app.SearchManager.QUERY, query);
-            i.putExtra(android.provider.MediaStore.EXTRA_MEDIA_TITLE, query);
+            i.putExtra(android.app.SearchManager.QUERY, q);
+            i.putExtra(android.provider.MediaStore.EXTRA_MEDIA_TITLE, q);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            // Pin it to an offline-capable music player unless YouTube was requested, so a
+            // local track doesn't turn into a web/video search.
+            String target = wantsYouTube ? null : pickMusicApp(i);
+            if (target != null) i.setPackage(target);
             startActivity(i);
-            String msg = "Playing " + query + ".";
+            String msg = "Playing " + q + ".";
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
-            LogStore.append(this, "MEDIA", "Play from search: " + query);
+            LogStore.append(this, "MEDIA", "Play from search: " + q
+                    + (target == null ? "" : " via " + target));
         } catch (Exception e) {
-            String msg = "I couldn't find a music app to play that.";
-            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
-            LogStore.append(this, "MEDIA", "Play failed: " + e.getMessage());
+            // Retry without a pinned package before giving up.
+            try {
+                Intent i2 = new Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
+                        .putExtra(android.app.SearchManager.QUERY, q)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i2);
+                String msg = "Playing " + q + ".";
+                broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            } catch (Exception e2) {
+                String msg = "I couldn't find a music app to play that.";
+                broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+                LogStore.append(this, "MEDIA", "Play failed: " + e2.getMessage());
+            }
         }
+    }
+
+    /**
+     * Choose an installed audio player for a play-from-search intent, skipping video/streaming
+     * apps like YouTube. Returns null when there's no clear choice (let Android decide).
+     */
+    private String pickMusicApp(Intent intent) {
+        try {
+            android.content.pm.PackageManager pm = getPackageManager();
+            java.util.List<android.content.pm.ResolveInfo> options =
+                    pm.queryIntentActivities(intent, 0);
+            if (options == null || options.isEmpty()) return null;
+            String[] skip = { "youtube", "video", "tv", "browser", "chrome" };
+            String[] prefer = { "music", "audio", "player", "poweramp", "spotify", "musicolet",
+                    "gomusic", "samsung.android.app.music", "sec.android.app.music", "media" };
+            String fallback = null;
+            for (android.content.pm.ResolveInfo ri : options) {
+                if (ri.activityInfo == null || ri.activityInfo.packageName == null) continue;
+                String pkg = ri.activityInfo.packageName.toLowerCase(Locale.ROOT);
+                boolean bad = false;
+                for (String s : skip) if (pkg.contains(s)) { bad = true; break; }
+                if (bad) continue;
+                for (String p : prefer) if (pkg.contains(p)) return ri.activityInfo.packageName;
+                if (fallback == null) fallback = ri.activityInfo.packageName;
+            }
+            return fallback;
+        } catch (Throwable t) { return null; }
     }
 
     /** Adjust media volume. */
@@ -4407,7 +4462,11 @@ public class IrisListeningService extends Service implements RecognitionListener
                 broadcastMessage("Call cancelled.");
                 speakThenRun("Okay, cancelled.", this::rearmAfterAction);
             }
-        } else if (answer.matches("^(?:yes|yeah|yep|yup|confirm|correct|right|sure|okay|ok|do\\s+it|go\\s+ahead|haan|ha)\\b.*")) {
+        } else if (answer.matches("^(?:yes|yeah|yep|yup|confirm|correct|right|sure|okay|ok|do\\s+it|go\\s+ahead|haan|ha)\\b.*")
+                // "call" on its own (or with a pronoun) means "yes, place it". A name after
+                // "call" is deliberately NOT treated as confirmation, because that used to
+                // place a call to the wrong contact.
+                || answer.matches("^(?:call|dial|ring)(?:\\s+(?:him|her|them|it|now|please|karo))?$")) {
             if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
             pendingCandidates = null;
             placeCall(pendingName, pendingNumber);
@@ -4608,13 +4667,47 @@ public class IrisListeningService extends Service implements RecognitionListener
         try {
             new ProfileStore(this).recordCall(name, number);
             BehaviorAnalyzer.onCallPlaced(this, name, number);
+            try { ledger().record("call", ActionLedger.OK,
+                    "Called " + (name == null ? number : name), "", "", false); } catch (Throwable ignored) { }
             LogStore.append(this, direct ? "CALLING" : "DIALER", name == null ? number : name);
+
+            // Launch FIRST, while we are still a foreground service. Tearing down foreground
+            // state before startActivity loses the background-activity-start exemption on
+            // Android 10+, which silently swallowed the call.
+            boolean launched = false;
+            try { startActivity(call); launched = true; }
+            catch (Throwable t) { LogStore.append(this, "CALL", "direct start blocked: " + t); }
+
+            if (!launched) {
+                // Reliable fallback: a full-screen intent can bring the dialer up from the
+                // background and over the lock screen.
+                try {
+                    PendingIntent pi = PendingIntent.getActivity(this, 51, call,
+                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                    Notification n = new Notification.Builder(this, CALL_CHANNEL)
+                            .setSmallIcon(R.drawable.ic_iris)
+                            .setContentTitle("Calling " + (name == null ? number : name))
+                            .setContentText("Tap if the call doesn't start")
+                            .setCategory(Notification.CATEGORY_CALL)
+                            .setFullScreenIntent(pi, true)
+                            .setAutoCancel(true).build();
+                    ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(0xCA11, n);
+                    launched = true;
+                } catch (Throwable t) {
+                    LogStore.append(this, "CALL", "full-screen fallback failed: " + t);
+                }
+            }
+            if (!launched) {
+                broadcastMessage("This device blocked the call. Tap the notification to dial.");
+                speakThenRun("I couldn't start the call.", this::rearmAfterAction);
+                return;
+            }
+            // Now it is safe to stand down.
             isRunning = false;
             broadcastState(false, "off");
             destroyRecognizer();
             stopWakeEngine();
             stopForeground(STOP_FOREGROUND_REMOVE);
-            startActivity(call);
             stopSelf();
         } catch (Exception error) {
             LogStore.append(this, "ERROR", "Call failed: " + error.getMessage());
@@ -4782,6 +4875,15 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference) {
+        // Automatic: allow the Bluetooth mic unless music is actually playing, because grabbing
+        // the BT mic switches A2DP to call-quality SCO and changes the music tone.
+        boolean musicPlaying = false;
+        try { musicPlaying = audioManager != null && audioManager.isMusicActive(); } catch (Throwable ignored) { }
+        return chooseDevice(devices, preference, !musicPlaying);
+    }
+
+    private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference,
+                                         boolean allowBluetoothInAuto) {
         AudioDeviceInfo builtIn = null, btDev = null, wiredDev = null;
         for (AudioDeviceInfo device : devices) {
             int type = device.getType();
@@ -4795,10 +4897,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         if ("Phone".equals(preference)) return builtIn;
         if ("Bluetooth".equals(preference)) return btDev != null ? btDev : builtIn;
         if ("Wired / USB".equals(preference)) return wiredDev != null ? wiredDev : builtIn;
-        // Automatic: prefer a wired mic (doesn't disturb playback), then the built-in mic.
-        // Deliberately NOT Bluetooth — grabbing the BT mic forces A2DP music down to
-        // call-quality SCO (changes the music tone). Choose "Bluetooth" in Settings to use it.
+        // Automatic: wired first (never disturbs playback), then the Bluetooth headset you're
+        // actually wearing — but only when music isn't playing, so the tone never changes.
         if (wiredDev != null) return wiredDev;
+        if (btDev != null && allowBluetoothInAuto) return btDev;
         return builtIn;
     }
 

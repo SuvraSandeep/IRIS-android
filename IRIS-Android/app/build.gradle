@@ -10,8 +10,8 @@ android {
         applicationId 'com.iris.assistant'
         minSdk 26
         targetSdk 35
-        versionCode 290
-        versionName '8.9.0'
+        versionCode 291
+        versionName '8.9.1'
     }
 
     signingConfigs {
