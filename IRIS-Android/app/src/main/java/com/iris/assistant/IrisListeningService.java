@@ -105,9 +105,9 @@ public class IrisListeningService extends Service implements RecognitionListener
             Pattern.CASE_INSENSITIVE);
     // What's-new summary — UPDATE this each release (per PROJECT-RULES).
     private static final String VERSION_NOTES =
-            "You can now ask my version and what's new by voice. Recent additions: calling by spelling a name, "
-            + "music and media control \u2014 play, pause, next, previous, and set volume by percent \u2014 playing "
-            + "local songs by name, and a wake fix so I always respond to your voice.";
+            "Indian English speech defaults, a matching offline model, clearer retry prompts, and safer "
+            + "natural command parsing. Names and message text are no longer rewritten by command training. "
+            + "Use Indian English accuracy setup in Settings if your old preferences are still active.";
     private static final Pattern QUICK_ACTION_PATTERN = Pattern.compile(
             "^(?:what(?:\\s+is)?\\s+the\\s+time|time\\s*(?:please)?|what\\s+time\\s+is\\s+it"
             + "|battery|battery\\s+level|how\\s+much\\s+battery"
@@ -806,6 +806,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     private boolean spellingCall = false;
     private int spellRetry = 0;
     private boolean googleCommandActive = false;
+    private int commandRetries;
+    private int recognizerGeneration;
 
     /**
      * Silence the recognizer's start/stop beep during continuous wake listening.
@@ -898,6 +900,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void startCommandRecognitionLocal() {
+        commandRetries = 0;
         stopWakeEngine();
         if (voskEngine != null) voskEngine.stop();
         androidWakeActive = false;
@@ -906,7 +909,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         currentPhase = phase;
         broadcastState(true, phase);
         updateListeningNotification("Listening\u2026");
-        playListeningEarcon();
+        // The ready cue belongs to onReadyForSpeech, not before recognizer startup.
 
         // Prefer Google STT for accuracy; Vosk is the offline fallback.
         if (settings.googleSttForCommands() && SpeechRecognizer.isRecognitionAvailable(this)) {
@@ -918,7 +921,14 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Offline Vosk streaming STT for commands (used when Google STT is off/unavailable). */
     private void startVoskCommandRecognition() {
-        if (!(voskReady && voskEngine != null)) { startAndroidCommandRecognition(); return; }
+        destroyRecognizer();
+        googleCommandActive = false;
+        if (!(voskReady && voskEngine != null)) {
+            broadcastMessage("No speech recognizer is ready. Check the system speech service or download the offline model in Settings.");
+            rearmAfterAction(); return;
+        }
+        recognitionLabel = "Offline Indian English (Vosk)";
+        broadcastState(true, phase);
         final boolean[] handled = {false};
         commandTimeout = () -> {
             if (isRunning && PHASE_COMMAND.equals(phase) && !handled[0]) {
@@ -953,6 +963,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     rearmAfterAction();
                 }
             });
+            playListeningEarcon();
         }, 350);
     }
 
@@ -963,7 +974,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         createRecognizer();
         if (recognizer == null) { startVoskCommandRecognition(); return; }
         googleCommandActive = true;
-        LogStore.append(this, "LISTEN", "Command window open (Google STT)");
+        LogStore.append(this, "LISTEN", "Command: " + recognitionLabel + ", language=" + settings.resolvedLanguageTag());
+        broadcastState(true, phase);
         recognizerIntent = baseRecognizerIntent();
         handler.postDelayed(this::startRecognizerSafely, 180);
         commandTimeout = () -> { if (isRunning && PHASE_COMMAND.equals(phase)) { broadcastMessage("No command heard. Going back to sleep."); LogStore.append(this, "TIMEOUT", "Command window expired"); rearmAfterAction(); } };
@@ -990,6 +1002,12 @@ public class IrisListeningService extends Service implements RecognitionListener
         speech.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, settings.preferOnDevice());
         speech.putExtra(RecognizerIntent.EXTRA_LANGUAGE, settings.resolvedLanguageTag());
         speech.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
+        if (Build.VERSION.SDK_INT >= 33) {
+            speech.putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS,
+                    new ArrayList<>(java.util.Arrays.asList("IRIS", "call", "Maa", "Papa",
+                            "take a screenshot", "record video", "set an alarm", "set a timer",
+                            "remind me", "torch", "flashlight", "WhatsApp", "volume", "notifications")));
+        }
         return speech;
     }
 
@@ -1004,11 +1022,11 @@ public class IrisListeningService extends Service implements RecognitionListener
                 recognizer = SpeechRecognizer.createSpeechRecognizer(this);
                 recognitionLabel = "System speech service";
             }
-            if (recognizer != null) recognizer.setRecognitionListener(this);
+            if (recognizer != null) recognizer.setRecognitionListener(sessionListener(recognizerGeneration));
         } catch (Exception error) {
             if (SpeechRecognizer.isRecognitionAvailable(this)) {
                 recognizer = SpeechRecognizer.createSpeechRecognizer(this);
-                recognizer.setRecognitionListener(this);
+                recognizer.setRecognitionListener(sessionListener(recognizerGeneration));
                 recognitionLabel = "System speech fallback";
             }
         }
@@ -1019,7 +1037,37 @@ public class IrisListeningService extends Service implements RecognitionListener
         try { recognizer.startListening(recognizerIntent); }
         catch (Exception error) {
             LogStore.append(this, "ERROR", "Speech start failed: " + error.getMessage());
-            rearmAfterAction();
+            onError(SpeechRecognizer.ERROR_CLIENT);
+        }
+    }
+
+    /** Discard callbacks from recognizers that have already been replaced or cancelled. */
+    private RecognitionListener sessionListener(final int generation) {
+        return new RecognitionListener() {
+            private boolean current() { return isRunning && generation == recognizerGeneration; }
+            @Override public void onReadyForSpeech(Bundle b) { if (current()) IrisListeningService.this.onReadyForSpeech(b); }
+            @Override public void onBeginningOfSpeech() { if (current()) IrisListeningService.this.onBeginningOfSpeech(); }
+            @Override public void onRmsChanged(float r) { if (current()) IrisListeningService.this.onRmsChanged(r); }
+            @Override public void onBufferReceived(byte[] b) { }
+            @Override public void onEndOfSpeech() { if (current()) IrisListeningService.this.onEndOfSpeech(); }
+            @Override public void onError(int e) { if (current()) IrisListeningService.this.onError(e); }
+            @Override public void onResults(Bundle b) { if (current()) IrisListeningService.this.onResults(b); }
+            @Override public void onPartialResults(Bundle b) { if (current()) IrisListeningService.this.onPartialResults(b); }
+            @Override public void onEvent(int e, Bundle b) { }
+        };
+    }
+
+    private void retryUnclearCommand(String prompt) {
+        if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+        destroyRecognizer();
+        googleCommandActive = false;
+        if (commandRetries++ < 1) {
+            broadcastMessage(prompt);
+            speakThenRun(prompt, this::startAndroidCommandRecognition);
+        } else {
+            String message = "I still couldn't hear that clearly. Try Tap to talk, English India in Settings, and check which microphone is selected.";
+            broadcastMessage(message);
+            speakThenRun(message, this::rearmAfterAction);
         }
     }
 
@@ -1760,10 +1808,8 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Lenient quick-action detection so many phrasings work. */
     private boolean isQuickAction(String n) {
-        if (containsCallVerb(n)) return false; // never swallow a call command
-        if (n.matches(".*\\btime\\b.*")) return true;
-        if (n.matches(".*\\bbattery\\b.*")) return true;
-        if (n.matches(".*\\b(?:charging|charge|plugged)\\b.*")) return true;
+        if (SpeechText.quickInfo(n)) return true;
+        if (containsCallVerb(n)) return false;
         if (n.matches("^(?:stop|shut\\s*up|quiet|silence|go\\s+to\\s+sleep|go\\s+to\\s+bed|sleep|sleep\\s+now|good\\s*night|goodnight|rest|dismiss|never\\s*mind)$")) return true;
         if (n.matches("^(?:kill|shut\\s*down|shutdown|power\\s+off|terminate|turn\\s+(?:yourself\\s+)?off|turn\\s+off\\s+iris|shut\\s+(?:yourself\\s+)?down)$")) return true;
         if (n.matches(".*\\b(?:what\\s+can\\s+you\\s+do|help\\s+me|^help$)\\b.*")) return true;
@@ -2080,18 +2126,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Remove polite/filler wrappers so natural phrasing matches the command grammar. */
     private String stripFiller(String s) {
-        if (s == null) return "";
-        String t = s.trim();
-        String prev;
-        do {
-            prev = t;
-            t = t.replaceFirst("(?i)^(hey\\s+|ok(ay)?\\s+|iris[,\\s]+|please\\s+|can\\s+you\\s+"
-                    + "|could\\s+you\\s+|would\\s+you\\s+|will\\s+you\\s+|can\\s+u\\s+|pls\\s+"
-                    + "|i\\s+want\\s+you\\s+to\\s+|i\\s+need\\s+you\\s+to\\s+|i'?d\\s+like\\s+you\\s+to\\s+"
-                    + "|i\\s+would\\s+like\\s+you\\s+to\\s+|kindly\\s+|just\\s+|please\\s+)", "").trim();
-        } while (!t.equals(prev) && !t.isEmpty());
-        t = t.replaceFirst("(?i)[,\\s]+please[.!?]?$", "").trim();
-        return t.isEmpty() ? s.trim() : t;
+        return SpeechText.command(s);
     }
 
     private boolean isSelf(String s) {
@@ -4536,6 +4571,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void destroyRecognizer() {
+        recognizerGeneration++;
         if (recognizer != null) {
             try { recognizer.cancel(); } catch (Exception ignored) { }
             recognizer.destroy();
@@ -4974,7 +5010,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (text != null) sendBroadcast(new Intent(EVENT_MESSAGE).setPackage(getPackageName()).putExtra(EXTRA_TEXT, text));
     }
 
-    @Override public void onReadyForSpeech(Bundle params) { broadcastMessage(phase.equals(PHASE_CONFIRM) ? "Say Call or Cancel…" : "Listening…"); }
+    @Override public void onReadyForSpeech(Bundle params) {
+        broadcastMessage(phase.equals(PHASE_CONFIRM) ? "Say Call or Cancel…" : "Listening — speak naturally now.");
+        if (PHASE_COMMAND.equals(phase)) playListeningEarcon();
+    }
     @Override public void onBeginningOfSpeech() { broadcastMessage("I hear you…"); }
     @Override public void onRmsChanged(float rmsdB) {
         long now = System.currentTimeMillis();
@@ -4995,14 +5034,25 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (PHASE_COMMAND.equals(phase) && googleCommandActive) {
             googleCommandActive = false;
             if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+            if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                    || error == SpeechRecognizer.ERROR_AUDIO || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                    || error == SpeechRecognizer.ERROR_CLIENT) {
+                retryUnclearCommand("I didn't catch that clearly. Please repeat after I finish speaking.");
+                return;
+            }
             boolean networkish = error == SpeechRecognizer.ERROR_NETWORK
                     || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT
                     || error == SpeechRecognizer.ERROR_SERVER
+                    || error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED
+                    || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
                     || error == SpeechRecognizer.ERROR_CLIENT
                     || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY;
             if (networkish && voskReady && voskEngine != null) {
                 LogStore.append(this, "LISTEN", "Google STT " + speechError(error) + " \u2192 Vosk fallback");
-                startVoskCommandRecognition();
+                destroyRecognizer();
+                String prompt = "The system speech service is unavailable. Please repeat for the offline Indian English recognizer.";
+                broadcastMessage(prompt);
+                speakThenRun(prompt, this::startVoskCommandRecognition);
                 return;
             }
         }
@@ -5015,11 +5065,23 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     @Override
     public void onResults(Bundle results) {
+        if (!isRunning || (!PHASE_CONFIRM.equals(phase) && !googleCommandActive)) return;
         googleCommandActive = false;
         ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         String heard = matches == null || matches.isEmpty() ? "" : matches.get(0);
-        if (PHASE_CONFIRM.equals(phase)) handleConfirmation(heard);
-        else handleCommand(heard);
+        if (heard == null) heard = "";
+        if (PHASE_CONFIRM.equals(phase)) { handleConfirmation(heard); return; }
+        float[] confidence = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
+        if (heard.trim().isEmpty() || (confidence != null && confidence.length > 0
+                && SpeechText.lowConfidence(confidence[0]))) {
+            retryUnclearCommand("I'm not confident I heard you correctly. Please say that once more.");
+            return;
+        }
+        if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+        destroyRecognizer();
+        // Never execute partial hypotheses or switch to a different contact from a lower-ranked guess.
+        broadcastTranscript(heard);
+        handleCommand(heard);
     }
 
     @Override
