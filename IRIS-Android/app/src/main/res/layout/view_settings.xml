@@ -95,7 +95,12 @@
                 android:text="MICROPHONE" android:textColor="@color/cyan" android:textSize="11sp" android:textStyle="bold" />
             <Spinner android:id="@+id/microphoneSpinner" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="5dp" />
             <Switch android:id="@+id/onDeviceSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Prefer on-device speech recognition" android:textColor="@color/text_primary" />
+                android:text="Prefer on-device speech (may reduce accent accuracy)" android:textColor="@color/text_primary" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="For Indian-accent English: choose English (India) and leave on-device preference OFF. System speech may send audio to its provider for recognition. Offline Vosk uses Indian English; it is not a Hindi model."
+                android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Button android:id="@+id/indianAccuracyButton" android:layout_width="match_parent" android:layout_height="48dp"
+                android:text="Set up Indian English accuracy" android:background="@drawable/bg_button_secondary" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="7dp" android:text="Command language" android:textColor="@color/text_muted" android:textSize="12sp" />
             <Spinner android:id="@+id/languageSpinner" android:layout_width="match_parent" android:layout_height="50dp" />
@@ -205,7 +210,7 @@
                 android:text="Use my server when online" android:textColor="@color/text_primary" android:textSize="14sp" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Off by default. When on and connected, IRIS uses your private server for smarter replies and (optionally) Whisper transcription, and automatically falls back to fully offline when there's no internet or it's slow. Nothing leaves your phone unless this is on. See SERVER-MODE.md."
+                android:text="Off by default. Enables your private server for replies and optional Whisper transcription. Separately, Android system speech may use its provider online even when Server mode is off. See SERVER-MODE.md."
                 android:textColor="@color/text_muted" android:textSize="11sp" />
             <EditText android:id="@+id/serverUrlInput" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary" android:padding="12dp"
