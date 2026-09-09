@@ -903,7 +903,7 @@ public class MainActivity extends Activity {
         {"🧠 Memory", "Say: “remember I like green tea”, “what do you know about me”, “forget that”.\nProfile facts (name, phone, family…) are read-only in-app — edit iris-me.json to change them; they re-sync on each update."},
         {"🎓 Voice & command training", "What: teach IRIS your accent.\nHow: Training → “Learn My Voice & Commands” — read a few sentences (builds your voice pattern) then say each command word (learns your pronunciation)."},
         {"🎯 High-accuracy voice model", "Settings → “High-accuracy voice model (~1GB)” downloads a bigger offline model for tougher accents (falls back to the small one automatically). Use Wi-Fi."},
-        {"👂 Command accuracy (Google)", "After the wake beep, commands use Google speech (great with accents/fumbles) and fall back to offline Vosk with no internet. Nothing to set."},
+        {"👂 Command accuracy (Google)", "Speak in your own accent.\nSettings → Set up Indian English accuracy selects English (India), system speech and no forced on-device preference. Existing explicit settings are preserved until you apply it. System speech may send audio to its provider; IRIS cannot guarantee the same engine as your watch.\nWait until Listening appears/the ready cue sounds, then say the full sentence naturally. Example: “Could you switch on the torch?”, “Give Maa a call”, “Click one screenshot”. A low-confidence result asks you to repeat rather than acting on a guess.\nOffline fallback uses Indian English, not Hindi. For mixed Hindi/English choose the appropriate language setting; support depends on your speech provider. Training stores aliases, not a newly trained speech model."},
         {"🎚️ Choose voice", "Settings → “Choose IRIS voice” to pick a female/other voice; “Test voice” to preview. (Install Google TTS en-IN voices for the best quality.)"},
         {"🎩 How IRIS addresses you", "Like a butler, it varies — mostly nothing, sometimes “sir”, occasionally your name — instead of your name every time."},
         {"🔐 Voice-verified wake", "Wakes only for your voice (Settings → Voice Security). Sensitivity slider: lenient ↔ strict. If it ever won't wake for you, ease it toward lenient or retrain."},
@@ -1513,6 +1513,18 @@ public class MainActivity extends Activity {
         Switch onDevice = view.findViewById(R.id.onDeviceSwitch);
         onDevice.setChecked(settings.preferOnDevice());
         onDevice.setOnCheckedChangeListener((button, checked) -> settings.setPreferOnDevice(checked));
+        view.findViewById(R.id.indianAccuracyButton).setOnClickListener(v ->
+                new AlertDialog.Builder(this).setTitle("Indian English accuracy")
+                        .setMessage("Use English (India) and the system speech recognizer, without forcing offline recognition. This can send speech audio to your installed speech provider. Your contact list is not added to recognition hints.\n\nAfter applying: wake IRIS, wait for Listening, then speak normally. No need to imitate another accent.")
+                        .setNegativeButton("Keep current settings", null)
+                        .setPositiveButton("Apply", (d, w) -> {
+                            settings.setLanguageTag("en-IN");
+                            settings.setPreferOnDevice(false);
+                            settings.setGoogleSttForCommands(true);
+                            restartIfRunning();
+                            showSettings();
+                            toast("Indian English selected. System speech may use the internet.");
+                        }).show());
         Spinner language = view.findViewById(R.id.languageSpinner);
         String[] languageLabels = {"System language", "English (India)", "Hindi (India)", "Hinglish"};
         String selectedLanguage = "en-IN".equals(settings.languageTag()) ? "English (India)"
@@ -2991,7 +3003,7 @@ public class MainActivity extends Activity {
     private void showOfflineSpeechStatus() {
         boolean bundled = false;
         try {
-            String[] f = getAssets().list("model-en-us");
+            String[] f = getAssets().list("model-en-in");
             bundled = f != null && f.length > 0;
         } catch (Exception ignored) { }
         java.io.File extracted = new java.io.File(getFilesDir(), "vosk-model-en-in-0.4");
