@@ -16,6 +16,7 @@ public enum IrisIntent {
     TAKE_SCREENSHOT,
     RECORD_SCREEN,
     RECORD_VIDEO,
+    TAKE_PHOTO,
     RECORD_VOICE,
     STOP_RECORDING,
     TORCH,

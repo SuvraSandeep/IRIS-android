@@ -7,6 +7,7 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -252,6 +253,53 @@ public final class MemoryStore {
             }
         }
         return null;
+    }
+
+    /**
+     * Score-ranked recall so memories are actually usable, not just a substring/first-match
+     * lookup: token overlap between the query and key/value/detail, a small boost for keys that
+     * start with a query word, and a category boost (rules/preferences first, since they matter
+     * most for command handling; about_me/people first for open chat).
+     */
+    public static List<Memory> recall(Context context, String query, int k, boolean commandContext) {
+        List<Memory> all = getAll(context);
+        if (query == null || query.trim().isEmpty()) return all.subList(0, Math.min(k, all.size()));
+        java.util.Set<String> qTokens = tokenize(query);
+        double[] scores = new double[all.size()];
+        for (int i = 0; i < all.size(); i++) {
+            scores[i] = score(all.get(i), qTokens, commandContext);
+        }
+        Integer[] idx = new Integer[all.size()];
+        for (int i = 0; i < idx.length; i++) idx[i] = i;
+        java.util.Arrays.sort(idx, (a, b) -> Double.compare(scores[b], scores[a]));
+        List<Memory> out = new ArrayList<>();
+        for (int i = 0; i < idx.length && out.size() < k; i++) {
+            if (scores[idx[i]] > 0) out.add(all.get(idx[i]));
+        }
+        return out;
+    }
+
+    private static double score(Memory m, java.util.Set<String> qTokens, boolean commandContext) {
+        java.util.Set<String> mTokens = tokenize((m.key == null ? "" : m.key) + " "
+                + (m.value == null ? "" : m.value) + " " + (m.detail == null ? "" : m.detail));
+        int overlap = 0;
+        for (String t : qTokens) if (mTokens.contains(t)) overlap++;
+        if (overlap == 0) return 0;
+        double s = overlap;
+        String keyLower = m.key == null ? "" : m.key.toLowerCase(Locale.ROOT);
+        for (String t : qTokens) if (keyLower.startsWith(t)) { s += 1.5; break; }
+        if (commandContext && (CAT_RULE.equals(m.category) || CAT_PREFERENCE.equals(m.category))) s += 1.0;
+        if (!commandContext && (CAT_ABOUT_ME.equals(m.category) || CAT_PEOPLE.equals(m.category))) s += 0.5;
+        return s;
+    }
+
+    private static java.util.Set<String> tokenize(String s) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        if (s == null) return out;
+        for (String w : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9 ]", " ").split("\\s+")) {
+            if (w.length() >= 2) out.add(w);
+        }
+        return out;
     }
 
     /** Find a correction for a spoken phrase. */

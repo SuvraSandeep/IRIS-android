@@ -30,6 +30,10 @@ public final class IntentParser {
     private static final Pattern SCREENSHOT = Pattern.compile(
             "^(?:(?:take|grab|capture|get|click)\\s+(?:a\\s+|the\\s+|one\\s+|my\\s+)?screen\\s?shot"
             + "|screen\\s?shot)\\b.*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PHOTO = Pattern.compile(
+            "^(?:take|click|capture|snap)\\s+(?:a\\s+|my\\s+|the\\s+)?"
+            + "(?:(front|selfie|back|rear)\\s+)?(?:camera\\s+)?(?:photo|picture|pic|selfie)\\b.*$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern SCREEN_REC = Pattern.compile(
             "^(?:(?:record|start)\\s+(?:the\\s+|my\\s+)?screen(?:\\s+recording)?|screen\\s+record(?:ing)?)\\b(.*)$",
             Pattern.CASE_INSENSITIVE);
@@ -69,6 +73,18 @@ public final class IntentParser {
                     .goal("Take a screenshot")
                     .step(ToolCall.of("take_screenshot"))
                     .confidence(0.95f).build();
+        }
+
+        // ── still photo (not video) ──
+        Matcher photo = PHOTO.matcher(low);
+        if (photo.matches()) {
+            String cam = photo.group(1) == null ? "" : photo.group(1).toLowerCase(Locale.ROOT);
+            boolean front = cam.startsWith("front") || cam.startsWith("selfie");
+            return Plan.of(IrisIntent.TAKE_PHOTO)
+                    .goal("Take a photo")
+                    .entity("camera", front ? "front" : "back")
+                    .step(ToolCall.of("take_photo", "camera", front ? "front" : "back"))
+                    .confidence(0.9f).build();
         }
 
         // ── torch ──

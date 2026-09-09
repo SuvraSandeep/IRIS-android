@@ -890,7 +890,7 @@ public class MainActivity extends Activity {
         {"🔊 Volume", "Say: “volume up/down”, “mute”, “max volume”, “set volume to 50 percent”."},
         {"🖥 Screenshot & screen recording", "Capture what's on your screen.\nScreenshot: say “take a screenshot” — saved to Pictures/IRIS (or your system Screenshots folder).\nScreen recording: say “record the screen” (defaults to 1 minute) or “record the screen for 2 minutes”; saved to Movies/IRIS with mic audio. Stop early with “stop screen recording” or the Stop button.\nNo pop-up option: enable IRIS in Settings → Accessibility → Installed services, and screenshots are taken instantly with no permission prompt. Otherwise Android shows a one-time “Start recording/casting?” consent (tick “don't ask again”). Secure screens (banking, DRM) appear black by Android's design."},
         {"⌚ Replies on your watch", "Turn on Settings → “Show replies as a notification when the screen is off” and IRIS mirrors its reply to a notification whenever the screen is off — so you can read it on your watch. Add “Only major replies” to limit it to action results (saved files, status, notifications) instead of every small acknowledgement."},
-        {"🎬 Video recording", "Record a short video, saved to Movies/IRIS.\nSay: “start recording 30” (back camera, else 1 minute by default), “record video 20”, “record front camera video 15”, “record selfie video 10”. Choose the lens with “front/selfie” or “back/rear”.\nIt auto-stops after the time you set; to end early, tap the ⏹ Stop button on the recording notification (also on the lock screen/watch). Records over the lock screen on many phones (grant the Camera permission once; some phones need battery optimisation off). Locked/background camera behaviour varies by phone."},
+        {"🎬 Video & photo", "Record a short video, saved to Movies/IRIS, or take a still photo, saved to Pictures/IRIS.\nVideo: “start recording 30” (back camera, else 1 minute by default), “record video 20”, “record front camera video 15”, “record selfie video 10”.\nPhoto: “take a photo”, “take a selfie”, “click a picture”, “take a front camera photo”.\nBoth support “front/selfie” or “back/rear” lens choice. Video auto-stops after the time you set; tap the ⏹ Stop button on the recording notification to end early (also on the lock screen/watch). Both open the camera reliably from the lock screen — IRIS tries to launch it directly first, and falls back to a tap-to-open notification only if that's blocked. Needs the Camera permission granted once."},
         {"⚡ More ways to trigger IRIS", "Besides the wake word:\n• Notification: tap the “🎙 Talk” button on IRIS's notification (works on the lock screen).\n• Quick Settings tile: add the IRIS tile to your shade and tap it.\n• Assistant: set IRIS as your device's Digital Assistant (Settings → Default apps) — then the assist gesture (long-press power/home) opens IRIS anywhere.\n• Shake to talk (optional): enable in Settings, then shake the phone.\n• Headset button (optional): enable in Settings, then double-press your earphone button."},
         {"🎙 Voice recording", "Record a timed voice memo, saved as an .m4a in Recordings/IRIS (or Music/IRIS on older phones).\nSay: “record voice 20”, “voice memo 30”, “record audio for 1 minute”. Stop early with “stop recording” or the Stop button in the notification (works on the lock screen).\nPick a mic: add “using earphone / bluetooth / phone mic” — e.g. “record voice using bluetooth 30”. Otherwise it uses your Settings → Microphone choice. IRIS speaks first so its own voice isn't captured, and confirms where it saved."},
         {"🧭 Remembers what it did", "IRIS keeps a private log of what it actually did, so you can refer back to it.\nAsk: “what did you just do?”, “where did you save it?”, “what have you done?”\nDo: “send the last screenshot”, “send the latest video”, “do that again”, “undo that” (cancels the last reminder it set).\nSee everything in Settings → RECOGNITION & LEARNING → “What IRIS did”, and clear it anytime. Kept 30 days, on this phone only. Before sending a file it tells you which one it found."},
@@ -899,25 +899,26 @@ public class MainActivity extends Activity {
         {"📈 Recognition report", "Settings → RECOGNITION & LEARNING → “Recognition report” shows how well IRIS is really hearing you: attempts, how many were clear on the first try, average response time, corrections taught, and wrong actions.\nThe goal is zero wrong actions — asking once is better than acting wrongly. A low first-try rate usually means microphone or noise, not your wording. You can reset the stats anytime.\nSay “that was wrong” right after a mistake to log it and teach the fix."},
         {"⏹ Stop / interrupt IRIS", "If IRIS is talking too long (e.g. reading many notifications), tap the ⏹ Stop button on IRIS's notification — it cuts the speech off instantly and works on the lock screen. Saying “stop” also works whenever the mic is open. Example: “read my notifications” → tap ⏹ Stop to halt."},
         {"🧭 Remembers its last action", "IRIS keeps track of what it just did. Ask “what did you just do?” and it tells you. Say “do that again” or “repeat that” to re-run your last command. Example: “take a screenshot” … then “do that again”."},
-        {"📊 Phone status", "Ask “phone status”, “how's my phone?”, or “mobile status” and IRIS reports it all at once: ringer (silent/vibrate/normal), Do Not Disturb, airplane mode, internet (Wi-Fi or mobile data), Bluetooth, and battery level/charging."},
+        {"📊 Phone status", "Ask “phone status”, “how's my phone?”, or “mobile status” and IRIS reports it all: ringer (silent/vibrate/normal), Do Not Disturb, airplane mode, internet (Wi-Fi or mobile data), the actual connected Bluetooth device (not just on/off), battery, device model + Android version, free storage, RAM usage, and uptime.\nAsk “what's connected to Bluetooth?” on its own anytime.\nA dense [SYS]/[PWR]/[NET]-style status also lands in your notifications for a quick-glance look."},
         {"🔕 Phone modes", "Turn modes on/off and check them; IRIS tells you if it's already in that state.\nSay: “silent mode on/off”, “vibrate mode”, “normal mode”, “turn on/off do not disturb”, “airplane mode on/off”.\nAsk: “is silent mode on?”, “is airplane mode on?”, “is DND on?”.\nNotes: silent/vibrate/DND need Do-Not-Disturb access once. Airplane mode can't be toggled by apps — IRIS opens Settings for you (but can tell you if it's on)."},
         {"🔦 Torch / flashlight", "Say: “turn on the flashlight”, “torch off”."},
         {"🌦️ Weather", "Say: “what's the weather”, “weather today”. (Uses your location.)"},
         {"📍 Location", "Say: “where am I”, “my location”."},
         {"📬 Notifications", "Say: “read my notifications”, “what did I miss”, “who texted me”, “clear all notifications”. (Needs Notification access.)"},
         {"🌐 Web & apps", "Say: “search for <query>”, “open <app>”, “navigate to <place>”."},
-        {"🧠 Memory", "Say: “remember I like green tea”, “what do you know about me”, “forget that”.\nProfile facts (name, phone, family…) are read-only in-app — edit iris-me.json to change them; they re-sync on each update."},
+        {"🧠 Memory", "Say: “remember I like green tea”, “what do you know about me”, “what do you know about my car”, “forget that”.\nAsking about a topic now returns IRIS's best-matching memories instead of a random dump — it actually uses what you've told it in chat and commands.\nEdit any memory in the Memory tab with the ✎ button (not just delete). Profile facts (name, phone, family…) stay read-only in-app — edit iris-me.json to change them; they re-sync on each update."},
         {"🎓 Voice & command training", "What: teach IRIS your accent.\nHow: Training → “Learn My Voice & Commands” — read a few sentences (builds your voice pattern) then say each command word (learns your pronunciation)."},
         {"🎯 High-accuracy voice model", "Settings → “High-accuracy voice model (~1GB)” downloads a bigger offline model for tougher accents (falls back to the small one automatically). Use Wi-Fi."},
         {"👂 Command accuracy (Google)", "Speak in your own accent.\nSettings → Set up Indian English accuracy selects English (India), system speech and no forced on-device preference. Existing explicit settings are preserved until you apply it. System speech may send audio to its provider; IRIS cannot guarantee the same engine as your watch.\nWait until Listening appears/the ready cue sounds, then say the full sentence naturally. Example: “Could you switch on the torch?”, “Give Maa a call”, “Click one screenshot”. A low-confidence result asks you to repeat rather than acting on a guess.\nOffline fallback uses Indian English, not Hindi. For mixed Hindi/English choose the appropriate language setting; support depends on your speech provider. Training stores aliases, not a newly trained speech model."},
         {"🎚️ Choose voice", "Settings → “Choose IRIS voice” to pick a female/other voice; “Test voice” to preview. (Install Google TTS en-IN voices for the best quality.)"},
-        {"🎩 How IRIS addresses you", "Like a butler, it varies — mostly nothing, sometimes “sir”, occasionally your name — instead of your name every time."},
+        {"🎭 Personality", "Settings → Personality picks how IRIS sounds: Sarcastic (dry, witty, uses your name more), Warm (personable, name-heavy), Professional (formal, “sir” only, no first name), or Silent (no speech, no notification text — fully quiet). The tone shows up in casual chat, greetings, and how it addresses you."},
+        {"🎩 How IRIS addresses you", "Like a butler, it varies — mostly nothing, sometimes “sir”, occasionally your name — instead of your name every time. How often depends on your chosen Personality."},
         {"🔐 Voice-verified wake", "Wakes only for your voice (Settings → Voice Security). Sensitivity slider: lenient ↔ strict. If it ever won't wake for you, ease it toward lenient or retrain."},
         {"🔒 Lock-screen control", "Settings → lock-screen control lets quick actions run while locked; opening another app's screen still asks for unlock (Android requirement)."},
         {"🛰️ Server mode", "Settings → Server mode: use your own online brain (Ollama + Whisper) when connected; auto-falls back offline. Say “go online” / “go offline”. Setup: server/README.md."},
         {"🩺 Self-test", "Settings → “Run self-test” checks permissions, models, wake/voiceprint, learned commands, voice, and server — a green/red checklist."},
         {"📋 Copy text", "On the Assistant screen, tap the recognized text or IRIS's reply to copy it."},
-        {"🛑 Stop / sleep", "Say “stop” or “go to sleep” to dismiss; “kill” to shut IRIS down."},
+        {"🛑 Stop / sleep", "Say “stop” or “go to sleep” to dismiss. To fully shut IRIS down: “kill”, “kill yourself”, “kill IRIS”, “self destruct”, or “shut down”. (“turn off” alone also works, but “turn off <something else>” is safely ignored.)"},
         {"🏷️ Version / what's new", "Say “what version are you” or “what's new”."},
         {"🧰 Troubleshooting", "Wake not firing: retrain the phrase; ease Voice Security sensitivity; add an extra phrase.\nMis-hears commands: keep internet on (Google STT), run “Learn My Voice & Commands”, or enable the high-accuracy model.\nDoes nothing after wake: wait for the beep, then speak; run Self-test for red items (mic/permissions)."},
     };
@@ -950,6 +951,7 @@ public class MainActivity extends Activity {
             case "Voice & command training": case "High-accuracy voice model":
             case "Command accuracy (Google)": case "Choose voice":
             case "How IRIS addresses you": return "Voice & personalization";
+            case "Personality": return "Voice & personalization";
             case "Lock-screen control": case "Server mode": case "Self-test":
             case "Copy text": case "Stop / sleep": case "Version / what's new": return "Advanced";
             case "Troubleshooting": return "Help";
@@ -1454,6 +1456,15 @@ public class MainActivity extends Activity {
             lock.setOnClickListener(v -> toast("From your profile — edit iris-me.json to change this."));
             row.addView(lock, new LinearLayout.LayoutParams(dp(44), dp(44)));
         } else {
+            LinearLayout actions = new LinearLayout(this);
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+            Button edit = new Button(this);
+            edit.setText("\u270E");
+            edit.setTextColor(getColor(R.color.cyan));
+            edit.setTextSize(16);
+            edit.setBackgroundResource(R.drawable.bg_button_secondary);
+            edit.setOnClickListener(v -> showEditMemoryDialog(host, memory, accent));
+            actions.addView(edit, new LinearLayout.LayoutParams(dp(44), dp(40)));
             Button delete = new Button(this);
             delete.setText("\u00D7");
             delete.setTextColor(getColor(R.color.danger));
@@ -1464,10 +1475,52 @@ public class MainActivity extends Activity {
                 host.removeView(row);
                 toast("Memory removed.");
             }));
-            row.addView(delete, new LinearLayout.LayoutParams(dp(48), dp(40)));
+            actions.addView(delete, new LinearLayout.LayoutParams(dp(44), dp(40)));
+            row.addView(actions);
         }
 
         host.addView(row);
+    }
+
+    /** Edit an existing memory's value/detail — wires the previously-dead MemoryStore.update(). */
+    private void showEditMemoryDialog(LinearLayout host, MemoryStore.Memory memory, int accent) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(22), dp(8), dp(22), 0);
+
+        TextView label = new TextView(this);
+        label.setText(memory.key.toUpperCase(Locale.ROOT));
+        label.setTextColor(accent);
+        label.setTextSize(12);
+        col.addView(label);
+
+        EditText valueInput = new EditText(this);
+        valueInput.setText(memory.value);
+        valueInput.setTextColor(getColor(R.color.text_primary));
+        col.addView(valueInput);
+
+        EditText detailInput = new EditText(this);
+        detailInput.setHint("Optional detail");
+        detailInput.setText(memory.detail == null ? "" : memory.detail);
+        detailInput.setTextColor(getColor(R.color.text_primary));
+        detailInput.setHintTextColor(getColor(R.color.text_muted));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(6);
+        detailInput.setLayoutParams(lp);
+        col.addView(detailInput);
+
+        new AlertDialog.Builder(this).setTitle("Edit memory")
+                .setView(col)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (d, w) -> authenticateThen("\uD83D\uDD12 Update memory", () -> {
+                    String newValue = valueInput.getText().toString().trim();
+                    String newDetail = detailInput.getText().toString().trim();
+                    if (newValue.isEmpty()) { toast("Value can't be empty."); return; }
+                    MemoryStore.update(this, memory.id, newValue, newDetail.isEmpty() ? null : newDetail);
+                    toast("Memory updated.");
+                    showMemory();
+                })).show();
     }
 
     private static final int EXPORT_MEMORY = 205;
@@ -2236,9 +2289,20 @@ public class MainActivity extends Activity {
                 ve.initSpeaker(MainActivity.this);
                 new Thread(() -> {
                     try {
-                        long deadline = System.currentTimeMillis() + 10000;
+                        // The speaker model may need a one-time download (initSpeaker) — that
+                        // can take well over 10s on a normal connection, which was the actual
+                        // reason enrollment silently "failed" after training. Give it real time,
+                        // and keep the trainee informed instead of going quiet.
+                        long deadline = System.currentTimeMillis() + 45000;
+                        int lastPct = -1;
                         while (!ve.isSpeakerReady() && System.currentTimeMillis() < deadline) {
                             try { Thread.sleep(150); } catch (InterruptedException ignored) { }
+                            int pct = (int) (100.0 * (System.currentTimeMillis() - (deadline - 45000)) / 45000);
+                            if (pct != lastPct && pct % 10 == 0) {
+                                lastPct = pct;
+                                handler.post(() -> { if (wakeTrainingStatus != null)
+                                        wakeTrainingStatus.setText("Preparing voice-lock model\u2026"); });
+                            }
                         }
                         java.util.List<float[]> vecs = new java.util.ArrayList<>();
                         if (ve.isSpeakerReady()) {
@@ -2266,7 +2330,11 @@ public class MainActivity extends Activity {
                             });
                         } else {
                             LogStore.append(MainActivity.this, "VOICE", "Enrollment skipped (speaker model unavailable)");
-                            handler.post(() -> toast("Saved. (Voice-lock unavailable on this device.)"));
+                            handler.post(() -> {
+                                toast("Couldn't set up voice-lock \u2014 needed a download that didn't finish. Wake still works; try again with Wi-Fi.");
+                                if (wakeTrainingStatus != null)
+                                    wakeTrainingStatus.setText("\u26A0 Voice-lock unavailable \u2014 wake phrase saved, but retrain to add voice-lock (needs Wi-Fi once).");
+                            });
                         }
                     } catch (Throwable t) {
                         LogStore.append(MainActivity.this, "VOICE", "Enrollment error: " + t);
@@ -2383,16 +2451,21 @@ public class MainActivity extends Activity {
         voiceTrainFeedback.setText("");
         final java.util.List<short[]> samples = new ArrayList<>(voiceReadSamples);
         new Thread(() -> {
-            long deadline = System.currentTimeMillis() + 10000;
+            long deadline = System.currentTimeMillis() + 45000;   // model may need a one-time download
             while (trainVosk != null && !trainVosk.isSpeakerReady()
                     && System.currentTimeMillis() < deadline) {
                 try { Thread.sleep(150); } catch (InterruptedException ignored) { }
             }
             java.util.List<float[]> vecs = new java.util.ArrayList<>();
             if (trainVosk != null && trainVosk.isSpeakerReady()) {
-                for (short[] s : samples) { float[] e = trainVosk.embed(s); if (e != null) vecs.add(e); }
+                for (short[] s : samples) {
+                    float[] e = null;
+                    try { e = trainVosk.embed(s); } catch (Throwable ignored) { }
+                    if (e != null) vecs.add(e);
+                }
             }
-            if (!vecs.isEmpty()) {
+            final boolean enrolled = !vecs.isEmpty();
+            if (enrolled) {
                 new ProfileStore(MainActivity.this).setVoiceprint(averageVectors(vecs));
                 LogStore.append(MainActivity.this, "VOICE",
                         "Voice pattern enrolled from " + vecs.size() + " read phrases");
@@ -2400,7 +2473,10 @@ public class MainActivity extends Activity {
                 LogStore.append(MainActivity.this, "VOICE",
                         "Voice pattern not saved (speaker model unavailable)");
             }
-            handler.post(() -> { if (!voiceTrainCancelled) trainCommandStep(); });
+            handler.post(() -> {
+                if (!enrolled) toast("Wake phrase saved, but voice-lock needs a download that didn't finish. Try again with Wi-Fi.");
+                if (!voiceTrainCancelled) trainCommandStep();
+            });
         }, "IRIS-VoiceTrain-Enroll").start();
     }
 

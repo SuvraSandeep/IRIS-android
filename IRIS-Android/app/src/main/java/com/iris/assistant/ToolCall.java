@@ -20,7 +20,8 @@ public final class ToolCall {
             java.util.Arrays.asList(
                     "call_contact", "compose_message",
                     "create_alarm", "create_timer", "create_reminder",
-                    "take_screenshot", "record_screen", "record_camera_video", "record_voice",
+                    "take_screenshot", "record_screen", "record_camera_video", "take_photo",
+                    "record_voice",
                     "stop_recording",
                     "set_torch", "set_volume",
                     "open_app", "search_web",

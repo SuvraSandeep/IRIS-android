@@ -10,12 +10,15 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
+import android.media.Image;
+import android.media.ImageReader;
 import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Build;
@@ -47,6 +50,8 @@ import java.util.Collections;
 public final class LockedCaptureActivity extends Activity {
     public static final String EXTRA_SECONDS = "seconds";
     public static final String EXTRA_FRONT = "front";
+    /** "video" (default) or "photo". */
+    public static final String EXTRA_MODE = "mode";
     private static final String CHANNEL = "iris_capture";
     private static final int REC_NOTIF = 0xC0DF;
     static volatile LockedCaptureActivity instance;
@@ -61,6 +66,7 @@ public final class LockedCaptureActivity extends Activity {
     private CameraDevice camera;
     private CameraCaptureSession session;
     private MediaRecorder recorder;
+    private ImageReader imageReader;
     private HandlerThread bgThread;
     private Handler bg;
     private final Handler main = new Handler();
@@ -70,6 +76,7 @@ public final class LockedCaptureActivity extends Activity {
     private String location = "your videos";
     private int seconds = 15;
     private boolean front;
+    private boolean photoMode;
     private boolean finished;
     private volatile boolean recording;
 
@@ -79,6 +86,7 @@ public final class LockedCaptureActivity extends Activity {
         instance = this;
         seconds = Math.max(1, Math.min(3600, getIntent().getIntExtra(EXTRA_SECONDS, 60)));
         front = getIntent().getBooleanExtra(EXTRA_FRONT, false);
+        photoMode = "photo".equals(getIntent().getStringExtra(EXTRA_MODE));
 
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true);
@@ -92,7 +100,7 @@ public final class LockedCaptureActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         TextView label = new TextView(this);
-        label.setText("● Recording…");
+        label.setText(photoMode ? "\u25CF Capturing photo\u2026" : "\u25CF Recording\u2026");
         label.setTextColor(Color.RED);
         label.setTextSize(20);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -102,7 +110,8 @@ public final class LockedCaptureActivity extends Activity {
         setContentView(root);
 
         if (checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            done("I don't have camera permission, so I couldn't record.");
+            done(photoMode ? "I don't have camera permission, so I couldn't take a photo."
+                    : "I don't have camera permission, so I couldn't record.");
             return;
         }
         bgThread = new HandlerThread("IRIS-Camera");
@@ -118,12 +127,93 @@ public final class LockedCaptureActivity extends Activity {
             if (id == null) { done("I couldn't find that camera."); return; }
             //noinspection MissingPermission
             cameraManager.openCamera(id, new CameraDevice.StateCallback() {
-                @Override public void onOpened(CameraDevice c) { camera = c; startRecording(); }
+                @Override public void onOpened(CameraDevice c) {
+                    camera = c;
+                    if (photoMode) takePhoto(); else startRecording();
+                }
                 @Override public void onDisconnected(CameraDevice c) { c.close(); }
                 @Override public void onError(CameraDevice c, int error) { c.close(); done("The camera failed to open."); }
             }, bg);
         } catch (CameraAccessException | SecurityException e) {
             done("I couldn't open the camera.");
+        }
+    }
+
+    /** Single still-frame capture (TEMPLATE_STILL_CAPTURE), saved to Pictures/IRIS. */
+    private void takePhoto() {
+        try {
+            imageReader = ImageReader.newInstance(1920, 1080, ImageFormat.JPEG, 1);
+            imageReader.setOnImageAvailableListener(reader -> {
+                Image img = null;
+                try {
+                    img = reader.acquireLatestImage();
+                    if (img == null) return;
+                    byte[] bytes = new byte[img.getPlanes()[0].getBuffer().remaining()];
+                    img.getPlanes()[0].getBuffer().get(bytes);
+                    savePhoto(bytes);
+                } catch (Throwable t) {
+                    done("I couldn't save the photo.");
+                } finally {
+                    if (img != null) img.close();
+                }
+            }, bg);
+            Surface target = imageReader.getSurface();
+            camera.createCaptureSession(Collections.singletonList(target),
+                    new CameraCaptureSession.StateCallback() {
+                        @Override public void onConfigured(CameraCaptureSession s) {
+                            session = s;
+                            try {
+                                CaptureRequest.Builder b = camera.createCaptureRequest(
+                                        CameraDevice.TEMPLATE_STILL_CAPTURE);
+                                b.addTarget(target);
+                                b.set(CaptureRequest.CONTROL_MODE,
+                                        android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
+                                b.set(CaptureRequest.JPEG_ORIENTATION, front ? 270 : 90);
+                                s.capture(b.build(), null, bg);
+                            } catch (Exception e) {
+                                done("I couldn't take the photo.");
+                            }
+                        }
+                        @Override public void onConfigureFailed(CameraCaptureSession s) {
+                            done("The camera session failed.");
+                        }
+                    }, bg);
+            main.postDelayed(() -> { if (!finished) done("The camera timed out."); }, 8000);
+        } catch (Exception e) {
+            done("I couldn't take the photo.");
+        }
+    }
+
+    private void savePhoto(byte[] jpeg) {
+        String name = "IRIS_PHOTO_" + timestamp() + ".jpg";
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                ContentValues cv = new ContentValues();
+                cv.put(MediaStore.Images.Media.DISPLAY_NAME, name);
+                cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                cv.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/IRIS");
+                cv.put(MediaStore.Images.Media.IS_PENDING, 1);
+                Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+                if (uri == null) throw new Exception("insert failed");
+                try (java.io.OutputStream os = getContentResolver().openOutputStream(uri)) {
+                    if (os != null) os.write(jpeg);
+                }
+                cv.clear();
+                cv.put(MediaStore.Images.Media.IS_PENDING, 0);
+                getContentResolver().update(uri, cv, null, null);
+                location = "Pictures/IRIS";
+            } else {
+                java.io.File dir = new java.io.File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), "IRIS");
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+                try (java.io.FileOutputStream os = new java.io.FileOutputStream(new java.io.File(dir, name))) {
+                    os.write(jpeg);
+                }
+                location = "the IRIS folder";
+            }
+            done("Saved a photo to " + location + ".");
+        } catch (Exception e) {
+            done("I couldn't save the photo.");
         }
     }
 
@@ -236,6 +326,8 @@ public final class LockedCaptureActivity extends Activity {
         session = null;
         try { if (recorder != null) recorder.release(); } catch (Exception ignored) { }
         recorder = null;
+        try { if (imageReader != null) imageReader.close(); } catch (Exception ignored) { }
+        imageReader = null;
         try { if (camera != null) camera.close(); } catch (Exception ignored) { }
         camera = null;
         try { if (pfd != null) pfd.close(); } catch (Exception ignored) { }
@@ -284,7 +376,7 @@ public final class LockedCaptureActivity extends Activity {
     @Override protected void onDestroy() {
         if (!finished) {
             if (recording) stopRecording();   // save what we captured instead of discarding it
-            else done(null);
+            else done(photoMode ? "The camera closed before the photo was taken." : null);
         }
         super.onDestroy();
     }

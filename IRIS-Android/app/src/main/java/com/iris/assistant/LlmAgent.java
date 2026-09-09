@@ -217,15 +217,19 @@ public final class LlmAgent {
         String profileCtx = PersonalProfile.contextForAI(context);
         if (profileCtx != null && !profileCtx.isEmpty()) sb.append(profileCtx);
 
-        // Inject memory
+        // Inject memory — relevant to what the user just said, not just storage order,
+        // so IRIS actually uses what it's been told once there are more than a handful of facts.
         String name = MemoryStore.ownerName(context);
         if (name != null) sb.append("The user's name is ").append(name).append(".\n");
-        List<MemoryStore.Memory> memories = MemoryStore.getAll(context);
+        List<MemoryStore.Memory> memories = MemoryStore.recall(context, userMessage, 8, false);
+        if (memories.isEmpty() && !MemoryStore.getAll(context).isEmpty()) {
+            // No token overlap with the message — still surface a few stable facts about the user.
+            List<MemoryStore.Memory> all = MemoryStore.getAll(context);
+            memories = all.subList(0, Math.min(8, all.size()));
+        }
         if (!memories.isEmpty()) {
-            sb.append("What you know about the user:\n");
-            int count = 0;
+            sb.append("What you know about the user (most relevant to what they just said):\n");
             for (MemoryStore.Memory m : memories) {
-                if (count++ >= 8) break;
                 sb.append("- ").append(m.key).append(": ").append(m.value);
                 if (m.detail != null && !m.detail.isEmpty()) sb.append(" (").append(m.detail).append(")");
                 sb.append("\n");

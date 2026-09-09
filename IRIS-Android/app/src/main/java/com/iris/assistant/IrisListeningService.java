@@ -256,6 +256,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             "^(?:what\\s+have\\s+you\\s+done|(?:show|read)\\s+(?:me\\s+)?(?:your\\s+)?"
             + "(?:activity|history|timeline|recent\\s+actions))\\s*\\??$",
             Pattern.CASE_INSENSITIVE);
+    // "what's connected to bluetooth" / "what device is connected"
+    private static final Pattern BT_DEVICE_PATTERN = Pattern.compile(
+            "^(?:what(?:'s| is)\\s+connected(?:\\s+(?:to|via|over)\\s+bluetooth)?"
+            + "|what\\s+(?:bluetooth\\s+)?device\\s+is\\s+connected"
+            + "|(?:is\\s+)?(?:my\\s+)?bluetooth\\s+connected)\\s*\\??$",
+            Pattern.CASE_INSENSITIVE);
     // "phone status" / "how's my phone" — full rundown of ringer, DND, airplane, net, bt, battery.
     private static final Pattern STATUS_PATTERN = Pattern.compile(
             "^(?:(?:what(?:'s| is)\\s+(?:my\\s+)?)?(?:phone|mobile|device|system)\\s+status"
@@ -274,12 +280,21 @@ public class IrisListeningService extends Service implements RecognitionListener
             "^(?:stop|end|finish|cancel)\\s+(?:the\\s+)?(?:voice\\s+)?(?:recording|record|memo|audio)$",
             Pattern.CASE_INSENSITIVE);
     // Video: "record video 30", "record front camera video 20", "record video with back cam".
+    // "take a photo/picture/selfie" — a still photo, NOT video (checked before VIDEO/screenshot).
+    private static final Pattern PHOTO_PATTERN = Pattern.compile(
+            "^(?:take|click|capture|snap)\\s+(?:a\\s+|my\\s+|the\\s+)?"
+            + "(?:(front|selfie|back|rear)\\s+)?(?:camera\\s+)?(?:photo|picture|pic|selfie)\\b.*$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern VIDEO_RECORD_PATTERN = Pattern.compile(
             "^(?:record|start|take|capture)\\s+(?:a\\s+)?(?:(?:front|selfie|back|rear)\\s+)?(?:camera\\s+)?video\\b.*$",
             Pattern.CASE_INSENSITIVE);
     // Your phrasing: "start recording 30" → video on the back camera.
     private static final Pattern START_RECORDING_PATTERN = Pattern.compile(
             "^start\\s+recording\\b.*$", Pattern.CASE_INSENSITIVE);
+    // Bare "record" / "begin recording" / "record now" with no keyword — default to back-camera
+    // video, matching the existing "start recording" behaviour, so a plain "record" isn't ignored.
+    private static final Pattern GENERIC_RECORD_PATTERN = Pattern.compile(
+            "^(?:record|begin\\s+recording|record\\s+now)\\b.*$", Pattern.CASE_INSENSITIVE);
     // Screenshot: "screenshot", "take a screenshot", "capture the screen" (NOT recording).
     private static final Pattern SCREENSHOT_PATTERN = Pattern.compile(
             "^(?:(?:take|grab|capture|get)\\s+(?:a\\s+|the\\s+|my\\s+)?screen(?:\\s?shot)?"
@@ -345,8 +360,10 @@ public class IrisListeningService extends Service implements RecognitionListener
             "^(?:forget|delete|remove)\\s+(?:that|the\\s+last\\s+(?:memory|thing)|it)$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern RECALL_PATTERN = Pattern.compile(
-            ".*\\b(?:what\\s+do\\s+you\\s+(?:know|remember)|know\\s+about\\s+me"
-            + "|tell\\s+me\\s+about\\s+(?:me|myself)|what.?s?\\s+in\\s+my\\s+memory"
+            ".*\\b(?:what\\s+do\\s+you\\s+(?:know|remember)(?:\\s+about\\s+(.+))?"
+            + "|know\\s+about\\s+me"
+            + "|tell\\s+me\\s+about\\s+(?:me|myself)"
+            + "|what.?s?\\s+in\\s+my\\s+memory"
             + "|my\\s+(?:memories|info|memory|details|profile))\\b.*",
             Pattern.CASE_INSENSITIVE);
     private static final String PHASE_WAKE = "wake";
@@ -1242,8 +1259,9 @@ public class IrisListeningService extends Service implements RecognitionListener
             handleForget();
             return;
         }
-        if (RECALL_PATTERN.matcher(normalized).matches()) {
-            handleRecall();
+        Matcher recallM = RECALL_PATTERN.matcher(normalized);
+        if (recallM.matches()) {
+            handleRecall(recallM.group(1));
             return;
         }
 
@@ -1410,6 +1428,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         if (SCREEN_REC_PATTERN.matcher(normalized).matches()) { beginScreenRecording(parseDuration(normalized, 60)); return; }
+        Matcher photoM = PHOTO_PATTERN.matcher(normalized);
+        if (photoM.matches()) { handleTakePhoto(photoM.group(1)); return; }
         if (SCREENSHOT_PATTERN.matcher(normalized).matches()) { handleScreenshot(); return; }
         if (VIDEO_RECORD_PATTERN.matcher(normalized).matches()) {
             beginVideoRecording(parseDuration(normalized, 60), extractCamWord(normalized)); return;
@@ -1420,6 +1440,12 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (VOICE_RECORD_PATTERN.matcher(normalized).matches()) {
             beginVoiceRecording(parseDuration(normalized, 60), extractMicWord(normalized)); return;
         }
+        // Bare "record" with none of the specific keywords above — default to back-camera video
+        // (same default as "start recording") instead of silently doing nothing.
+        if (GENERIC_RECORD_PATTERN.matcher(normalized).matches()) {
+            beginVideoRecording(parseDuration(normalized, 60), "back"); return;
+        }
+        if (BT_DEVICE_PATTERN.matcher(normalized).matches()) { handleBluetoothQuery(); return; }
         if (STATUS_PATTERN.matcher(normalized).matches()) { handlePhoneStatus(); return; }
         Matcher modeQ = MODE_QUERY_PATTERN.matcher(normalized);
         if (modeQ.matches()) { handleModeQuery(modeQ.group(1)); return; }
@@ -1726,10 +1752,15 @@ public class IrisListeningService extends Service implements RecognitionListener
                 .compile("\\[RECALL:\\s*([^\\]]+)\\]", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(out);
         if (rec.find()) {
             String topic = rec.group(1).trim();
-            java.util.List<MemoryStore.Memory> hits = MemoryStore.search(this, topic);
-            String reply = hits.isEmpty()
-                    ? "I don't have anything about " + topic + " yet."
-                    : hits.get(0).key + ": " + hits.get(0).value;
+            java.util.List<MemoryStore.Memory> hits = MemoryStore.recall(this, topic, 3, false);
+            String reply;
+            if (hits.isEmpty()) {
+                reply = "I don't have anything about " + topic + " yet.";
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (MemoryStore.Memory m : hits) sb.append(m.key).append(": ").append(m.value).append(". ");
+                reply = sb.toString().trim();
+            }
             broadcastMessage(reply);
             speakThenRun(reply, this::rearmAfterAction);
             return;
@@ -1738,21 +1769,38 @@ public class IrisListeningService extends Service implements RecognitionListener
         // Plain conversational reply — strip any stray brackets
         String clean = out.replaceAll("\\[.*?\\]", "").trim();
         if (clean.isEmpty()) clean = "Okay.";
-        broadcastMessage(clean);
         if ("Silent".equals(settings.personality())) {
+            // Silent means quiet end-to-end — don't speak AND don't surface the text either.
             handler.postDelayed(this::rearmAfterAction, 800);
         } else {
+            broadcastMessage(clean);
             speakThenRun(clean, this::rearmAfterAction);
         }
     }
 
-    /** Butler-style, varied form of address: mostly nothing, sometimes "sir", occasionally your name. */
+    /** Butler-style, varied form of address: mostly nothing, sometimes "sir", occasionally your name.
+     *  Varies by personality so the chosen tone is perceptible even in this very common phrase. */
     private String butlerAddress() {
         String name = MemoryStore.ownerName(this);
+        String personality = settings.personality();
         int r = chatRandom.nextInt(10);
-        if (r < 5) return "";                          // ~50% no name — like a real butler
-        if (r < 8) return " sir";                      // ~30% "sir"
-        return name != null ? " " + name : " sir";     // ~20% your name
+        if ("Professional".equals(personality)) {
+            if (r < 6) return "";
+            return " sir";                              // never uses the first name — formal
+        }
+        if ("Sarcastic".equals(personality)) {
+            if (r < 4) return "";
+            if (r < 7) return name != null ? " " + name : " sir";   // leans on the name, cheeky
+            return " boss";
+        }
+        if ("Warm".equals(personality)) {
+            if (r < 3) return "";
+            return name != null ? " " + name : " friend";           // warm = uses the name more
+        }
+        // Silent / unknown — the neutral default
+        if (r < 5) return "";
+        if (r < 8) return " sir";
+        return name != null ? " " + name : " sir";
     }
 
     private void ruleBasedChat(String original, String normalized, ProfileStore store) {
@@ -1817,17 +1865,16 @@ public class IrisListeningService extends Service implements RecognitionListener
         else if (normalized.matches(".*\\b(what can you do|help|your features|what do you do)\\b.*")) {
             reply = "Quite a lot. I can call or text your contacts, send WhatsApp messages, set alarms, timers and reminders, check the time, battery, weather and your location, read notifications, toggle the torch and volume, open apps, search the web, and remember things about you \u2014 all by voice. Try \u201Ctext Mom saying I'll be late\u201D or \u201Cremind me to call Dad in an hour\u201D.";
         }
-        // "what is my X" — look up in memory
+        // "what is my X" — look up in memory (best match, not first-in-storage-order)
         else if (normalized.matches(".*\\bmy\\s+(\\w+).*")) {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("my\\s+(\\w+)").matcher(normalized);
             String answer = null;
             if (m.find()) {
                 String key = m.group(1);
-                for (MemoryStore.Memory mem : MemoryStore.getAll(this)) {
-                    if (mem.key.toLowerCase().contains(key) || key.contains(mem.key.toLowerCase())) {
-                        answer = "Your " + mem.key + " is " + mem.value + ".";
-                        break;
-                    }
+                java.util.List<MemoryStore.Memory> hits = MemoryStore.recall(this, key, 1, false);
+                if (!hits.isEmpty()) {
+                    MemoryStore.Memory mem = hits.get(0);
+                    answer = "Your " + mem.key + " is " + mem.value + ".";
                 }
             }
             reply = answer != null ? answer
@@ -1921,7 +1968,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (SpeechText.quickInfo(n)) return true;
         if (containsCallVerb(n)) return false;
         if (n.matches("^(?:stop|shut\\s*up|quiet|silence|go\\s+to\\s+sleep|go\\s+to\\s+bed|sleep|sleep\\s+now|good\\s*night|goodnight|rest|dismiss|never\\s*mind)$")) return true;
-        if (n.matches("^(?:kill|shut\\s*down|shutdown|power\\s+off|terminate|turn\\s+(?:yourself\\s+)?off|turn\\s+off\\s+iris|shut\\s+(?:yourself\\s+)?down)$")) return true;
+        if (n.matches("^(?:kill(?:\\s+(?:yourself|iris))?|self[\\s-]?destruct|shut\\s*down|shutdown|power\\s+off|terminate(?:\\s+(?:yourself|iris))?|turn\\s+(?:yourself\\s+|iris\\s+)?off|turn\\s+off\\s+iris|shut\\s+(?:yourself\\s+|iris\\s+)?down)$")) return true;
         if (n.matches(".*\\b(?:what\\s+can\\s+you\\s+do|help\\s+me|^help$)\\b.*")) return true;
         return false;
     }
@@ -1999,7 +2046,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             speak(helpText);
             broadcastMessage(helpText);
             LogStore.append(this, "QUICK", "Help requested");
-        } else if (normalized.matches("^(?:kill|shut\\s*down|shutdown|power\\s+off|terminate|turn\\s+(?:yourself\\s+)?off|turn\\s+off\\s+iris|shut\\s+(?:yourself\\s+)?down)$")) {
+        } else if (normalized.matches("^(?:kill(?:\\s+(?:yourself|iris))?|self[\\s-]?destruct|shut\\s*down|shutdown|power\\s+off|terminate(?:\\s+(?:yourself|iris))?|turn\\s+(?:yourself\\s+|iris\\s+)?off|turn\\s+off\\s+iris|shut\\s+(?:yourself\\s+|iris\\s+)?down)$")) {
             // KILL — fully stop the service; user must reopen the app to restart
             broadcastMessage("Shutting down. Open the app to start me again.");
             LogStore.append(this, "KILL", "Full shutdown by voice");
@@ -2921,26 +2968,56 @@ public class IrisListeningService extends Service implements RecognitionListener
         });
     }
 
-    /** Launch a capture activity exactly ONCE, choosing the path by lock/screen state so we never
-     *  double-launch (a second launch was killing the in-progress recording before it saved). */
-    private void launchCaptureActivity(Intent i, String title, String text) {
-        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        boolean locked = km != null && km.isKeyguardLocked();
-        boolean interactive = pm != null && pm.isInteractive();
-        if (!locked && interactive) {
-            try { startActivity(i); return; } catch (Exception ignored) { }
+    /** Take a single still photo (not video) via the same lock-screen-capable camera activity. */
+    private void handleTakePhoto(String camWord) {
+        if (!hasPermission(Manifest.permission.CAMERA)) {
+            String m = "I need camera permission to take a photo — opening settings so you can allow it.";
+            broadcastMessage(m);
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:" + getPackageName()))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception ignored) { }
+            speakThenRun(m, this::rearmAfterAction);
+            return;
         }
-        // Locked or screen-off (or a blocked background start): a full-screen-intent notification
-        // is the reliable way to bring the capture UI up over the lock screen.
+        final boolean front = camWord != null
+                && (camWord.toLowerCase(Locale.ROOT).startsWith("front") || camWord.toLowerCase(Locale.ROOT).startsWith("selfie"));
+        String intro = "Taking a photo on the " + (front ? "front" : "back") + " camera.";
+        broadcastMessage(intro);
+        speakThenRun(intro, () -> {
+            pauseListeningForCapture();
+            Intent i = new Intent(this, LockedCaptureActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(LockedCaptureActivity.EXTRA_MODE, "photo")
+                    .putExtra(LockedCaptureActivity.EXTRA_FRONT, front);
+            launchCaptureActivity(i, "IRIS camera", "Taking a photo\u2026");
+        });
+    }
+
+    /** Launch a capture activity exactly ONCE. Always try startActivity first — while this
+     *  service is foreground it holds the background-activity-start exemption on Android 10+,
+     *  the same fix that resolved the "call takes confirmation but never dials" bug. Full-screen
+     *  intent is the fallback for when that's blocked (e.g. screen fully off). */
+    private void launchCaptureActivity(Intent i, String title, String text) {
+        boolean launched = false;
+        try { startActivity(i); launched = true; } catch (Throwable ignored) { }
+        if (launched) return;
         try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            boolean canFsi = Build.VERSION.SDK_INT < 34 || nm == null || nm.canUseFullScreenIntent();
             PendingIntent pi = PendingIntent.getActivity(this, 9, i,
                     PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-            Notification n = new Notification.Builder(this, CALL_CHANNEL)
+            Notification.Builder b = new Notification.Builder(this, CALL_CHANNEL)
                     .setSmallIcon(R.drawable.ic_iris).setContentTitle(title).setContentText(text)
-                    .setCategory(Notification.CATEGORY_CALL)
-                    .setFullScreenIntent(pi, true).setAutoCancel(true).build();
-            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(0xC0DE, n);
+                    .setCategory(Notification.CATEGORY_CALL).setAutoCancel(true);
+            if (canFsi) b.setFullScreenIntent(pi, true);
+            else b.setContentIntent(pi);   // FSI permission revoked — tappable notification instead
+            if (nm != null) nm.notify(0xC0DE, b.build());
+            if (!canFsi) {
+                String m = title + " is ready \u2014 tap the notification to open it.";
+                broadcastMessage(m); speak(m);
+            }
         } catch (Exception e) {
             try { startActivity(i); } catch (Exception ignored) { }
         }
@@ -3235,6 +3312,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             case SET_TIMER:       return "set a timer for " + plan.entity("duration");
             case CALL_CONTACT:    return "call " + plan.entity("recipient");
             case TAKE_SCREENSHOT: return "take a screenshot";
+            case TAKE_PHOTO:      return "take " + ("front".equals(plan.entity("camera")) ? "a selfie" : "a photo");
             case TORCH:           return "torch " + plan.entity("state");
             case RECORD_SCREEN:   return "record the screen"
                     + (plan.entity("duration").isEmpty() ? "" : " for " + plan.entity("duration"));
@@ -3372,7 +3450,125 @@ public class IrisListeningService extends Service implements RecognitionListener
         sb.append(connectivitySummary());
         sb.append(bluetoothSummary());
         sb.append(batterySummary());
-        inform(sb.toString().trim());
+        sb.append(deviceSummary());
+        sb.append(storageSummary());
+        sb.append(memorySummary());
+        sb.append(uptimeSummary());
+        String spoken = sb.toString().trim();
+        // Notification/watch mirror gets a dense, "hacker terminal" formatted line — the on-screen
+        // status is spoken/notification-only (there's no dedicated status screen), so this is
+        // where the techy presentation actually shows up.
+        postTechyStatusNotification();
+        inform(spoken);
+    }
+
+    /** Dense [SYS]-style status line for the notification mirror — the "hacker vibe" presentation. */
+    private void postTechyStatusNotification() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            NotificationManager nmgr = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            int rm = am != null ? am.getRingerMode() : AudioManager.RINGER_MODE_NORMAL;
+            String ring = rm == AudioManager.RINGER_MODE_SILENT ? "SILENT"
+                    : rm == AudioManager.RINGER_MODE_VIBRATE ? "VIBRATE" : "NORMAL";
+            boolean dnd = nmgr != null && Build.VERSION.SDK_INT >= 23
+                    && nmgr.getCurrentInterruptionFilter() != NotificationManager.INTERRUPTION_FILTER_ALL;
+            android.os.StatFs stat = new android.os.StatFs(getFilesDir().getPath());
+            long freeGb = stat.getAvailableBytes() / (1024L * 1024 * 1024);
+            long totalGb = stat.getTotalBytes() / (1024L * 1024 * 1024);
+            android.app.ActivityManager amgr = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            long ramPct = -1;
+            if (amgr != null) { amgr.getMemoryInfo(mi); ramPct = mi.totalMem > 0 ? Math.round(100.0 * (mi.totalMem - mi.availMem) / mi.totalMem) : -1; }
+            Intent b = batteryIntent();
+            int pct = -1;
+            if (b != null) {
+                int level = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                pct = (level >= 0 && scale > 0) ? Math.round(level * 100f / scale) : -1;
+            }
+            android.bluetooth.BluetoothManager bm =
+                    (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
+            android.bluetooth.BluetoothAdapter ba = bm != null ? bm.getAdapter() : null;
+            String bt = ba != null && ba.isEnabled() ? connectedBluetoothDeviceName(ba) : null;
+
+            String line1 = "[SYS] " + Build.MANUFACTURER.toUpperCase(Locale.ROOT) + " " + Build.MODEL
+                    + " \u00b7 ANDROID " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")";
+            String line2 = "[PWR] BATT " + (pct >= 0 ? pct + "%" : "?") + (isCharging() ? " \u26A1CHG" : "")
+                    + " \u00b7 RAM " + (ramPct >= 0 ? ramPct + "%" : "?") + " \u00b7 STOR " + freeGb + "/" + totalGb + "GB";
+            String line3 = "[NET] " + connectivitySummary().replace("Connected to the internet ", "")
+                    .replace("Not connected to the internet. ", "OFFLINE ").trim()
+                    + " \u00b7 RINGER " + ring + (dnd ? " \u00b7 DND" : "")
+                    + " \u00b7 BT " + (bt != null ? bt.toUpperCase(Locale.ROOT) : (ba != null && ba.isEnabled() ? "IDLE" : "OFF"));
+            String dense = line1 + "\n" + line2 + "\n" + line3;
+
+            if (Build.VERSION.SDK_INT >= 26 && nmgr != null && nmgr.getNotificationChannel("iris_output") == null) {
+                nmgr.createNotificationChannel(new NotificationChannel("iris_output", "IRIS replies",
+                        NotificationManager.IMPORTANCE_DEFAULT));
+            }
+            Notification.Builder nb = (Build.VERSION.SDK_INT >= 26)
+                    ? new Notification.Builder(this, "iris_output") : new Notification.Builder(this);
+            Notification n = nb.setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS \u25B8 SYSTEM STATUS")
+                    .setStyle(new Notification.BigTextStyle().bigText(dense))
+                    .setContentText(line1)
+                    .setAutoCancel(true).build();
+            if (nmgr != null) nmgr.notify(0x1816, n);
+        } catch (Throwable ignored) { }
+    }
+
+    /** Device model + Android version — spoken. */
+    private String deviceSummary() {
+        try {
+            return "Running " + Build.MANUFACTURER + " " + Build.MODEL + " on Android "
+                    + Build.VERSION.RELEASE + ". ";
+        } catch (Throwable t) { return ""; }
+    }
+
+    /** Free vs total internal storage. */
+    private String storageSummary() {
+        try {
+            android.os.StatFs stat = new android.os.StatFs(getFilesDir().getPath());
+            long freeGb = (stat.getAvailableBytes()) / (1024L * 1024 * 1024);
+            long totalGb = (stat.getTotalBytes()) / (1024L * 1024 * 1024);
+            return "Storage: " + freeGb + " of " + totalGb + " gigabytes free. ";
+        } catch (Throwable t) { return ""; }
+    }
+
+    /** Free vs total RAM + low-memory flag. */
+    private String memorySummary() {
+        try {
+            android.app.ActivityManager amgr =
+                    (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            if (amgr == null) return "";
+            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            amgr.getMemoryInfo(mi);
+            long usedPct = mi.totalMem > 0 ? Math.round(100.0 * (mi.totalMem - mi.availMem) / mi.totalMem) : -1;
+            String s = usedPct >= 0 ? "Memory: " + usedPct + " percent in use" : "";
+            if (mi.lowMemory) s += " — running low";
+            return s.isEmpty() ? "" : s + ". ";
+        } catch (Throwable t) { return ""; }
+    }
+
+    /** How long since boot. */
+    private String uptimeSummary() {
+        try {
+            long ms = android.os.SystemClock.elapsedRealtime();
+            long h = ms / 3_600_000, m = (ms / 60_000) % 60;
+            return "Up for " + (h > 0 ? h + "h " : "") + m + "m. ";
+        } catch (Throwable t) { return ""; }
+    }
+
+    /** Standalone "what's connected via Bluetooth?" answer. */
+    private void handleBluetoothQuery() {
+        try {
+            android.bluetooth.BluetoothManager bm =
+                    (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
+            android.bluetooth.BluetoothAdapter ba = bm != null ? bm.getAdapter()
+                    : android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+            if (ba == null || !ba.isEnabled()) { inform("Bluetooth is off."); return; }
+            String name = connectedBluetoothDeviceName(ba);
+            inform(name != null ? "Connected to " + name + " over Bluetooth."
+                    : "Bluetooth is on, but nothing is connected right now.");
+        } catch (Throwable t) { inform("I couldn't check Bluetooth."); }
     }
 
     private String connectivitySummary() {
@@ -3406,8 +3602,36 @@ public class IrisListeningService extends Service implements RecognitionListener
             android.bluetooth.BluetoothAdapter ba = bm != null ? bm.getAdapter()
                     : android.bluetooth.BluetoothAdapter.getDefaultAdapter();
             if (ba == null) return "";
-            return "Bluetooth is " + (ba.isEnabled() ? "on" : "off") + ". ";
+            if (!ba.isEnabled()) return "Bluetooth is off. ";
+            String name = connectedBluetoothDeviceName(ba);
+            return name != null ? "Connected to " + name + " over Bluetooth. " : "Bluetooth is on, nothing connected. ";
         } catch (Exception e) { return ""; }
+    }
+
+    /** The name of the currently-connected Bluetooth audio device, or null if none. */
+    private String connectedBluetoothDeviceName(android.bluetooth.BluetoothAdapter ba) {
+        try {
+            if (Build.VERSION.SDK_INT >= 31 && !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) return null;
+            int a2dp = ba.getProfileConnectionState(android.bluetooth.BluetoothProfile.A2DP);
+            int headset = ba.getProfileConnectionState(android.bluetooth.BluetoothProfile.HEADSET);
+            if (a2dp != android.bluetooth.BluetoothProfile.STATE_CONNECTED
+                    && headset != android.bluetooth.BluetoothProfile.STATE_CONNECTED) return null;
+            // A connected profile confirms *something* is connected; identify it via the bonded
+            // set (public API — no async profile-proxy round trip needed for a name lookup).
+            java.util.Set<android.bluetooth.BluetoothDevice> bonded = ba.getBondedDevices();
+            if (bonded == null) return null;
+            for (android.bluetooth.BluetoothDevice d : bonded) {
+                try {
+                    java.lang.reflect.Method m = d.getClass().getMethod("isConnected");
+                    Object connected = m.invoke(d);
+                    if (Boolean.TRUE.equals(connected)) return d.getName();
+                } catch (Throwable ignored) { }
+            }
+            // Reflection unavailable/blocked — fall back to the most recently bonded device name
+            // rather than reporting nothing when we already know a profile IS connected.
+            for (android.bluetooth.BluetoothDevice d : bonded) return d.getName();
+            return null;
+        } catch (Throwable t) { return null; }
     }
 
     private String batterySummary() {
@@ -4337,13 +4561,31 @@ public class IrisListeningService extends Service implements RecognitionListener
         return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
-    private void handleRecall() {
+    private void handleRecall(String topic) {
         int count = MemoryStore.count(this);
-        String name = MemoryStore.ownerName(this);
         if (count == 0) {
             speak("I don\u2019t know anything about you yet. Say \u201Cremember\u201D followed by a fact.");
             broadcastMessage("\uD83E\uDDE0 No memories yet.");
+            LogStore.append(this, "RECALL", "Memories: 0");
+            rearmAfterAction();
+            return;
+        }
+        String out;
+        if (topic != null && !topic.trim().isEmpty()) {
+            // A targeted question ("what do you know about my car?") — answer with the
+            // best-matching memories instead of dumping everything in storage order.
+            java.util.List<MemoryStore.Memory> hits = MemoryStore.recall(this, topic, 3, false);
+            if (hits.isEmpty()) {
+                out = "I don't have anything remembered about " + topic.trim() + ".";
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (MemoryStore.Memory m : hits) {
+                    sb.append(capitalize(m.key)).append(": ").append(m.value).append(". ");
+                }
+                out = sb.toString().trim();
+            }
         } else {
+            String name = MemoryStore.ownerName(this);
             StringBuilder response = new StringBuilder("Here's what I know about you. ");
             if (name != null) response.append("Your name is ").append(name).append(". ");
             int listed = 0;
@@ -4356,11 +4598,11 @@ public class IrisListeningService extends Service implements RecognitionListener
             if (listed == 0 && name == null) {
                 response.append("I have ").append(count).append(count == 1 ? " memory." : " memories.");
             }
-            String out = response.toString().trim();
-            speak(out);
-            broadcastMessage("\uD83E\uDDE0 " + out);
+            out = response.toString().trim();
         }
-        LogStore.append(this, "RECALL", "Memories: " + count);
+        speak(out);
+        broadcastMessage("\uD83E\uDDE0 " + out);
+        LogStore.append(this, "RECALL", (topic == null ? "all" : topic) + " → memories: " + count);
         rearmAfterAction();
     }
 
@@ -5139,6 +5381,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private Object speechFocusRequest;
     private volatile boolean speechCancelled;
+    private volatile boolean pausedMediaForSpeech;
     private String lastUserCommand = "";
     private String lastActionSummary = "";
     private volatile boolean nextOutputMinor;
@@ -5150,28 +5393,41 @@ public class IrisListeningService extends Service implements RecognitionListener
     /** Phase 2: a understood-but-incomplete plan waiting for one missing detail. */
     private Plan pendingPlan;
 
-    /** Grab transient audio focus so background music/video pauses while IRIS speaks. */
+    /**
+     * Stop background music/video before IRIS speaks — a REAL pause, not audio-focus ducking.
+     * Ducking (AUDIOFOCUS_GAIN_TRANSIENT) only asks other apps to lower volume; many apps mix
+     * instead, which is the "weird sounding" tone reported. Sending an actual PAUSE key stops
+     * the source outright, then PLAY resumes it afterwards.
+     */
     private void requestSpeechFocus() {
         try {
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
             if (am == null) return;
+            pausedMediaForSpeech = am.isMusicActive();
+            if (pausedMediaForSpeech) {
+                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
+                        android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE));
+                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
+                        android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE));
+            }
+            // Still take brief focus so the system doesn't let anything else start while we talk.
             if (Build.VERSION.SDK_INT >= 26) {
                 android.media.AudioFocusRequest req = new android.media.AudioFocusRequest.Builder(
                         AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                         .setAudioAttributes(new android.media.AudioAttributes.Builder()
                                 .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
                                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                        .setWillPauseWhenDucked(true)
                         .build();
-                am.requestAudioFocus(req);
-                speechFocusRequest = req;
+                if (am.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                    speechFocusRequest = req;
+                }
             } else {
                 am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
             }
         } catch (Exception ignored) { }
     }
 
-    /** Release focus so the paused music resumes after IRIS finishes speaking. */
+    /** Release focus and resume whatever we actually paused. */
     private void abandonSpeechFocus() {
         try {
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
@@ -5181,6 +5437,13 @@ public class IrisListeningService extends Service implements RecognitionListener
                 speechFocusRequest = null;
             } else {
                 am.abandonAudioFocus(null);
+            }
+            if (pausedMediaForSpeech) {
+                pausedMediaForSpeech = false;
+                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
+                        android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
+                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
+                        android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
             }
         } catch (Exception ignored) { }
     }
