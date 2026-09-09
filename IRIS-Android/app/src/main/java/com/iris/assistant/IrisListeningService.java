@@ -236,6 +236,26 @@ public class IrisListeningService extends Service implements RecognitionListener
             + "|wrong|not what i (?:said|meant)|you (?:got it wrong|misheard me)"
             + "|i didn'?t say that)\\.?$",
             Pattern.CASE_INSENSITIVE);
+    // Phase 3 — action-ledger queries: where things went, sharing the last one, undo.
+    private static final Pattern WHERE_SAVED_PATTERN = Pattern.compile(
+            "^(?:where\\s+(?:did\\s+you\\s+|is\\s+|was\\s+)?(?:it|that|the\\s+(?:file|photo|video|screenshot|recording|memo))?"
+            + "\\s*(?:saved?|stored?|kept?|go|gone)?"
+            + "|where'?s\\s+(?:it|that|the\\s+\\w+))\\s*\\??$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern SEND_LAST_PATTERN = Pattern.compile(
+            "^(?:send|share)\\s+(?:me\\s+)?(?:the\\s+)?(?:last|latest|recent|most\\s+recent)\\s+"
+            + "(screenshot|screen\\s?shot|photo|picture|image|video|clip|recording|voice|memo|audio|one|file)"
+            + "(?:\\s+.*)?$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern UNDO_PATTERN = Pattern.compile(
+            "^(?:undo(?:\\s+(?:that|it|the\\s+last\\s+(?:one|action|reminder)))?"
+            + "|cancel\\s+(?:that|the\\s+last\\s+)?reminder"
+            + "|forget\\s+(?:that|the\\s+last\\s+one))\\.?$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern TIMELINE_PATTERN = Pattern.compile(
+            "^(?:what\\s+have\\s+you\\s+done|(?:show|read)\\s+(?:me\\s+)?(?:your\\s+)?"
+            + "(?:activity|history|timeline|recent\\s+actions))\\s*\\??$",
+            Pattern.CASE_INSENSITIVE);
     // "phone status" / "how's my phone" — full rundown of ringer, DND, airplane, net, bt, battery.
     private static final Pattern STATUS_PATTERN = Pattern.compile(
             "^(?:(?:what(?:'s| is)\\s+(?:my\\s+)?)?(?:phone|mobile|device|system)\\s+status"
@@ -522,7 +542,21 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         if (ACTION_CAPTURE_DONE.equals(action)) {
             String msg = intent == null ? null : intent.getStringExtra(EXTRA_TEXT);
-            if (msg != null && !msg.isEmpty()) { broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction); }
+            if (msg != null && !msg.isEmpty()) {
+                // Only log what Android actually confirmed as saved (§6: never optimistic).
+                try {
+                    String m = msg.toLowerCase(Locale.ROOT);
+                    boolean saved = m.startsWith("saved") || m.startsWith("screenshot saved");
+                    String kind = m.contains("screenshot") ? "screenshot"
+                            : m.contains("screen recording") ? "screen_recording"
+                            : m.contains("video") ? "camera_video" : "capture";
+                    String where = m.contains("pictures/iris") ? "Pictures/IRIS"
+                            : m.contains("movies/iris") ? "Movies/IRIS" : "";
+                    ledger().record(kind, saved ? ActionLedger.OK : ActionLedger.FAILED,
+                            msg.replaceFirst("\\s*to .*$", ""), where, "", false);
+                } catch (Throwable ignored) { }
+                broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
+            }
             else rearmAfterAction();
             return START_STICKY;
         }
@@ -1332,9 +1366,30 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         if (LAST_ACTION_PATTERN.matcher(normalized).matches()) {
-            String m = (lastActionSummary == null || lastActionSummary.trim().isEmpty())
-                    ? "I haven't done anything yet this session."
-                    : "The last thing I did was: " + lastActionSummary;
+            ActionLedger.Record r = null;
+            try { r = ledger().last(); } catch (Throwable ignored) { }
+            String m;
+            if (r != null) {
+                m = "The last thing I did was " + ActionLedger.spoken(r)
+                        + (r.location.isEmpty() ? "." : ", saved to " + r.location + ".");
+            } else if (lastActionSummary != null && !lastActionSummary.trim().isEmpty()) {
+                m = "The last thing I did was: " + lastActionSummary;
+            } else {
+                m = "I haven't done anything yet.";
+            }
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction); return;
+        }
+        if (WHERE_SAVED_PATTERN.matcher(normalized).matches()) { handleWhereSaved(); return; }
+        Matcher sendLast = SEND_LAST_PATTERN.matcher(normalized);
+        if (sendLast.matches()) { handleSendLast(sendLast.group(1)); return; }
+        if (UNDO_PATTERN.matcher(normalized).matches()) { handleUndo(); return; }
+        if (TIMELINE_PATTERN.matcher(normalized).matches()) {
+            int n = 0;
+            try { n = ledger().count(); } catch (Throwable ignored) { }
+            String m = n == 0 ? "I haven't recorded any actions yet."
+                    : "I've recorded " + n + (n == 1 ? " action" : " actions")
+                      + ". The most recent: " + ActionLedger.spoken(ledger().last())
+                      + ". You can see the full list in Settings.";
             broadcastMessage(m); speakThenRun(m, this::rearmAfterAction); return;
         }
         if (REPEAT_ACTION_PATTERN.matcher(normalized).matches()) {
@@ -1488,6 +1543,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             ruleBasedChat(original, normalized, store);
             return;
         }
+
+        // Phase 5: give the local planner a chance BEFORE falling back to conversation.
+        // Nothing above matched, so this can only add capability. Opt-in (AI enabled) and
+        // strictly validated — an invalid or doubtful plan is ignored.
+        if (settings.aiEnabled() && llmReady && llmAgent != null
+                && tryLocalPlanner(original, normalized, store)) return;
 
         // Server brain first — only when server mode is on, online, and healthy.
         if (serverMonitor.shouldUseServer(settings)) {
@@ -2187,6 +2248,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         return recognitionStats;
     }
 
+    private ActionLedger ledger() {
+        if (actionLedger == null) actionLedger = new ActionLedger(this);
+        return actionLedger;
+    }
+
     /** Count an accepted transcript + its latency (called from every STT path). */
     private void recordTranscript(String heard) {
         try {
@@ -2575,6 +2641,8 @@ public class IrisListeningService extends Service implements RecognitionListener
                 startActivity(i);
                 String msg = "Alarm set for " + formatClock(hm[0], hm[1]) + ".";
                 LogStore.append(this, "ALARM", timeText + " → " + hm[0] + ":" + hm[1]);
+                try { ledger().record("alarm", ActionLedger.OK,
+                        "Set an alarm for " + formatClock(hm[0], hm[1]), "Clock", "", false); } catch (Throwable ignored) { }
                 reply(msg);
                 return;
             } catch (Throwable t) {
@@ -2677,6 +2745,11 @@ public class IrisListeningService extends Service implements RecognitionListener
                 am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
             }
             String msg = "Okay, I'll remind you to " + task + " " + whenSpoken + ".";
+            try {
+                ledger().record("reminder", ActionLedger.OK,
+                        "Reminder to " + task + " " + whenSpoken, "",
+                        String.valueOf((int) (triggerAt & 0x7fffffff)) + "|" + task, true);
+            } catch (Throwable ignored) { }
             broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
             LogStore.append(this, "REMINDER", task + " @ " + whenSpoken);
         } catch (Exception e) {
@@ -2999,6 +3072,179 @@ public class IrisListeningService extends Service implements RecognitionListener
         handler.post(() -> handleCommand(toRun));
     }
 
+    // ─────────────── Phase 3: action-ledger backed answers ───────────────
+
+    /** "Where did you save it?" — answered from the ledger, not from memory of the sentence. */
+    private void handleWhereSaved() {
+        ActionLedger.Record r = null;
+        try { r = ledger().last(); } catch (Throwable ignored) { }
+        if (r == null) { reply("I haven't saved anything yet."); return; }
+        if (r.location == null || r.location.isEmpty()) {
+            reply("My last action was " + ActionLedger.spoken(r) + ", which didn't save a file.");
+            return;
+        }
+        reply(ActionLedger.spoken(r) + ", saved to " + r.location + ".");
+    }
+
+    /** "Send the last screenshot/video/voice memo" — finds the real file and opens the share sheet. */
+    private void handleSendLast(String what) {
+        RecentMedia.Kind kind = RecentMedia.kindFrom(what);
+        if (kind == null) {
+            // "send the last one" — infer from the most recent capture we logged.
+            ActionLedger.Record r = null;
+            try { r = ledger().last(); } catch (Throwable ignored) { }
+            String hint = r == null ? "" : r.intent;
+            kind = hint.contains("screenshot") ? RecentMedia.Kind.IMAGE
+                    : hint.contains("voice") ? RecentMedia.Kind.AUDIO
+                    : hint.contains("video") || hint.contains("screen_recording") ? RecentMedia.Kind.VIDEO
+                    : RecentMedia.Kind.IMAGE;
+        }
+        RecentMedia.Item item = RecentMedia.newest(this, kind);
+        if (item == null) {
+            reply("I couldn't find a recent " + describeKind(kind) + " to send.");
+            return;
+        }
+        final RecentMedia.Item toSend = item;
+        // Read it back before sharing — sending a file reaches other people (§12).
+        String confirm = "The latest " + describeKind(kind) + " is " + toSend.name
+                + ". Opening the share sheet so you can pick who gets it.";
+        broadcastMessage(confirm);
+        speakThenRun(confirm, () -> {
+            try {
+                Intent share = new Intent(Intent.ACTION_SEND)
+                        .setType(toSend.mime)
+                        .putExtra(Intent.EXTRA_STREAM, toSend.uri)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(Intent.createChooser(share, "Send with")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                ledger().record("share", ActionLedger.OK, "Shared " + toSend.name, "", "", false);
+                LogStore.append(this, "SHARE", toSend.name);
+                rearmAfterAction();
+            } catch (Throwable t) {
+                reply("I couldn't open the share sheet.");
+            }
+        });
+    }
+
+    private static String describeKind(RecentMedia.Kind kind) {
+        switch (kind) {
+            case VIDEO: return "video";
+            case AUDIO: return "recording";
+            default: return "screenshot";
+        }
+    }
+
+    /** "Undo that" — currently supports cancelling the last reminder IRIS scheduled. */
+    private void handleUndo() {
+        ActionLedger.Record r = null;
+        try { r = ledger().lastReversible(); } catch (Throwable ignored) { }
+        if (r == null) { reply("There's nothing I can undo."); return; }
+        if ("reminder".equals(r.intent)) {
+            try {
+                String[] parts = r.ref.split("\\|", 2);
+                int requestCode = Integer.parseInt(parts[0]);
+                Intent i = new Intent(this, ReminderReceiver.class);
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT
+                        | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+                PendingIntent pi = PendingIntent.getBroadcast(this, requestCode, i, flags);
+                ((android.app.AlarmManager) getSystemService(ALARM_SERVICE)).cancel(pi);
+                pi.cancel();
+                ledger().markUndone(r.id);
+                LogStore.append(this, "UNDO", "cancelled reminder " + requestCode);
+                reply("Cancelled that reminder.");
+                return;
+            } catch (Throwable t) {
+                LogStore.append(this, "UNDO", "failed: " + t);
+                reply("I couldn't cancel that reminder.");
+                return;
+            }
+        }
+        reply("I can't undo " + ActionLedger.spoken(r) + ".");
+    }
+
+    /**
+     * Phase 5 — ask the local model for a validated plan, off the main thread.
+     * Returns true if we took ownership of this utterance (so the caller must not also reply).
+     *
+     * The plan is never executed directly: it is converted back into a canonical command string
+     * and routed through the same proven handlers, so no new execution path exists.
+     */
+    private boolean tryLocalPlanner(final String original, final String normalized, final ProfileStore store) {
+        try {
+            final LlmAgent agent = llmAgent;
+            final LocalPlanner planner = new LocalPlanner(new LocalPlanner.Engine() {
+                @Override public boolean ready() { return agent != null && agent.isReady(); }
+                @Override public String generate(String prompt) { return agent.generateRaw(prompt); }
+            });
+            if (!planner.available()) return false;
+            broadcastMessage("Thinking\u2026");
+            final java.util.List<String> ctxLines = new java.util.ArrayList<>();
+            try {
+                for (ActionLedger.Record r : ledger().recent(5)) {
+                    ctxLines.add(r.intent + ": " + r.summary
+                            + (r.location == null || r.location.isEmpty() ? "" : " (" + r.location + ")"));
+                }
+            } catch (Throwable ignored) { }
+            final String ctx = LocalPlanner.contextFrom(ctxLines);
+            new Thread(() -> {
+                Plan plan;
+                try { plan = planner.plan(original, ctx); }
+                catch (Throwable t) { plan = Plan.unknown(); }
+                final Plan result = plan;
+                handler.post(() -> {
+                    if (result.isUnknown()) {
+                        // Planner had nothing trustworthy — carry on as conversation.
+                        LogStore.append(this, "PLANNER", "no usable plan for: " + original);
+                        offlineChat(original, normalized, store);
+                        return;
+                    }
+                    LogStore.append(this, "PLANNER", result.toString());
+                    if (!result.isComplete()) {
+                        String q = IntentParser.clarifyQuestion(result);
+                        if (!q.isEmpty()) {
+                            pendingPlan = result;
+                            broadcastMessage(q);
+                            nextOutputMinor = true;
+                            speakThenRun(q, this::startCommandRecognition);
+                            return;
+                        }
+                        offlineChat(original, normalized, store);
+                        return;
+                    }
+                    String command = commandFor(result);
+                    if (command.isEmpty()) { offlineChat(original, normalized, store); return; }
+                    // Sensitive plans are read back by the handler they route into.
+                    handleCommand(command);
+                });
+            }, "IRIS-Planner").start();
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** Turn a validated plan into the canonical phrasing the existing handlers already accept. */
+    private String commandFor(Plan plan) {
+        if (plan == null) return "";
+        switch (plan.intent()) {
+            case SET_ALARM:       return "set an alarm for " + plan.entity("time");
+            case SET_TIMER:       return "set a timer for " + plan.entity("duration");
+            case CALL_CONTACT:    return "call " + plan.entity("recipient");
+            case TAKE_SCREENSHOT: return "take a screenshot";
+            case TORCH:           return "torch " + plan.entity("state");
+            case RECORD_SCREEN:   return "record the screen"
+                    + (plan.entity("duration").isEmpty() ? "" : " for " + plan.entity("duration"));
+            case RECORD_VIDEO:    return "record " + ("front".equals(plan.entity("camera")) ? "front " : "")
+                    + "camera video"
+                    + (plan.entity("duration").isEmpty() ? "" : " " + plan.entity("duration"));
+            case RECORD_VOICE:    return "record voice"
+                    + (plan.entity("duration").isEmpty() ? "" : " " + plan.entity("duration"));
+            case PHONE_STATUS:    return "phone status";
+            case READ_NOTIFICATIONS: return "read my notifications";
+            default:              return "";
+        }
+    }
+
     /** Open the command window immediately (used by notification/tile/headset/shake/assist triggers). */
     private void triggerTalk(String source) {
         if (memoRecorder != null && memoRecorder.isRecording()) return;
@@ -3037,6 +3283,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 @Override public void onSaved(String location, int secs) {
                     restoreListeningNotification();
                     String m = "Saved a " + secs + " second recording to " + location + ".";
+                    try { ledger().recordSaved("voice_memo", "Recorded a " + secs + " second voice memo", location); } catch (Throwable ignored) { }
                     broadcastMessage(m); speakThenRun(m, IrisListeningService.this::rearmAfterAction);
                     LogStore.append(IrisListeningService.this, "RECORD", m);
                 }
@@ -4795,6 +5042,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private volatile boolean nextOutputMinor;
     private PersonalVocabulary personalVocabulary;
     private RecognitionStats recognitionStats;
+    private ActionLedger actionLedger;
     private long commandWindowOpenedAt;
     private String lastHeardTranscript = "";
     /** Phase 2: a understood-but-incomplete plan waiting for one missing detail. */

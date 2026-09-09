@@ -560,6 +560,73 @@ Track:
 
 ## 16. Where IRIS stands today (gap analysis)
 
+### Phase 3 status (implemented in 8.9.0)
+
+| Phase 3 item | Status |
+|---|---|
+| Save actions, media locations, pending tasks | ✅ `ActionLedger` — framework SQLite (`iris_actions.db`), columns: time, intent, status, summary, location, ref, reversible. Written **only after Android confirms** the action. |
+| "last action" | ✅ "what did you just do?" now answers from the ledger, with the old in-memory summary as fallback |
+| "where did you save it" | ✅ `handleWhereSaved` reads the real location |
+| "send the last image" | ✅ `handleSendLast` + `RecentMedia` finds the newest actual file (IRIS folders first) and opens the share sheet **after reading back what it found** |
+| "undo" | ✅ `handleUndo` cancels the last reminder's `PendingIntent` (stored request code); non-reversible actions say so honestly |
+| Activity timeline | ✅ Settings → "What IRIS did", with Clear history |
+| Retention | ✅ 30-day auto-purge on every write; manual clear |
+| Memory controls | ✅ ledger clear + vocabulary clear + memory screen (facts) |
+
+The four memory types of §6 now all exist: session (`ConversationManager`), **action history (new)**,
+preferences (`AppSettings`), explicit facts (`MemoryStore`).
+
+### Phase 5 status (planner layer implemented in 8.9.0; native engine deferred)
+
+| Phase 5 item | Status |
+|---|---|
+| Strict tool schema | ✅ `ToolCall.KNOWN` whitelist; the prompt is generated from it so they cannot drift |
+| Planner layer + prompt | ✅ `LocalPlanner` — engine-agnostic (`LocalPlanner.Engine`), strict JSON-only prompt with the 6 safety rules and two worked examples |
+| Validation | ✅ `Plan.fromJson` + a second gate (confidence ≥ 0.45, all tools known) |
+| No model access to permissions/shell/code | ✅ the model returns text; the plan is inert data; execution converts it to a canonical command string routed through the **existing** handlers |
+| Deterministic fallback | ✅ any doubt → `Plan.unknown()` → conversation/regex path unchanged |
+| Runs only after a request | ✅ invoked only when the router already failed, and only when AI is enabled in Settings |
+| Downloadable model in Settings | ⚠️ Uses the **already-integrated** MediaPipe engine (opt-in, off by default) |
+| `llama.cpp` + GGUF 1.5–3B | ⛔ **Deferred** — needs a native NDK/JNI build |
+
+#### Detailed Phase 5 completion plan (the remaining native work)
+
+**Why it is deferred.** `llama.cpp` requires CMake/NDK `externalNativeBuild`, per-ABI binaries, a
+~1–2 GB 4-bit GGUF download, and careful memory tuning. It cannot be compiled or crash-tested from
+this environment, and the app has a real history of *uncatchable native crashes* from on-device
+inference. Shipping it blind would risk the working build.
+
+**Step-by-step when we do it (own branch, device testing at each step):**
+
+1. **Prove the planner layer with the current engine.** Enable AI in Settings and check the
+   `PLANNER` lines in Logs. If plan quality is poor, fix the prompt before adding any native code.
+   *No new risk; this is already shippable today.*
+2. **Add the native module.** `app/src/main/cpp/` + `CMakeLists.txt`, `llama.cpp` as a submodule,
+   `externalNativeBuild { cmake { ... } }`, `ndkVersion`, `abiFilters "arm64-v8a"` only (keeps the
+   APK sane and covers the target phone).
+3. **Thin JNI wrapper.** `LlamaBridge` with `nativeInit(modelPath, threads, ctx)`,
+   `nativeGenerate(prompt, maxTokens)`, `nativeFree()`. Load with
+   `try { System.loadLibrary("iris_llama"); } catch (Throwable)` so a missing/incompatible library
+   degrades to "planner unavailable" instead of crashing.
+4. **Guard against native crashes** exactly as `LlmAgent` does today: an "inference_active" flag in
+   SharedPreferences set before a call and cleared after, so a crash-loop auto-disables the planner
+   on next launch.
+5. **Model manager.** Download the GGUF on Wi-Fi only, verify size/SHA, store in app-private files,
+   show progress, allow delete. Never bundle it in the APK.
+6. **Wire as a second `LocalPlanner.Engine`.** No change to `LocalPlanner`, `Plan`, or the executor
+   — that is the point of the interface. Pick the engine in Settings (MediaPipe / llama.cpp / off).
+7. **Budget + cancellation.** Run on a single worker thread, hard timeout (`BUDGET_MS`), cancel on
+   a new utterance, and fall back to the deterministic path when the budget is exceeded.
+8. **Expand coverage deliberately.** Add one intent at a time to `ToolCall.KNOWN` +
+   `commandFor(...)`, each with `PlanTest`/`LocalPlannerTest` cases, measuring the wrong-action
+   counter in the Recognition report after each addition.
+9. **Multi-step plans.** Only after single-step plans are reliable: execute steps sequentially,
+   verify each via the ledger, and abort the rest on the first failure.
+10. **Ship behind a clearly-labelled opt-in** with RAM/battery/storage warnings.
+
+**Acceptance criteria before enabling it by default:** zero wrong actions across the 100-phrase
+accent set, p95 plan latency under ~2.5 s, and no native crash in a week of daily use.
+
 ### Phase 2 status (implemented in 8.8.0)
 
 | Phase 2 item | Status |

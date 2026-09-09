@@ -94,6 +94,22 @@ public final class LlmAgent {
     public boolean isReady() { return ready && llmInference != null && generateMethod != null; }
 
     /**
+     * Run the model on an exact prompt, with no chat scaffolding and no reply cleaning.
+     * Used by {@link LocalPlanner} for strict JSON tool-calling, where the caller validates
+     * the output itself. Returns null when the model is unavailable or errors.
+     */
+    public String generateRaw(String prompt) {
+        if (!isReady() || prompt == null || prompt.isEmpty()) return null;
+        try {
+            Object result = generateMethod.invoke(llmInference, prompt);
+            return result == null ? null : result.toString();
+        } catch (Throwable t) {
+            android.util.Log.e("IRIS", "LLM raw generate failed: " + t.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Generate a reply to the user's message, given their memory and personality.
      * Returns the raw model output (may contain an action tag). Null on failure.
      */

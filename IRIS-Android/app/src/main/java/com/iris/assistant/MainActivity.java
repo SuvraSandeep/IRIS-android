@@ -893,6 +893,7 @@ public class MainActivity extends Activity {
         {"🎬 Video recording", "Record a short video, saved to Movies/IRIS.\nSay: “start recording 30” (back camera, else 1 minute by default), “record video 20”, “record front camera video 15”, “record selfie video 10”. Choose the lens with “front/selfie” or “back/rear”.\nIt auto-stops after the time you set; to end early, tap the ⏹ Stop button on the recording notification (also on the lock screen/watch). Records over the lock screen on many phones (grant the Camera permission once; some phones need battery optimisation off). Locked/background camera behaviour varies by phone."},
         {"⚡ More ways to trigger IRIS", "Besides the wake word:\n• Notification: tap the “🎙 Talk” button on IRIS's notification (works on the lock screen).\n• Quick Settings tile: add the IRIS tile to your shade and tap it.\n• Assistant: set IRIS as your device's Digital Assistant (Settings → Default apps) — then the assist gesture (long-press power/home) opens IRIS anywhere.\n• Shake to talk (optional): enable in Settings, then shake the phone.\n• Headset button (optional): enable in Settings, then double-press your earphone button."},
         {"🎙 Voice recording", "Record a timed voice memo, saved as an .m4a in Recordings/IRIS (or Music/IRIS on older phones).\nSay: “record voice 20”, “voice memo 30”, “record audio for 1 minute”. Stop early with “stop recording” or the Stop button in the notification (works on the lock screen).\nPick a mic: add “using earphone / bluetooth / phone mic” — e.g. “record voice using bluetooth 30”. Otherwise it uses your Settings → Microphone choice. IRIS speaks first so its own voice isn't captured, and confirms where it saved."},
+        {"🧭 Remembers what it did", "IRIS keeps a private log of what it actually did, so you can refer back to it.\nAsk: “what did you just do?”, “where did you save it?”, “what have you done?”\nDo: “send the last screenshot”, “send the latest video”, “do that again”, “undo that” (cancels the last reminder it set).\nSee everything in Settings → RECOGNITION & LEARNING → “What IRIS did”, and clear it anytime. Kept 30 days, on this phone only. Before sending a file it tells you which one it found."},
         {"❓ IRIS asks instead of guessing", "If a command is missing a detail, IRIS now asks one short question rather than doing nothing or the wrong thing.\nSay “set an alarm” → “What time should I set the alarm for?” → say “7 am” → alarm set.\nSame for “set a timer” (how long?) and “call” (who?). Say “cancel” to drop it.\nSensitive actions like calls and messages are always read back or confirmed before they happen."},
         {"🩺 Teach IRIS your words", "When IRIS mishears you, teach it once and it remembers — all on this phone.\nAfter two unclear tries (or if you say “that was wrong”), IRIS offers a card: it shows what it heard, you type what you meant, and it learns.\nAnytime: Settings → RECOGNITION & LEARNING → “Fix what IRIS misheard”. Example: heard “call somojit” → you type “call Soumyajit”; next time it reads it correctly.\n“My words & name pronunciations” lists everything learned (and can clear it). It only applies a fix when the whole phrase matches, plus learned name spellings — it never rewrites your dictated message text."},
         {"📈 Recognition report", "Settings → RECOGNITION & LEARNING → “Recognition report” shows how well IRIS is really hearing you: attempts, how many were clear on the first try, average response time, corrections taught, and wrong actions.\nThe goal is zero wrong actions — asking once is better than acting wrongly. A low first-try rate usually means microphone or noise, not your wording. You can reset the stats anytime.\nSay “that was wrong” right after a mistake to log it and teach the fix."},
@@ -1660,6 +1661,19 @@ public class MainActivity extends Activity {
                         .setNegativeButton("Reset stats", (d, w) -> {
                             stats.reset();
                             toast("Recognition stats reset.");
+                        }).show();
+            });
+        }
+        Button activityTimeline = view.findViewById(R.id.activityTimelineButton);
+        if (activityTimeline != null) {
+            activityTimeline.setOnClickListener(v -> {
+                ActionLedger led = new ActionLedger(this);
+                new AlertDialog.Builder(this).setTitle("What IRIS did")
+                        .setMessage(led.timeline(30))
+                        .setPositiveButton("Close", null)
+                        .setNegativeButton("Clear history", (d, w) -> {
+                            led.clearAll();
+                            toast("Action history cleared.");
                         }).show();
             });
         }

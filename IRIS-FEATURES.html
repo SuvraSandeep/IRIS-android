@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.8.0";
+const BUILD_VERSION = "8.9.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -162,6 +162,14 @@ const FEATURES = [
    tagline:"“Set an alarm.” → “What time?”",
    desc:"IRIS now builds a structured plan for a command — intent, details, confidence — and when a required detail is missing it asks one short question instead of failing or acting on a guess. Answer it and the command completes. Sensitive actions (calls, messages) always need confirmation, and a planner can never invoke a capability IRIS doesn't implement: every step is validated against a fixed tool list.",
    examples:["set an alarm → what time? → 7 am","set a timer → how long?","call → who should I call?"], version:"8.8.0"},
+  {id:"ledger", cat:"Intelligence & Memory", icon:"🧭", title:"Remembers What It Did",
+   tagline:"“Where did you save it?” / “Send the last screenshot.”",
+   desc:"A private action log on this phone records what IRIS actually did — only after Android confirms it. That makes real follow-ups work: “what did you just do?”, “where did you save it?”, “send the last screenshot/video”, “do that again”, and “undo that” (cancels the reminder it just set). Sharing always reads back which file it found first. Viewable and clearable in Settings; kept 30 days.",
+   examples:["what did you just do?","where did you save it?","send the last screenshot","undo that"], version:"8.9.0"},
+  {id:"planner", cat:"Intelligence & Memory", icon:"🧩", title:"Local Planner (opt-in)",
+   tagline:"The AI proposes; IRIS decides.",
+   desc:"When the normal command matching finds nothing and the AI brain is enabled, IRIS asks the on-device model for a strict JSON plan and then validates it hard: unknown intents, invented tools, malformed steps and low-confidence output are all rejected, and calls/messages still require confirmation. A valid plan is executed through the same proven handlers — the model never gets permissions, a shell, or code execution. Any doubt falls back to the deterministic path.",
+   examples:["Settings → enable AI brain","see PLANNER lines in Logs"], version:"8.9.0"},
   {id:"address", cat:"Voice & Recognition", icon:"🎩", title:"Natural, Butler-style Address",
    tagline:"Not your name every single time.",
    desc:"Like a real butler, IRIS varies how it addresses you — mostly nothing, sometimes “sir”, occasionally your name — instead of repeating your name in every reply.",
