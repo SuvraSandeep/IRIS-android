@@ -48,6 +48,10 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String ACTION_STOP_RECORDING = "com.iris.assistant.STOP_RECORDING";
     public static final String ACTION_TALK = "com.iris.assistant.TALK";
     public static final String ACTION_CAPTURE_DONE = "com.iris.assistant.CAPTURE_DONE";
+    public static final String ACTION_CAPTURE_STARTED = "com.iris.assistant.CAPTURE_STARTED";
+    private Runnable cameraLaunchTimeout;
+    private PendingIntent cameraLaunchIntent;
+    private static final int CAMERA_LAUNCH_NOTIFICATION = 0xC0DE;
     public static final String ACTION_STOP_SPEAKING = "com.iris.assistant.STOP_SPEAKING";
     public static final String ACTION_STOP_VIDEO = "com.iris.assistant.STOP_VIDEO";
     public static final String EVENT_STATE = "com.iris.assistant.EVENT_STATE";
@@ -561,7 +565,13 @@ public class IrisListeningService extends Service implements RecognitionListener
             LockedCaptureActivity.stopActive();
             return START_STICKY;
         }
+        if (ACTION_CAPTURE_STARTED.equals(action)) {
+            clearCameraLaunch();
+            pauseListeningForCapture();
+            return START_STICKY;
+        }
         if (ACTION_CAPTURE_DONE.equals(action)) {
+            clearCameraLaunch();
             String msg = intent == null ? null : intent.getStringExtra(EXTRA_TEXT);
             if (msg != null && !msg.isEmpty()) {
                 // Only log what Android actually confirmed as saved (§6: never optimistic).
@@ -1306,7 +1316,22 @@ public class IrisListeningService extends Service implements RecognitionListener
 
         // 5b. Open an installed app ("open WhatsApp", "launch camera")
         Matcher openMatcher = OPEN_APP_PATTERN.matcher(normalized);
+        if (normalized.matches("^(?:open|launch) (?:the )?(?:front |back |rear )?camera (?:and )?(?:take|click|capture) (?:a )?(?:photo|picture|selfie)$")) {
+            handleTakePhoto(normalized.contains("front") || normalized.contains("selfie") ? "front" : "back");
+            return;
+        }
         if (openMatcher.matches() && !containsCallVerb(normalized)) {
+            if (openMatcher.group(1).trim().equals("camera")) {
+                Intent secure = new Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA_SECURE)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    if (secure.resolveActivity(getPackageManager()) != null) {
+                        startActivity(secure);
+                        reply("Requested the lock-screen camera. To capture automatically, say take a photo.");
+                    } else reply("No secure camera app is available. Say take a photo to use IRIS's camera.");
+                } catch (Exception e) { reply("Android couldn't open the camera app. Say take a photo to use IRIS's camera."); }
+                return;
+            }
             if (openApp(openMatcher.group(1).trim())) return;
             // if no app matched, fall through to other handlers / chat
         }
@@ -3012,11 +3037,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         });
     }
 
-    /** Launch a capture activity exactly ONCE. Always try startActivity first — while this
-     *  service is foreground it holds the background-activity-start exemption on Android 10+,
-     *  the same fix that resolved the "call takes confirmation but never dials" bug. Full-screen
-     *  intent is the fallback for when that's blocked (e.g. screen fully off). */
+    /** Camera requests use a resumed-activity acknowledgement and a tappable fallback.
+     * A foreground service alone does not guarantee permission to launch a background activity.
+     * Screen capture retains its existing Android consent flow. */
     private void launchCaptureActivity(Intent i, String title, String text) {
+        if (i.getComponent() != null && i.getComponent().getClassName().equals(LockedCaptureActivity.class.getName())) {
+            launchLockCamera(i);
+            return;
+        }
         boolean launched = false;
         try { startActivity(i); launched = true; } catch (Throwable ignored) { }
         if (launched) return;
@@ -3038,6 +3066,48 @@ public class IrisListeningService extends Service implements RecognitionListener
         } catch (Exception e) {
             try { startActivity(i); } catch (Exception ignored) { }
         }
+    }
+
+    private void clearCameraLaunch() {
+        if (cameraLaunchTimeout != null) handler.removeCallbacks(cameraLaunchTimeout);
+        cameraLaunchTimeout = null;
+        if (cameraLaunchIntent != null) cameraLaunchIntent.cancel();
+        cameraLaunchIntent = null;
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm != null) nm.cancel(CAMERA_LAUNCH_NOTIFICATION);
+    }
+
+    /** startActivity may be silently blocked. A visible, user-tappable fallback is always posted. */
+    private void launchLockCamera(Intent target) {
+        clearCameraLaunch();
+        final NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        final String channel = "iris_camera_launch";
+        boolean canNotify = nm != null && nm.areNotificationsEnabled()
+                && (Build.VERSION.SDK_INT < 33 || hasPermission(Manifest.permission.POST_NOTIFICATIONS));
+        if (canNotify) {
+            nm.createNotificationChannel(new NotificationChannel(channel, "Camera requests", NotificationManager.IMPORTANCE_HIGH));
+            cameraLaunchIntent = PendingIntent.getActivity(this, 91, target,
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            nm.notify(CAMERA_LAUNCH_NOTIFICATION, new Notification.Builder(this, channel)
+                    .setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS camera requested")
+                    .setContentText("Tap to open the camera if it hasn't appeared")
+                    .setContentIntent(cameraLaunchIntent).setAutoCancel(true).setTimeoutAfter(60000).build());
+        }
+        try { startActivity(target); } catch (Exception ignored) { }
+        final boolean notificationAvailable = canNotify;
+        handler.postDelayed(() -> {
+            if (cameraLaunchTimeout != null && LockedCaptureActivity.instance == null) {
+                broadcastMessage(notificationAvailable
+                        ? "If the camera hasn't appeared, tap the IRIS camera notification on your lock screen."
+                        : "If the camera hasn't appeared, unlock once and enable IRIS notifications, then try again.");
+            }
+        }, 1500);
+        cameraLaunchTimeout = () -> {
+            clearCameraLaunch();
+            broadcastMessage("Camera request expired before it opened. Please try again.");
+            rearmAfterAction();
+        };
+        handler.postDelayed(cameraLaunchTimeout, 60000);
     }
 
     /** Parse a spoken number + optional unit into seconds ("m"/minutes → ×60), or fallback. */
@@ -5328,6 +5398,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void stopIris(String reason) {
+        clearCameraLaunch();
         isRunning = false;
         currentPhase = "off";
         handler.removeCallbacksAndMessages(null);
