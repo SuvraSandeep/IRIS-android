@@ -522,7 +522,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         if (ACTION_CAPTURE_DONE.equals(action)) {
             String msg = intent == null ? null : intent.getStringExtra(EXTRA_TEXT);
-            if (msg != null && !msg.isEmpty()) { broadcastMessage(msg); nextOutputMajor = true; speakThenRun(msg, this::rearmAfterAction); }
+            if (msg != null && !msg.isEmpty()) { broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction); }
             else rearmAfterAction();
             return START_STICKY;
         }
@@ -689,6 +689,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 String greet = wakeGreeting();
                 broadcastMessage(greet);
                 // Speak THEN listen — never cut off IRIS mid-sentence
+                nextOutputMinor = true;
                 speakThenRun(greet, IrisListeningService.this::startCommandRecognition);
             }
             @Override public void onError(String message) {
@@ -749,6 +750,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     vibrate(45);
                     String greet = wakeGreeting();
                     broadcastMessage(greet);
+                    nextOutputMinor = true;
                     speakThenRun(greet, IrisListeningService.this::startCommandRecognition);
                 } else if (isRunning && PHASE_WAKE.equals(phase)) {
                     handler.postDelayed(IrisListeningService.this::restartAndroidWake, 200);
@@ -1098,6 +1100,11 @@ public class IrisListeningService extends Service implements RecognitionListener
             catch (Throwable t) { spellingCall = false; LogStore.append(this, "SPELL", "error: " + t); rearmAfterAction(); }
             return;
         }
+        if (pendingPlan != null) {
+            try { handleClarificationAnswer(heard); }
+            catch (Throwable t) { pendingPlan = null; LogStore.append(this, "CLARIFY", "error: " + t); rearmAfterAction(); }
+            return;
+        }
         if (smsCompose != null) {
             try { handleSmsComposeInput(heard); }
             catch (Throwable t) { smsCompose = null; LogStore.append(this, "SMS", "compose error: " + t); rearmAfterAction(); }
@@ -1143,6 +1150,21 @@ public class IrisListeningService extends Service implements RecognitionListener
 
         LogStore.append(this, "HEARD", clean);
         broadcastTranscript(clean);
+
+        // ── Phase 2: structured understanding, used ONLY to ask for a missing detail. ──
+        // Complete commands keep flowing through the proven keyword router below, unchanged.
+        Plan plan = IntentParser.parse(clean);
+        if (!plan.isUnknown() && !plan.isComplete()) {
+            String question = IntentParser.clarifyQuestion(plan);
+            if (!question.isEmpty()) {
+                pendingPlan = plan;
+                LogStore.append(this, "CLARIFY", plan.intent() + " needs " + plan.firstMissing());
+                broadcastMessage(question);
+                nextOutputMinor = true;              // a question isn't an action result
+                speakThenRun(question, this::startCommandRecognition);
+                return;
+            }
+        }
 
         // 1. Check trained phrases first
         ProfileStore store = new ProfileStore(this);
@@ -2042,7 +2064,6 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void reply(String text) {
         broadcastMessage("\uD83D\uDD14 " + text);
         lastActionSummary = text;
-        nextOutputMajor = true;
         speakThenRun(text, this::rearmAfterAction);
     }
 
@@ -2539,28 +2560,44 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
-    /** Set a system alarm. Parses hour/minute/am-pm; opens the clock UI if unparseable. */
+    /** Set a system alarm. Parses hour/minute/am-pm; opens the clock UI if that is refused. */
     private void handleSetAlarm(String timeText) {
         int[] hm = parseClockTime(timeText);
+        // 1. Try to create it silently (needs the SET_ALARM permission + a clock app that supports it).
+        if (hm != null) {
+            try {
+                Intent i = new Intent(android.provider.AlarmClock.ACTION_SET_ALARM)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "IRIS alarm")
+                        .putExtra(android.provider.AlarmClock.EXTRA_HOUR, hm[0])
+                        .putExtra(android.provider.AlarmClock.EXTRA_MINUTES, hm[1])
+                        .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true);
+                startActivity(i);
+                String msg = "Alarm set for " + formatClock(hm[0], hm[1]) + ".";
+                LogStore.append(this, "ALARM", timeText + " → " + hm[0] + ":" + hm[1]);
+                reply(msg);
+                return;
+            } catch (Throwable t) {
+                LogStore.append(this, "ALARM", "Silent set refused (" + t + ") — opening clock UI");
+            }
+        }
+        // 2. Fall back to the clock UI, pre-filled when we understood a time.
         try {
-            Intent i = new Intent(android.provider.AlarmClock.ACTION_SET_ALARM);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            i.putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "IRIS alarm");
+            Intent i = new Intent(android.provider.AlarmClock.ACTION_SET_ALARM)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "IRIS alarm");
             if (hm != null) {
                 i.putExtra(android.provider.AlarmClock.EXTRA_HOUR, hm[0]);
                 i.putExtra(android.provider.AlarmClock.EXTRA_MINUTES, hm[1]);
-                i.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true);
             }
             startActivity(i);
-            String msg = hm != null
-                    ? "Alarm set for " + formatClock(hm[0], hm[1]) + "."
-                    : "Opening the clock so you can set the alarm.";
-            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
-            LogStore.append(this, "ALARM", timeText + (hm != null ? " → " + hm[0] + ":" + hm[1] : " (UI)"));
-        } catch (Exception e) {
-            String msg = "I couldn't set the alarm.";
-            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
-            LogStore.append(this, "ALARM", "Failed: " + e.getMessage());
+            reply(hm != null
+                    ? "I've opened the clock with " + formatClock(hm[0], hm[1]) + " ready — tap save."
+                    : "I couldn't work out the time, so I've opened the clock for you.");
+            LogStore.append(this, "ALARM", timeText + " (clock UI)");
+        } catch (Throwable t) {
+            reply("I couldn't set the alarm — I don't see a clock app that accepts it.");
+            LogStore.append(this, "ALARM", "Failed: " + t);
         }
     }
 
@@ -2576,15 +2613,24 @@ public class IrisListeningService extends Service implements RecognitionListener
                 i.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true);
             }
             startActivity(i);
-            String msg = seconds > 0
-                    ? "Timer set for " + humanDuration(seconds) + "."
-                    : "Opening the clock so you can set the timer.";
-            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
             LogStore.append(this, "TIMER", durationText + " → " + seconds + "s");
-        } catch (Exception e) {
-            String msg = "I couldn't set the timer.";
-            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
-            LogStore.append(this, "TIMER", "Failed: " + e.getMessage());
+            reply(seconds > 0
+                    ? "Timer set for " + humanDuration(seconds) + "."
+                    : "Opening the clock so you can set the timer.");
+        } catch (Throwable e) {
+            // Retry without SKIP_UI so the clock app can take over.
+            try {
+                Intent i2 = new Intent(android.provider.AlarmClock.ACTION_SET_TIMER)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "IRIS timer");
+                if (seconds > 0) i2.putExtra(android.provider.AlarmClock.EXTRA_LENGTH, seconds);
+                startActivity(i2);
+                reply("I've opened the clock with the timer ready — tap start.");
+                LogStore.append(this, "TIMER", durationText + " (clock UI)");
+            } catch (Throwable t2) {
+                reply("I couldn't set the timer — I don't see a clock app that accepts it.");
+                LogStore.append(this, "TIMER", "Failed: " + t2);
+            }
         }
     }
 
@@ -2907,6 +2953,52 @@ public class IrisListeningService extends Service implements RecognitionListener
         return null;
     }
 
+    /**
+     * Phase 2 — the user just answered a clarifying question ("What time?"). Fill the missing
+     * slot and re-issue the request as a complete command, so the existing proven handlers
+     * execute it. No new execution path is introduced.
+     */
+    private void handleClarificationAnswer(String answer) {
+        Plan plan = pendingPlan;
+        pendingPlan = null;
+        String a = answer == null ? "" : answer.trim();
+        if (plan == null) { rearmAfterAction(); return; }
+        String low = a.toLowerCase(Locale.ROOT);
+        if (a.isEmpty() || low.matches("^(stop|cancel|never mind|nevermind|forget it|nothing)$")) {
+            LogStore.append(this, "CLARIFY", "cancelled");
+            String m = "Okay, cancelled.";
+            broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
+            return;
+        }
+        String field = plan.firstMissing();
+        String completed;
+        switch (plan.intent()) {
+            case SET_ALARM:
+                if (IntentParser.extractTime(a).isEmpty()) {
+                    // Still no usable time — say so instead of setting something wrong.
+                    reply("I didn't catch a time, so I haven't set an alarm.");
+                    return;
+                }
+                completed = "set an alarm for " + a;
+                break;
+            case SET_TIMER:
+                if (IntentParser.extractDuration(a).isEmpty()) {
+                    reply("I didn't catch a length, so I haven't set a timer.");
+                    return;
+                }
+                completed = "set a timer for " + a;
+                break;
+            case CALL_CONTACT:
+                completed = "call " + a;
+                break;
+            default:
+                completed = a;
+        }
+        LogStore.append(this, "CLARIFY", field + " = \u201C" + a + "\u201D \u2192 " + completed);
+        final String toRun = completed;
+        handler.post(() -> handleCommand(toRun));
+    }
+
     /** Open the command window immediately (used by notification/tile/headset/shake/assist triggers). */
     private void triggerTalk(String source) {
         if (memoRecorder != null && memoRecorder.isRecording()) return;
@@ -2916,6 +3008,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         broadcastState(true, PHASE_COMMAND);
         String greet = wakeGreeting();
         broadcastMessage(greet);
+        nextOutputMinor = true;                     // a greeting isn't worth a notification
         speakThenRun(greet, this::startCommandRecognition);
         LogStore.append(this, "TRIGGER", source == null ? "manual" : source);
     }
@@ -3082,7 +3175,6 @@ public class IrisListeningService extends Service implements RecognitionListener
     /** Speak + broadcast a short status line, then return to listening. */
     private void inform(String msg) {
         broadcastMessage(msg);
-        nextOutputMajor = true;
         speakThenRun(msg, this::rearmAfterAction);
         lastActionSummary = msg;
         LogStore.append(this, "MODE", msg);
@@ -4391,6 +4483,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
         smsCompose = null;
         spellingCall = false;
+        pendingPlan = null;          // an unanswered clarification expires with the session
         pendingName = null;
         pendingNumber = null;
         destroyRecognizer();
@@ -4699,11 +4792,13 @@ public class IrisListeningService extends Service implements RecognitionListener
     private volatile boolean speechCancelled;
     private String lastUserCommand = "";
     private String lastActionSummary = "";
-    private volatile boolean nextOutputMajor;
+    private volatile boolean nextOutputMinor;
     private PersonalVocabulary personalVocabulary;
     private RecognitionStats recognitionStats;
     private long commandWindowOpenedAt;
     private String lastHeardTranscript = "";
+    /** Phase 2: a understood-but-incomplete plan waiting for one missing detail. */
+    private Plan pendingPlan;
 
     /** Grab transient audio focus so background music/video pauses while IRIS speaks. */
     private void requestSpeechFocus() {
@@ -4851,8 +4946,8 @@ public class IrisListeningService extends Service implements RecognitionListener
      * If voice replies are off or TTS fails, runs the callback after a short delay.
      */
     private void speakThenRun(String text, Runnable afterSpeaking) {
-        boolean major = nextOutputMajor; nextOutputMajor = false;
-        mirrorToWatch(text, major);
+        boolean minor = nextOutputMinor; nextOutputMinor = false;
+        mirrorToWatch(text, minor);
         if (useServerTts() && text != null && !text.isEmpty() && settings.voiceReplies()) {
             speakServerThenRun(text, afterSpeaking);
             return;
@@ -4860,14 +4955,16 @@ public class IrisListeningService extends Service implements RecognitionListener
         speakThenRunLocal(text, afterSpeaking);
     }
 
-    /** When the screen is off, also post IRIS's reply as a notification so it shows on a watch. */
-    private void mirrorToWatch(String text, boolean major) {
+    /** Post IRIS's reply as a notification so it's visible on the phone and a paired watch. */
+    private void mirrorToWatch(String text, boolean minor) {
         try {
             if (text == null || text.trim().isEmpty()) return;
             if (!settings.mirrorReplies()) return;
-            if (settings.mirrorMajorOnly() && !major) return;
-            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            if (pm != null && pm.isInteractive()) return;   // screen on → they can see the app
+            if (settings.mirrorMajorOnly() && minor) return;      // skip greetings/cues
+            if (!settings.mirrorAlways()) {
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                if (pm != null && pm.isInteractive()) return;     // screen on → app is visible
+            }
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm == null) return;
             if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel("iris_output") == null) {
@@ -4879,6 +4976,9 @@ public class IrisListeningService extends Service implements RecognitionListener
             Notification n = b.setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS")
                     .setContentText(text)
                     .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setContentIntent(PendingIntent.getActivity(this, 41,
+                            new Intent(this, MainActivity.class),
+                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
                     .setAutoCancel(true).build();
             nm.notify(0x1815, n);
         } catch (Throwable ignored) { }

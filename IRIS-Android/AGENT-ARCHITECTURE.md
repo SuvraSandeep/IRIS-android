@@ -560,6 +560,21 @@ Track:
 
 ## 16. Where IRIS stands today (gap analysis)
 
+### Phase 2 status (implemented in 8.8.0)
+
+| Phase 2 item | Status |
+|---|---|
+| `Intent`, `Entity`, `ToolCall`, `Plan`, `Confidence` models | ✅ `IrisIntent`, `ToolCall` (+whitelist), `Plan` (entities/steps/missing/confidence) |
+| Strict JSON output validation | ✅ `Plan.fromJson` — rejects unknown intents, unknown tools, malformed steps, garbage; tolerates prose-wrapped JSON; sensitive intents still require confirmation |
+| Rule-based fallback for alarms, calls, camera, screenshots | ✅ `IntentParser` covers alarm, timer, call, screenshot, screen record, camera video, voice memo, torch |
+| Clarification flows | ✅ Missing detail → IRIS asks one question ("What time should I set the alarm for?"), then completes the command |
+| Keep the existing parser | ✅ **Deliberately inverted for safety:** the proven keyword router still handles every complete command. The structured layer currently only intervenes when a command is *understood but incomplete*. Nothing that worked before changed path. |
+
+**Why the inversion.** The roadmap says structured-first with regex as fallback. The shipped router
+is known-good, and re-routing every working command could regress it with no way to test on device
+from here. So the structured layer was added where it can only help (asking instead of failing).
+Flipping the order should be done incrementally per intent, each backed by tests.
+
 ### Phase 1 status (implemented in 8.7.0)
 
 | Phase 1 item | Status |

@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.7.0";
+const BUILD_VERSION = "8.8.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -158,6 +158,10 @@ const FEATURES = [
    tagline:"Measure hearing, don't guess at it.",
    desc:"A local report of how well IRIS is actually understanding you: attempts, first-try clear rate, average response time, corrections taught, and wrong actions. The target is zero wrong actions — IRIS asks again rather than acting on a low-confidence guess. Stats are anonymous counters (no transcripts) and can be reset anytime.",
    examples:["Settings → Recognition report","say “that was wrong” to log a mistake"], version:"8.7.0"},
+  {id:"clarify", cat:"Intelligence & Memory", icon:"❓", title:"Asks Instead of Guessing",
+   tagline:"“Set an alarm.” → “What time?”",
+   desc:"IRIS now builds a structured plan for a command — intent, details, confidence — and when a required detail is missing it asks one short question instead of failing or acting on a guess. Answer it and the command completes. Sensitive actions (calls, messages) always need confirmation, and a planner can never invoke a capability IRIS doesn't implement: every step is validated against a fixed tool list.",
+   examples:["set an alarm → what time? → 7 am","set a timer → how long?","call → who should I call?"], version:"8.8.0"},
   {id:"address", cat:"Voice & Recognition", icon:"🎩", title:"Natural, Butler-style Address",
    tagline:"Not your name every single time.",
    desc:"Like a real butler, IRIS varies how it addresses you — mostly nothing, sometimes “sir”, occasionally your name — instead of repeating your name in every reply.",

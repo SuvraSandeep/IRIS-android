@@ -29,6 +29,8 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Required to create/dismiss clock alarms and timers without opening the UI -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Location for weather (coarse is enough) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

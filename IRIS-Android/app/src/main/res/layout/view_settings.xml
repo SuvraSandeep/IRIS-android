@@ -141,11 +141,15 @@
                 android:textColor="@color/text_primary" android:textSize="14sp" />
             <Switch android:id="@+id/mirrorSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="6dp"
-                android:text="Show replies as a notification when the screen is off (for your watch)"
+                android:text="Show IRIS replies as a notification (visible on your watch)"
+                android:textColor="@color/text_primary" android:textSize="14sp" />
+            <Switch android:id="@+id/mirrorAlwaysSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="6dp"
+                android:text="  ↳ Even when the screen is on"
                 android:textColor="@color/text_primary" android:textSize="14sp" />
             <Switch android:id="@+id/mirrorMajorSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="6dp"
-                android:text="  ↳ Only major replies (action results, not small acknowledgements)"
+                android:text="  ↳ Skip greetings and small cues"
                 android:textColor="@color/text_primary" android:textSize="14sp" />
             <Button android:id="@+id/clearVoiceprintButton" android:layout_width="match_parent" android:layout_height="46dp"
                 android:layout_marginTop="8dp" android:background="@drawable/bg_button_secondary"
