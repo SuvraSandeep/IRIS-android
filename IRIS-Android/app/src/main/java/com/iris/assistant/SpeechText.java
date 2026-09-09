@@ -10,7 +10,7 @@ public final class SpeechText {
             "(?i)^(?:hey[,\\s]+|ok(?:ay)?[,\\s]+|iris[,\\s]+|please\\s+|kindly\\s+|just\\s+"
             + "|(?:can|could|would|will)\\s+(?:you|u)\\s+|(?:i want|i need|i would like|i'd like)\\s+you\\s+to\\s+)");
     private static final Pattern PAYLOAD = Pattern.compile(
-            "(?i)^(?:text|txt|message|msg|sms|tell|send|write|compose|whatsapp|email|search|remember|remind|add|create)\\b.*");
+            "(?i)^(?:text|txt|message|msg|sms|tell|send|share|write|compose|whatsapp|email|search|remember|remind|add|create)\\b.*");
     private static final Set<String> HEADS = new HashSet<>(Arrays.asList(
             "call", "dial", "phone", "ring", "text", "message", "send", "tell", "whatsapp",
             "email", "alarm", "timer", "reminder", "weather", "battery", "flashlight",

@@ -25,6 +25,7 @@ public final class ToolCall {
                     "stop_recording",
                     "set_torch", "set_volume",
                     "open_app", "search_web",
+                    "search_app", "share_text_to_app", "share_recent_media",
                     "phone_status", "read_notifications")));
 
     private final String tool;

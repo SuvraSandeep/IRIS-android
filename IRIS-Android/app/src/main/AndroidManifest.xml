@@ -66,6 +66,8 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".NotificationReplyActivity" android:exported="false" />
+
         <service
             android:name=".IrisListeningService"
             android:exported="false"

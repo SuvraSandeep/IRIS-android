@@ -16,7 +16,31 @@ import android.service.notification.StatusBarNotification;
  */
 public class IrisNotificationListener extends NotificationListenerService {
 
-    private static IrisNotificationListener instance;
+    private static volatile IrisNotificationListener instance;
+
+    /** Active notifications only; cached history must never be used to send a reply. */
+    public static StatusBarNotification[] activeForReply() {
+        IrisNotificationListener service = instance;
+        if (service == null) return new StatusBarNotification[0];
+        try {
+            StatusBarNotification[] items = service.getActiveNotifications();
+            return items == null ? new StatusBarNotification[0] : items;
+        } catch (Exception e) { return new StatusBarNotification[0]; }
+    }
+
+    public static android.app.Notification.Action replyAction(StatusBarNotification item) {
+        if (item == null || item.getNotification().actions == null) return null;
+        if ((item.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) != 0) return null;
+        for (Notification.Action action : item.getNotification().actions) {
+            if (action.actionIntent == null || action.getRemoteInputs() == null) continue;
+            if (android.os.Build.VERSION.SDK_INT >= 28
+                    && action.getSemanticAction() != Notification.Action.SEMANTIC_ACTION_REPLY) continue;
+            // Multiple text fields are ambiguous; support only an explicit single reply field.
+            if (action.getRemoteInputs().length == 1
+                    && action.getRemoteInputs()[0].getAllowFreeFormInput()) return action;
+        }
+        return null;
+    }
 
     @Override public void onListenerConnected() {
         instance = this;

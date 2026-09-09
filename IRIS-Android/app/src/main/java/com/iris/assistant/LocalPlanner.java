@@ -74,7 +74,10 @@ public final class LocalPlanner {
           .append("3. If a required detail is absent, leave it out and list it in \"missing\".\n")
           .append("4. Calls and messages are sensitive: set \"needs_confirmation\": true.\n")
           .append("5. Copy message text exactly as the user said it. Never rewrite it.\n")
-          .append("6. If you are unsure what is wanted, use confidence below 0.4.\n\n");
+          .append("6. If you are unsure what is wanted, use confidence below 0.4.\n")
+          .append("7. App actions support whatsapp, telegram, spotify, youtube, youtube music, maps, chrome, gmail only.\n")
+          .append("8. APP_SEARCH uses search_app. APP_SHARE uses share_text_to_app or share_recent_media and needs_confirmation true.\n")
+          .append("9. App shares only open a review screen. Never claim delivery or invent a recipient. Use exactly one app step.\n\n");
         sb.append("SCHEMA:\n")
           .append("{\"intent\":\"<INTENT>\",\"goal\":\"<short>\",\"confidence\":<0..1>,")
           .append("\"needs_confirmation\":<bool>,\"entities\":{},\"missing\":[],")
@@ -109,6 +112,9 @@ public final class LocalPlanner {
             case "set_volume":          return "(level: 0-100)";
             case "open_app":            return "(name)";
             case "search_web":          return "(query)";
+            case "search_app":          return "(app, value: exact search query)";
+            case "share_text_to_app":   return "(app, value: exact dictated text)";
+            case "share_recent_media":  return "(app, value: photo|image|picture|video|audio|voice memo)";
             default:                    return "()";
         }
     }

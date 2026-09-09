@@ -135,12 +135,16 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.10.0";
+const BUILD_VERSION = "8.11.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
 
 const FEATURES = [
+  {id:"appintegrations", cat:"Productivity", icon:"📱", title:"App search and reviewed sharing",
+   tagline:"Ask naturally. Review the handoff.",
+   desc:"Search supported installed apps through Android intents. Share text or recent accessible media to a chosen app, then choose the recipient and confirm there. Unsupported actions are reported clearly. Notification replies use an unlocked review screen and recheck the live notification before submitting. No paid API or new cloud AI service. Target apps can use their own internet services. Handoffs are never reported as delivered messages.",
+   examples:["search Arijit Singh on Spotify","find coffee near me in Maps","share the latest video via WhatsApp","reply to a notification"], version:"8.11.0"},
   // ---- Voice & Recognition ----
   {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
    tagline:"IRIS wakes only when you say your phrase.",

@@ -22,6 +22,8 @@ public enum IrisIntent {
     TORCH,
     SET_VOLUME,
     OPEN_APP,
+    APP_SEARCH,
+    APP_SHARE,
     WEB_SEARCH,
     PHONE_STATUS,
     READ_NOTIFICATIONS,
@@ -43,6 +45,7 @@ public enum IrisIntent {
         switch (this) {
             case CALL_CONTACT:
             case SEND_MESSAGE:
+            case APP_SHARE:
                 return true;
             default:
                 return false;
