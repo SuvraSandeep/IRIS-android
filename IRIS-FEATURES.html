@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.6.1";
+const BUILD_VERSION = "8.7.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -150,6 +150,14 @@ const FEATURES = [
    tagline:"Speak naturally; wait for the ready cue.",
    desc:"Defaults to English (India) with the system speech service, without forcing on-device recognition. Existing explicit preferences remain unchanged; use Indian English accuracy setup in Settings to apply the preset. System speech may process audio online. Bundled and downloaded offline fallback models now match Indian English, using staged installation rather than a US model or uuid-dependent unpack. Unclear speech gets one retry; low-confidence results are not executed. Common natural phrases are normalised while contact names and dictated messages are preserved. Accent accuracy still depends on microphone, noise and provider; no claim of watch-equivalent accuracy.",
    examples:["Could you switch on the torch?","Give Maa a call","Click one screenshot","Settings → Set up Indian English accuracy"], version:"8.6.1"},
+  {id:"vocab", cat:"Voice & Recognition", icon:"🩺", title:"Teach IRIS Your Words",
+   tagline:"“IRIS heard / I meant” — learns once, on this phone.",
+   desc:"When a transcript is wrong, IRIS offers a correction card showing what it heard; you type what you meant and it learns. Offered automatically after two unclear tries or when you say “that was wrong”, and available anytime from Settings → Recognition &amp; Learning. Corrections are applied only on a whole-phrase match, plus learned name pronunciations in the command head — dictated message text is never rewritten. Everything is stored locally and can be viewed or cleared.",
+   examples:["heard “call somojit” → “call Soumyajit”","that was wrong","Settings → Fix what IRIS misheard"], version:"8.7.0"},
+  {id:"recstats", cat:"Privacy, Safety & Robustness", icon:"📈", title:"Recognition Report",
+   tagline:"Measure hearing, don't guess at it.",
+   desc:"A local report of how well IRIS is actually understanding you: attempts, first-try clear rate, average response time, corrections taught, and wrong actions. The target is zero wrong actions — IRIS asks again rather than acting on a low-confidence guess. Stats are anonymous counters (no transcripts) and can be reset anytime.",
+   examples:["Settings → Recognition report","say “that was wrong” to log a mistake"], version:"8.7.0"},
   {id:"address", cat:"Voice & Recognition", icon:"🎩", title:"Natural, Butler-style Address",
    tagline:"Not your name every single time.",
    desc:"Like a real butler, IRIS varies how it addresses you — mostly nothing, sometimes “sir”, occasionally your name — instead of repeating your name in every reply.",

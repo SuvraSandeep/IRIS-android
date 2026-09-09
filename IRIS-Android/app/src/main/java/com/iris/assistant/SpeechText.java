@@ -73,4 +73,102 @@ public final class SpeechText {
     public static boolean lowConfidence(float score) {
         return Float.isFinite(score) && score >= 0 && score < 0.35f;
     }
+
+    // ─────────── Personal vocabulary repair (pure logic; store lives in PersonalVocabulary) ───────────
+
+    /** Only the first few words are the command head; a dictated message follows after that. */
+    static final int HEAD_WORDS = 4;
+
+    /** Verbs whose message payload starts almost immediately — keep the head very short. */
+    private static final Set<String> PAYLOAD_VERBS = new HashSet<>(Arrays.asList(
+            "text", "txt", "message", "msg", "sms", "tell", "send", "write", "compose",
+            "whatsapp", "email", "mail", "search", "google", "remember", "remind", "note", "ask"));
+
+    /** Once one of these appears, everything after it is the user's own words. */
+    private static final Set<String> PAYLOAD_MARKERS = new HashSet<>(Arrays.asList(
+            "saying", "say", "says", "that", "telling", "asking", "about", "regarding"));
+
+    /**
+     * How many leading words may be treated as the command head. Stops before a payload marker,
+     * and stays very short for message-style verbs, so a dictated message is never rewritten.
+     */
+    static int headWordCount(String[] words) {
+        if (words == null || words.length == 0) return 0;
+        int limit = PAYLOAD_VERBS.contains(words[0].toLowerCase(Locale.ROOT)) ? 2 : HEAD_WORDS;
+        int count = Math.min(limit, words.length);
+        for (int i = 0; i < count; i++) {
+            if (PAYLOAD_MARKERS.contains(words[i].toLowerCase(Locale.ROOT))) return i;
+        }
+        return count;
+    }
+
+    /** A learned variant must never hijack one of these structural/command words. */
+    static final Set<String> PROTECTED_WORDS = new HashSet<>(Arrays.asList(
+            "call", "dial", "phone", "ring", "text", "message", "msg", "send", "tell", "whatsapp",
+            "email", "mail", "alarm", "timer", "reminder", "remind", "remember", "weather",
+            "battery", "torch", "flashlight", "volume", "mute", "notification", "notifications",
+            "location", "open", "search", "google", "time", "stop", "cancel", "set", "turn",
+            "switch", "record", "recording", "take", "capture", "screenshot", "screen", "video",
+            "voice", "audio", "photo", "camera", "front", "back", "play", "pause", "next",
+            "previous", "silent", "vibrate", "normal", "airplane", "aeroplane", "dnd", "status",
+            "and", "the", "a", "an", "to", "for", "on", "off", "my", "me", "i", "is", "are",
+            "what", "where", "when", "who", "how", "yes", "no", "saying", "that", "it", "again"));
+
+    /** Loose normalisation used as the key for whole-utterance corrections. */
+    public static String normalizeLoose(String s) {
+        if (s == null) return "";
+        return s.toLowerCase(Locale.ROOT)
+                .replace('\u2019', '\'')
+                .replaceAll("[.,!?;:\"]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    /**
+     * Apply only what the user explicitly taught:
+     *   1. a whole-utterance correction (exact normalised match), else
+     *   2. learned name variants, and only inside the command head.
+     * Returns {@code text} unchanged when nothing is confidently applicable, so dictated message
+     * content is never rewritten.
+     */
+    public static String personalRepair(String text, Map<String, String> corrections,
+                                        Map<String, List<String>> nameVariants) {
+        if (text == null || text.trim().isEmpty()) return text;
+
+        String n = normalizeLoose(text);
+        if (corrections != null) {
+            String exact = corrections.get(n);
+            if (exact != null && !exact.trim().isEmpty()) return exact;
+        }
+        if (nameVariants == null || nameVariants.isEmpty()) return text;
+
+        String[] words = text.trim().split("\\s+");
+        int headCount = headWordCount(words);
+        if (headCount <= 0) return text;
+        String head = String.join(" ", Arrays.copyOfRange(words, 0, headCount));
+        String tail = headCount < words.length
+                ? " " + String.join(" ", Arrays.copyOfRange(words, headCount, words.length))
+                : "";
+
+        // Longest variants first so "soumya jeet" wins over "soumya".
+        List<String[]> pairs = new ArrayList<>();          // [variant, canonical]
+        for (Map.Entry<String, List<String>> e : nameVariants.entrySet()) {
+            if (e.getValue() == null) continue;
+            for (String v : e.getValue()) if (v != null && !v.trim().isEmpty()) {
+                pairs.add(new String[]{ v.trim().toLowerCase(Locale.ROOT), e.getKey() });
+            }
+        }
+        pairs.sort((a, b) -> Integer.compare(b[0].length(), a[0].length()));
+
+        String repaired = head;
+        boolean changed = false;
+        for (String[] p : pairs) {
+            String variant = p[0], canonical = p[1];
+            if (variant.isEmpty() || PROTECTED_WORDS.contains(variant)) continue;
+            String rx = "(?i)(?<![\\p{L}])" + Pattern.quote(variant) + "(?![\\p{L}])";
+            String next = repaired.replaceAll(rx, Matcher.quoteReplacement(canonical));
+            if (!next.equals(repaired)) { repaired = next; changed = true; }
+        }
+        return changed ? repaired + tail : text;
+    }
 }

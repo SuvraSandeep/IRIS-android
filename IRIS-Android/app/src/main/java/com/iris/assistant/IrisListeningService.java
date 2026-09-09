@@ -230,6 +230,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             "^(?:do\\s+(?:that|it)\\s+again|repeat\\s+(?:that|it|the\\s+last\\s+(?:action|command))"
             + "|again|same\\s+again|one\\s+more\\s+time)$",
             Pattern.CASE_INSENSITIVE);
+    // Phase 1: let the user tell IRIS it got it wrong, so it can be measured and learned.
+    private static final Pattern WRONG_ACTION_PATTERN = Pattern.compile(
+            "^(?:that(?:'s| is| was)?\\s+(?:wrong|not right|incorrect|not what i (?:said|meant))"
+            + "|wrong|not what i (?:said|meant)|you (?:got it wrong|misheard me)"
+            + "|i didn'?t say that)\\.?$",
+            Pattern.CASE_INSENSITIVE);
     // "phone status" / "how's my phone" — full rundown of ringer, DND, airplane, net, bt, battery.
     private static final Pattern STATUS_PATTERN = Pattern.compile(
             "^(?:(?:what(?:'s| is)\\s+(?:my\\s+)?)?(?:phone|mobile|device|system)\\s+status"
@@ -837,6 +843,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void startCommandRecognition() {
+        commandWindowOpenedAt = System.currentTimeMillis();
         // Server STT (Whisper) when server mode is on, online and healthy; else on-device.
         if (serverMonitor.shouldUseServer(settings) && settings.serverStt()) {
             startServerSttCommand();
@@ -883,6 +890,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                             serverMonitor.recordSuccess(dt);
                             broadcastTranscript(text);
                             LogStore.append(IrisListeningService.this, "HEARD CMD", text + " (server)");
+                            recordTranscript(text);
                             handleCommand(text);
                         } else {
                             serverMonitor.recordFailure();
@@ -953,6 +961,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
                     voskEngine.stop();
                     LogStore.append(IrisListeningService.this, "HEARD CMD", text);
+                    recordTranscript(text);
                     handleCommand(text);
                 }
                 @Override public void onError(String message) {
@@ -1067,6 +1076,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         } else {
             String message = "I still couldn't hear that clearly. Try Tap to talk, English India in Settings, and check which microphone is selected.";
             broadcastMessage(message);
+            // Offer the "IRIS heard / I meant" card so the next attempt can be learned.
+            if (lastHeardTranscript != null && !lastHeardTranscript.trim().isEmpty()) {
+                requestCorrection(lastHeardTranscript);
+            }
             speakThenRun(message, this::rearmAfterAction);
         }
     }
@@ -1075,7 +1088,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void handleCommand(String heard) {
         if (heard != null && !heard.trim().isEmpty()) {
             String hl = heard.trim().toLowerCase(Locale.ROOT);
-            if (!REPEAT_ACTION_PATTERN.matcher(hl).matches() && !LAST_ACTION_PATTERN.matcher(hl).matches()) {
+            if (!REPEAT_ACTION_PATTERN.matcher(hl).matches() && !LAST_ACTION_PATTERN.matcher(hl).matches()
+                    && !WRONG_ACTION_PATTERN.matcher(hl).matches()) {
                 lastUserCommand = heard.trim();   // remember only real, repeatable commands
             }
         }
@@ -1286,6 +1300,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (VOLUME_PATTERN.matcher(normalized).matches()) { handleVolume(normalized); return; }
         Matcher volSetM = VOLUME_SET_PATTERN.matcher(normalized);
         if (volSetM.matches()) { handleSetVolumePercent(volSetM.group(1)); return; }
+        if (WRONG_ACTION_PATTERN.matcher(normalized).matches()) {
+            try { recognitionStats().recordWrongAction(); } catch (Throwable ignored) { }
+            LogStore.append(this, "WRONG ACTION", "user reported: " + lastUserCommand);
+            String m = "Sorry about that. I've noted it — tap the notification to tell me what you meant.";
+            broadcastMessage(m);
+            if (lastUserCommand != null && !lastUserCommand.trim().isEmpty()) requestCorrection(lastUserCommand);
+            speakThenRun(m, this::rearmAfterAction);
+            return;
+        }
         if (LAST_ACTION_PATTERN.matcher(normalized).matches()) {
             String m = (lastActionSummary == null || lastActionSummary.trim().isEmpty())
                     ? "I haven't done anything yet this session."
@@ -2124,9 +2147,35 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     // ---------------- Messaging & device action handlers ----------------
 
-    /** Remove polite/filler wrappers so natural phrasing matches the command grammar. */
+    /** Remove polite/filler wrappers so natural phrasing matches the command grammar.
+     *  Also applies the user's own taught corrections first (conservative: whole-utterance
+     *  corrections, plus learned name variants in the command head only). */
     private String stripFiller(String s) {
-        return SpeechText.command(s);
+        String repaired = s;
+        try { repaired = vocabulary().repair(s); } catch (Throwable ignored) { }
+        return SpeechText.command(repaired);
+    }
+
+    private PersonalVocabulary vocabulary() {
+        if (personalVocabulary == null) personalVocabulary = new PersonalVocabulary(this);
+        return personalVocabulary;
+    }
+
+    private RecognitionStats recognitionStats() {
+        if (recognitionStats == null) recognitionStats = new RecognitionStats(this);
+        return recognitionStats;
+    }
+
+    /** Count an accepted transcript + its latency (called from every STT path). */
+    private void recordTranscript(String heard) {
+        try {
+            recognitionStats().recordHeard();
+            if (commandWindowOpenedAt > 0) {
+                recognitionStats().recordLatency(System.currentTimeMillis() - commandWindowOpenedAt);
+                commandWindowOpenedAt = 0;
+            }
+            if (heard != null) lastHeardTranscript = heard;
+        } catch (Throwable ignored) { }
     }
 
     private boolean isSelf(String s) {
@@ -4651,6 +4700,10 @@ public class IrisListeningService extends Service implements RecognitionListener
     private String lastUserCommand = "";
     private String lastActionSummary = "";
     private volatile boolean nextOutputMajor;
+    private PersonalVocabulary personalVocabulary;
+    private RecognitionStats recognitionStats;
+    private long commandWindowOpenedAt;
+    private String lastHeardTranscript = "";
 
     /** Grab transient audio focus so background music/video pauses while IRIS speaks. */
     private void requestSpeechFocus() {
@@ -5074,11 +5127,16 @@ public class IrisListeningService extends Service implements RecognitionListener
         float[] confidence = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
         if (heard.trim().isEmpty() || (confidence != null && confidence.length > 0
                 && SpeechText.lowConfidence(confidence[0]))) {
+            try { recognitionStats().recordUnclear(); } catch (Throwable ignored) { }
+            if (!heard.trim().isEmpty()) lastHeardTranscript = heard;   // for the "I meant…" card
             retryUnclearCommand("I'm not confident I heard you correctly. Please say that once more.");
             return;
         }
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         destroyRecognizer();
+        try {
+            recordTranscript(heard);
+        } catch (Throwable ignored) { }
         // Never execute partial hypotheses or switch to a different contact from a lower-ranked guess.
         broadcastTranscript(heard);
         handleCommand(heard);

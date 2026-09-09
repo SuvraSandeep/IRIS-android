@@ -150,6 +150,7 @@ public class MainActivity extends Activity {
     private String selectedContactName;
     private String selectedContactNumber;
     private String correctionPhrase;
+    private String lastTranscriptSeen = "";
     private boolean resumeAfterContactTraining;
     private String pendingTrainingKind = "";
     private boolean confirmationShowing;
@@ -169,6 +170,7 @@ public class MainActivity extends Activity {
                 updateAssistantState(active, phase);
             } else if (IrisListeningService.EVENT_TRANSCRIPT.equals(action)) {
                 String text = intent.getStringExtra(IrisListeningService.EXTRA_TEXT);
+                if (text != null && !text.trim().isEmpty()) lastTranscriptSeen = text.trim();
                 if (liveTranscript != null && text != null) liveTranscript.setText("“" + text + "”");
             } else if (IrisListeningService.EVENT_MESSAGE.equals(action)) {
                 showAssistantMessage(intent.getStringExtra(IrisListeningService.EXTRA_TEXT));
@@ -891,6 +893,8 @@ public class MainActivity extends Activity {
         {"🎬 Video recording", "Record a short video, saved to Movies/IRIS.\nSay: “start recording 30” (back camera, else 1 minute by default), “record video 20”, “record front camera video 15”, “record selfie video 10”. Choose the lens with “front/selfie” or “back/rear”.\nIt auto-stops after the time you set; to end early, tap the ⏹ Stop button on the recording notification (also on the lock screen/watch). Records over the lock screen on many phones (grant the Camera permission once; some phones need battery optimisation off). Locked/background camera behaviour varies by phone."},
         {"⚡ More ways to trigger IRIS", "Besides the wake word:\n• Notification: tap the “🎙 Talk” button on IRIS's notification (works on the lock screen).\n• Quick Settings tile: add the IRIS tile to your shade and tap it.\n• Assistant: set IRIS as your device's Digital Assistant (Settings → Default apps) — then the assist gesture (long-press power/home) opens IRIS anywhere.\n• Shake to talk (optional): enable in Settings, then shake the phone.\n• Headset button (optional): enable in Settings, then double-press your earphone button."},
         {"🎙 Voice recording", "Record a timed voice memo, saved as an .m4a in Recordings/IRIS (or Music/IRIS on older phones).\nSay: “record voice 20”, “voice memo 30”, “record audio for 1 minute”. Stop early with “stop recording” or the Stop button in the notification (works on the lock screen).\nPick a mic: add “using earphone / bluetooth / phone mic” — e.g. “record voice using bluetooth 30”. Otherwise it uses your Settings → Microphone choice. IRIS speaks first so its own voice isn't captured, and confirms where it saved."},
+        {"🩺 Teach IRIS your words", "When IRIS mishears you, teach it once and it remembers — all on this phone.\nAfter two unclear tries (or if you say “that was wrong”), IRIS offers a card: it shows what it heard, you type what you meant, and it learns.\nAnytime: Settings → RECOGNITION & LEARNING → “Fix what IRIS misheard”. Example: heard “call somojit” → you type “call Soumyajit”; next time it reads it correctly.\n“My words & name pronunciations” lists everything learned (and can clear it). It only applies a fix when the whole phrase matches, plus learned name spellings — it never rewrites your dictated message text."},
+        {"📈 Recognition report", "Settings → RECOGNITION & LEARNING → “Recognition report” shows how well IRIS is really hearing you: attempts, how many were clear on the first try, average response time, corrections taught, and wrong actions.\nThe goal is zero wrong actions — asking once is better than acting wrongly. A low first-try rate usually means microphone or noise, not your wording. You can reset the stats anytime.\nSay “that was wrong” right after a mistake to log it and teach the fix."},
         {"⏹ Stop / interrupt IRIS", "If IRIS is talking too long (e.g. reading many notifications), tap the ⏹ Stop button on IRIS's notification — it cuts the speech off instantly and works on the lock screen. Saying “stop” also works whenever the mic is open. Example: “read my notifications” → tap ⏹ Stop to halt."},
         {"🧭 Remembers its last action", "IRIS keeps track of what it just did. Ask “what did you just do?” and it tells you. Say “do that again” or “repeat that” to re-run your last command. Example: “take a screenshot” … then “do that again”."},
         {"📊 Phone status", "Ask “phone status”, “how's my phone?”, or “mobile status” and IRIS reports it all at once: ringer (silent/vibrate/normal), Do Not Disturb, airplane mode, internet (Wi-Fi or mobile data), Bluetooth, and battery level/charging."},
@@ -1621,6 +1625,36 @@ public class MainActivity extends Activity {
                 if (voiceprintStatus != null)
                     voiceprintStatus.setText("Voiceprint: cleared. Wake works for any voice until you re-enroll.");
                 toast("Voice security cleared.");
+            });
+        }
+        Button fixMisheard = view.findViewById(R.id.fixMisheardButton);
+        if (fixMisheard != null) {
+            fixMisheard.setOnClickListener(v -> showHeardMeantCard(lastTranscriptSeen));
+        }
+        Button vocabularyButton = view.findViewById(R.id.vocabularyButton);
+        if (vocabularyButton != null) {
+            vocabularyButton.setOnClickListener(v -> {
+                PersonalVocabulary vocab = new PersonalVocabulary(this);
+                new AlertDialog.Builder(this).setTitle("My words & pronunciations")
+                        .setMessage(vocab.summary())
+                        .setPositiveButton("Close", null)
+                        .setNegativeButton("Clear all", (d, w) -> {
+                            vocab.clearAll();
+                            toast("Cleared everything IRIS had learned about your wording.");
+                        }).show();
+            });
+        }
+        Button recognitionReport = view.findViewById(R.id.recognitionReportButton);
+        if (recognitionReport != null) {
+            recognitionReport.setOnClickListener(v -> {
+                RecognitionStats stats = new RecognitionStats(this);
+                new AlertDialog.Builder(this).setTitle("Recognition report")
+                        .setMessage(stats.report())
+                        .setPositiveButton("Close", null)
+                        .setNegativeButton("Reset stats", (d, w) -> {
+                            stats.reset();
+                            toast("Recognition stats reset.");
+                        }).show();
             });
         }
         Button feedbackMissed = view.findViewById(R.id.feedbackMissedButton);
@@ -2839,12 +2873,86 @@ public class MainActivity extends Activity {
 
     private void offerCorrection(String heard) {
         if (heard == null || heard.trim().isEmpty()) return;
+        final String said = heard.trim();
         new AlertDialog.Builder(this).setTitle("Teach IRIS what you meant?")
-                .setMessage("I heard “" + heard + "”. Choose the contact this phrase should call.")
-                .setNegativeButton("Not now", null)
-                .setPositiveButton("Choose contact", (dialog, which) -> {
-                    correctionPhrase = heard.trim();
+                .setMessage("IRIS heard:\n\u201C" + said + "\u201D\n\nWhat should it have been?")
+                .setNeutralButton("Not now", null)
+                .setNegativeButton("It's a contact", (d, w) -> {
+                    correctionPhrase = said;
                     requestContactForCorrection();
+                })
+                .setPositiveButton("Fix the words", (d, w) -> showHeardMeantCard(said))
+                .show();
+    }
+
+    /** "IRIS heard / I meant" — the Phase 1 correction card. Learns a local, conservative fix. */
+    private void showHeardMeantCard(String heard) {
+        final float d = getResources().getDisplayMetrics().density;
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (18 * d);
+        col.setPadding(pad, (int) (8 * d), pad, 0);
+
+        TextView label = new TextView(this);
+        label.setText("IRIS heard");
+        label.setTextColor(getColor(R.color.text_muted));
+        label.setTextSize(12f);
+        col.addView(label);
+
+        TextView heardView = new TextView(this);
+        heardView.setText("\u201C" + (heard == null ? "" : heard) + "\u201D");
+        heardView.setTextColor(getColor(R.color.magenta));
+        heardView.setTextSize(15f);
+        heardView.setTypeface(null, Typeface.BOLD);
+        col.addView(heardView);
+
+        TextView label2 = new TextView(this);
+        label2.setText("I meant");
+        label2.setTextColor(getColor(R.color.text_muted));
+        label2.setTextSize(12f);
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp2.topMargin = (int) (12 * d);
+        label2.setLayoutParams(lp2);
+        col.addView(label2);
+
+        final EditText input = new EditText(this);
+        input.setHint("Type what you actually said");
+        input.setText(heard == null ? "" : heard);
+        input.setTextColor(getColor(R.color.text_primary));
+        input.setTextSize(15f);
+        col.addView(input);
+
+        TextView note = new TextView(this);
+        note.setText("Saved only on this phone. IRIS applies it when the whole phrase matches, and "
+                + "learns name pronunciations \u2014 it never rewrites your dictated messages.");
+        note.setTextColor(getColor(R.color.text_muted));
+        note.setTextSize(11.5f);
+        LinearLayout.LayoutParams lp3 = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp3.topMargin = (int) (10 * d);
+        note.setLayoutParams(lp3);
+        col.addView(note);
+
+        new AlertDialog.Builder(this).setTitle("Fix what IRIS misheard")
+                .setView(col)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Learn it", (dialog, w) -> {
+                    String meant = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (meant.isEmpty() || heard == null) { toast("Nothing to learn."); return; }
+                    PersonalVocabulary vocab = new PersonalVocabulary(this);
+                    boolean ok = vocab.addCorrection(heard, meant);
+                    // If exactly one word differs, also learn it as a name/word variant.
+                    String[] hw = heard.trim().split("\\s+"), mw = meant.split("\\s+");
+                    if (hw.length == mw.length) {
+                        for (int i = 0; i < hw.length; i++) {
+                            if (!hw[i].equalsIgnoreCase(mw[i])) vocab.addNameVariant(mw[i], hw[i]);
+                        }
+                    }
+                    if (ok) new RecognitionStats(this).recordCorrected();
+                    LogStore.append(this, "CORRECTION", "\u201C" + heard + "\u201D \u2192 \u201C" + meant + "\u201D");
+                    toast(ok ? "Learned. IRIS will read that as \u201C" + meant + "\u201D."
+                             : "That's already what IRIS understood.");
                 }).show();
     }
 
