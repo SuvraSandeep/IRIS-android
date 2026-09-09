@@ -43,8 +43,8 @@ public final class AppIntegrations {
             if (!"content".equals(item.uri.getScheme())) return new Prepared(null, "This file cannot be shared safely.");
             target = new Intent(Intent.ACTION_SEND).setType(item.mime)
                     .putExtra(Intent.EXTRA_STREAM, item.uri)
-                    .setClipData(ClipData.newRawUri(item.name, item.uri))
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            target.setClipData(ClipData.newRawUri(item.name, item.uri));
             message = "Opening " + r.app + " with " + item.name + ". Review the file and recipient, then confirm Send there.";
         }
         target.setPackage(pkg);
