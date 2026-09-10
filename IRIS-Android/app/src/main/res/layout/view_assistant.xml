@@ -340,7 +340,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/bg_deck_card"
+                android:background="@drawable/bg_deck_panel"
                 android:orientation="vertical"
                 android:padding="12dp">
 
@@ -466,7 +466,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:background="@drawable/bg_deck_card"
+                android:background="@drawable/bg_deck_panel"
                 android:orientation="vertical"
                 android:padding="12dp">
 
@@ -508,6 +508,19 @@
                         android:textColor="@color/deck_text_dim"
                         android:textSize="9sp" />
                 </LinearLayout>
+
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/activityFilters"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
 
                 <TextView
                     android:id="@+id/activityStream"

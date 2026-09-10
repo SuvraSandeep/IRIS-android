@@ -84,7 +84,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:background="@drawable/bg_tab_active"
-            android:text="\uD83C\uDFAF Assistant"
+            android:text="\uD83C\uDFE0 Home"
             android:textAllCaps="false"
             android:textColor="@color/text_primary"
             android:textSize="11sp"

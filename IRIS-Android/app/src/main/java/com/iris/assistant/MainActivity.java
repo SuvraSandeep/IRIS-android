@@ -37,6 +37,7 @@ import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -160,6 +161,8 @@ public class MainActivity extends Activity {
     private final java.util.Map<String, TextView> deckTabViews = new java.util.LinkedHashMap<>();
     private String deckTab = "overview";
     private boolean deckActivityPaused;
+    private TelemetryEventLog.Category deckFilter;
+    private final java.util.Map<String, TextView> deckFilterViews = new java.util.LinkedHashMap<>();
     private boolean resumeAfterContactTraining;
     private String pendingTrainingKind = "";
     private boolean confirmationShowing;
@@ -290,6 +293,17 @@ public class MainActivity extends Activity {
         handleLaunchIntent(intent);
     }
 
+    /** Bind a deck toggle; changes apply next time Home is shown. */
+    private void bindDeckSwitch(View root, int id, boolean initial, java.util.function.Consumer<Boolean> setter) {
+        Switch sw = root.findViewById(id);
+        if (sw == null) return;
+        sw.setChecked(initial);
+        sw.setOnCheckedChangeListener((b, checked) -> {
+            setter.accept(checked);
+            toast("Saved. Open Home to see it.");
+        });
+    }
+
     /** Bind the Command Deck telemetry to the freshly-inflated assistant view. */
     private void setupCommandDeck(View view) {
         AppSettings s = new AppSettings(this);
@@ -301,6 +315,11 @@ public class MainActivity extends Activity {
                 orb.getLayoutParams().width = px;
                 orb.getLayoutParams().height = px;
                 orb.requestLayout();
+                if (orb instanceof IrisOrbView) {
+                    // Battery-saving visuals and Reduce motion both stop continuous animation.
+                    ((IrisOrbView) orb).setStaticMode(s.deckBatterySaver());
+                    ((IrisOrbView) orb).setReduceMotion(s.reduceMotion());
+                }
             }
         } catch (Throwable ignored) { }
 
@@ -349,6 +368,33 @@ public class MainActivity extends Activity {
         if (clear != null) clear.setOnClickListener(v -> {
             if (telemetry != null) telemetry.events().clear();
             if (deckActivity != null) deckActivity.setText("No events yet.");
+        });
+
+        // Category filters (§5). ALL plus the categories that actually produce events.
+        LinearLayout filters = view.findViewById(R.id.activityFilters);
+        if (filters != null) {
+            filters.removeAllViews();
+            deckFilterViews.clear();
+            addFilterChip(filters, "ALL", null);
+            addFilterChip(filters, "NET", TelemetryEventLog.Category.NET);
+            addFilterChip(filters, "AUDIO", TelemetryEventLog.Category.AUDIO);
+            addFilterChip(filters, "BT", TelemetryEventLog.Category.BT);
+            addFilterChip(filters, "WAKE", TelemetryEventLog.Category.WAKE);
+            addFilterChip(filters, "SENSOR", TelemetryEventLog.Category.SENSOR);
+            addFilterChip(filters, "ACTION", TelemetryEventLog.Category.ACTION);
+            highlightFilters();
+        }
+        // Tap the console to expand the newest event's explanation.
+        if (deckActivity != null) deckActivity.setOnClickListener(v -> {
+            if (telemetry == null) return;
+            java.util.List<TelemetryEventLog.Event> recent =
+                    telemetry.events().recent(1, deckFilter);
+            if (recent.isEmpty()) return;
+            TelemetryEventLog.Event e = recent.get(0);
+            new AlertDialog.Builder(this)
+                    .setTitle(e.category.tag + " · " + e.stamp())
+                    .setMessage(e.message + (e.detail.isEmpty() ? "" : "\n\n" + e.detail))
+                    .setPositiveButton("Close", null).show();
         });
 
         // Collapse the orb into a header dot when scrolled away from the top.
@@ -401,7 +447,7 @@ public class MainActivity extends Activity {
             deckSparkline.update(telemetry.networkCollector().rxMeter());
         }
         if (deckActivity != null && telemetry != null && !deckActivityPaused) {
-            deckActivity.setText(telemetry.events().render(12, null));
+            deckActivity.setText(telemetry.events().render(12, deckFilter));
         }
         if (deckBody != null) renderDeckPanel(snap);
     }
@@ -439,21 +485,39 @@ public class MainActivity extends Activity {
                                 ? "None paired" : snap.display(BluetoothTelemetryCollector.K_BT_STATE));
                     }
                     for (BluetoothTelemetryCollector.DeviceRow d : devices) {
-                        String detail = d.connection + " · " + d.detail
-                                + (d.battery.isEmpty() ? "" : " · battery " + d.battery);
-                        row(d.name + "  (" + d.category + ")", detail);
+                        // Tap a device to expand its detail (§4).
+                        expandableRow(d.name, d.connection,
+                                "Category: " + d.category
+                                + "\nState: " + d.connection + " · " + d.detail
+                                + "\nAudio output: " + (d.audioActive ? "active" : "not active")
+                                + (d.battery.isEmpty() ? "\nBattery: not exposed by this device"
+                                                       : "\nBattery: " + d.battery));
                     }
                 }
                 note("Paired is not the same as connected. No single Android API lists every connection, "
                         + "so this combines profile queries with audio routing.");
                 break;
             case "sensors":
+                groupHeader("HARDWARE AVAILABLE");
                 for (IrisSensorUsageRegistry.Hardware hw : IrisSensorUsageRegistry.Hardware.values()) {
                     String present = IrisSensorUsageRegistry.availability(this, hw);
-                    String state = IrisSensorUsageRegistry.status(hw);
                     row(IrisSensorUsageRegistry.label(hw),
-                            "absent".equals(present) ? "Not present" : state);
+                            "present".equals(present) ? "Present"
+                                    : "absent".equals(present) ? "Not present" : "Unknown");
                 }
+                groupHeader("CURRENTLY USED BY IRIS");
+                boolean anyActive = false;
+                for (IrisSensorUsageRegistry.Hardware hw : IrisSensorUsageRegistry.Hardware.values()) {
+                    if (IrisSensorUsageRegistry.isActive(hw)) {
+                        anyActive = true;
+                        IrisSensorUsageRegistry.Usage u = IrisSensorUsageRegistry.usage(hw);
+                        String extra = u == null ? "" : " · " + TelemetrySnapshot.duration(
+                                android.os.SystemClock.elapsedRealtime() - u.sinceElapsed);
+                        row(IrisSensorUsageRegistry.label(hw),
+                                IrisSensorUsageRegistry.status(hw) + extra);
+                    }
+                }
+                if (!anyActive) row("Nothing in use", "IRIS is not sampling any sensor");
                 note("Only IRIS's own usage is shown. Android does not expose what other apps are "
                         + "doing with sensors, and nothing here is switched on just to animate.");
                 break;
@@ -488,6 +552,95 @@ public class MainActivity extends Activity {
                 row("Service", snap.display("iris_service"));
                 break;
         }
+    }
+
+    /** Add one filter chip to the activity stream. */
+    private void addFilterChip(LinearLayout parent, String label, TelemetryEventLog.Category cat) {
+        float d = getResources().getDisplayMetrics().density;
+        TextView chip = new TextView(this);
+        chip.setText(label);
+        chip.setTextSize(9f);
+        chip.setTypeface(Typeface.MONOSPACE);
+        chip.setPadding((int) (10 * d), (int) (6 * d), (int) (10 * d), (int) (6 * d));
+        chip.setMinHeight((int) (48 * d));
+        chip.setGravity(android.view.Gravity.CENTER);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = (int) (6 * d);
+        chip.setLayoutParams(lp);
+        chip.setOnClickListener(v -> {
+            deckFilter = cat;
+            highlightFilters();
+            if (telemetry != null && deckActivity != null) {
+                deckActivity.setText(telemetry.events().render(12, deckFilter));
+            }
+        });
+        deckFilterViews.put(label, chip);
+        parent.addView(chip);
+    }
+
+    private void highlightFilters() {
+        String active = deckFilter == null ? "ALL" : deckFilter.tag;
+        for (java.util.Map.Entry<String, TextView> e : deckFilterViews.entrySet()) {
+            boolean on = e.getKey().equals(active);
+            e.getValue().setTextColor(getColor(on ? R.color.accent : R.color.deck_text_dim));
+            e.getValue().setBackgroundResource(on ? R.drawable.bg_deck_card : 0);
+        }
+    }
+
+    /** A small group label inside a panel (e.g. HARDWARE AVAILABLE). */
+    private void groupHeader(String text) {
+        float d = getResources().getDisplayMetrics().density;
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(getColor(R.color.accent));
+        t.setTextSize(9.5f);
+        t.setLetterSpacing(0.1f);
+        t.setTypeface(null, Typeface.BOLD);
+        t.setPadding(0, (int) (10 * d), 0, (int) (2 * d));
+        deckBody.addView(t);
+    }
+
+    /** A row that reveals extra detail when tapped, with a short fade (spec §4/§6). */
+    private void expandableRow(String label, String value, String detail) {
+        float d = getResources().getDisplayMetrics().density;
+        LinearLayout holder = new LinearLayout(this);
+        holder.setOrientation(LinearLayout.VERTICAL);
+        holder.setMinimumHeight((int) (48 * d));       // touch target
+        holder.setPadding(0, (int) (4 * d), 0, (int) (4 * d));
+
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        TextView l = new TextView(this);
+        l.setText("▸  " + label);
+        l.setTextColor(getColor(R.color.deck_text));
+        l.setTextSize(11.5f);
+        l.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        TextView v = new TextView(this);
+        v.setText(value == null ? "" : value);
+        v.setTextColor(getColor("Connected".equals(value) ? R.color.positive : R.color.deck_text_dim));
+        v.setTextSize(11.5f);
+        v.setTypeface(Typeface.MONOSPACE);
+        head.addView(l);
+        head.addView(v);
+        holder.addView(head);
+
+        final TextView body = new TextView(this);
+        body.setText(detail == null ? "" : detail);
+        body.setTextColor(getColor(R.color.deck_text_dim));
+        body.setTextSize(10.5f);
+        body.setPadding((int) (14 * d), (int) (4 * d), 0, 0);
+        body.setVisibility(View.GONE);
+        holder.addView(body);
+
+        holder.setOnClickListener(x -> {
+            boolean show = body.getVisibility() != View.VISIBLE;
+            body.setAlpha(0f);
+            body.setVisibility(show ? View.VISIBLE : View.GONE);
+            if (show) body.animate().alpha(1f).setDuration(200).start();
+            l.setText((show ? "▾  " : "▸  ") + label);
+        });
+        deckBody.addView(holder);
     }
 
     /** One label/value row, dimmed when the value isn't a real reading. */
@@ -1938,6 +2091,44 @@ public class MainActivity extends Activity {
                 toast("Voice security cleared.");
             });
         }
+        // ── Command Deck customisation ──
+        bindDeckSwitch(view, R.id.deckTelemetrySwitch, s.deckTelemetry(), s::setDeckTelemetry);
+        bindDeckSwitch(view, R.id.deckActivitySwitch, s.deckActivityStream(), s::setDeckActivityStream);
+        bindDeckSwitch(view, R.id.deckTilesSwitch, s.deckTiles(), s::setDeckTiles);
+        bindDeckSwitch(view, R.id.deckSaverSwitch, s.deckBatterySaver(), s::setDeckBatterySaver);
+        bindDeckSwitch(view, R.id.deckScanlineSwitch, s.deckScanline(), s::setDeckScanline);
+        bindDeckSwitch(view, R.id.deckPublicIpSwitch, s.telemetryPublicIp(), s::setTelemetryPublicIp);
+        final TextView orbLabel = view.findViewById(R.id.deckOrbSizeLabel);
+        SeekBar orbSeek = view.findViewById(R.id.deckOrbSizeSeek);
+        if (orbSeek != null) {
+            orbSeek.setProgress(Math.max(0, Math.min(140, s.deckOrbSize() - 120)));
+            if (orbLabel != null) orbLabel.setText("Orb size: " + s.deckOrbSize() + "dp");
+            orbSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(SeekBar bar, int p, boolean fromUser) {
+                    int dp = 120 + p;
+                    if (orbLabel != null) orbLabel.setText("Orb size: " + dp + "dp");
+                    if (fromUser) s.setDeckOrbSize(dp);
+                }
+                @Override public void onStartTrackingTouch(SeekBar bar) { }
+                @Override public void onStopTrackingTouch(SeekBar bar) { }
+            });
+        }
+        Spinner tabSpinner = view.findViewById(R.id.deckTabSpinner);
+        if (tabSpinner != null) {
+            final String[] keys = { "overview", "network", "devices", "sensors", "resources" };
+            String[] labels = { "Overview", "Network", "Devices", "Sensors", "Power" };
+            ArrayAdapter<String> ad = new ArrayAdapter<>(this,
+                    android.R.layout.simple_spinner_dropdown_item, labels);
+            tabSpinner.setAdapter(ad);
+            for (int i = 0; i < keys.length; i++) if (keys[i].equals(s.deckDefaultTab())) tabSpinner.setSelection(i);
+            tabSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
+                    s.setDeckDefaultTab(keys[pos]);
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> p) { }
+            });
+        }
+
         Button fixMisheard = view.findViewById(R.id.fixMisheardButton);
         if (fixMisheard != null) {
             fixMisheard.setOnClickListener(v -> showHeardMeantCard(lastTranscriptSeen));
