@@ -1,180 +1,582 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  IRIS / COMMAND DECK — home screen.
+
+  Structure follows the spec: header, orb, state + explanation, last interaction,
+  summary tiles, SYSTEM TELEMETRY (tabbed panels), activity stream, then the fixed
+  command bar. All values are populated from real telemetry; nothing is hard-coded.
+
+  IDs required by MainActivity are preserved: irisOrb, statusText, subStatusText,
+  phaseChip, liveTranscript, micRouteText, recognitionText, quickChipsRow,
+  frequentContactsText, commandInput, sendCommandButton.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:orientation="vertical">
 
-    <LinearLayout
+    <!-- ═══ Scrollable deck ═══ -->
+    <ScrollView
+        android:id="@+id/deckScroll"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_horizontal"
-        android:orientation="vertical"
-        android:paddingBottom="18dp">
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:scrollbars="none">
 
-        <!-- Orb hero -->
-        <com.iris.assistant.IrisOrbView
-            android:id="@+id/irisOrb"
-            android:layout_width="230dp"
-            android:layout_height="230dp"
-            android:layout_marginTop="12dp"
-            android:contentDescription="Turn IRIS on or off" />
-
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="IRIS is resting"
-            android:textColor="@color/text_primary"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/subStatusText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:gravity="center"
-            android:text="Tap the orb, or type a command below."
-            android:textColor="@color/text_muted"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/phaseChip"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:background="@drawable/bg_chip"
-            android:paddingLeft="16dp"
-            android:paddingTop="7dp"
-            android:paddingRight="16dp"
-            android:paddingBottom="7dp"
-            android:text="\u2B24  OFFLINE"
-            android:textColor="@color/text_muted"
-            android:textSize="11sp"
-            android:textStyle="bold" />
-
-        <!-- Live transcript / last reply -->
-        <TextView
-            android:id="@+id/liveTranscript"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:background="@drawable/bg_card_accent"
-            android:gravity="center"
-            android:minHeight="64dp"
-            android:text="Say \u201CCall &lt;contact name&gt;\u201D"
-            android:textColor="@color/text_secondary"
-            android:textSize="15sp"
-            android:textStyle="italic" />
-
-        <!-- Text command input -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="vertical"
+            android:paddingTop="10dp"
+            android:paddingBottom="12dp">
 
-            <EditText
-                android:id="@+id/commandInput"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_button_secondary"
-                android:hint="Type a command\u2026"
-                android:imeOptions="actionSend"
-                android:importantForAutofill="no"
-                android:inputType="text"
-                android:maxLines="1"
-                android:paddingLeft="16dp"
-                android:paddingRight="16dp"
-                android:textColor="@color/text_primary"
-                android:textColorHint="@color/text_muted"
-                android:textSize="14sp" />
-
-            <Button
-                android:id="@+id/sendCommandButton"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:layout_marginLeft="8dp"
-                android:background="@drawable/bg_button_primary"
-                android:contentDescription="Send command"
-                android:text="\u27A4"
-                android:textAllCaps="false"
-                android:textColor="@color/text_primary"
-                android:textSize="18sp" />
-        </LinearLayout>
-
-        <!-- Customizable quick-action chips -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:scrollbars="none">
-
+            <!-- ── Header: title, service status, telemetry freshness ── -->
             <LinearLayout
-                android:id="@+id/quickChipsRow"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
-
-        <!-- System status -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:background="@drawable/bg_card"
-            android:gravity="center_vertical"
-            android:orientation="vertical">
-
-            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="\uD83D\uDD0A  SYSTEM STATUS"
-                android:textColor="@color/violet"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.1" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <TextView
-                android:id="@+id/micRouteText"
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.22"
+                        android:text="I R I S"
+                        android:textColor="@color/deck_text"
+                        android:textSize="19sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.16"
+                        android:text="COMMAND DECK"
+                        android:textColor="@color/accent"
+                        android:textSize="10sp" />
+                </LinearLayout>
+
+                <!-- Collapsed orb indicator: shown when the deck is scrolled down -->
+                <TextView
+                    android:id="@+id/headerOrbDot"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:text="●"
+                    android:textColor="@color/deck_inactive"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="end"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/deckServiceState"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="OFFLINE"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="10sp" />
+
+                    <TextView
+                        android:id="@+id/deckFreshness"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="no data"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ── Hero: reactive orb (size customisable in Settings) ── -->
+            <FrameLayout
+                android:id="@+id/orbHolder"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="\uD83C\uDF99  Microphone: Phone"
-                android:textColor="@color/cyan"
-                android:textSize="13sp"
+                android:layout_marginTop="6dp">
+
+                <com.iris.assistant.IrisOrbView
+                    android:id="@+id/irisOrb"
+                    android:layout_width="200dp"
+                    android:layout_height="200dp"
+                    android:layout_gravity="center_horizontal"
+                    android:contentDescription="Tap to talk to IRIS" />
+            </FrameLayout>
+
+            <!-- ── State + plain-language explanation ── -->
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:letterSpacing="0.08"
+                android:text="IRIS is resting"
+                android:textColor="@color/deck_text"
+                android:textSize="15sp"
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/recognitionText"
+                android:id="@+id/phaseChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="5dp"
+                android:background="@drawable/bg_deck_card"
+                android:paddingStart="12dp"
+                android:paddingTop="5dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="5dp"
+                android:text="OWNER CHECK READY"
+                android:textColor="@color/accent"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/subStatusText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="\uD83E\uDDE0  Recognition: Checking\u2026"
-                android:textColor="@color/magenta"
-                android:textSize="13sp"
-                android:textStyle="bold" />
+                android:gravity="center"
+                android:text="Tap the orb when you need me."
+                android:textColor="@color/deck_text_dim"
+                android:textSize="12sp" />
 
+            <!-- Live mic / engine route, monospace -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/micRouteText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:text="Mic: —"
+                    android:textColor="@color/deck_text_dim"
+                    android:textSize="10sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:text="•"
+                    android:textColor="@color/deck_border"
+                    android:textSize="10sp" />
+
+                <TextView
+                    android:id="@+id/recognitionText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:text="Wake: —"
+                    android:textColor="@color/deck_text_dim"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <!-- ── Last interaction ── -->
             <TextView
+                android:id="@+id/liveTranscript"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="\uD83D\uDD12  Privacy: No raw audio saved. Calls always confirmed."
-                android:textColor="@color/text_muted"
+                android:background="@drawable/bg_deck_card"
+                android:minHeight="48dp"
+                android:gravity="center_vertical"
+                android:padding="12dp"
+                android:text="Say “Hello IRIS”, then your command"
+                android:textColor="@color/deck_text"
+                android:textSize="12sp" />
+
+            <!-- ── Summary tiles: battery, RAM, network, devices ── -->
+            <LinearLayout
+                android:id="@+id/deckTiles"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_deck_card"
+                    android:minHeight="48dp"
+                    android:orientation="vertical"
+                    android:padding="10dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.08"
+                        android:text="BATTERY"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+
+                    <TextView
+                        android:id="@+id/tileBattery"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="—"
+                        android:textColor="@color/positive"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_deck_card"
+                    android:minHeight="48dp"
+                    android:orientation="vertical"
+                    android:padding="10dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.08"
+                        android:text="FREE RAM"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+
+                    <TextView
+                        android:id="@+id/tileRam"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="—"
+                        android:textColor="@color/accent"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/deckTiles2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_deck_card"
+                    android:minHeight="48dp"
+                    android:orientation="vertical"
+                    android:padding="10dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.08"
+                        android:text="NETWORK"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+
+                    <TextView
+                        android:id="@+id/tileNetwork"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="—"
+                        android:textColor="@color/deck_text"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_deck_card"
+                    android:minHeight="48dp"
+                    android:orientation="vertical"
+                    android:padding="10dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.08"
+                        android:text="DEVICES"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+
+                    <TextView
+                        android:id="@+id/tileDevices"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="—"
+                        android:textColor="@color/deck_text"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══ SYSTEM TELEMETRY ═══ -->
+            <LinearLayout
+                android:id="@+id/telemetrySection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_deck_card"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:letterSpacing="0.1"
+                        android:text="SYSTEM TELEMETRY"
+                        android:textColor="@color/deck_text"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/telemetryLive"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="● LIVE"
+                        android:textColor="@color/positive"
+                        android:textSize="9sp" />
+                </LinearLayout>
+
+                <!-- Tabs -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tabOverview"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:minHeight="48dp"
+                        android:paddingTop="14dp"
+                        android:text="OVERVIEW"
+                        android:textColor="@color/accent"
+                        android:textSize="9sp" />
+
+                    <TextView
+                        android:id="@+id/tabNetwork"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:minHeight="48dp"
+                        android:paddingTop="14dp"
+                        android:text="NETWORK"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+
+                    <TextView
+                        android:id="@+id/tabDevices"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:minHeight="48dp"
+                        android:paddingTop="14dp"
+                        android:text="DEVICES"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+
+                    <TextView
+                        android:id="@+id/tabSensors"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:minHeight="48dp"
+                        android:paddingTop="14dp"
+                        android:text="SENSORS"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+
+                    <TextView
+                        android:id="@+id/tabResources"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:minHeight="48dp"
+                        android:paddingTop="14dp"
+                        android:text="POWER"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="2dp"
+                    android:background="@color/deck_border" />
+
+                <!-- Panel body: rows are built at runtime from the snapshot -->
+                <LinearLayout
+                    android:id="@+id/telemetryBody"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="vertical" />
+
+                <!-- 60-second IRIS traffic sparkline -->
+                <com.iris.assistant.TelemetrySparklineView
+                    android:id="@+id/trafficSparkline"
+                    android:layout_width="match_parent"
+                    android:layout_height="62dp"
+                    android:layout_marginTop="8dp" />
+            </LinearLayout>
+
+            <!-- ═══ ACTIVITY STREAM ═══ -->
+            <LinearLayout
+                android:id="@+id/activitySection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_deck_card"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:letterSpacing="0.1"
+                        android:text="ACTIVITY STREAM"
+                        android:textColor="@color/deck_text"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/activityPause"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="48dp"
+                        android:minHeight="48dp"
+                        android:gravity="center"
+                        android:text="PAUSE"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+
+                    <TextView
+                        android:id="@+id/activityClear"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="48dp"
+                        android:minHeight="48dp"
+                        android:gravity="center"
+                        android:text="CLEAR"
+                        android:textColor="@color/deck_text_dim"
+                        android:textSize="9sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/activityStream"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="2dp"
+                    android:text="No events yet."
+                    android:textColor="@color/deck_text_dim"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <!-- Quick chips + frequent contacts (existing behaviour preserved) -->
+            <LinearLayout
+                android:id="@+id/quickChipsRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal" />
+
+            <TextView
+                android:id="@+id/frequentContactsText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text=""
+                android:textColor="@color/deck_text_dim"
                 android:textSize="11sp" />
         </LinearLayout>
+    </ScrollView>
 
-        <TextView
-            android:id="@+id/frequentContactsText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:background="@drawable/bg_card"
-            android:text="\u2B50  Frequent calls will appear here after IRIS earns some history."
-            android:textColor="@color/text_muted"
-            android:textSize="12sp" />
+    <!-- ═══ Fixed command bar ═══ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/deck_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp">
+
+        <EditText
+            android:id="@+id/commandInput"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_deck_card"
+            android:fontFamily="monospace"
+            android:hint="&gt; Ask IRIS…"
+            android:imeOptions="actionSend"
+            android:inputType="text"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:textColor="@color/deck_text"
+            android:textColorHint="@color/deck_text_dim"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/sendCommandButton"
+            android:layout_width="wrap_content"
+            android:layout_height="52dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_deck_card"
+            android:minWidth="56dp"
+            android:text="🎙"
+            android:textColor="@color/accent"
+            android:textSize="17sp" />
     </LinearLayout>
-</ScrollView>
+</LinearLayout>

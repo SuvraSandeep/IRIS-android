@@ -38,4 +38,17 @@
 
     <!-- AMOLED base -->
     <color name="ink_amoled">#000000</color>
+
+    <!-- Command Deck palette (spec §1). Tokens so themes/accent can remap them. -->
+    <color name="deck_bg">#05090D</color>
+    <color name="deck_card">#0B141B</color>
+    <color name="deck_border">#19343D</color>
+    <color name="deck_accent">#35D9F4</color>
+    <color name="deck_healthy">#63FF9D</color>
+    <color name="deck_attention">#FFBF69</color>
+    <color name="deck_error">#FF637D</color>
+    <color name="deck_text">#E4F2F5</color>
+    <color name="deck_text_dim">#93ABB5</color>
+    <color name="deck_grid">#1119343D</color>
+    <color name="deck_inactive">#3D4E56</color>
 </resources>

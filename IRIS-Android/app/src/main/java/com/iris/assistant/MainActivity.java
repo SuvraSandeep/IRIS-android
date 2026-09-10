@@ -151,6 +151,15 @@ public class MainActivity extends Activity {
     private String selectedContactNumber;
     private String correctionPhrase;
     private String lastTranscriptSeen = "";
+    // ── Command Deck ──
+    private SystemTelemetryController telemetry;
+    private LinearLayout deckBody;
+    private TelemetrySparklineView deckSparkline;
+    private TextView deckActivity, deckFreshness, deckServiceState;
+    private TextView deckTileBattery, deckTileRam, deckTileNetwork, deckTileDevices;
+    private final java.util.Map<String, TextView> deckTabViews = new java.util.LinkedHashMap<>();
+    private String deckTab = "overview";
+    private boolean deckActivityPaused;
     private boolean resumeAfterContactTraining;
     private String pendingTrainingKind = "";
     private boolean confirmationShowing;
@@ -258,6 +267,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         try { unregisterReceiver(irisEvents); } catch (Exception ignored) { }
+        // No dashboard polling or animation while hidden (voice service is unaffected).
+        try { if (telemetry != null) telemetry.stop(); } catch (Exception ignored) { }
         try { getSharedPreferences("iris_ui", MODE_PRIVATE).edit().putInt("last_tab", selectedTab).apply(); } catch (Exception ignored) { }
         super.onStop();
     }
@@ -279,6 +290,244 @@ public class MainActivity extends Activity {
         handleLaunchIntent(intent);
     }
 
+    /** Bind the Command Deck telemetry to the freshly-inflated assistant view. */
+    private void setupCommandDeck(View view) {
+        AppSettings s = new AppSettings(this);
+        // Orb size is user-customisable (spec suggests 190–210dp).
+        try {
+            View orb = view.findViewById(R.id.irisOrb);
+            if (orb != null) {
+                int px = Math.round(s.deckOrbSize() * getResources().getDisplayMetrics().density);
+                orb.getLayoutParams().width = px;
+                orb.getLayoutParams().height = px;
+                orb.requestLayout();
+            }
+        } catch (Throwable ignored) { }
+
+        // Every section can be turned off.
+        toggleVisible(view, R.id.telemetrySection, s.deckTelemetry());
+        toggleVisible(view, R.id.activitySection, s.deckActivityStream());
+        toggleVisible(view, R.id.deckTiles, s.deckTiles());
+        toggleVisible(view, R.id.deckTiles2, s.deckTiles());
+
+        deckBody = view.findViewById(R.id.telemetryBody);
+        deckSparkline = view.findViewById(R.id.trafficSparkline);
+        deckActivity = view.findViewById(R.id.activityStream);
+        deckFreshness = view.findViewById(R.id.deckFreshness);
+        deckServiceState = view.findViewById(R.id.deckServiceState);
+        deckTileBattery = view.findViewById(R.id.tileBattery);
+        deckTileRam = view.findViewById(R.id.tileRam);
+        deckTileNetwork = view.findViewById(R.id.tileNetwork);
+        deckTileDevices = view.findViewById(R.id.tileDevices);
+        if (deckSparkline != null) deckSparkline.setAccent(getColor(R.color.accent));
+
+        deckTab = s.deckDefaultTab();
+        int[] tabIds = { R.id.tabOverview, R.id.tabNetwork, R.id.tabDevices, R.id.tabSensors, R.id.tabResources };
+        final String[] tabKeys = { "overview", "network", "devices", "sensors", "resources" };
+        for (int i = 0; i < tabIds.length; i++) {
+            final String key = tabKeys[i];
+            TextView t = view.findViewById(tabIds[i]);
+            if (t == null) continue;
+            deckTabViews.put(key, t);
+            t.setOnClickListener(v -> {
+                deckTab = key;
+                new AppSettings(this).setDeckDefaultTab(key);
+                highlightDeckTab();
+                if (telemetry != null) telemetry.refreshNow();
+                renderDeck(telemetry == null ? TelemetrySnapshot.empty() : telemetry.latest());
+            });
+        }
+        highlightDeckTab();
+
+        TextView pause = view.findViewById(R.id.activityPause);
+        if (pause != null) pause.setOnClickListener(v -> {
+            deckActivityPaused = !deckActivityPaused;
+            pause.setText(deckActivityPaused ? "RESUME" : "PAUSE");
+            pause.setTextColor(getColor(deckActivityPaused ? R.color.warning : R.color.deck_text_dim));
+        });
+        TextView clear = view.findViewById(R.id.activityClear);
+        if (clear != null) clear.setOnClickListener(v -> {
+            if (telemetry != null) telemetry.events().clear();
+            if (deckActivity != null) deckActivity.setText("No events yet.");
+        });
+
+        // Collapse the orb into a header dot when scrolled away from the top.
+        final View orbHolder = view.findViewById(R.id.orbHolder);
+        final View headerDot = view.findViewById(R.id.headerOrbDot);
+        final ScrollView scroll = view.findViewById(R.id.deckScroll);
+        if (scroll != null && orbHolder != null && headerDot != null) {
+            scroll.getViewTreeObserver().addOnScrollChangedListener(() -> {
+                boolean collapsed = scroll.getScrollY() > orbHolder.getHeight() / 2;
+                orbHolder.setAlpha(collapsed ? 0f : 1f);
+                headerDot.setVisibility(collapsed ? View.VISIBLE : View.GONE);
+            });
+        }
+
+        if (telemetry == null) telemetry = new SystemTelemetryController(this);
+        telemetry.setListener(this::renderDeck);
+        telemetry.start();
+        renderDeck(telemetry.latest());
+    }
+
+    private void toggleVisible(View root, int id, boolean visible) {
+        View v = root.findViewById(id);
+        if (v != null) v.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private void highlightDeckTab() {
+        for (java.util.Map.Entry<String, TextView> e : deckTabViews.entrySet()) {
+            boolean on = e.getKey().equals(deckTab);
+            e.getValue().setTextColor(getColor(on ? R.color.accent : R.color.deck_text_dim));
+            e.getValue().setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
+        }
+    }
+
+    /** Paint the current snapshot. Availability is respected: nothing is invented. */
+    private void renderDeck(TelemetrySnapshot snap) {
+        if (snap == null) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (deckFreshness != null) deckFreshness.setText(snap.freshness(now));
+        if (deckServiceState != null) {
+            boolean up = IrisListeningService.isRunning;
+            deckServiceState.setText(up ? "ACTIVE" : "OFFLINE");
+            deckServiceState.setTextColor(getColor(up ? R.color.positive : R.color.deck_text_dim));
+        }
+        if (deckTileBattery != null) deckTileBattery.setText(snap.display(ResourceTelemetryCollector.K_BATTERY));
+        if (deckTileRam != null) deckTileRam.setText(snap.display(ResourceTelemetryCollector.K_RAM_FREE));
+        if (deckTileNetwork != null) deckTileNetwork.setText(snap.display(NetworkTelemetryCollector.K_TRANSPORT));
+        if (deckTileDevices != null) deckTileDevices.setText(snap.display(BluetoothTelemetryCollector.K_BT_SUMMARY));
+
+        if (deckSparkline != null && telemetry != null) {
+            deckSparkline.update(telemetry.networkCollector().rxMeter());
+        }
+        if (deckActivity != null && telemetry != null && !deckActivityPaused) {
+            deckActivity.setText(telemetry.events().render(12, null));
+        }
+        if (deckBody != null) renderDeckPanel(snap);
+    }
+
+    /** Build the rows for the selected telemetry tab. */
+    private void renderDeckPanel(TelemetrySnapshot snap) {
+        deckBody.removeAllViews();
+        switch (deckTab) {
+            case "network":
+                row("Active transport", snap.display(NetworkTelemetryCollector.K_TRANSPORT));
+                row("Internet", snap.display(NetworkTelemetryCollector.K_INTERNET));
+                row("Wi-Fi name", snap.display(NetworkTelemetryCollector.K_WIFI_NAME));
+                row("Signal", snap.display(NetworkTelemetryCollector.K_WIFI_SIGNAL));
+                row("Frequency", snap.display(NetworkTelemetryCollector.K_WIFI_FREQ));
+                row("Wi-Fi link speed", snap.display(NetworkTelemetryCollector.K_WIFI_LINK));
+                row("Phone IP (Wi-Fi)", snap.display(NetworkTelemetryCollector.K_PHONE_IP));
+                row("Phone IPv6", snap.display(NetworkTelemetryCollector.K_PHONE_IP6));
+                row("Cellular interface IP", snap.display(NetworkTelemetryCollector.K_CELL_IP));
+                row("Router/gateway", snap.display(NetworkTelemetryCollector.K_GATEWAY));
+                row("DNS", snap.display(NetworkTelemetryCollector.K_DNS));
+                row("VPN", snap.display(NetworkTelemetryCollector.K_VPN));
+                row("Connection cost", snap.display(NetworkTelemetryCollector.K_METERED));
+                row("Public IP", snap.display(NetworkTelemetryCollector.K_PUBLIC_IP));
+                row("Last network change", snap.display(NetworkTelemetryCollector.K_LAST_CHANGE));
+                break;
+            case "devices":
+                row("Bluetooth", snap.display(BluetoothTelemetryCollector.K_BT_STATE));
+                row("Audio output", snap.display(BluetoothTelemetryCollector.K_AUDIO_OUT));
+                row("Microphone route", snap.display(BluetoothTelemetryCollector.K_AUDIO_IN));
+                if (telemetry != null) {
+                    java.util.List<BluetoothTelemetryCollector.DeviceRow> devices =
+                            telemetry.bluetoothCollector().devices();
+                    if (devices.isEmpty()) {
+                        row("Devices", snap.get(BluetoothTelemetryCollector.K_BT_STATE).isAvailable()
+                                ? "None paired" : snap.display(BluetoothTelemetryCollector.K_BT_STATE));
+                    }
+                    for (BluetoothTelemetryCollector.DeviceRow d : devices) {
+                        String detail = d.connection + " · " + d.detail
+                                + (d.battery.isEmpty() ? "" : " · battery " + d.battery);
+                        row(d.name + "  (" + d.category + ")", detail);
+                    }
+                }
+                note("Paired is not the same as connected. No single Android API lists every connection, "
+                        + "so this combines profile queries with audio routing.");
+                break;
+            case "sensors":
+                for (IrisSensorUsageRegistry.Hardware hw : IrisSensorUsageRegistry.Hardware.values()) {
+                    String present = IrisSensorUsageRegistry.availability(this, hw);
+                    String state = IrisSensorUsageRegistry.status(hw);
+                    row(IrisSensorUsageRegistry.label(hw),
+                            "absent".equals(present) ? "Not present" : state);
+                }
+                note("Only IRIS's own usage is shown. Android does not expose what other apps are "
+                        + "doing with sensors, and nothing here is switched on just to animate.");
+                break;
+            case "resources":
+                row("Battery", snap.display(ResourceTelemetryCollector.K_BATTERY));
+                row("Power", snap.display(ResourceTelemetryCollector.K_CHARGING));
+                row("Battery saver", snap.display(ResourceTelemetryCollector.K_POWER_SAVE));
+                row("Battery temperature", snap.display(ResourceTelemetryCollector.K_BATTERY_TEMP));
+                row("Thermal status", snap.display(ResourceTelemetryCollector.K_THERMAL));
+                row("Free RAM", snap.display(ResourceTelemetryCollector.K_RAM_FREE));
+                row("IRIS memory", snap.display(ResourceTelemetryCollector.K_RAM_IRIS));
+                row("Free storage", snap.display(ResourceTelemetryCollector.K_STORAGE_FREE));
+                row("Device", snap.display(ResourceTelemetryCollector.K_DEVICE));
+                row("System", snap.display(ResourceTelemetryCollector.K_ANDROID));
+                row("App", snap.display(ResourceTelemetryCollector.K_APP_VERSION));
+                row("Device uptime", snap.display(ResourceTelemetryCollector.K_DEVICE_UPTIME));
+                row("IRIS uptime", snap.display(ResourceTelemetryCollector.K_SERVICE_UPTIME));
+                row("Wake phrase", snap.display("wake_phrase"));
+                row("Wake model", snap.display("wake_ready"));
+                row("Owner check", snap.display("owner_check"));
+                note("Battery temperature is the battery, not the CPU. Android exposes no public "
+                        + "CPU temperature, so none is shown.");
+                break;
+            default:
+                row("Connection", snap.display(NetworkTelemetryCollector.K_TRANSPORT)
+                        + " · " + snap.display(NetworkTelemetryCollector.K_INTERNET));
+                row("Phone IP (Wi-Fi)", snap.display(NetworkTelemetryCollector.K_PHONE_IP));
+                row("IRIS traffic", "\u2193 " + snap.display(NetworkTelemetryCollector.K_RX_RATE)
+                        + "   \u2191 " + snap.display(NetworkTelemetryCollector.K_TX_RATE));
+                row("Session traffic", snap.display(NetworkTelemetryCollector.K_SESSION));
+                row("Microphone", snap.display("iris_mic"));
+                row("Service", snap.display("iris_service"));
+                break;
+        }
+    }
+
+    /** One label/value row, dimmed when the value isn't a real reading. */
+    private void row(String label, String value) {
+        float d = getResources().getDisplayMetrics().density;
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setPadding(0, (int) (5 * d), 0, (int) (5 * d));
+        TextView l = new TextView(this);
+        l.setText(label);
+        l.setTextColor(getColor(R.color.deck_text_dim));
+        l.setTextSize(11.5f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        l.setLayoutParams(lp);
+        TextView v = new TextView(this);
+        v.setText(value == null ? "" : value);
+        boolean unknown = value == null || value.isEmpty()
+                || value.startsWith("Not available") || value.startsWith("Permission required")
+                || value.contains("(stale)");
+        v.setTextColor(getColor(unknown ? R.color.deck_inactive : R.color.deck_text));
+        v.setTextSize(11.5f);
+        v.setTypeface(android.graphics.Typeface.MONOSPACE);
+        v.setGravity(android.view.Gravity.END);
+        r.addView(l);
+        r.addView(v);
+        deckBody.addView(r);
+    }
+
+    /** Small explanatory footnote under a panel. */
+    private void note(String text) {
+        float d = getResources().getDisplayMetrics().density;
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(getColor(R.color.deck_text_dim));
+        t.setTextSize(10f);
+        t.setPadding(0, (int) (8 * d), 0, 0);
+        deckBody.addView(t);
+    }
+
     private void showAssistant() {
         selectedTab = 0;
         contentHost.removeAllViews();
@@ -292,6 +541,7 @@ public class MainActivity extends Activity {
         recognitionText = view.findViewById(R.id.recognitionText);
         phaseChip = view.findViewById(R.id.phaseChip);
         frequentContactsText = view.findViewById(R.id.frequentContactsText);
+        setupCommandDeck(view);
         // Tap the recognized text to copy it.
         if (liveTranscript != null) {
             liveTranscript.setTextIsSelectable(true);

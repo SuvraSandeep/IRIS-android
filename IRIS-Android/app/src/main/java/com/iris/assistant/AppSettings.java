@@ -113,6 +113,32 @@ public final class AppSettings {
     public boolean headsetTrigger() { return prefs.getBoolean("headset_trigger", false); }
     public void setHeadsetTrigger(boolean v) { prefs.edit().putBoolean("headset_trigger", v).apply(); }
     public boolean mirrorReplies() { return prefs.getBoolean("mirror_replies", true); }
+
+    // ─────────────── Command Deck (fully customisable) ───────────────
+    /** Show the SYSTEM TELEMETRY section at all. */
+    public boolean deckTelemetry() { return prefs.getBoolean("deck_telemetry", true); }
+    public void setDeckTelemetry(boolean v) { prefs.edit().putBoolean("deck_telemetry", v).apply(); }
+    /** Show the activity stream console. */
+    public boolean deckActivityStream() { return prefs.getBoolean("deck_activity", true); }
+    public void setDeckActivityStream(boolean v) { prefs.edit().putBoolean("deck_activity", v).apply(); }
+    /** Show the four summary tiles under the orb. */
+    public boolean deckTiles() { return prefs.getBoolean("deck_tiles", true); }
+    public void setDeckTiles(boolean v) { prefs.edit().putBoolean("deck_tiles", v).apply(); }
+    /** Orb diameter in dp (spec suggests 190–210 on a normal phone). */
+    public int deckOrbSize() { return prefs.getInt("deck_orb_size", 200); }
+    public void setDeckOrbSize(int dp) { prefs.edit().putInt("deck_orb_size", Math.max(120, Math.min(260, dp))).apply(); }
+    /** Battery-saving visual mode: no continuous animation, static rings. */
+    public boolean deckBatterySaver() { return prefs.getBoolean("deck_battery_saver", false); }
+    public void setDeckBatterySaver(boolean v) { prefs.edit().putBoolean("deck_battery_saver", v).apply(); }
+    /** Faint background scanline (optional per spec). */
+    public boolean deckScanline() { return prefs.getBoolean("deck_scanline", true); }
+    public void setDeckScanline(boolean v) { prefs.edit().putBoolean("deck_scanline", v).apply(); }
+    /** Public IP lookup — OFF by default, needs an outside service. */
+    public boolean telemetryPublicIp() { return prefs.getBoolean("telemetry_public_ip", false); }
+    public void setTelemetryPublicIp(boolean v) { prefs.edit().putBoolean("telemetry_public_ip", v).apply(); }
+    /** Which telemetry tab opens first: overview/network/devices/sensors/resources. */
+    public String deckDefaultTab() { return prefs.getString("deck_tab", "overview"); }
+    public void setDeckDefaultTab(String tab) { prefs.edit().putString("deck_tab", tab == null ? "overview" : tab).apply(); }
     public void setMirrorReplies(boolean v) { prefs.edit().putBoolean("mirror_replies", v).apply(); }
     public boolean mirrorMajorOnly() { return prefs.getBoolean("mirror_major_only", true); }
     public void setMirrorMajorOnly(boolean v) { prefs.edit().putBoolean("mirror_major_only", v).apply(); }

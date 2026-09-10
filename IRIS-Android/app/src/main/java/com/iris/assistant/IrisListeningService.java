@@ -508,6 +508,8 @@ public class IrisListeningService extends Service implements RecognitionListener
                     };
                     sensorManager.registerListener(shakeListener, accel,
                             android.hardware.SensorManager.SENSOR_DELAY_UI);
+                    IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.ACCELEROMETER,
+                            "Shake trigger");
                 }
             }
         } catch (Throwable ignored) { }
@@ -542,6 +544,8 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void teardownTriggers() {
         try { if (sensorManager != null && shakeListener != null) sensorManager.unregisterListener(shakeListener); } catch (Throwable ignored) { }
+        IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.ACCELEROMETER);
+        IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.MICROPHONE);
         try { if (mediaSession != null) { mediaSession.setActive(false); mediaSession.release(); mediaSession = null; } } catch (Throwable ignored) { }
     }
 
@@ -729,6 +733,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         restoreRecognizerBeep();
         updateListeningNotification("Owner wake ready: “" + wake.phrase + "”");
+        IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Wake listening");
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
             @Override public void onWakeDetected(float[] embedding) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
