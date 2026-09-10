@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.11.2";
+const BUILD_VERSION = "8.11.3";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -152,7 +152,7 @@ const FEATURES = [
   // ---- Voice & Recognition ----
   {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
    tagline:"IRIS wakes only when you say your phrase.",
-   desc:"Train your own wake phrase; IRIS listens silently in the background. You can add up to 2 extra wake phrases (e.g. “Hello IRIS”, “IRIS you there”, “wake up IRIS”) — the primary one is voice-trained, extras are recognised as text. Robust triggering: speaker-lock is OFF by default so it wakes on the phrase alone (turn it back on in Settings → Voice Security), and phrase matching is accent-tolerant (fuzzy + distinctive last word). The active microphone is shown on the orb and Training screens. Doesn't interrupt music/video.",
+   desc:"Offline owner wake requires the complete phrase, word confidence, sufficient speech and a matching Vosk voiceprint. No single-word shortcut, fuzzy acceptance, Android speech fallback or retry bypass. Wake candidates are rejected during phone media playback; pause the video or use Talk. Missing models or enrollment leave wake unavailable with a status message. Existing broad default alternate phrases are retired. Other custom alternatives must match in full.",
    examples:["“Hello IRIS”, or any extra phrase you add"], version:"7.37.0"},
   {id:"cmdstt", cat:"Voice & Recognition", icon:"👂", title:"Indian English Command Recognition",
    tagline:"Speak naturally; wait for the ready cue.",
@@ -188,7 +188,7 @@ const FEATURES = [
    examples:["Training → “🎓 Learn My Voice & Commands”"], version:"7.19.0"},
   {id:"waketrain", cat:"Voice & Recognition", icon:"🎤", title:"Robust Wake Training",
    tagline:"Confirm before saving, no lag or crash.",
-   desc:"Wake-phrase training now confirms before saving (“Save or re-record?”), shows what it heard (“I heard: …”), auto re-asks on silent/unclear samples, and enrolls your voiceprint in the background with a live progress %. Fixed the lag/crash: the listener now restarts only after enrollment finishes, so two voice models never load at once. Partial training + resume: progress auto-saves after each sample — tap “Pause (resume later)” and continue anytime from where you left off.",
+   desc:"Record the full phrase in a quiet room with a short pause before and after. Noisy, clipped and very short samples are rejected. Enrollment needs at least three consistent speaker embeddings from recordings whose transcripts match the phrase. The Test button uses the same offline phrase and owner checks as background listening. Wait for enrollment completion before testing.",
    examples:["Training → “Set Up Wake Phrase” → Save / Re-record","Pause → later → “▶ Resume training (3/5)”"], version:"7.34.0"},
   {id:"bigmodel", cat:"Voice & Recognition", icon:"🎯", title:"High-Accuracy Voice Model (opt-in)",
    tagline:"A bigger offline model for tough accents.",
@@ -204,7 +204,7 @@ const FEATURES = [
    examples:["Train the wake phrase → voiceprint enrolls automatically","(someone else) “Hello IRIS” → ignored"], version:"7.12.0"},
   {id:"voicefeedback", cat:"Voice & Recognition", icon:"🎚️", title:"Adaptive Voice Feedback",
    tagline:"Teach it when it gets the wake wrong.",
-   desc:"Two one-tap feedback buttons in Settings → Voice Security: “It missed me” learns your voice from the last rejected attempt and eases the threshold; “It woke for someone else” tightens it. A sensitivity slider gives manual control, and your voiceprint is included in Export Profile so it backs up to Drive/GitHub and never gets lost.",
+   desc:"It missed me opens authenticated fresh enrollment. IRIS never learns an unknown rejected voice from background media. False-wake feedback raises strictness within bounded limits. Owner verification is mandatory for wake. Voiceprints remain local and can be exported through the existing profile backup.",
    examples:["Settings → Voice Security → It missed me / stricter","Training → Export profile (backs up voiceprint)"], version:"7.14.0"},
   {id:"stt", cat:"Voice & Recognition", icon:"🗣️", title:"Offline Indian-English Recognition",
    tagline:"Understands your accent — no internet.",

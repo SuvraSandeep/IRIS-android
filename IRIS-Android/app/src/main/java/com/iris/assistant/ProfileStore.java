@@ -40,7 +40,8 @@ public final class ProfileStore {
             List<String> all = new ArrayList<>();
             if (!phrase.trim().isEmpty()) all.add(phrase.trim());
             for (String p : altPhrases) {
-                if (p != null && !p.trim().isEmpty() && !all.contains(p.trim())) all.add(p.trim());
+                if (p != null && !p.trim().isEmpty() && !all.contains(p.trim())
+                        && !p.equalsIgnoreCase("IRIS you there") && !p.equalsIgnoreCase("wake up IRIS")) all.add(p.trim());
             }
             return all;
         }
@@ -172,8 +173,7 @@ public final class ProfileStore {
             wake.put("threshold", 1.05);
             wake.put("trainedAt", System.currentTimeMillis());
             JSONArray alts = new JSONArray();
-            alts.put("IRIS you there");
-            alts.put("wake up IRIS");
+
             wake.put("altPhrases", alts);
             current.put("wakeWord", wake);
             persist(current);
@@ -273,15 +273,8 @@ public final class ProfileStore {
     }
 
     /** Blend a new sample into the enrolled voiceprint (adaptive learning). */
-    public synchronized boolean mergeVoiceprint(float[] sample) {
-        if (sample == null || sample.length == 0) return false;
-        float[] cur = getVoiceprint();
-        if (cur == null) return setVoiceprint(sample);
-        if (cur.length != sample.length) return false;
-        float[] merged = new float[cur.length];
-        for (int i = 0; i < merged.length; i++) merged[i] = cur[i] * 0.7f + sample[i] * 0.3f;
-        return setVoiceprint(merged);
-    }
+    /** Rejected candidates cannot mutate the owner identity. Use authenticated fresh enrollment. */
+    public synchronized boolean mergeVoiceprint(float[] sample) { return false; }
 
     public synchronized java.util.Map<String, String[]> getRelationships() {
         java.util.Map<String, String[]> result = new java.util.LinkedHashMap<>();

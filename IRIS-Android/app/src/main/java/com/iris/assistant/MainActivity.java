@@ -1676,7 +1676,7 @@ public class MainActivity extends Activity {
         if (voiceprintStatus != null) {
             boolean enrolled = new ProfileStore(this).getVoiceprint() != null;
             voiceprintStatus.setText(enrolled
-                    ? "Voiceprint: enrolled \u2705 — IRIS wakes only for your voice."
+                    ? "Voiceprint enrolled. Owner wake requires the offline model; media playback pauses wake."
                     : "Voiceprint: not enrolled — train your wake phrase to enroll.");
         }
         Button clearVoiceprintButton = view.findViewById(R.id.clearVoiceprintButton);
@@ -1684,7 +1684,7 @@ public class MainActivity extends Activity {
             clearVoiceprintButton.setOnClickListener(v -> {
                 new ProfileStore(this).setVoiceprint(null);
                 if (voiceprintStatus != null)
-                    voiceprintStatus.setText("Voiceprint: cleared. Wake works for any voice until you re-enroll.");
+                    voiceprintStatus.setText("Voiceprint cleared. Voice wake is unavailable until you enroll again.");
                 toast("Voice security cleared.");
             });
         }
@@ -1733,21 +1733,13 @@ public class MainActivity extends Activity {
         }
         Button feedbackMissed = view.findViewById(R.id.feedbackMissedButton);
         if (feedbackMissed != null) {
-            feedbackMissed.setOnClickListener(v -> {
-                ProfileStore ps = new ProfileStore(this);
-                float[] pending = ps.getPendingVoiceSample();
-                boolean learned = pending != null && ps.mergeVoiceprint(pending);
-                if (learned) ps.setPendingVoiceSample(null);
-                // ease the threshold a little
-                float s = Math.max(0f, settings.voiceSensitivity() - 0.08f);
-                settings.setVoiceSensitivity(s);
-                if (sensSeek != null) sensSeek.setProgress(Math.round(s * 100));
-                toast(learned
-                        ? "Learned your voice from the last miss + eased sensitivity."
-                        : "Eased sensitivity. (No recent missed sample to learn from.)");
-                LogStore.append(this, "VOICE FEEDBACK", "missed → " + (learned ? "merged sample, " : "") + "sensitivity " + Math.round(s * 100) + "%");
-            });
+            feedbackMissed.setOnClickListener(v -> authenticateThen("Improve owner voice", () -> {
+                new ProfileStore(this).setPendingVoiceSample(null);
+                toast("Record fresh samples in a quiet room. Rejected background voices are never added to your profile.");
+                beginWakeTraining();
+            }));
         }
+
         Button feedbackFalse = view.findViewById(R.id.feedbackFalseButton);
         if (feedbackFalse != null) {
             feedbackFalse.setOnClickListener(v -> {
@@ -1924,7 +1916,8 @@ public class MainActivity extends Activity {
         haptics.setOnCheckedChangeListener((button, checked) -> settings.setHaptics(checked));
         Switch speakerVerification = view.findViewById(R.id.speakerVerificationSwitch);
         speakerVerification.setChecked(settings.speakerVerification());
-        speakerVerification.setOnCheckedChangeListener((button, checked) -> settings.setSpeakerVerification(checked));
+        speakerVerification.setEnabled(false);
+        speakerVerification.setText("Owner verification required for voice wake");
 
         Switch requireUnlock = view.findViewById(R.id.requireUnlockSwitch);
         requireUnlock.setChecked(settings.requireUnlock());
@@ -2218,9 +2211,9 @@ public class MainActivity extends Activity {
                     rmsVal = Math.sqrt(rmsVal / Math.max(1, audio.length));
 
                     // REJECT only near-silent samples — normal speaking voice is fine
-                    if (rmsVal < 150) {
+                    if (!WakePolicy.usableAudio(audio)) {
                         if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C I didn't hear anything — speak normally toward the phone");
-                        wakeTrainingStatus.setText("Rejected: silent. Retrying sample " + (wakeSampleIndex + 1) + "...");
+                        wakeTrainingStatus.setText("Rejected: noisy, clipped or too short. Retrying sample " + (wakeSampleIndex + 1) + "...");
                         toast("\u274C Didn't hear you — say it in your normal voice");
                         rejectTone();
                         handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
@@ -2310,15 +2303,18 @@ public class MainActivity extends Activity {
                             int i = 0;
                             for (short[] s : capped) {
                                 float[] e = null;
-                                try { e = ve.embed(s); } catch (Throwable ignored) { }
-                                if (e != null) vecs.add(e);
+                                try {
+                                    String expected = new ProfileStore(MainActivity.this).getWakeProfile().phrase;
+                                    if (WakePolicy.matches(ve.transcribe(s), java.util.Collections.singletonList(expected))) e = ve.embed(s);
+                                } catch (Throwable ignored) { }
+                                if (e != null && WakePolicy.usableAudio(s)) vecs.add(e);
                                 final int pct = (int) (100.0 * (++i) / capped.size());
                                 handler.post(() -> { if (wakeTrainingStatus != null)
                                         wakeTrainingStatus.setText("Learning your voice… " + pct + "%"); });
                             }
                         }
-                        if (!vecs.isEmpty()) {
-                            new ProfileStore(MainActivity.this).setVoiceprint(averageVectors(vecs));
+                        if (WakePolicy.enrollment(vecs) != null) {
+                            new ProfileStore(MainActivity.this).setVoiceprint(WakePolicy.enrollment(vecs));
                             LogStore.append(MainActivity.this, "VOICE", "Enrolled voiceprint from " + vecs.size() + " samples");
                             // Show what IRIS actually heard (engine is already loaded — no extra cost).
                             String heard = "";
@@ -2332,9 +2328,9 @@ public class MainActivity extends Activity {
                         } else {
                             LogStore.append(MainActivity.this, "VOICE", "Enrollment skipped (speaker model unavailable)");
                             handler.post(() -> {
-                                toast("Couldn't set up voice-lock \u2014 needed a download that didn't finish. Wake still works; try again with Wi-Fi.");
+                                toast("Voice wake unavailable. Load the offline models and record at least three clear, consistent samples of the full phrase.");
                                 if (wakeTrainingStatus != null)
-                                    wakeTrainingStatus.setText("\u26A0 Voice-lock unavailable \u2014 wake phrase saved, but retrain to add voice-lock (needs Wi-Fi once).");
+                                    wakeTrainingStatus.setText("\u26A0 Voice wake unavailable: check offline models and retrain in a quiet room.");
                             });
                         }
                     } catch (Throwable t) {
@@ -2462,12 +2458,12 @@ public class MainActivity extends Activity {
                 for (short[] s : samples) {
                     float[] e = null;
                     try { e = trainVosk.embed(s); } catch (Throwable ignored) { }
-                    if (e != null) vecs.add(e);
+                    if (e != null && WakePolicy.usableAudio(s)) vecs.add(e);
                 }
             }
-            final boolean enrolled = !vecs.isEmpty();
+            final boolean enrolled = WakePolicy.enrollment(vecs) != null;
             if (enrolled) {
-                new ProfileStore(MainActivity.this).setVoiceprint(averageVectors(vecs));
+                new ProfileStore(MainActivity.this).setVoiceprint(WakePolicy.enrollment(vecs));
                 LogStore.append(MainActivity.this, "VOICE",
                         "Voice pattern enrolled from " + vecs.size() + " read phrases");
             } else {
@@ -2475,7 +2471,7 @@ public class MainActivity extends Activity {
                         "Voice pattern not saved (speaker model unavailable)");
             }
             handler.post(() -> {
-                if (!enrolled) toast("Wake phrase saved, but voice-lock needs a download that didn't finish. Try again with Wi-Fi.");
+                if (!enrolled) toast("Voice wake unavailable. Check offline models and retrain with at least three clear, consistent samples.");
                 if (!voiceTrainCancelled) trainCommandStep();
             });
         }, "IRIS-VoiceTrain-Enroll").start();
@@ -2612,12 +2608,12 @@ public class MainActivity extends Activity {
                 + dtwTemplates.size() + " templates • " + enrollStatus);
         trainWakeButton.setText("\uD83D\uDD04  Retrain");
         trainWakeButton.setEnabled(true);
-        trainWakeButton.setOnClickListener(v -> beginWakeTraining());
+        trainWakeButton.setOnClickListener(v -> authenticateThen("Train owner voice", this::beginWakeTraining));
         testWakeButton.setEnabled(true);
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.VISIBLE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.GONE);
         stopWakeTrainingEngine();
-        toast("\u2705 Wake phrase trained! Say \u201C" + saved.phrase + "\u201D to wake IRIS.");
+        toast("Phrase saved. Wait for owner enrollment to complete, then use Test wake phrase.");
         // Success melody
         try {
             android.media.ToneGenerator tone = new android.media.ToneGenerator(
@@ -2630,37 +2626,66 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) { }
     }
 
+    private VoskEngine wakeTestEngine;
     private void testWakePhrase() {
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
-        if (!wake.isReady()) return;
+        if (!wake.isReady() || !WakePolicy.owner(wake.voiceprint, wake.voiceprint, .99)) {
+            toast("Enroll your voice before testing."); return;
+        }
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
-            maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO, "Microphone");
-            return;
+            maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO, "Microphone"); return;
         }
         if (IrisListeningService.isRunning) stopListeningService();
         stopWakeTrainingEngine();
-        wakeTrainingStatus.setText("Test armed • Say “" + wake.phrase + "”. Nothing will be called.");
-        wakeTrainingEngine = new WakeWordEngine(this);
-        WakeWordEngine active = wakeTrainingEngine;
-        active.detect(wake.templates, wake.threshold, new WakeWordEngine.Listener() {
-            @Override public void onStatus(String status) { }
-            @Override public void onSample(float[][] features, String quality, float signalToNoise, short[] rawAudio) { }
-            @Override public void onWakeDetected(double distance, short[] rawAudio) {
-                wakeTrainingStatus.setText("Matched “" + wake.phrase + "” • distance "
-                        + Math.round(distance * 100) / 100.0 + ". Test passed.");
-                stopWakeTrainingEngine();
+        final VoskEngine engine = new VoskEngine();
+        wakeTestEngine = engine;
+        wakeTrainingStatus.setText("Preparing the same offline detector used by background listening…");
+        engine.init(this, new VoskEngine.InitListener() {
+            @Override public void onReady() {
+                if (wakeTestEngine != engine) { engine.close(); return; }
+                engine.initSpeaker(MainActivity.this);
+                final long deadline = android.os.SystemClock.elapsedRealtime() + 45000;
+                handler.post(new Runnable() {
+                    @Override public void run() {
+                        if (wakeTestEngine != engine) return;
+                        if (!engine.isSpeakerReady()) {
+                            if (android.os.SystemClock.elapsedRealtime() < deadline) handler.postDelayed(this, 500);
+                            else { stopWakeTrainingEngine(); wakeTrainingStatus.setText("Offline speaker model unavailable. Try again after downloading it."); }
+                            return;
+                        }
+                        android.media.AudioManager am = (android.media.AudioManager)getSystemService(AUDIO_SERVICE);
+                        if (am != null && am.isMusicActive()) {
+                            stopWakeTrainingEngine(); wakeTrainingStatus.setText("Pause media before testing, just as in background wake."); return;
+                        }
+                        wakeTrainingStatus.setText("Say the complete phrase: “" + wake.phrase + "”");
+                        engine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
+                            @Override public void onWakeDetected(float[] embedding) {
+                                if (wakeTestEngine != engine) return;
+                                boolean accepted = (am == null || !am.isMusicActive()) && WakePolicy.owner(embedding,
+                                        wake.voiceprint, WakePolicy.threshold(settings.voiceSensitivity()));
+                                stopWakeTrainingEngine();
+                                wakeTrainingStatus.setText(accepted ? "Full phrase and owner verified. Test passed." : "Rejected: voice mismatch or media playing. Retrain if this was you.");
+                            }
+                            @Override public void onError(String message) {
+                                if (wakeTestEngine != engine) return;
+                                stopWakeTrainingEngine(); wakeTrainingStatus.setText("Test unavailable: " + message);
+                            }
+                        });
+                        handler.postDelayed(() -> {
+                            if (wakeTestEngine == engine) { stopWakeTrainingEngine(); wakeTrainingStatus.setText("No verified wake in 15 seconds. Say the complete phrase or retrain."); }
+                        }, 15000);
+                    }
+                });
             }
-            @Override public void onError(String message) { wakeTrainingStatus.setText(message); }
+            @Override public void onError(String message) {
+                if (wakeTestEngine != engine) return;
+                stopWakeTrainingEngine(); wakeTrainingStatus.setText("Test unavailable: " + message);
+            }
         });
-        handler.postDelayed(() -> {
-            if (wakeTrainingEngine == active) {
-                stopWakeTrainingEngine();
-                wakeTrainingStatus.setText("No match in 10 seconds. Try again or retrain in the room where you normally use IRIS.");
-            }
-        }, 10_000);
     }
 
     private void stopWakeTrainingEngine() {
+        if (wakeTestEngine != null) { VoskEngine old = wakeTestEngine; wakeTestEngine = null; old.close(); }
         if (wakeTrainingEngine != null) { wakeTrainingEngine.stop(); wakeTrainingEngine = null; }
     }
 

@@ -399,7 +399,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private android.media.MediaPlayer serverTtsPlayer;
     private int confirmationRetries;
     private String lastMemoryId;
-    private SpeakerVerifier speakerVerifier;
+
     private VoskEngine voskEngine;
     private MediaMemoRecorder memoRecorder;
     private boolean voskReady;
@@ -437,8 +437,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this, "TTS", "FAILED (status " + status + ")");
             }
         });
-        speakerVerifier = new SpeakerVerifier();
-        speakerVerifier.loadModel(this);
+
         voskEngine = new VoskEngine();
         voskEngine.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
@@ -692,188 +691,71 @@ public class IrisListeningService extends Service implements RecognitionListener
         return settings.preferOnDevice() ? "System speech fallback" : "System speech service";
     }
 
+    private long wakeEpoch;
+    private long lastWakeAt;
+    private final Runnable retryWake = () -> {
+        if (isRunning && PHASE_WAKE.equals(phase)) startWakeDetection();
+    };
+    private void scheduleWakeRetry(long delay) {
+        handler.removeCallbacks(retryWake);
+        handler.postDelayed(retryWake, delay);
+    }
     private void startWakeDetection() {
+        if (!isRunning) return;
+        final long epoch = ++wakeEpoch;
+        handler.removeCallbacks(retryWake);
         destroyRecognizer();
+        if (voskEngine != null) voskEngine.stop();
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
-        if (!wake.isReady()) {
-            broadcastMessage("Train a custom wake phrase first.");
-            LogStore.append(this, "SETUP", "Wake mode needs training");
-            stopIris("Wake phrase not trained");
-            return;
-        }
         phase = PHASE_WAKE;
         currentPhase = phase;
         broadcastState(true, phase);
-
-        // Give Vosk a brief chance to load; if not ready, use Android speech
-        // recognition for wake (real STT — reliable, rejects noise). Never wait forever.
-        if (!voskReady || voskEngine == null) {
-            LogStore.append(this, "WAKE", "Vosk not ready — using Android speech recognition for wake");
-            startAndroidWakeDetection(wake);
+        androidWakeActive = false;
+        if (!wake.isReady() || !WakePolicy.owner(wake.voiceprint, wake.voiceprint, .99)) {
+            updateListeningNotification("Wake unavailable: train your phrase and voice in Training");
+            scheduleWakeRetry(3000);
             return;
         }
-
-        // Vosk is ready — silent, continuous wake. Leave Android STT mode.
-        androidWakeActive = false;
+        if (!voskReady || voskEngine == null || !voskEngine.isSpeakerReady()) {
+            updateListeningNotification("Wake unavailable: preparing offline voice verification");
+            scheduleWakeRetry(2000);
+            return;
+        }
+        if (audioManager != null && audioManager.isMusicActive()) {
+            updateListeningNotification("Wake paused during media playback. Pause media to speak.");
+            scheduleWakeRetry(1500);
+            return;
+        }
         restoreRecognizerBeep();
-
-        updateListeningNotification("Waiting for “" + wake.phrase + "”");
-        // Vosk neural grammar-mode wake detection — only fires on the exact phrase
+        updateListeningNotification("Owner wake ready: “" + wake.phrase + "”");
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
-            @Override public void onWakeDetected(float[] voiceEmbedding) {
-                if (!isRunning || !PHASE_WAKE.equals(phase)) return;
-                // Voice verification: only wake for the enrolled owner's voice —
-                // but NEVER lock the owner out: after 3 rejects in a row, accept anyway.
-                if (!isOwnerVoice(voiceEmbedding)) {
-                    consecutiveWakeRejects++;
-                    if (consecutiveWakeRejects < 2) {
-                        LogStore.append(IrisListeningService.this, "WAKE REJECT",
-                                "voice not recognized (" + consecutiveWakeRejects + "/2)");
-                        if (voiceEmbedding != null) {
-                            new ProfileStore(IrisListeningService.this).setPendingVoiceSample(voiceEmbedding);
-                        }
-                        // Don't talk over the user's media, and don't nag repeatedly.
-                        boolean mediaActive = audioManager != null && audioManager.isMusicActive();
-                        long now = System.currentTimeMillis();
-                        if (settings.voiceCueEnabled() && !"Silent".equals(settings.personality())
-                                && !mediaActive && now - lastRejectCueAt > 15000) {
-                            lastRejectCueAt = now;
-                            speak(notRecognizedLine());
-                        }
-                        // Re-arm so the owner can try again (silent Vosk restart).
-                        handler.postDelayed(IrisListeningService.this::startWakeDetection, 1000);
-                        return;
-                    }
-                    LogStore.append(IrisListeningService.this, "WAKE",
-                            "voiceprint bypassed after repeated rejects (anti-lockout)");
-                }
-                consecutiveWakeRejects = 0;
+            @Override public void onWakeDetected(float[] embedding) {
+                if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
+                boolean media = audioManager != null && audioManager.isMusicActive();
+                long now = android.os.SystemClock.elapsedRealtime();
+                double score = WakePolicy.cosine(embedding, new ProfileStore(IrisListeningService.this).getVoiceprint());
+                boolean accepted = !media && now - lastWakeAt >= 3000 && isOwnerVoice(embedding);
+                LogStore.append(IrisListeningService.this, "WAKE DECISION",
+                        "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
+                        + " accepted=" + accepted);
                 voskEngine.stop();
-                LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Vosk)");
+                if (!accepted) { scheduleWakeRetry(1500); return; }
+                lastWakeAt = now;
+                ++wakeEpoch;
                 vibrate(45);
                 String greet = wakeGreeting();
                 broadcastMessage(greet);
-                // Speak THEN listen — never cut off IRIS mid-sentence
                 nextOutputMinor = true;
                 speakThenRun(greet, IrisListeningService.this::startCommandRecognition);
             }
             @Override public void onError(String message) {
-                LogStore.append(IrisListeningService.this, "VOSK ERROR", message);
-                // If Vosk keeps erroring, fall back to Android STT wake
-                startAndroidWakeDetection(wake);
+                if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
+                LogStore.append(IrisListeningService.this, "WAKE UNAVAILABLE", message);
+                scheduleWakeRetry(3000);
             }
         });
     }
 
-    /**
-     * Wake detection using Android's own SpeechRecognizer.
-     * Continuously listens; if the recognized text contains the wake phrase,
-     * wakes IRIS. Real speech recognition — rejects random noise, works on
-     * every phone that has Google speech (which this device confirmed it does).
-     */
-    private void startAndroidWakeDetection(ProfileStore.WakeProfile wake) {
-        if (!isRunning || !PHASE_WAKE.equals(phase)) return;
-        androidWakeActive = true;
-        updateListeningNotification("Waiting for “" + wake.phrase + "”");
-        final java.util.List<String> targets = new java.util.ArrayList<>();
-        for (String p : wake.allPhrases()) {
-            String n = ProfileStore.normalize(p);
-            if (!n.isEmpty()) targets.add(n);
-        }
-        final String target = targets.isEmpty() ? ProfileStore.normalize(wake.phrase) : targets.get(0);
-        destroyRecognizer();
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            broadcastMessage("Speech recognition unavailable on this device.");
-            LogStore.append(this, "WAKE ERROR", "No speech recognition available");
-            return;
-        }
-        recognizer = SpeechRecognizer.createSpeechRecognizer(this);
-        recognizer.setRecognitionListener(new RecognitionListener() {
-            @Override public void onReadyForSpeech(Bundle params) { }
-            @Override public void onBeginningOfSpeech() { }
-            @Override public void onRmsChanged(float rmsdB) { }
-            @Override public void onBufferReceived(byte[] buffer) { }
-            @Override public void onEndOfSpeech() { }
-            @Override public void onError(int error) {
-                if (!isRunning || !PHASE_WAKE.equals(phase)) return;
-                // Busy or client errors need a fresh recognizer, not just a restart
-                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
-                        || error == SpeechRecognizer.ERROR_CLIENT) {
-                    handler.postDelayed(() -> startAndroidWakeDetection(wake), 600);
-                } else {
-                    handler.postDelayed(IrisListeningService.this::restartAndroidWake, 350);
-                }
-            }
-            @Override public void onResults(Bundle results) {
-                ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                boolean detected = wakeHeardAny(matches, targets);
-                if (detected && isRunning && PHASE_WAKE.equals(phase)) {
-                    androidWakeActive = false;
-                    restoreRecognizerBeep(); // unmute so the greeting + TTS are audible
-                    destroyRecognizer();     // fully release the mic before speaking
-                    LogStore.append(IrisListeningService.this, "WAKE", wake.phrase + " detected (Android STT)");
-                    vibrate(45);
-                    String greet = wakeGreeting();
-                    broadcastMessage(greet);
-                    nextOutputMinor = true;
-                    speakThenRun(greet, IrisListeningService.this::startCommandRecognition);
-                } else if (isRunning && PHASE_WAKE.equals(phase)) {
-                    handler.postDelayed(IrisListeningService.this::restartAndroidWake, 200);
-                }
-            }
-            @Override public void onPartialResults(Bundle partialResults) {
-                ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                if (wakeHeardAny(matches, targets) && isRunning && PHASE_WAKE.equals(phase)) {
-                    try { recognizer.stopListening(); } catch (Exception ignored) { }
-                }
-            }
-            @Override public void onEvent(int eventType, Bundle params) { }
-        });
-        restartAndroidWake();
-    }
-
-    /** True if the wake phrase (or all of its words) appear in any recognition result. */
-    private boolean wakeHeard(ArrayList<String> matches, String target) {
-        if (matches == null || target.isEmpty()) return false;
-        String[] targetWords = target.split("\\s+");
-        for (String m : matches) {
-            String norm = ProfileStore.normalize(m);
-            if (norm.isEmpty()) continue;
-            if (norm.contains(target)) return true;      // exact phrase heard
-            // Or: all wake words present (handles minor STT word-order/filler)
-            boolean all = true;
-            for (String w : targetWords) {
-                if (w.length() >= 2 && !norm.contains(w)) { all = false; break; }
-            }
-            if (all && targetWords.length > 0) return true;
-        }
-        return false;
-    }
-
-    /** True if ANY of the wake phrases is heard in the recognition results. */
-    private boolean wakeHeardAny(ArrayList<String> matches, java.util.List<String> targets) {
-        if (matches == null || targets == null) return false;
-        for (String t : targets) if (t != null && !t.isEmpty() && wakeHeard(matches, t)) return true;
-        return false;
-    }
-
-    private void restartAndroidWake() {
-        if (!isRunning || !PHASE_WAKE.equals(phase) || recognizer == null) return;
-        // NOTE: we deliberately do NOT mute audio streams here. Muting STREAM_MUSIC
-        // to hide the recognizer beep also mutes TTS, which was cutting IRIS off
-        // mid-sentence. Silent wake comes from Vosk instead.
-        try {
-            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, settings.resolvedLanguageTag());
-            recognizer.startListening(intent);
-        } catch (Exception e) {
-            handler.postDelayed(this::restartAndroidWake, 500);
-        }
-    }
-
-    private boolean beepMuted = false;
     private long lastRejectCueAt = 0;
     private int consecutiveWakeRejects = 0;
     private boolean spellingCall = false;
@@ -5003,7 +4885,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-        if (settings.requireUnlock() && !settings.lockScreenControl() && keyguard != null && keyguard.isDeviceLocked()) {
+        if (settings.requireUnlock() && keyguard != null && keyguard.isDeviceLocked()) {
             cancelCallNotification();
             requestUnlockForCall(name, number);
             return;
@@ -5090,7 +4972,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** True (and tells the user) if an action must wait for unlock while the phone is locked. */
     private boolean blockedWhileLocked(String actionLabel) {
-        if (settings.lockScreenControl()) return false; // user opted into lock-screen control
+        // Sending messages always respects the unlock preference, even with lock-screen camera enabled.
         KeyguardManager kg = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         if (settings.requireUnlock() && kg != null && kg.isDeviceLocked()) {
             String msg = "Please unlock your phone first to " + actionLabel + ".";
@@ -5102,26 +4984,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         return false;
     }
 
-    /** Verify the wake utterance is the enrolled owner. Fail-open if not enrolled / no embedding. */
+    /** Missing or invalid identity data always rejects a wake. */
     private boolean isOwnerVoice(float[] embedding) {
         try {
-            if (!settings.speakerVerification()) return true;   // speaker-lock off → wake on phrase alone
-            float[] print = new ProfileStore(this).getVoiceprint();
-            if (print == null || embedding == null || print.length != embedding.length) return true;
-            double sim = cosine(embedding, print);
-            double threshold = voiceThreshold();
-            LogStore.append(this, "VOICE",
-                    String.format(java.util.Locale.US, "similarity %.3f (need %.2f)", sim, threshold));
-            return sim >= threshold;
-        } catch (Throwable t) {
-            return true; // never lock the user out on error
-        }
+            return voskEngine != null && voskEngine.isSpeakerReady()
+                    && WakePolicy.owner(embedding, new ProfileStore(this).getVoiceprint(), voiceThreshold());
+        } catch (Throwable error) { return false; }
     }
 
-    private double voiceThreshold() {
-        float s = Math.max(0f, Math.min(1f, settings.voiceSensitivity()));
-        return 0.40 + s * 0.40; // lenient 0.40 ↔ strict 0.80 (default 0.60)
-    }
+    private double voiceThreshold() { return WakePolicy.threshold(settings.voiceSensitivity()); }
 
     private static double cosine(float[] a, float[] b) {
         double dot = 0, na = 0, nb = 0;
@@ -6002,7 +5873,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }
         if (textToSpeech != null) textToSpeech.shutdown();
         releaseServerTts();
-        if (speakerVerifier != null) { speakerVerifier.close(); speakerVerifier = null; }
+
         if (voskEngine != null) { voskEngine.close(); voskEngine = null; }
         if (llmAgent != null) { llmAgent.close(); llmAgent = null; }
         super.onDestroy();

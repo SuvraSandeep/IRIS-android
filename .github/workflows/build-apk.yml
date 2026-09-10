@@ -11,6 +11,7 @@ on:
         options:
           - debug
           - release
+  pull_request:
   push:
     branches: [main, master]
     paths-ignore:
@@ -127,6 +128,10 @@ jobs:
             fi
             rm -f "$ASSETS_DIR/spk.zip" || true
           fi
+
+      - name: Wake regression tests
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: bash tests/run-wake-tests.sh
 
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}

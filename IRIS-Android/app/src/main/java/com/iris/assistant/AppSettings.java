@@ -78,9 +78,9 @@ public final class AppSettings {
     /** Let IRIS act on commands while the phone is locked (UI actions prompt a quick unlock). */
     public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }
     public void setLockScreenControl(boolean value) { prefs.edit().putBoolean("lock_screen_control", value).apply(); }
-    /** Voice-verification strictness 0=lenient .. 1=strict (default lenient so the owner wakes first try). */
-    public float voiceSensitivity() { return prefs.getFloat("voice_sensitivity", 0.2f); }
-    public void setVoiceSensitivity(float value) { prefs.edit().putFloat("voice_sensitivity", value).apply(); }
+    /** Voice-verification strictness 0=lenient .. 1=strict (default balanced; missing verification always rejects). */
+    public float voiceSensitivity() { return prefs.getFloat("owner_voice_sensitivity_v2", 0.5f); }
+    public void setVoiceSensitivity(float value) { prefs.edit().putFloat("owner_voice_sensitivity_v2", value).apply(); }
     /** Use Google Speech Recognition for commands (best accuracy; falls back to Vosk offline). */
     public boolean googleSttForCommands() { return prefs.getBoolean("google_stt_commands", true); }
     public void setGoogleSttForCommands(boolean v) { prefs.edit().putBoolean("google_stt_commands", v).apply(); }
@@ -106,7 +106,7 @@ public final class AppSettings {
     /** CSV of quick-action chip ids shown on the home screen. */
     public String homeChips() { return prefs.getString("home_chips", "call,text,alarm,weather,torch,time"); }
     public void setHomeChips(String csv) { prefs.edit().putString("home_chips", csv).apply(); }
-    public boolean speakerVerification() { return prefs.getBoolean("speaker_verification", false); }
+    public boolean speakerVerification() { return true; // owner verification is mandatory for voice wake }
     public void setSpeakerVerification(boolean value) { prefs.edit().putBoolean("speaker_verification", value).apply(); }
     public boolean shakeToWake() { return prefs.getBoolean("shake_to_wake", false); }
     public void setShakeToWake(boolean v) { prefs.edit().putBoolean("shake_to_wake", v).apply(); }

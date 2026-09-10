@@ -278,103 +278,59 @@ public final class VoskEngine {
      * Uses a grammar limited to the wake phrase, so only that phrase
      * (spoken as actual speech) triggers detection.
      */
-    public void startWakeDetection(String wakePhrase, WakeListener listener) {
-        if (!isReady()) { listener.onError("Voice model not ready"); return; }
-        stop();
-        try {
-            String phrase = wakePhrase.toLowerCase().trim();
-            String[] wakeWords = phrase.split("\\s+");
-            final String keyWord = wakeWords[wakeWords.length - 1];
-            // Grammar = full phrase + the distinctive last word + [unk]. Giving Vosk the short
-            // key word as a target lets it still snap to a wake even if it mis-hears the leading
-            // words (accent-tolerant), instead of dumping everything into [unk].
-            StringBuilder gb = new StringBuilder("[\"" + phrase + "\"");
-            if (!keyWord.equals(phrase) && keyWord.length() >= 3) gb.append(", \"" + keyWord + "\"");
-            gb.append(", \"[unk]\"]");
-            String grammar = gb.toString();
-            Recognizer recognizer = new Recognizer(model, SAMPLE_RATE, grammar);
-            if (spkReady && spkModel != null) {
-                try {
-                    recognizer.getClass()
-                            .getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
-                            .invoke(recognizer, spkModel);
-                } catch (Throwable ignored) { }
-            }
-            speechService = new SpeechService(recognizer, SAMPLE_RATE);
-            speechService.startListening(new RecognitionListener() {
-                @Override public void onPartialResult(String hypothesis) {
-                    // Do NOT trigger on partial results — too noisy.
-                }
-                @Override public void onResult(String hypothesis) {
-                    if (wakeMatches(hypothesis, phrase, keyWord)) {
-                        listener.onWakeDetected(extractSpk(hypothesis));
-                    }
-                }
-                @Override public void onFinalResult(String hypothesis) {
-                    if (wakeMatches(hypothesis, phrase, keyWord)) {
-                        listener.onWakeDetected(extractSpk(hypothesis));
-                    }
-                }
-                @Override public void onError(Exception e) {
-                    listener.onError(e.getMessage());
-                }
-                @Override public void onTimeout() { }
-            });
-        } catch (Exception e) {
-            listener.onError(e.getMessage());
-        }
+    public void startWakeDetection(String phrase, WakeListener listener) {
+        startWakeDetection(java.util.Collections.singletonList(phrase), listener);
     }
 
-    /**
-     * Multi-phrase wake detection: fires if ANY of the given phrases is spoken.
-     * Builds a grammar with every phrase (+ its distinctive last word) + [unk].
-     */
+    private volatile long wakeGeneration;
     public void startWakeDetection(java.util.List<String> phrases, WakeListener listener) {
         if (!isReady()) { listener.onError("Voice model not ready"); return; }
-        if (phrases == null || phrases.isEmpty()) { listener.onError("No wake phrase"); return; }
+        if (!isSpeakerReady()) { listener.onError("Owner verification model not ready"); return; }
         stop();
+        final long generation = wakeGeneration;
+        final java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
         try {
             final java.util.List<String> norm = new java.util.ArrayList<>();
-            final java.util.List<String> keyWords = new java.util.ArrayList<>();
-            StringBuilder gb = new StringBuilder("[");
+            JSONArray grammar = new JSONArray();
             for (String raw : phrases) {
-                if (raw == null) continue;
-                String phrase = raw.toLowerCase().trim();
-                if (phrase.isEmpty() || norm.contains(phrase)) continue;
-                norm.add(phrase);
-                gb.append("\"").append(phrase).append("\", ");
-                String[] w = phrase.split("\\s+");
-                String kw = w[w.length - 1];
-                if (kw.length() >= 3 && !kw.equals(phrase) && !keyWords.contains(kw)) {
-                    keyWords.add(kw);
-                    gb.append("\"").append(kw).append("\", ");
-                }
+                String phrase = WakePolicy.normalize(raw);
+                if (!phrase.isEmpty() && !norm.contains(phrase)) { norm.add(phrase); grammar.put(phrase); }
             }
             if (norm.isEmpty()) { listener.onError("No wake phrase"); return; }
-            gb.append("\"[unk]\"]");
-            Recognizer recognizer = new Recognizer(model, SAMPLE_RATE, gb.toString());
-            if (spkReady && spkModel != null) {
-                try {
-                    recognizer.getClass()
-                            .getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
-                            .invoke(recognizer, spkModel);
-                } catch (Throwable ignored) { }
-            }
-            speechService = new SpeechService(recognizer, SAMPLE_RATE);
+            grammar.put("[unk]");
+            Recognizer rec = new Recognizer(model, SAMPLE_RATE, grammar.toString());
+            rec.setWords(true);
+            try {
+                rec.getClass().getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
+                        .invoke(rec, spkModel);
+            } catch (Throwable error) { rec.close(); throw new IllegalStateException("Speaker attachment failed", error); }
+            speechService = new SpeechService(rec, SAMPLE_RATE);
             speechService.startListening(new RecognitionListener() {
-                @Override public void onPartialResult(String hypothesis) { }
-                @Override public void onResult(String hypothesis) {
-                    if (wakeMatchesAny(hypothesis, norm, keyWords)) listener.onWakeDetected(extractSpk(hypothesis));
+                private void result(String json) {
+                    if (generation != wakeGeneration || fired.get()) return;
+                    try {
+                        JSONObject result = new JSONObject(json);
+                        if (!WakePolicy.matches(result.optString("text"), norm)) return;
+                        JSONArray words = result.optJSONArray("result");
+                        if (words == null || words.length() == 0) return;
+                        double score = 1;
+                        for (int i = 0; i < words.length(); i++) score = Math.min(score, words.getJSONObject(i).optDouble("conf", 0));
+                        double duration = words.getJSONObject(words.length()-1).optDouble("end", 0)
+                                - words.getJSONObject(0).optDouble("start", 0);
+                        if (!Double.isFinite(score) || score < .85 || duration < .5 || duration > 4
+                                || result.optInt("spk_frames", 0) < 50) return;
+                        if (fired.compareAndSet(false, true)) listener.onWakeDetected(extractSpk(json));
+                    } catch (Exception ignored) { /* malformed results cannot wake */ }
                 }
-                @Override public void onFinalResult(String hypothesis) {
-                    if (wakeMatchesAny(hypothesis, norm, keyWords)) listener.onWakeDetected(extractSpk(hypothesis));
+                @Override public void onPartialResult(String h) { }
+                @Override public void onResult(String h) { result(h); }
+                @Override public void onFinalResult(String h) { result(h); }
+                @Override public void onError(Exception e) {
+                    if (generation == wakeGeneration && fired.compareAndSet(false, true)) listener.onError(e.getMessage());
                 }
-                @Override public void onError(Exception e) { listener.onError(e.getMessage()); }
                 @Override public void onTimeout() { }
             });
-        } catch (Exception e) {
-            listener.onError(e.getMessage());
-        }
+        } catch (Exception error) { listener.onError(error.getMessage()); }
     }
 
     /**
@@ -412,6 +368,7 @@ public final class VoskEngine {
 
     /** Stop any active recognition. */
     public void stop() {
+        wakeGeneration++;
         if (speechService != null) {
             try {
                 speechService.stop();
@@ -483,7 +440,9 @@ public final class VoskEngine {
     }
 
     private static boolean isValidSpkDir(File dir) {
-        return dir != null && dir.isDirectory() && dir.list() != null && dir.list().length > 0;
+        return dir != null && new File(dir, "final.ext.raw").length() > 0
+                && new File(dir, "mean.vec").length() > 0
+                && new File(dir, "transform.mat").length() > 0;
     }
 
     private static boolean assetDirExists(Context c, String name) {
@@ -561,63 +520,6 @@ public final class VoskEngine {
     }
 
     // ─── Helpers ───
-
-    private static boolean isExactPhrase(String hypothesisJson, String phrase) {
-        // Vosk grammar mode result: {"text": "nova"}. Since the recognizer is
-        // constrained to the phrase (or [unk]), a final result containing the
-        // phrase is a reliable, safe wake trigger.
-        String text = extractText(hypothesisJson, "text");
-        if (text.isEmpty()) return false;
-        // Match the phrase as a whole word within the final text
-        return text.equals(phrase)
-                || text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)");
-    }
-
-    /** Accent-tolerant wake match: exact phrase, the distinctive key word present, or a close
-     *  fuzzy match to the phrase. More forgiving than exact grammar matching. */
-    private static boolean wakeMatches(String hypothesisJson, String phrase, String keyWord) {
-        String text = extractText(hypothesisJson, "text");
-        if (text.isEmpty() || text.equals("[unk]")) return false;
-        if (text.equals(phrase)) return true;
-        if (text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)")) return true;
-        if (keyWord != null && keyWord.length() >= 3
-                && text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(keyWord) + "(\\s.*|$)")) return true;
-        return wakeSim(text, phrase) >= 0.45;
-    }
-
-    /** Multi-phrase variant of wakeMatches — true if any phrase (or its key word) matches. */
-    private static boolean wakeMatchesAny(String hypothesisJson, java.util.List<String> phrases,
-                                          java.util.List<String> keyWords) {
-        String text = extractText(hypothesisJson, "text");
-        if (text.isEmpty() || text.equals("[unk]")) return false;
-        for (String phrase : phrases) {
-            if (text.equals(phrase)) return true;
-            if (text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(phrase) + "(\\s.*|$)")) return true;
-            if (wakeSim(text, phrase) >= 0.45) return true;
-        }
-        for (String kw : keyWords) {
-            if (kw.length() >= 3
-                    && text.matches("(^|.*\\s)" + java.util.regex.Pattern.quote(kw) + "(\\s.*|$)")) return true;
-        }
-        return false;
-    }
-
-    /** Levenshtein similarity ratio (0..1). */
-    private static double wakeSim(String a, String b) {
-        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return 0;
-        int[] prev = new int[b.length() + 1];
-        int[] cur = new int[b.length() + 1];
-        for (int j = 0; j <= b.length(); j++) prev[j] = j;
-        for (int i = 1; i <= a.length(); i++) {
-            cur[0] = i;
-            for (int j = 1; j <= b.length(); j++) {
-                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
-                cur[j] = Math.min(Math.min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
-            }
-            int[] t = prev; prev = cur; cur = t;
-        }
-        return 1.0 - ((double) prev[b.length()] / Math.max(a.length(), b.length()));
-    }
 
     private static String extractText(String json, String field) {
         if (json == null) return "";
