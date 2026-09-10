@@ -119,14 +119,54 @@ public final class BluetoothTelemetryCollector {
             java.util.Map<String, DeviceRow> byAddress = new java.util.LinkedHashMap<>();
 
             // 1. GATT-profile connections (documented to cover supported profiles only).
-            java.util.Set<String> gattConnected = new java.util.HashSet<>();
             try {
                 for (android.bluetooth.BluetoothDevice d :
                         bm.getConnectedDevices(android.bluetooth.BluetoothProfile.GATT)) {
                     if (d != null && d.getAddress() != null) {
-                        gattConnected.add(d.getAddress());
-                        byAddress.put(d.getAddress(), new DeviceRow(safeName(d).isEmpty()?"Unnamed BLE device":safeName(d), category(d), "Connected", "GATT", false, ""));
+                        byAddress.put(d.getAddress(), new DeviceRow(safeName(d).isEmpty()?"Unnamed BLE device":safeName(d), category(d), "Connected", "GATT", false, battery(d)));
                     }
+                }
+            } catch (Throwable ignored) { }
+
+            // 2. Classic Bluetooth profiles (HEADSET, A2DP) — smartwatches and most companion-app
+            // wearables connect over these or a proprietary profile, not GATT, so GATT alone
+            // misses them. HID_DEVICE is deliberately not queried here: it is a restricted/
+            // hidden-API surface on several Android versions, so relying on it risks a build or
+            // runtime failure on this constant. Non-audio companion devices (most watches) are
+            // instead picked up by the bonded-device fallback below.
+            try {
+                int[] classicProfiles = {
+                        android.bluetooth.BluetoothProfile.HEADSET,
+                        android.bluetooth.BluetoothProfile.A2DP
+                };
+                for (int profile : classicProfiles) {
+                    try {
+                        for (android.bluetooth.BluetoothDevice d : bm.getConnectedDevices(profile)) {
+                            if (d != null && d.getAddress() != null && !byAddress.containsKey(d.getAddress())) {
+                                byAddress.put(d.getAddress(), new DeviceRow(
+                                        safeName(d).isEmpty() ? "Unnamed Bluetooth device" : safeName(d),
+                                        category(d), "Connected", profileName(profile), profile == android.bluetooth.BluetoothProfile.A2DP, battery(d)));
+                            }
+                        }
+                    } catch (Throwable ignored) { }
+                }
+            } catch (Throwable ignored) { }
+
+            // 3. Fallback for profiles with no BluetoothManager.getConnectedDevices support
+            // (e.g. HID_DEVICE on some OEM skins, or a proprietary companion-app profile):
+            // ask each bonded device directly via the public isConnected() method.
+            try {
+                for (android.bluetooth.BluetoothDevice d : adapter.getBondedDevices()) {
+                    if (d == null || d.getAddress() == null || byAddress.containsKey(d.getAddress())) continue;
+                    try {
+                        java.lang.reflect.Method m = d.getClass().getMethod("isConnected");
+                        Object connected = m.invoke(d);
+                        if (Boolean.TRUE.equals(connected)) {
+                            byAddress.put(d.getAddress(), new DeviceRow(
+                                    safeName(d).isEmpty() ? "Unnamed Bluetooth device" : safeName(d),
+                                    category(d), "Connected", "Bonded \u00b7 active", false, battery(d)));
+                        }
+                    } catch (Throwable ignored) { }
                 }
             } catch (Throwable ignored) { }
 
@@ -151,6 +191,13 @@ public final class BluetoothTelemetryCollector {
                 || type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
                 || (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_HEADSET)
                 || (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_SPEAKER);
+    }
+
+    /** Human-readable name for a classic Bluetooth profile constant, for the detail column. */
+    private static String profileName(int profile) {
+        if (profile == android.bluetooth.BluetoothProfile.HEADSET) return "Headset";
+        if (profile == android.bluetooth.BluetoothProfile.A2DP) return "Media audio";
+        return "Bluetooth profile";
     }
 
     private String safeName(android.bluetooth.BluetoothDevice d) {

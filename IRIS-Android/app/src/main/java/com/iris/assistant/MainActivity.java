@@ -2282,9 +2282,11 @@ public class MainActivity extends Activity {
             highAccSwitch.setOnCheckedChangeListener((b, checked) -> {
                 settings.setHighAccuracyVoice(checked);
                 if (checked) {
-                    toast("High-accuracy model on. It downloads (~1GB) next time IRIS starts listening.");
+                    toast("High-accuracy model on. It downloads (~1GB) next time IRIS starts listening, "
+                            + "and stays loaded in memory the whole time IRIS is listening — expect higher RAM use. "
+                            + "Turn this off if IRIS feels heavy.");
                 } else {
-                    toast("Back to the fast small model.");
+                    toast("Back to the fast, low-memory small model.");
                 }
                 if (IrisListeningService.isRunning) {
                     stopListeningService();

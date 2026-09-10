@@ -686,6 +686,19 @@ public class IrisListeningService extends Service implements RecognitionListener
                 wakeLock.acquire(60 * 60 * 1000L); // 1 hour max
             }
             LogStore.append(this, "START", settings.listeningMode() + " mode through " + microphoneLabel);
+            // Diagnostic breadcrumb for RAM reports: which speech model is active and current
+            // process memory, so a "high RAM" report can actually be traced to a cause instead
+            // of guessed at. The high-accuracy Vosk model (~1GB) is the largest single factor
+            // under IRIS's control; this makes that visible in the logs going forward.
+            try {
+                android.app.ActivityManager amgr = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+                android.os.Debug.MemoryInfo[] mi = amgr == null ? null
+                        : amgr.getProcessMemoryInfo(new int[]{android.os.Process.myPid()});
+                long pssMb = (mi != null && mi.length > 0) ? mi[0].getTotalPss() / 1024 : -1;
+                LogStore.append(this, "MEMORY", "voice model=" + (settings.highAccuracyVoice() ? "high-accuracy (~1GB)" : "small (~40MB)")
+                        + " ai_brain=" + (settings.aiEnabled() ? "on" : "off")
+                        + (pssMb >= 0 ? " process PSS=" + pssMb + "MB" : ""));
+            } catch (Throwable ignored) { }
         }
         broadcastState(true, phase);
         beginForSelectedMode();
@@ -726,9 +739,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         currentPhase = phase;
         broadcastState(true, phase);
         androidWakeActive = false;
-        if (!wake.isReady() || !WakePolicy.owner(wake.voiceprint, wake.voiceprint, .99)) {
-            wakeReadiness = "Needs phrase and owner enrollment";
-            updateListeningNotification("Wake unavailable: train your phrase and voice in Training");
+        // Only the phrase is required to arm wake listening (8.4.0's zero-training design).
+        // Owner-voice matching, if enabled, is judged per-attempt in isOwnerVoice() once a
+        // candidate embedding is captured — it must never gate whether Vosk starts listening
+        // at all. The previous self-comparison check here (wake.voiceprint against itself)
+        // additionally required wake.voiceprint to be non-null, which silently blocked wake
+        // for anyone who had only trained the phrase and never separately enrolled a voiceprint.
+        if (!wake.isReady()) {
+            wakeReadiness = "Needs a wake phrase — set one in Training";
+            updateListeningNotification("Wake unavailable: train your phrase in Training");
             scheduleWakeRetry(3000);
             return;
         }
@@ -746,7 +765,21 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         restoreRecognizerBeep();
         wakeReadiness = "Full phrase and owner checks armed";
-        updateListeningNotification("Owner wake ready: “" + wake.phrase + "”");
+        // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
+        // keeps full A2DP quality while IRIS is merely awake. If a Bluetooth mic is connected
+        // but not in use here, say so explicitly — "Phone microphone" alone reads as a bug
+        // when the user is wearing Bluetooth earphones.
+        boolean btConnectedButUnused = false;
+        try {
+            if (audioManager != null) {
+                for (AudioDeviceInfo d : audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
+                    if (isBluetoothMic(d)) { btConnectedButUnused = true; break; }
+                }
+            }
+        } catch (Throwable ignored) { }
+        updateListeningNotification(btConnectedButUnused
+                ? "Owner wake ready: \u201C" + wake.phrase + "\u201D (phone mic while awake \u2014 keeps Bluetooth music clean)"
+                : "Owner wake ready: \u201C" + wake.phrase + "\u201D");
         IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Wake listening");
         // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
         // keeps full A2DP quality while IRIS is merely awake.
@@ -5047,12 +5080,17 @@ public class IrisListeningService extends Service implements RecognitionListener
         return false;
     }
 
-    /** Missing or invalid identity data always rejects a wake. */
+    /** If speaker verification is off (default), the phrase alone is enough to wake. If it's
+     *  on but the user never enrolled a voiceprint, don't lock them out forever — fall back to
+     *  phrase-only rather than rejecting every wake attempt with no way to recover by voice. */
     private boolean isOwnerVoice(float[] embedding) {
+        if (!settings.speakerVerification()) return true;
         try {
+            float[] enrolled = new ProfileStore(this).getVoiceprint();
+            if (enrolled == null || enrolled.length == 0) return true;
             return voskEngine != null && voskEngine.isSpeakerReady()
-                    && WakePolicy.owner(embedding, new ProfileStore(this).getVoiceprint(), voiceThreshold());
-        } catch (Throwable error) { return false; }
+                    && WakePolicy.owner(embedding, enrolled, voiceThreshold());
+        } catch (Throwable error) { return true; }
     }
 
     private double voiceThreshold() { return WakePolicy.threshold(settings.voiceSensitivity()); }
@@ -5182,7 +5220,10 @@ public class IrisListeningService extends Service implements RecognitionListener
             if (type == AudioDeviceInfo.TYPE_BUILTIN_MIC || type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) builtIn = device;
             boolean bluetooth = type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
                     || (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_HEADSET);
-            boolean wired = type == AudioDeviceInfo.TYPE_WIRED_HEADSET || type == AudioDeviceInfo.TYPE_USB_HEADSET;
+            // Some USB-C earphones/dongles report as a generic USB device, not USB_HEADSET —
+            // treat any USB input with a mic as wired so they aren't missed as "phone mic".
+            boolean wired = type == AudioDeviceInfo.TYPE_WIRED_HEADSET || type == AudioDeviceInfo.TYPE_USB_HEADSET
+                    || type == AudioDeviceInfo.TYPE_USB_DEVICE || type == AudioDeviceInfo.TYPE_USB_ACCESSORY;
             if (bluetooth) btDev = device;
             if (wired) wiredDev = device;
         }
