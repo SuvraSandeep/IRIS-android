@@ -286,8 +286,20 @@ public final class VoskEngine {
 
     private volatile long wakeGeneration;
     public void startWakeDetection(java.util.List<String> phrases, WakeListener listener) {
+        startWakeDetection(phrases, listener, true);
+    }
+    /**
+     * @param requireSpeakerModel When false, wake fires on the phrase alone: no speaker model
+     *   is attached to the recognizer, and the spk_frames gate below is skipped. This is what
+     *   makes the "phrase alone is enough" design (8.4.0) actually true end-to-end — previously
+     *   this method unconditionally required isSpeakerReady() and unconditionally attached the
+     *   speaker model, so wake could never fire without it even when the caller (and the user's
+     *   own settings) never asked for voice verification at all.
+     */
+    public void startWakeDetection(java.util.List<String> phrases, WakeListener listener, boolean requireSpeakerModel) {
         if (!isReady()) { listener.onError("Voice model not ready"); return; }
-        if (!isSpeakerReady()) { listener.onError("Owner verification model not ready"); return; }
+        boolean attachSpeaker = requireSpeakerModel && isSpeakerReady();
+        if (requireSpeakerModel && !isSpeakerReady()) { listener.onError("Owner verification model not ready"); return; }
         stop();
         final long generation = wakeGeneration;
         final java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
@@ -302,10 +314,13 @@ public final class VoskEngine {
             grammar.put("[unk]");
             Recognizer rec = new Recognizer(model, SAMPLE_RATE, grammar.toString());
             rec.setWords(true);
-            try {
-                rec.getClass().getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
-                        .invoke(rec, spkModel);
-            } catch (Throwable error) { rec.close(); throw new IllegalStateException("Speaker attachment failed", error); }
+            if (attachSpeaker) {
+                try {
+                    rec.getClass().getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
+                            .invoke(rec, spkModel);
+                } catch (Throwable error) { rec.close(); throw new IllegalStateException("Speaker attachment failed", error); }
+            }
+            final boolean spkAttached = attachSpeaker;
             speechService = new SpeechService(rec, SAMPLE_RATE);
             speechService.startListening(new RecognitionListener() {
                 private void result(String json) {
@@ -319,9 +334,11 @@ public final class VoskEngine {
                         for (int i = 0; i < words.length(); i++) score = Math.min(score, words.getJSONObject(i).optDouble("conf", 0));
                         double duration = words.getJSONObject(words.length()-1).optDouble("end", 0)
                                 - words.getJSONObject(0).optDouble("start", 0);
-                        if (!Double.isFinite(score) || score < .85 || duration < .5 || duration > 4
-                                || result.optInt("spk_frames", 0) < 50) return;
-                        if (fired.compareAndSet(false, true)) listener.onWakeDetected(extractSpk(json));
+                        if (!Double.isFinite(score) || score < .85 || duration < .5 || duration > 4) return;
+                        // The spk_frames field only appears when a speaker model is attached to
+                        // the recognizer — gate on it only when we actually attached one.
+                        if (spkAttached && result.optInt("spk_frames", 0) < 50) return;
+                        if (fired.compareAndSet(false, true)) listener.onWakeDetected(spkAttached ? extractSpk(json) : null);
                     } catch (Exception ignored) { /* malformed results cannot wake */ }
                 }
                 @Override public void onPartialResult(String h) { }

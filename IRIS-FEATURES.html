@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.16.1";
+const BUILD_VERSION = "8.16.2";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -172,8 +172,8 @@ const FEATURES = [
   // ---- Voice & Recognition ----
   {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
    tagline:"IRIS wakes only when you say your phrase.",
-   desc:"Offline owner wake requires the complete phrase, word confidence and sufficient speech. Owner voice matching is an optional, additional check (off by default) enabled in Settings; if it's on but no voiceprint has been enrolled yet, IRIS wakes on the phrase alone rather than rejecting every attempt with no way to recover by voice. No single-word shortcut, fuzzy acceptance, Android speech fallback or retry bypass. Wake candidates are rejected during phone media playback; pause the video or use Talk. A missing wake phrase leaves wake unavailable with a status message. Existing broad default alternate phrases are retired. Other custom alternatives must match in full.",
-   examples:["“Hello IRIS”, or any extra phrase you add"], version:"8.14.0"},
+   desc:"Offline owner wake requires the complete phrase, word confidence and sufficient speech. Owner voice matching is an optional, additional check (off by default) enabled in Settings; with it off, wake no longer depends on the offline speaker-verification model in any way — it isn't loaded, isn't attached to the recognizer, and can't block or delay wake arming. If voice matching is on but no voiceprint has been enrolled yet, IRIS still wakes on the phrase alone rather than rejecting every attempt with no way to recover by voice. No single-word shortcut, fuzzy acceptance, Android speech fallback or retry bypass. Wake candidates are rejected during phone media playback; pause the video or use Talk. A missing wake phrase leaves wake unavailable with a status message. Existing broad default alternate phrases are retired. Other custom alternatives must match in full.",
+   examples:["“Hello IRIS”, or any extra phrase you add"], version:"8.16.2"},
   {id:"cmdstt", cat:"Voice & Recognition", icon:"👂", title:"Indian English Command Recognition",
    tagline:"Speak naturally; wait for the ready cue.",
    desc:"Defaults to English (India) with the system speech service, without forcing on-device recognition. Existing explicit preferences remain unchanged; use Indian English accuracy setup in Settings to apply the preset. System speech may process audio online. Bundled and downloaded offline fallback models now match Indian English, using staged installation rather than a US model or uuid-dependent unpack. Unclear speech gets one retry; low-confidence results are not executed. Common natural phrases are normalised while contact names and dictated messages are preserved. Accent accuracy still depends on microphone, noise and provider; no claim of watch-equivalent accuracy.",

@@ -770,9 +770,19 @@ public class IrisListeningService extends Service implements RecognitionListener
             scheduleWakeRetry(3000);
             return;
         }
-        if (!voskReady || voskEngine == null || !voskEngine.isSpeakerReady()) {
+        // The Vosk speaker model is only needed when owner-voice verification is actually
+        // switched on (settings.speakerVerification(), off by default). VoskEngine itself now
+        // only requires/attaches it when told to, via requireSpeakerModel below — this check
+        // just avoids the retry loop for the case that's actually asked for.
+        if (settings.speakerVerification() && (!voskReady || voskEngine == null || !voskEngine.isSpeakerReady())) {
             wakeReadiness = "Offline voice verification model unavailable or loading";
             updateListeningNotification("Wake unavailable: preparing offline voice verification");
+            scheduleWakeRetry(2000);
+            return;
+        }
+        if (!voskReady || voskEngine == null) {
+            wakeReadiness = "Voice model unavailable or loading";
+            updateListeningNotification("Wake unavailable: loading voice model");
             scheduleWakeRetry(2000);
             return;
         }
@@ -783,7 +793,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         restoreRecognizerBeep();
-        wakeReadiness = "Full phrase and owner checks armed";
+        wakeReadiness = settings.speakerVerification() ? "Full phrase and owner checks armed" : "Phrase-only wake armed";
         // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
         // keeps full A2DP quality while IRIS is merely awake. If a Bluetooth mic is connected
         // but not in use here, say so explicitly — "Phone microphone" alone reads as a bug
@@ -812,7 +822,8 @@ public class IrisListeningService extends Service implements RecognitionListener
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
                 boolean media = audioManager != null && audioManager.isMusicActive();
                 long now = android.os.SystemClock.elapsedRealtime();
-                double score = WakePolicy.cosine(embedding, new ProfileStore(IrisListeningService.this).getVoiceprint());
+                double score = embedding == null ? -1
+                        : WakePolicy.cosine(embedding, new ProfileStore(IrisListeningService.this).getVoiceprint());
                 boolean accepted = !media && now - lastWakeAt >= 3000 && isOwnerVoice(embedding);
                 LogStore.append(IrisListeningService.this, "WAKE DECISION",
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
@@ -834,7 +845,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this, "WAKE UNAVAILABLE", message);
                 scheduleWakeRetry(3000);
             }
-        });
+        }, settings.speakerVerification());
     }
 
     private long lastRejectCueAt = 0;
