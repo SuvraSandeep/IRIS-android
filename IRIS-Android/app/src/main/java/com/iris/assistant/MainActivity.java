@@ -2972,7 +2972,6 @@ public class MainActivity extends Activity {
         trainVosk = new VoskEngine();
         trainVosk.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
-                trainVosk.initSpeaker(MainActivity.this);
                 handler.postDelayed(() -> { if (!voiceTrainCancelled) trainReadPhraseStep(); }, 400);
             }
             @Override public void onError(String message) {
@@ -3027,39 +3026,11 @@ public class MainActivity extends Activity {
     }
 
     private void enrollFromReadSamplesThenCommands() {
-        if (voiceTrainCancelled) return;
-        voiceTrainStep.setText("\uD83E\uDDE0 Learning your voice…");
-        voiceTrainPrompt.setText("Building your voice pattern from what you read…");
-        voiceTrainFeedback.setText("");
-        final java.util.List<short[]> samples = new ArrayList<>(voiceReadSamples);
-        new Thread(() -> {
-            long deadline = System.currentTimeMillis() + 45000;   // model may need a one-time download
-            while (trainVosk != null && !trainVosk.isSpeakerReady()
-                    && System.currentTimeMillis() < deadline) {
-                try { Thread.sleep(150); } catch (InterruptedException ignored) { }
-            }
-            java.util.List<float[]> vecs = new java.util.ArrayList<>();
-            if (trainVosk != null && trainVosk.isSpeakerReady()) {
-                for (short[] s : samples) {
-                    float[] e = null;
-                    try { e = trainVosk.embed(s); } catch (Throwable ignored) { }
-                    if (e != null && WakePolicy.usableAudio(s)) vecs.add(e);
-                }
-            }
-            final boolean enrolled = WakePolicy.enrollment(vecs) != null;
-            if (enrolled) {
-                // General command training cannot replace authenticated wake enrollment.
-                LogStore.append(MainActivity.this, "VOICE",
-                        "Command voice samples checked; wake enrollment preserved");
-            } else {
-                LogStore.append(MainActivity.this, "VOICE",
-                        "Voice pattern not saved (speaker model unavailable)");
-            }
-            handler.post(() -> {
-                if (!enrolled) toast("Voice wake unavailable. Check offline models and retrain with at least three clear, consistent samples.");
-                if (!voiceTrainCancelled) trainCommandStep();
-            });
-        }, "IRIS-VoiceTrain-Enroll").start();
+        if(voiceTrainCancelled)return;
+        int usable=0;
+        for(short[] pcm:voiceReadSamples)if(WakePolicy.usableAudio(pcm))usable++;
+        voiceTrainFeedback.setText(usable+" usable practice samples. Protected owner enrollment is unchanged.");
+        trainCommandStep();
     }
 
     private void trainCommandStep() {
