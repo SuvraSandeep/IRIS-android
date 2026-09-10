@@ -31,21 +31,24 @@ public final class SecureStore {
         String payload = Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP) + "."
                 + Base64.encodeToString(encrypted, Base64.NO_WRAP);
         File target = new File(context.getFilesDir(), fileName);
-        File temporary = new File(context.getFilesDir(), fileName + ".tmp");
-        try (FileOutputStream output = new FileOutputStream(temporary, false)) {
+        android.util.AtomicFile file=new android.util.AtomicFile(target);
+        FileOutputStream output=null;
+        try {
+            output=file.startWrite();
             output.write(payload.getBytes(StandardCharsets.UTF_8));
-            output.getFD().sync();
+            file.finishWrite(output);
+        } catch(Exception error) {
+            if(output!=null)file.failWrite(output);
+            throw error;
         }
-        if (target.exists() && !target.delete()) throw new IllegalStateException("Could not replace secure data");
-        if (!temporary.renameTo(target)) throw new IllegalStateException("Could not publish secure data");
     }
 
     public static synchronized String read(Context context, String fileName, String fallback) {
         File target = new File(context.getFilesDir(), fileName);
-        if (!target.exists()) return fallback;
+
         try {
             byte[] bytes;
-            try (FileInputStream input = new FileInputStream(target)) {
+            try (FileInputStream input = new android.util.AtomicFile(target).openRead()) {
                 bytes = new byte[(int) target.length()];
                 int offset = 0;
                 while (offset < bytes.length) {

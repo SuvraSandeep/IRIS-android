@@ -79,8 +79,8 @@ public final class AppSettings {
     public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }
     public void setLockScreenControl(boolean value) { prefs.edit().putBoolean("lock_screen_control", value).apply(); }
     /** Voice-verification strictness 0=lenient .. 1=strict (default balanced; missing verification always rejects). */
-    public float voiceSensitivity() { return prefs.getFloat("owner_voice_sensitivity_v2", 0.5f); }
-    public void setVoiceSensitivity(float value) { prefs.edit().putFloat("owner_voice_sensitivity_v2", value).apply(); }
+    public float voiceSensitivity() { float value=prefs.getFloat("owner_voice_sensitivity_v2",0.5f); return Float.isFinite(value)?Math.max(0,Math.min(1,value)):.5f; }
+    public void setVoiceSensitivity(float value) { WakeChangeApproval.require(); if(!Float.isFinite(value))throw new IllegalArgumentException("Invalid strictness"); value=Math.max(0,Math.min(1,value)); prefs.edit().putFloat("owner_voice_sensitivity_v2", value).apply(); }
     /** Use Google Speech Recognition for commands (best accuracy; falls back to Vosk offline). */
     public boolean googleSttForCommands() { return prefs.getBoolean("google_stt_commands", true); }
     public void setGoogleSttForCommands(boolean v) { prefs.edit().putBoolean("google_stt_commands", v).apply(); }
@@ -106,12 +106,8 @@ public final class AppSettings {
     /** CSV of quick-action chip ids shown on the home screen. */
     public String homeChips() { return prefs.getString("home_chips", "call,text,alarm,weather,torch,time"); }
     public void setHomeChips(String csv) { prefs.edit().putString("home_chips", csv).apply(); }
-    // Off by default (7.37.0): wake on the phrase alone unless the user opts into stricter,
-    // voice-matched wake. Previously hardcoded to true, which silently rejected every wake
-    // attempt for anyone who hadn't completed voice enrollment (no voiceprint → owner() always
-    // false), even though the phrase was heard correctly. That regression is fixed here.
-    public boolean speakerVerification() { return prefs.getBoolean("speaker_verification", false); }
-    public void setSpeakerVerification(boolean value) { prefs.edit().putBoolean("speaker_verification", value).apply(); }
+    public boolean speakerVerification() { return true; } // owner verification is mandatory for voice wake
+    public void setSpeakerVerification(boolean value) { WakeChangeApproval.require(); if(!value)throw new SecurityException("Owner verification is mandatory"); prefs.edit().putBoolean("speaker_verification", value).apply(); }
     public boolean shakeToWake() { return prefs.getBoolean("shake_to_wake", false); }
     public void setShakeToWake(boolean v) { prefs.edit().putBoolean("shake_to_wake", v).apply(); }
     public boolean headsetTrigger() { return prefs.getBoolean("headset_trigger", false); }
@@ -162,5 +158,5 @@ public final class AppSettings {
     public boolean mirrorAlways() { return prefs.getBoolean("mirror_always", true); }
     public void setMirrorAlways(boolean v) { prefs.edit().putBoolean("mirror_always", v).apply(); }
     public float speakerThreshold() { return prefs.getFloat("speaker_threshold", 0.70f); }
-    public void setSpeakerThreshold(float value) { prefs.edit().putFloat("speaker_threshold", value).apply(); }
+    public void setSpeakerThreshold(float value) { WakeChangeApproval.require(); prefs.edit().putFloat("speaker_threshold", value).apply(); }
 }

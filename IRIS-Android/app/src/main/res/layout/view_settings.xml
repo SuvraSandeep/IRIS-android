@@ -125,7 +125,7 @@
                 android:layout_marginTop="6dp" android:text="Voiceprint: not enrolled — train your wake phrase to enroll."
                 android:textColor="@color/text_muted" android:textSize="12sp" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="10dp" android:text="Recognition sensitivity (lenient ↔ strict)"
+                android:layout_marginTop="10dp" android:text="Owner-match strictness (requires your approval)"
                 android:textColor="@color/text_secondary" android:textSize="13sp" />
             <SeekBar android:id="@+id/sensitivitySeek" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="2dp" android:max="100" />

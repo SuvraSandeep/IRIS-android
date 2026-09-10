@@ -1100,7 +1100,7 @@ public class MainActivity extends Activity {
         if (!wake.phrase.isEmpty()) wakePhraseInput.setText(wake.phrase);
         int savedProgress = TrainingProgress.peekIndex(this);
         if (savedProgress > 0) {
-            wakeTrainingStatus.setText("\u23F8 Paused at " + savedProgress + "/5 \u2014 Resume or start over.");
+            wakeTrainingStatus.setText("\u23F8 Paused at " + savedProgress + "/6 \u2014 Resume or start over.");
             testWakeButton.setEnabled(wake.isReady());
         } else if (wake.isReady()) {
             String voiceStatus = wake.isVoiceEnrolled() ? "voice enrolled \u2705" : "voice not enrolled \u26A0\uFE0F";
@@ -1124,7 +1124,7 @@ public class MainActivity extends Activity {
         TextView altWakeList = view.findViewById(R.id.altWakeList);
         renderAltWakeList(altWakeList);
         if (addAltWakeButton != null && altWakeInput != null) {
-            addAltWakeButton.setOnClickListener(v -> {
+            addAltWakeButton.setOnClickListener(v -> approveWakeChange("Add alternate wake phrase", () -> {
                 String p = altWakeInput.getText().toString().trim();
                 if (p.length() < 2) { altWakeInput.setError("Enter a phrase"); return; }
                 ProfileStore ps = new ProfileStore(this);
@@ -1136,7 +1136,7 @@ public class MainActivity extends Activity {
                 renderAltWakeList(altWakeList);
                 toast("Added wake phrase: " + p);
                 if (IrisListeningService.isRunning) { stopListeningService(); handler.postDelayed(this::startListeningService, 500); }
-            });
+            }));
         }
         if (altWakeList != null) {
             altWakeList.setOnClickListener(v -> {
@@ -1144,12 +1144,12 @@ public class MainActivity extends Activity {
                 if (ps.getWakeProfile().altPhrases.isEmpty()) return;
                 new AlertDialog.Builder(this).setTitle("Clear extra wake phrases?")
                         .setNegativeButton("Keep", null)
-                        .setPositiveButton("Clear", (d, w) -> {
+                        .setPositiveButton("Clear", (d, w) -> approveWakeChange("Clear alternate wake phrases", () -> {
                             ps.setAltWakePhrases(new java.util.ArrayList<>());
                             renderAltWakeList(altWakeList);
                             toast("Extra phrases cleared.");
                             if (IrisListeningService.isRunning) { stopListeningService(); handler.postDelayed(this::startListeningService, 500); }
-                        }).show();
+                        })).show();
             });
         }
         startTrainingButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Train contact", this::requestContactForTraining));
@@ -1438,7 +1438,7 @@ public class MainActivity extends Activity {
         {"🎚️ Choose voice", "Settings → “Choose IRIS voice” to pick a female/other voice; “Test voice” to preview. (Install Google TTS en-IN voices for the best quality.)"},
         {"🎭 Personality", "Settings → Personality picks how IRIS sounds: Sarcastic (dry, witty, uses your name more), Warm (personable, name-heavy), Professional (formal, “sir” only, no first name), or Silent (no speech, no notification text — fully quiet). The tone shows up in casual chat, greetings, and how it addresses you."},
         {"🎩 How IRIS addresses you", "Like a butler, it varies — mostly nothing, sometimes “sir”, occasionally your name — instead of your name every time. How often depends on your chosen Personality."},
-        {"🔐 Voice-verified wake", "Wakes only for your voice (Settings → Voice Security). Sensitivity slider: lenient ↔ strict. If it ever won't wake for you, ease it toward lenient or retrain."},
+        {"🔐 Voice-verified wake", "Wakes only for your voice (Settings → Voice Security). Strictness changes require your approval. For quiet speech, enroll normal and quiet samples; do not weaken identity checks automatically."},
         {"🔒 Lock-screen control", "Settings → lock-screen control lets quick actions run while locked; opening another app's screen still asks for unlock (Android requirement)."},
         {"🛰️ Server mode", "Settings → Server mode: use your own online brain (Ollama + Whisper) when connected; auto-falls back offline. Say “go online” / “go offline”. Setup: server/README.md."},
         {"🩺 Self-test", "Settings → “Run self-test” checks permissions, models, wake/voiceprint, learned commands, voice, and server — a green/red checklist."},
@@ -2155,8 +2155,13 @@ public class MainActivity extends Activity {
                 @Override public void onProgressChanged(android.widget.SeekBar sb, int p, boolean fromUser) { }
                 @Override public void onStartTrackingTouch(android.widget.SeekBar sb) { }
                 @Override public void onStopTrackingTouch(android.widget.SeekBar sb) {
-                    settings.setVoiceSensitivity(sb.getProgress() / 100f);
-                    toast("Voice sensitivity: " + sb.getProgress() + "%");
+                    final float proposed=sb.getProgress()/100f;
+                    sb.setProgress(Math.round(settings.voiceSensitivity()*100));
+                    approveWakeChange("Change owner-match strictness", () -> {
+                        settings.setVoiceSensitivity(proposed);
+                        sb.setProgress(Math.round(proposed*100));
+                        toast("Owner-match strictness saved. Higher means stricter, not louder-mic sensitivity.");
+                    });
                 }
             });
         }
@@ -2200,17 +2205,17 @@ public class MainActivity extends Activity {
         if (voiceprintStatus != null) {
             boolean enrolled = new ProfileStore(this).getVoiceprint() != null;
             voiceprintStatus.setText(enrolled
-                    ? "Voiceprint enrolled. Owner wake requires the offline model; media playback pauses wake."
+                    ? "Owner enrollment protected. Retrain with normal + quiet voice samples. Media playback pauses wake."
                     : "Voiceprint: not enrolled — train your wake phrase to enroll.");
         }
         Button clearVoiceprintButton = view.findViewById(R.id.clearVoiceprintButton);
         if (clearVoiceprintButton != null) {
-            clearVoiceprintButton.setOnClickListener(v -> {
+            clearVoiceprintButton.setOnClickListener(v -> approveWakeChange("Clear owner enrollment", () -> {
                 new ProfileStore(this).setVoiceprint(null);
                 if (voiceprintStatus != null)
                     voiceprintStatus.setText("Voiceprint cleared. Voice wake is unavailable until you enroll again.");
                 toast("Voice security cleared.");
-            });
+            }));
         }
         // ── Command Deck customisation ──
         bindDeckSwitch(view, R.id.deckTelemetrySwitch, settings.deckTelemetry(), settings::setDeckTelemetry);
@@ -2295,7 +2300,7 @@ public class MainActivity extends Activity {
         }
         Button feedbackMissed = view.findViewById(R.id.feedbackMissedButton);
         if (feedbackMissed != null) {
-            feedbackMissed.setOnClickListener(v -> authenticateThen("Improve owner voice", () -> {
+            feedbackMissed.setOnClickListener(v -> approveWakeChange("Improve owner voice", () -> {
                 new ProfileStore(this).setPendingVoiceSample(null);
                 toast("Record fresh samples in a quiet room. Rejected background voices are never added to your profile.");
                 beginWakeTraining();
@@ -2304,13 +2309,13 @@ public class MainActivity extends Activity {
 
         Button feedbackFalse = view.findViewById(R.id.feedbackFalseButton);
         if (feedbackFalse != null) {
-            feedbackFalse.setOnClickListener(v -> {
+            feedbackFalse.setOnClickListener(v -> approveWakeChange("Make owner matching stricter", () -> {
                 float s = Math.min(1f, settings.voiceSensitivity() + 0.08f);
                 settings.setVoiceSensitivity(s);
                 if (sensSeek != null) sensSeek.setProgress(Math.round(s * 100));
                 toast("Made voice matching stricter.");
                 LogStore.append(this, "VOICE FEEDBACK", "false wake → sensitivity " + Math.round(s * 100) + "%");
-            });
+            }));
         }
 
         Switch highAccSwitch = view.findViewById(R.id.highAccuracyVoiceSwitch);
@@ -2662,16 +2667,19 @@ public class MainActivity extends Activity {
     }
 
     /** Set the wake button to Resume (if a partial exists) or Set Up/Retrain. */
+    private volatile int wakeTrainingGeneration;
+    private boolean wakeTrainingActive;
+
     private void configureWakeButton() {
         if (trainWakeButton == null) return;
         int saved = TrainingProgress.peekIndex(this);
         if (saved > 0) {
-            trainWakeButton.setText("\u25B6 Resume training (" + saved + "/5)");
-            trainWakeButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Resume training", this::showResumeDialog));
+            trainWakeButton.setText("\u25B6 Resume training (" + saved + "/6)");
+            trainWakeButton.setOnClickListener(v -> approveWakeChange("\uD83D\uDD12 Resume training", this::showResumeDialog));
         } else {
             ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
             trainWakeButton.setText(wake.isReady() ? "\uD83D\uDD04  Retrain" : "\uD83C\uDFA4  Set Up Wake Phrase");
-            trainWakeButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Train wake phrase", this::beginWakeTraining));
+            trainWakeButton.setOnClickListener(v -> approveWakeChange("\uD83D\uDD12 Train wake phrase", this::beginWakeTraining));
         }
         trainWakeButton.setEnabled(true);
     }
@@ -2695,20 +2703,21 @@ public class MainActivity extends Activity {
         }
         TrainingProgress.Data d = TrainingProgress.load(this);
         if (d == null || d.phrase.isEmpty()) { beginWakeTraining(); return; }
+        wakeTrainingActive=true; wakeTrainingGeneration++;
         resumeAfterWakeTraining = IrisListeningService.isRunning;
         if (resumeAfterWakeTraining) stopListeningService();
         wakePhraseBeingTrained = d.phrase;
         if (wakePhraseInput != null) wakePhraseInput.setText(d.phrase);
         wakeTemplates.clear(); wakeTemplates.addAll(d.templates);
         wakeRawSamples.clear(); wakeRawSamples.addAll(d.rawSamples);
-        wakeSampleIndex = Math.min(d.sampleIndex, 5);
+        wakeSampleIndex = Math.min(d.sampleIndex, 6);
         trainWakeButton.setEnabled(false);
         testWakeButton.setEnabled(false);
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.GONE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.VISIBLE);
-        if (wakeTrainingStatus != null) wakeTrainingStatus.setText("Resuming at " + wakeSampleIndex + "/5\u2026");
+        if (wakeTrainingStatus != null) wakeTrainingStatus.setText("Resuming at " + wakeSampleIndex + "/6\u2026");
         toast("Resuming your wake training.");
-        if (wakeSampleIndex >= 5) handler.postDelayed(this::finishWakeTraining, 500);
+        if (wakeSampleIndex >= 6) handler.postDelayed(this::finishWakeTraining, 500);
         else handler.postDelayed(this::captureNextWakeSample, 600);
     }
 
@@ -2723,6 +2732,7 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSION_TRAIN);
             return;
         }
+        wakeTrainingActive=true; wakeTrainingGeneration++;
         resumeAfterWakeTraining = IrisListeningService.isRunning;
         if (resumeAfterWakeTraining) stopListeningService();
         wakePhraseBeingTrained = phrase;
@@ -2738,44 +2748,45 @@ public class MainActivity extends Activity {
     }
 
     private void captureNextWakeSample() {
+        if(!wakeTrainingActive || isFinishing() || isDestroyed())return;
+        final int generation=wakeTrainingGeneration;
         stopWakeTrainingEngine();
         if (timedRecorder != null) timedRecorder.stop();
-        if (wakeSampleIndex >= 5) return;
+        if (wakeSampleIndex >= 6) return;
         int step = wakeSampleIndex + 1;
         // Update wizard dots
         if (wakeWizardDots != null) {
             StringBuilder dots = new StringBuilder();
-            for (int d = 1; d <= 5; d++) dots.append(d <= step ? "\u25CF" : "\u25CB").append(d < 5 ? " " : "");
+            for (int d = 1; d <= 6; d++) dots.append(d <= step ? "\u25CF" : "\u25CB").append(d < 6 ? " " : "");
             wakeWizardDots.setText(dots.toString());
         }
-        if (wakeWizardStep != null) wakeWizardStep.setText("Step " + step + " of 5");
+        if (wakeWizardStep != null) wakeWizardStep.setText("Step " + step + " of 6");
 
-        // Countdown: 3... 2... 1... BEEP + record
-        if (wakeWizardPrompt != null) wakeWizardPrompt.setText("Get ready to say \u201C" + wakePhraseBeingTrained + "\u201D...");
+        String delivery = step <= 3 ? "Use your normal voice" : "Use a soft voice or whisper near the phone";
+        // Wait for the cue to finish before capture; do not enroll the beep.
+
+        if (wakeWizardPrompt != null) wakeWizardPrompt.setText(delivery + ". Say “" + wakePhraseBeingTrained + "” twice, with a short pause.");
         if (wakeWizardFeedback != null) wakeWizardFeedback.setText("3...");
         handler.postDelayed(() -> {
+            if(!wakeTrainingActive || generation!=wakeTrainingGeneration)return;
             if (wakeWizardFeedback != null) wakeWizardFeedback.setText("2...");
         }, 700);
         handler.postDelayed(() -> {
+            if(!wakeTrainingActive || generation!=wakeTrainingGeneration)return;
             if (wakeWizardFeedback != null) wakeWizardFeedback.setText("1...");
         }, 1400);
         handler.postDelayed(() -> {
-            // BEEP
-            try {
-                android.media.ToneGenerator tone = new android.media.ToneGenerator(
-                        android.media.AudioManager.STREAM_NOTIFICATION, 100);
-                tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 200);
-                handler.postDelayed(tone::release, 400);
-            } catch (Exception ignored) { }
-            if (wakeWizardPrompt != null) wakeWizardPrompt.setText("\uD83D\uDD34  SAY \u201C" + wakePhraseBeingTrained + "\u201D NOW");
-            if (wakeWizardFeedback != null) wakeWizardFeedback.setText("Recording 3 seconds...");
-            wakeTrainingStatus.setText("\uD83C\uDF99 Recording sample " + step + "/5...");
+            if(!wakeTrainingActive || generation!=wakeTrainingGeneration)return;
+            if (wakeWizardPrompt != null) wakeWizardPrompt.setText(delivery + ": “" + wakePhraseBeingTrained + "” — repeat it twice.");
+            if (wakeWizardFeedback != null) wakeWizardFeedback.setText("Recording 5 seconds...");
+            wakeTrainingStatus.setText("\uD83C\uDF99 Recording sample " + step + "/6...");
 
-            // Record exactly 3 seconds
+            // Record five seconds, with the full phrase repeated twice
             timedRecorder = new TimedRecorder();
-            timedRecorder.record(3000, new TimedRecorder.Listener() {
+            timedRecorder.record(5000, new TimedRecorder.Listener() {
                 @Override
                 public void onLevel(float normalizedLevel) {
+                    if(!wakeTrainingActive || generation!=wakeTrainingGeneration)return;
                     // Update feedback with level bar
                     int bars = Math.round(normalizedLevel * 20);
                     StringBuilder bar = new StringBuilder();
@@ -2785,6 +2796,7 @@ public class MainActivity extends Activity {
 
                 @Override
                 public void onComplete(short[] audio) {
+                    if(!wakeTrainingActive || generation!=wakeTrainingGeneration)return;
                     // Calculate audio level (RMS)
                     double rmsVal = 0;
                     for (short s : audio) rmsVal += (double) s * s;
@@ -2792,21 +2804,21 @@ public class MainActivity extends Activity {
 
                     // REJECT only near-silent samples — normal speaking voice is fine
                     if (!WakePolicy.usableAudio(audio)) {
-                        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C I didn't hear anything — speak normally toward the phone");
+                        if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C Too little signal above background noise — move closer and repeat the full phrase");
                         wakeTrainingStatus.setText("Rejected: noisy, clipped or too short. Retrying sample " + (wakeSampleIndex + 1) + "...");
-                        toast("\u274C Didn't hear you — say it in your normal voice");
+                        toast("\u274C Move closer or reduce background noise and retry");
                         rejectTone();
-                        handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
+                        handler.postDelayed(() -> { if(wakeTrainingActive && generation==wakeTrainingGeneration)captureNextWakeSample(); }, 1600);
                         return;
                     }
 
-                    float[][] features = WakeWordEngine.extractFeatures(audio);
+                    float[][] features = WakeWordEngine.extractFeatures(QuietAudioProcessor.prepare(audio));
                     if (features.length < 8) {
                         if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C Didn't catch it \u2014 say the whole phrase clearly");
                         wakeTrainingStatus.setText("Rejected: unclear. Retrying...");
                         toast("\u274C Unclear \u2014 say the full phrase");
                         rejectTone();
-                        handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
+                        handler.postDelayed(() -> { if(wakeTrainingActive && generation==wakeTrainingGeneration)captureNextWakeSample(); }, 1600);
                         return;
                     }
 
@@ -2826,8 +2838,8 @@ public class MainActivity extends Activity {
                             "IRIS-TrainSave").start();
                     String icon = "Clear".equals(quality) ? "\u2705" : "\u26A0\uFE0F";
                     if (wakeWizardFeedback != null) wakeWizardFeedback.setText(icon + "  " + quality + " sample accepted!");
-                    wakeTrainingStatus.setText(icon + " Sample " + wakeSampleIndex + "/5 done");
-                    toast(icon + " Sample " + wakeSampleIndex + "/5 accepted!");
+                    wakeTrainingStatus.setText(icon + " Sample " + wakeSampleIndex + "/6 done");
+                    toast(icon + " Sample " + wakeSampleIndex + "/6 accepted!");
                     // Success chime
                     try {
                         android.media.ToneGenerator tone = new android.media.ToneGenerator(
@@ -2835,12 +2847,13 @@ public class MainActivity extends Activity {
                         tone.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 100);
                         handler.postDelayed(tone::release, 250);
                     } catch (Exception ignored) { }
-                    if (wakeSampleIndex >= 5) handler.postDelayed(MainActivity.this::finishWakeTraining, 800);
-                    else handler.postDelayed(MainActivity.this::captureNextWakeSample, 1200);
+                    if (wakeSampleIndex >= 6) handler.postDelayed(() -> { if(wakeTrainingActive && generation==wakeTrainingGeneration)finishWakeTraining(); }, 800);
+                    else handler.postDelayed(() -> { if(wakeTrainingActive && generation==wakeTrainingGeneration)captureNextWakeSample(); }, 1200);
                 }
 
                 @Override
                 public void onError(String message) {
+                    if(!wakeTrainingActive || generation!=wakeTrainingGeneration)return;
                     if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C " + message);
                     wakeTrainingStatus.setText("Error: " + message);
                     toast("\u274C " + message);
@@ -2853,79 +2866,71 @@ public class MainActivity extends Activity {
 
     /** Build a Vosk x-vector voiceprint from recorded samples on a background thread. */
     private void enrollVoiceprintAsync(java.util.List<short[]> samples) {
-        if (samples == null || samples.isEmpty()) { resumeListeningAfterTraining(); return; }
-        // Cap samples to keep memory/CPU bounded during enrollment.
-        final java.util.List<short[]> capped = samples.size() > 6
-                ? new java.util.ArrayList<>(samples.subList(0, 6)) : samples;
-        final VoskEngine ve = new VoskEngine();
-        ve.init(this, new VoskEngine.InitListener() {
-            @Override public void onReady() {
+        final int generation=wakeTrainingGeneration;
+        final String phrase=wakePhraseBeingTrained;
+        final List<float[][]> templates=new ArrayList<>(wakeTemplates);
+        final VoskEngine ve=new VoskEngine();
+        trainWakeButton.setEnabled(false); testWakeButton.setEnabled(false);
+        wakeTrainingStatus.setText("Validating normal and quiet voice samples. Your existing enrollment is still active.");
+        ve.initForWake(this,new VoskEngine.InitListener(){
+            @Override public void onReady(){
+                if(generation!=wakeTrainingGeneration){ve.close();return;}
                 ve.initSpeaker(MainActivity.this);
-                new Thread(() -> {
+                new Thread(()->{
+                    float[] normal=null,quiet=null; String reason="";
                     try {
-                        // The speaker model may need a one-time download (initSpeaker) — that
-                        // can take well over 10s on a normal connection, which was the actual
-                        // reason enrollment silently "failed" after training. Give it real time,
-                        // and keep the trainee informed instead of going quiet.
-                        long deadline = System.currentTimeMillis() + 45000;
-                        int lastPct = -1;
-                        while (!ve.isSpeakerReady() && System.currentTimeMillis() < deadline) {
-                            try { Thread.sleep(150); } catch (InterruptedException ignored) { }
-                            int pct = (int) (100.0 * (System.currentTimeMillis() - (deadline - 45000)) / 45000);
-                            if (pct != lastPct && pct % 10 == 0) {
-                                lastPct = pct;
-                                handler.post(() -> { if (wakeTrainingStatus != null)
-                                        wakeTrainingStatus.setText("Preparing voice-lock model\u2026"); });
-                            }
+                        long deadline=android.os.SystemClock.elapsedRealtime()+60000;
+                        while(!ve.isSpeakerReady() && ve.speakerError().isEmpty()
+                                && generation==wakeTrainingGeneration && android.os.SystemClock.elapsedRealtime()<deadline)
+                            Thread.sleep(100);
+                        if(!ve.isSpeakerReady())throw new IllegalStateException("Owner model unavailable: "+ve.speakerError());
+                        List<float[]> regular=new ArrayList<>(),soft=new ArrayList<>();
+                        for(int i=0;i<Math.min(6,samples.size());i++){
+                            if(generation!=wakeTrainingGeneration)return;
+                            short[] pcm=samples.get(i);
+                            String heard=ve.transcribeWake(pcm,java.util.Collections.singletonList(phrase));
+                            float[] vector=WakePolicy.usableAudio(pcm) && WakePolicy.matchesRepeated(heard,java.util.Collections.singletonList(phrase)) ? ve.embed(pcm) : null;
+                            if(vector!=null){if(i<3)regular.add(vector);else soft.add(vector);}
                         }
-                        java.util.List<float[]> vecs = new java.util.ArrayList<>();
-                        if (ve.isSpeakerReady()) {
-                            int i = 0;
-                            for (short[] s : capped) {
-                                float[] e = null;
-                                try {
-                                    String expected = new ProfileStore(MainActivity.this).getWakeProfile().phrase;
-                                    if (WakePolicy.matches(ve.transcribe(s), java.util.Collections.singletonList(expected))) e = ve.embed(s);
-                                } catch (Throwable ignored) { }
-                                if (e != null && WakePolicy.usableAudio(s)) vecs.add(e);
-                                final int pct = (int) (100.0 * (++i) / capped.size());
-                                handler.post(() -> { if (wakeTrainingStatus != null)
-                                        wakeTrainingStatus.setText("Learning your voice… " + pct + "%"); });
-                            }
+                        normal=WakePolicy.enrollment(regular); quiet=WakePolicy.enrollment(soft);
+                        if(normal==null)reason="Normal voice samples could not verify the complete phrase and one consistent speaker. Try a distinct 3–5 word phrase and say it twice per sample.";
+                    }catch(Exception e){reason=e.getMessage();}
+                    finally{ve.close();}
+                    final float[] n=normal,q=quiet; final String error=reason;
+                    handler.post(()->{
+                        if(generation!=wakeTrainingGeneration || isFinishing() || isDestroyed())return;
+                        if(n==null){
+                            wakeTrainingStatus.setText("Enrollment not changed. "+error);
+                            wakeTrainingActive=false; configureWakeButton(); testWakeButton.setEnabled(new ProfileStore(MainActivity.this).getWakeProfile().isVoiceEnrolled()); resumeListeningAfterTraining(); return;
                         }
-                        if (WakePolicy.enrollment(vecs) != null) {
-                            new ProfileStore(MainActivity.this).setVoiceprint(WakePolicy.enrollment(vecs));
-                            LogStore.append(MainActivity.this, "VOICE", "Enrolled voiceprint from " + vecs.size() + " samples");
-                            // Show what IRIS actually heard (engine is already loaded — no extra cost).
-                            String heard = "";
-                            try { heard = ve.transcribe(capped.get(capped.size() - 1)); } catch (Throwable ignored) { }
-                            final String heardF = heard == null ? "" : heard.trim();
-                            handler.post(() -> {
-                                toast("\uD83D\uDD10 Voice enrolled \u2705");
-                                if (wakeTrainingStatus != null && !heardF.isEmpty())
-                                    wakeTrainingStatus.setText("\u2705 Saved. I heard: \u201C" + heardF + "\u201D");
-                            });
-                        } else {
-                            LogStore.append(MainActivity.this, "VOICE", "Enrollment skipped (speaker model unavailable)");
-                            handler.post(() -> {
-                                toast("Voice wake unavailable. Load the offline models and record at least three clear, consistent samples of the full phrase.");
-                                if (wakeTrainingStatus != null)
-                                    wakeTrainingStatus.setText("\u26A0 Voice wake unavailable: check offline models and retrain in a quiet room.");
-                            });
-                        }
-                    } catch (Throwable t) {
-                        LogStore.append(MainActivity.this, "VOICE", "Enrollment error: " + t);
-                    } finally {
-                        try { ve.close(); } catch (Throwable ignored) { }
-                        // Restart the listening service only NOW that this model is freed —
-                        // avoids two Vosk models in memory at once (the old crash cause).
-                        handler.post(MainActivity.this::resumeListeningAfterTraining);
-                    }
-                }, "IRIS-Enroll").start();
+                        wakeTrainingActive=false;
+                        configureWakeButton();
+                        testWakeButton.setEnabled(new ProfileStore(MainActivity.this).getWakeProfile().isVoiceEnrolled());
+                        resumeListeningAfterTraining();
+                        new AlertDialog.Builder(MainActivity.this).setTitle("Apply verified owner enrollment?")
+                            .setMessage("Phrase: “"+phrase+"”.\nNormal voice verified.\n"+(q!=null
+                                ? "Quiet voice profile verified. Whisper detection still depends on distance and background noise."
+                                : "Quiet samples did not verify. Save normal voice only, or cancel and retry quiet training. No threshold has been weakened."))
+                            .setNegativeButton("Keep existing",(d,w)->{wakeTrainingActive=false;configureWakeButton();resumeListeningAfterTraining();})
+                            .setPositiveButton("Save",(d,w)->approveWakeChange("Save owner enrollment",()->{
+                                if(generation!=wakeTrainingGeneration)return;
+                                boolean saved=new ProfileStore(MainActivity.this).saveOwnerEnrollment(phrase,templates,n,q);
+                                if(saved){
+                                    TrainingProgress.clear(MainActivity.this);
+                                    if(IrisListeningService.isRunning){stopListeningService();handler.postDelayed(MainActivity.this::startListeningService,800);}
+                                }
+                                wakeTrainingActive=false;
+                                wakeTrainingStatus.setText(saved ? "Owner enrollment saved. "+(q!=null?"Normal + quiet voice ready. ":"Normal voice ready. ")+"Use Test wake phrase before locking the phone." : "Save failed. Previous enrollment retained.");
+                                configureWakeButton();testWakeButton.setEnabled(saved || new ProfileStore(MainActivity.this).getWakeProfile().isVoiceEnrolled());
+                                resumeListeningAfterTraining();
+                            })).setCancelable(false).show();
+                    });
+                },"IRIS-Owner-Enroll").start();
             }
-            @Override public void onError(String message) {
-                try { ve.close(); } catch (Throwable ignored) { }
-                handler.post(MainActivity.this::resumeListeningAfterTraining);
+            @Override public void onError(String message){
+                ve.close(); if(generation!=wakeTrainingGeneration)return;
+                wakeTrainingStatus.setText("Enrollment unchanged: "+message);
+                wakeTrainingActive=false;configureWakeButton();resumeListeningAfterTraining();
             }
         });
     }
@@ -2967,7 +2972,6 @@ public class MainActivity extends Activity {
         trainVosk = new VoskEngine();
         trainVosk.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
-                trainVosk.initSpeaker(MainActivity.this);
                 handler.postDelayed(() -> { if (!voiceTrainCancelled) trainReadPhraseStep(); }, 400);
             }
             @Override public void onError(String message) {
@@ -3022,39 +3026,11 @@ public class MainActivity extends Activity {
     }
 
     private void enrollFromReadSamplesThenCommands() {
-        if (voiceTrainCancelled) return;
-        voiceTrainStep.setText("\uD83E\uDDE0 Learning your voice…");
-        voiceTrainPrompt.setText("Building your voice pattern from what you read…");
-        voiceTrainFeedback.setText("");
-        final java.util.List<short[]> samples = new ArrayList<>(voiceReadSamples);
-        new Thread(() -> {
-            long deadline = System.currentTimeMillis() + 45000;   // model may need a one-time download
-            while (trainVosk != null && !trainVosk.isSpeakerReady()
-                    && System.currentTimeMillis() < deadline) {
-                try { Thread.sleep(150); } catch (InterruptedException ignored) { }
-            }
-            java.util.List<float[]> vecs = new java.util.ArrayList<>();
-            if (trainVosk != null && trainVosk.isSpeakerReady()) {
-                for (short[] s : samples) {
-                    float[] e = null;
-                    try { e = trainVosk.embed(s); } catch (Throwable ignored) { }
-                    if (e != null && WakePolicy.usableAudio(s)) vecs.add(e);
-                }
-            }
-            final boolean enrolled = WakePolicy.enrollment(vecs) != null;
-            if (enrolled) {
-                new ProfileStore(MainActivity.this).setVoiceprint(WakePolicy.enrollment(vecs));
-                LogStore.append(MainActivity.this, "VOICE",
-                        "Voice pattern enrolled from " + vecs.size() + " read phrases");
-            } else {
-                LogStore.append(MainActivity.this, "VOICE",
-                        "Voice pattern not saved (speaker model unavailable)");
-            }
-            handler.post(() -> {
-                if (!enrolled) toast("Voice wake unavailable. Check offline models and retrain with at least three clear, consistent samples.");
-                if (!voiceTrainCancelled) trainCommandStep();
-            });
-        }, "IRIS-VoiceTrain-Enroll").start();
+        if(voiceTrainCancelled)return;
+        int usable=0;
+        for(short[] pcm:voiceReadSamples)if(WakePolicy.usableAudio(pcm))usable++;
+        voiceTrainFeedback.setText(usable+" usable practice samples. Protected owner enrollment is unchanged.");
+        trainCommandStep();
     }
 
     private void trainCommandStep() {
@@ -3091,7 +3067,7 @@ public class MainActivity extends Activity {
     private void finishVoiceCommandTraining() {
         if (trainVosk != null) { trainVosk.close(); trainVosk = null; }
         voiceTrainStep.setText("\u2705 Training complete");
-        voiceTrainPrompt.setText("IRIS learned your voice and " + learnedAliasCount
+        voiceTrainPrompt.setText("IRIS learned " + learnedAliasCount
                 + " command pronunciation" + (learnedAliasCount == 1 ? "" : "s") + ".");
         voiceTrainFeedback.setText("");
         toast("\uD83C\uDF93 Voice & commands trained \u2705");
@@ -3138,72 +3114,13 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private void finishWakeTrainingConfirmed() {
-        // One last, longer sample of natural speech greatly improves the voiceprint.
-        if (wakeWizardPrompt != null)
-            wakeWizardPrompt.setText("\uD83C\uDF99  Last step — say a full sentence in your normal voice");
-        if (wakeWizardFeedback != null)
-            wakeWizardFeedback.setText("Recording 7 seconds… talk naturally (e.g. tell me about your day)");
-        wakeTrainingStatus.setText("Learning your natural voice…");
-        TimedRecorder longRec = new TimedRecorder();
-        longRec.record(7000, new TimedRecorder.Listener() {
-            @Override public void onLevel(float normalizedLevel) {
-                if (wakeWizardFeedback != null) {
-                    int bars = Math.round(normalizedLevel * 20);
-                    StringBuilder bar = new StringBuilder();
-                    for (int i = 0; i < 20; i++) bar.append(i < bars ? "\u2593" : "\u2591");
-                    wakeWizardFeedback.setText("\uD83C\uDF99 " + bar);
-                }
-            }
-            @Override public void onComplete(short[] audio) {
-                if (audio != null && audio.length > 16000) wakeRawSamples.add(audio);
-                finalizeWakeTraining();
-            }
-            @Override public void onError(String message) { finalizeWakeTraining(); }
-        });
-    }
-
+    private void finishWakeTrainingConfirmed() { finalizeWakeTraining(); }
     private void finalizeWakeTraining() {
-        // Only use first 3 templates for DTW (remaining are for voice enrollment)
-        List<float[][]> dtwTemplates = wakeTemplates.size() > 3
-                ? wakeTemplates.subList(0, 3) : wakeTemplates;
-        if (!new ProfileStore(this).setWakeProfile(wakePhraseBeingTrained, dtwTemplates)) {
-            wakeTrainingStatus.setText("IRIS could not securely save those samples. Please retry.");
-            trainWakeButton.setEnabled(true);
-            return;
-        }
-        // Enroll speaker voiceprint from the recorded samples using Vosk x-vectors.
-        String enrollStatus = "voice enrolling in background\u2026";
-        TrainingProgress.clear(this);   // training complete — no partial to resume
-        if (!wakeRawSamples.isEmpty()) {
-            enrollVoiceprintAsync(new java.util.ArrayList<>(wakeRawSamples));  // restarts service when done
-        } else {
-            enrollStatus = "voice not enrolled (no samples)";
-            resumeListeningAfterTraining();   // nothing to enroll — safe to restart now
-        }
-        ProfileStore.WakeProfile saved = new ProfileStore(this).getWakeProfile();
-        LogStore.append(this, "WAKE TRAINED", saved.phrase + " with " + dtwTemplates.size()
-                + " acoustic templates, " + enrollStatus);
-        wakeTrainingStatus.setText("✅  “" + saved.phrase + "” • "
-                + dtwTemplates.size() + " templates • " + enrollStatus);
-        trainWakeButton.setText("\uD83D\uDD04  Retrain");
-        trainWakeButton.setEnabled(true);
-        trainWakeButton.setOnClickListener(v -> authenticateThen("Train owner voice", this::beginWakeTraining));
-        testWakeButton.setEnabled(true);
-        if (wakeNormalState != null) wakeNormalState.setVisibility(View.VISIBLE);
-        if (wakeWizardState != null) wakeWizardState.setVisibility(View.GONE);
+        if(!wakeTrainingActive)return;
+        if(wakeNormalState!=null)wakeNormalState.setVisibility(View.VISIBLE);
+        if(wakeWizardState!=null)wakeWizardState.setVisibility(View.GONE);
         stopWakeTrainingEngine();
-        toast("Phrase saved. Wait for owner enrollment to complete, then use Test wake phrase.");
-        // Success melody
-        try {
-            android.media.ToneGenerator tone = new android.media.ToneGenerator(
-                    android.media.AudioManager.STREAM_NOTIFICATION, 80);
-            tone.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 200);
-            handler.postDelayed(() -> {
-                tone.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 200);
-                handler.postDelayed(tone::release, 400);
-            }, 250);
-        } catch (Exception ignored) { }
+        enrollVoiceprintAsync(new ArrayList<>(wakeRawSamples));
     }
 
     private VoskEngine wakeTestEngine;
@@ -3220,7 +3137,7 @@ public class MainActivity extends Activity {
         final VoskEngine engine = new VoskEngine();
         wakeTestEngine = engine;
         wakeTrainingStatus.setText("Preparing the same offline detector used by background listening…");
-        engine.init(this, new VoskEngine.InitListener() {
+        engine.initForWake(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
                 if (wakeTestEngine != engine) { engine.close(); return; }
                 engine.initSpeaker(MainActivity.this);
@@ -3239,12 +3156,15 @@ public class MainActivity extends Activity {
                         }
                         wakeTrainingStatus.setText("Say the complete phrase: “" + wake.phrase + "”");
                         engine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
+                            @Override public void onDiagnostic(String reason) {
+                                if(wakeTestEngine==engine)wakeTrainingStatus.setText("Still listening: "+reason);
+                            }
                             @Override public void onWakeDetected(float[] embedding) {
                                 if (wakeTestEngine != engine) return;
-                                boolean accepted = (am == null || !am.isMusicActive()) && WakePolicy.owner(embedding,
-                                        wake.voiceprint, WakePolicy.threshold(new AppSettings(MainActivity.this).voiceSensitivity()));
+                                boolean accepted = (am == null || !am.isMusicActive()) && WakePolicy.ownerAny(embedding,
+                                        wake.ownerProfiles(), WakePolicy.threshold(new AppSettings(MainActivity.this).voiceSensitivity()));
                                 stopWakeTrainingEngine();
-                                wakeTrainingStatus.setText(accepted ? "Full phrase and owner verified. Test passed." : "Rejected: voice mismatch or media playing. Retrain if this was you.");
+                                wakeTrainingStatus.setText(accepted ? "Full phrase and owner verified. Test passed." : "Owner not verified. Move closer, repeat the full phrase twice, or enroll quiet samples. Media must be paused.");
                             }
                             @Override public void onError(String message) {
                                 if (wakeTestEngine != engine) return;
@@ -3270,6 +3190,7 @@ public class MainActivity extends Activity {
     }
 
     private void cancelWakeTraining() {
+        wakeTrainingActive=false;wakeTrainingGeneration++;
         stopWakeTrainingEngine();
         if (timedRecorder != null) { timedRecorder.stop(); timedRecorder = null; }
         handler.removeCallbacksAndMessages(null); // Cancel countdown
@@ -3283,7 +3204,7 @@ public class MainActivity extends Activity {
         testWakeButton.setEnabled(wake.isReady());
         int saved = TrainingProgress.peekIndex(this);
         if (saved > 0) {
-            wakeTrainingStatus.setText("\u23F8 Paused at " + saved + "/5 \u2014 tap Resume to continue.");
+            wakeTrainingStatus.setText("\u23F8 Paused at " + saved + "/6 \u2014 tap Resume to continue.");
             toast("Paused \u2014 resume anytime from Training.");
         }
         if (resumeAfterWakeTraining) {
@@ -3755,6 +3676,17 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void approveWakeChange(String title, Runnable action) {
+        KeyguardManager keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);
+        if(keyguard==null || !keyguard.isDeviceSecure()){
+            toast("Set a device PIN, pattern or password first to protect owner wake settings.");return;
+        }
+        new AlertDialog.Builder(this).setTitle(title)
+            .setMessage("Only you can approve changes to owner wake. Continue with device authentication? Commands, imports and automatic learning cannot change this setting.")
+            .setNegativeButton("Keep current",null)
+            .setPositiveButton("Authenticate",(d,w)->authenticateThen(title,()->WakeChangeApproval.runApproved(action))).show();
+    }
+
     private void authenticateThen(String title, Runnable action) {
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         if (keyguard == null || !keyguard.isDeviceSecure()) {
@@ -3919,7 +3851,7 @@ public class MainActivity extends Activity {
                 LogStore.append(this, "IMPORT", count + " profile entries merged");
                 updateProfileSummary();
                 renderProfileManager();
-                toast("Merged " + count + " trained contacts and portable wake data.");
+                toast("Merged " + count + " trained contacts. Protected wake enrollment was kept.");
             } else if (requestCode == EXPORT_MEMORY) {
                 writeText(uri, MemoryStore.exportJson(this));
                 toast("IRIS memory exported.");
@@ -4067,6 +3999,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        wakeTrainingActive=false;wakeTrainingGeneration++;
         handler.removeCallbacksAndMessages(null);
         destroyTrainingRecognizer();
         destroyDryRunRecognizer();
@@ -4088,4 +4021,3 @@ public class MainActivity extends Activity {
         @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
     }
 }
-

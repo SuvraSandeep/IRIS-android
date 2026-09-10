@@ -10,8 +10,8 @@ android {
         applicationId 'com.iris.assistant'
         minSdk 26
         targetSdk 35
-        versionCode 307
-        versionName '8.16.2'
+        versionCode 308
+        versionName '8.17.0'
     }
 
     signingConfigs {
@@ -53,4 +53,3 @@ dependencies {
     // runtime via ModelManager.downloadGemma(), never bundled in the APK).
     implementation 'com.google.mediapipe:tasks-genai:0.10.24'
 }
-
