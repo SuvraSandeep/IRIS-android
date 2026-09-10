@@ -40,9 +40,21 @@ public final class VoskEngine {
 
     private Model model;
     private volatile boolean modelLoaded;
+    private volatile boolean modelLoading;
+    public boolean isModelLoading(){return modelLoading;}
     private Object spkModel;   // org.vosk.SpkModel via reflection (may be absent)
     private volatile boolean spkReady;
+    private volatile boolean closed;
+    private volatile boolean speakerLoading;
+    private volatile String speakerFailure="";
+    public String speakerError(){return speakerFailure;}
+    public boolean isSpeakerLoading(){return speakerLoading;}
+    private synchronized boolean installModel(Model candidate){
+        if(closed){candidate.close();return false;}
+        model=candidate;modelLoaded=true;modelLoading=false;return true;
+    }
     private SpeechService speechService;
+    private WakeAudioCapture wakeCapture;
 
     public interface InitListener {
         void onReady();
@@ -53,6 +65,7 @@ public final class VoskEngine {
         /** @param voiceEmbedding Vosk speaker x-vector for the wake utterance, or null if unavailable. */
         void onWakeDetected(float[] voiceEmbedding);
         void onError(String message);
+        default void onDiagnostic(String reason) { }
     }
 
     public interface SttListener {
@@ -62,14 +75,18 @@ public final class VoskEngine {
     }
 
     /** Load the Vosk model: bundled assets first, else download at runtime. */
-    public void init(Context context, InitListener listener) {
-        if (modelLoaded) { main.post(listener::onReady); return; }
+    public void init(Context context, InitListener listener) { init(context,listener,false); }
+    /** Wake always uses the small dynamic-grammar model, independent of the optional large command model. */
+    public void initForWake(Context context, InitListener listener) { init(context,listener,true); }
+    private synchronized void init(Context context, InitListener listener, boolean wakeOnly) {
+        if(closed){listener.onError("Voice engine closed");return;}
+        if (modelLoaded) { main.post(()->{if(!closed)listener.onReady();}); return; }
+        if(modelLoading)return;
+        modelLoading=true;
         Context app = context.getApplicationContext();
         // High-accuracy path (opt-in): use the large en-IN model, downloaded on first use.
-        // Skipped entirely under IRIS battery saver — the ~1GB model stays resident the whole
-        // time IRIS listens, which is exactly the RAM cost battery saver exists to avoid.
         boolean large = false;
-        try { large = new AppSettings(app).highAccuracyVoice() && !new AppSettings(app).irisPowerSaver(); } catch (Throwable ignored) { }
+        try { large = !wakeOnly && new AppSettings(app).highAccuracyVoice(); } catch (Throwable ignored) { }
         if (large) {
             File lg = new File(app.getFilesDir(), LARGE_DIR_NAME);
             if (isValidModelDir(lg)) { loadFromPath(lg.getAbsolutePath(), listener); return; }
@@ -100,9 +117,8 @@ public final class VoskEngine {
                     if (!staging.renameTo(target)) throw new java.io.IOException("Could not install Indian voice bundle");
                 }
                 deleteRecursive(staging);
-                model = new Model(target.getAbsolutePath());
-                modelLoaded = true;
-                main.post(listener::onReady);
+                if(!installModel(new Model(target.getAbsolutePath())))return;
+                main.post(()->{if(!closed)listener.onReady();});
             } catch (Throwable t) {
                 deleteRecursive(staging);
                 android.util.Log.w("IRIS", "Indian voice bundle unavailable: " + t.getMessage());
@@ -114,11 +130,10 @@ public final class VoskEngine {
     private void loadFromPath(String path, InitListener listener) {
         new Thread(() -> {
             try {
-                model = new Model(path);
-                modelLoaded = true;
-                main.post(listener::onReady);
+                if(!installModel(new Model(path)))return;
+                main.post(()->{if(!closed)listener.onReady();});
             } catch (Throwable t) {
-                modelLoaded = false;
+                modelLoaded = false; modelLoading=false;
                 main.post(() -> listener.onError(t.getMessage()));
             }
         }, "Vosk-Load").start();
@@ -146,12 +161,11 @@ public final class VoskEngine {
                     //noinspection ResultOfMethodCallIgnored
                     zip.delete();
                 }
-                model = new Model(modelDir.getAbsolutePath());
-                modelLoaded = true;
+                if(!installModel(new Model(modelDir.getAbsolutePath())))return;
                 android.util.Log.i("IRIS", "Vosk model ready (downloaded)");
-                main.post(listener::onReady);
+                main.post(()->{if(!closed)listener.onReady();});
             } catch (Throwable t) {
-                modelLoaded = false;
+                modelLoaded = false; modelLoading=false;
                 android.util.Log.e("IRIS", "Vosk model download/load failed: " + t.getMessage());
                 main.post(() -> listener.onError(t.getMessage()));
             }
@@ -185,10 +199,9 @@ public final class VoskEngine {
                     //noinspection ResultOfMethodCallIgnored
                     zip.delete();
                 }
-                model = new Model(modelDir.getAbsolutePath());
-                modelLoaded = true;
+                if(!installModel(new Model(modelDir.getAbsolutePath())))return;
                 android.util.Log.i("IRIS", "Large Vosk model ready");
-                main.post(listener::onReady);
+                main.post(()->{if(!closed)listener.onReady();});
             } catch (Throwable t) {
                 android.util.Log.w("IRIS", "Large model unavailable, falling back to small: " + t.getMessage());
                 main.post(() -> fallbackSmall(context, listener));
@@ -198,6 +211,7 @@ public final class VoskEngine {
 
     /** Load the bundled/small model (used as the automatic fallback). */
     private void fallbackSmall(Context app, InitListener listener) {
+        if(closed)return;
         File extracted = new File(app.getFilesDir(), MODEL_DIR_NAME);
         if (isValidModelDir(extracted)) { loadFromPath(extracted.getAbsolutePath(), listener); return; }
         loadBundledIndianOrDownload(app, listener);
@@ -286,69 +300,58 @@ public final class VoskEngine {
 
     private volatile long wakeGeneration;
     public void startWakeDetection(java.util.List<String> phrases, WakeListener listener) {
-        startWakeDetection(phrases, listener, true);
-    }
-    /**
-     * @param requireSpeakerModel When false, wake fires on the phrase alone: no speaker model
-     *   is attached to the recognizer, and the spk_frames gate below is skipped. This is what
-     *   makes the "phrase alone is enough" design (8.4.0) actually true end-to-end — previously
-     *   this method unconditionally required isSpeakerReady() and unconditionally attached the
-     *   speaker model, so wake could never fire without it even when the caller (and the user's
-     *   own settings) never asked for voice verification at all.
-     */
-    public void startWakeDetection(java.util.List<String> phrases, WakeListener listener, boolean requireSpeakerModel) {
         if (!isReady()) { listener.onError("Voice model not ready"); return; }
-        boolean attachSpeaker = requireSpeakerModel && isSpeakerReady();
-        if (requireSpeakerModel && !isSpeakerReady()) { listener.onError("Owner verification model not ready"); return; }
-        stop();
-        final long generation = wakeGeneration;
+        if (!isSpeakerReady()) { listener.onError("Owner verification model not ready"); return; }
         final java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
         try {
+            stop();
+            final long generation = wakeGeneration;
             final java.util.List<String> norm = new java.util.ArrayList<>();
             JSONArray grammar = new JSONArray();
             for (String raw : phrases) {
                 String phrase = WakePolicy.normalize(raw);
-                if (!phrase.isEmpty() && !norm.contains(phrase)) { norm.add(phrase); grammar.put(phrase); }
+                if (!phrase.isEmpty() && !norm.contains(phrase)) { norm.add(phrase); grammar.put(phrase); grammar.put(phrase+" "+phrase); }
             }
             if (norm.isEmpty()) { listener.onError("No wake phrase"); return; }
             grammar.put("[unk]");
             Recognizer rec = new Recognizer(model, SAMPLE_RATE, grammar.toString());
             rec.setWords(true);
-            if (attachSpeaker) {
-                try {
-                    rec.getClass().getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
-                            .invoke(rec, spkModel);
-                } catch (Throwable error) { rec.close(); throw new IllegalStateException("Speaker attachment failed", error); }
-            }
-            final boolean spkAttached = attachSpeaker;
-            speechService = new SpeechService(rec, SAMPLE_RATE);
-            speechService.startListening(new RecognitionListener() {
-                private void result(String json) {
+            try {
+                rec.getClass().getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
+                        .invoke(rec, spkModel);
+            } catch (Throwable error) { rec.close(); throw new IllegalStateException("Speaker attachment failed", error); }
+            wakeCapture = new WakeAudioCapture(rec, new WakeAudioCapture.Listener() {
+                @Override public void result(String json) {
                     if (generation != wakeGeneration || fired.get()) return;
                     try {
                         JSONObject result = new JSONObject(json);
-                        if (!WakePolicy.matches(result.optString("text"), norm)) return;
+                        String text = result.optString("text");
+                        if (text.isEmpty()) return;
                         JSONArray words = result.optJSONArray("result");
-                        if (words == null || words.length() == 0) return;
-                        double score = 1;
-                        for (int i = 0; i < words.length(); i++) score = Math.min(score, words.getJSONObject(i).optDouble("conf", 0));
-                        double duration = words.getJSONObject(words.length()-1).optDouble("end", 0)
-                                - words.getJSONObject(0).optDouble("start", 0);
-                        if (!Double.isFinite(score) || score < .85 || duration < .5 || duration > 4) return;
-                        // The spk_frames field only appears when a speaker model is attached to
-                        // the recognizer — gate on it only when we actually attached one.
-                        if (spkAttached && result.optInt("spk_frames", 0) < 50) return;
-                        if (fired.compareAndSet(false, true)) listener.onWakeDetected(spkAttached ? extractSpk(json) : null);
-                    } catch (Exception ignored) { /* malformed results cannot wake */ }
+                        double score = 0, duration = 0;
+                        if (words != null && words.length() > 0) {
+                            score = 1;
+                            for (int i=0;i<words.length();i++) score=Math.min(score,words.getJSONObject(i).optDouble("conf",0));
+                            duration=words.getJSONObject(words.length()-1).optDouble("end",0)-words.getJSONObject(0).optDouble("start",0);
+                        }
+                        float[] embedding=extractSpk(json);
+                        String reason=WakePolicy.rejection(text,norm,score,duration,result.optInt("spk_frames",0),embedding);
+                        if(!reason.isEmpty()) {
+                            main.post(()->{if(generation==wakeGeneration)listener.onDiagnostic(reason);});
+                            return;
+                        }
+                        if(fired.compareAndSet(false,true)) main.post(()->{
+                            if(generation==wakeGeneration)listener.onWakeDetected(embedding);
+                        });
+                    } catch(Exception ignored) { }
                 }
-                @Override public void onPartialResult(String h) { }
-                @Override public void onResult(String h) { result(h); }
-                @Override public void onFinalResult(String h) { result(h); }
-                @Override public void onError(Exception e) {
-                    if (generation == wakeGeneration && fired.compareAndSet(false, true)) listener.onError(e.getMessage());
+                @Override public void error(String message) {
+                    if(generation==wakeGeneration && fired.compareAndSet(false,true)) main.post(()->{
+                        if(generation==wakeGeneration)listener.onError(message);
+                    });
                 }
-                @Override public void onTimeout() { }
             });
+            wakeCapture.start();
         } catch (Exception error) { listener.onError(error.getMessage()); }
     }
 
@@ -388,6 +391,10 @@ public final class VoskEngine {
     /** Stop any active recognition. */
     public void stop() {
         wakeGeneration++;
+        if(wakeCapture!=null) {
+            if(!wakeCapture.stop()) throw new IllegalStateException("Previous microphone is still stopping; retry shortly");
+            wakeCapture=null;
+        }
         if (speechService != null) {
             try {
                 speechService.stop();
@@ -398,8 +405,13 @@ public final class VoskEngine {
     }
 
     /** Release all resources. */
-    public void close() {
-        stop();
+    public synchronized void close() {
+        closed=true;
+        try { stop(); } catch (IllegalStateException stillStopping) {
+            final WakeAudioCapture old=wakeCapture;
+            new Thread(()->{old.awaitClosed();close();},"IRIS-Wake-Close").start();
+            return;
+        }
         if (model != null) {
             try { model.close(); } catch (Exception ignored) { }
             model = null;
@@ -409,7 +421,7 @@ public final class VoskEngine {
             spkModel = null;
         }
         spkReady = false;
-        modelLoaded = false;
+        modelLoaded = false; modelLoading=false;
     }
 
     // ─── Speaker model (voice verification) ───
@@ -417,8 +429,9 @@ public final class VoskEngine {
     public boolean isSpeakerReady() { return spkReady && spkModel != null; }
 
     /** Load the Vosk speaker model (bundled in assets/spk-model, else downloaded). Non-fatal. */
-    public void initSpeaker(Context context) {
-        if (spkReady) return;
+    public synchronized void initSpeaker(Context context) {
+        if (closed || spkReady || speakerLoading) return;
+        speakerLoading=true; speakerFailure="";
         Context app = context.getApplicationContext();
         new Thread(() -> {
             try {
@@ -447,14 +460,18 @@ public final class VoskEngine {
                 }
                 if (isValidSpkDir(dir)) {
                     Class<?> spkClass = Class.forName("org.vosk.SpkModel");
-                    spkModel = spkClass.getConstructor(String.class).newInstance(dir.getAbsolutePath());
-                    spkReady = true;
+                    Object candidate=spkClass.getConstructor(String.class).newInstance(dir.getAbsolutePath());
+                    synchronized(VoskEngine.this){
+                        if(closed){spkClass.getMethod("close").invoke(candidate);return;}
+                        spkModel=candidate;spkReady=true;
+                    }
                     android.util.Log.i("IRIS", "Vosk speaker model ready");
-                }
+                } else { throw new java.io.IOException("Speaker model files incomplete"); }
             } catch (Throwable t) {
                 spkReady = false;
-                android.util.Log.w("IRIS", "Speaker model unavailable (voice verification off): " + t.getMessage());
-            }
+                speakerFailure=t.getMessage()==null ? "Speaker model failed" : t.getMessage();
+                android.util.Log.w("IRIS", "Owner wake unavailable: " + speakerFailure);
+            } finally { speakerLoading=false; }
         }, "Vosk-Spk-Load").start();
     }
 
@@ -496,7 +513,8 @@ public final class VoskEngine {
         if (!isReady() || pcm == null || pcm.length < 1600) return "";
         try {
             Recognizer rec = new Recognizer(model, SAMPLE_RATE);
-            rec.acceptWaveForm(pcm, pcm.length);
+            short[] prepared = QuietAudioProcessor.prepare(pcm);
+            rec.acceptWaveForm(prepared, prepared.length);
             String json = rec.getFinalResult();
             rec.close();
             return extractText(json, "text");
@@ -509,19 +527,29 @@ public final class VoskEngine {
     /** Compute a speaker x-vector for a PCM clip (16kHz mono). Null if unavailable. */
     public float[] embed(short[] pcm) {
         if (!isReady() || !isSpeakerReady() || pcm == null || pcm.length < 3200) return null;
+        Recognizer rec=null;
         try {
-            Class<?> spkClass = Class.forName("org.vosk.SpkModel");
-            Recognizer rec = (Recognizer) Recognizer.class
-                    .getConstructor(Model.class, float.class, spkClass)
-                    .newInstance(model, SAMPLE_RATE, spkModel);
-            rec.acceptWaveForm(pcm, pcm.length);
-            String json = rec.getFinalResult();
-            rec.close();
-            return extractSpk(json);
-        } catch (Throwable t) {
-            android.util.Log.w("IRIS", "embed failed: " + t.getMessage());
-            return null;
-        }
+            Class<?> spkClass=Class.forName("org.vosk.SpkModel");
+            rec=(Recognizer)Recognizer.class.getConstructor(Model.class,float.class,spkClass).newInstance(model,SAMPLE_RATE,spkModel);
+            short[] prepared=QuietAudioProcessor.prepare(pcm);
+            rec.acceptWaveForm(prepared,prepared.length);
+            return extractSpk(rec.getFinalResult());
+        }catch(Throwable t){return null;}finally{if(rec!=null)rec.close();}
+    }
+    /** Phrase validation uses the same grammar and gain as live wake. Unknown words never count. */
+    public String transcribeWake(short[] pcm, java.util.List<String> phrases) {
+        if(!isReady() || !WakePolicy.usableAudio(pcm))return "";
+        Recognizer rec=null;
+        try {
+            JSONArray grammar=new JSONArray();
+            for(String raw:phrases){String p=WakePolicy.normalize(raw);if(!p.isEmpty()){grammar.put(p);grammar.put(p+" "+p);}}
+            grammar.put("[unk]"); rec=new Recognizer(model,SAMPLE_RATE,grammar.toString());rec.setWords(true);
+            short[] prepared=QuietAudioProcessor.prepare(pcm);rec.acceptWaveForm(prepared,prepared.length);
+            JSONObject result=new JSONObject(rec.getFinalResult());
+            JSONArray words=result.optJSONArray("result");if(words==null || words.length()==0)return "";
+            for(int i=0;i<words.length();i++)if(words.getJSONObject(i).optDouble("conf",0)<.85)return "";
+            return result.optString("text","");
+        }catch(Exception e){return "";}finally{if(rec!=null)rec.close();}
     }
 
     private static float[] extractSpk(String json) {

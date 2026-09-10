@@ -112,9 +112,9 @@ public class IrisListeningService extends Service implements RecognitionListener
             Pattern.CASE_INSENSITIVE);
     // What's-new summary — UPDATE this each release (per PROJECT-RULES).
     private static final String VERSION_NOTES =
-            "Indian English speech defaults, a matching offline model, clearer retry prompts, and safer "
-            + "natural command parsing. Names and message text are no longer rewritten by command training. "
-            + "Use Indian English accuracy setup in Settings if your old preferences are still active.";
+            "Protected owner wake, quieter audio capture, normal and quiet voice enrollment, "
+            + "atomic profile saving and clearer wake diagnostics. Retrain six samples and test "
+            + "your phrase before locking the phone. Media playback still pauses voice wake.";
     private static final Pattern QUICK_ACTION_PATTERN = Pattern.compile(
             "^(?:what(?:\\s+is)?\\s+the\\s+time|time\\s*(?:please)?|what\\s+time\\s+is\\s+it"
             + "|battery|battery\\s+level|how\\s+much\\s+battery"
@@ -463,26 +463,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         });
 
         voskEngine = new VoskEngine();
-        voskEngine.init(this, new VoskEngine.InitListener() {
-            @Override public void onReady() {
-                voskReady = true;
-                LogStore.append(IrisListeningService.this, "VOSK", "Voice model ready");
-                // Load the speaker model for voice verification (non-fatal).
-                try { voskEngine.initSpeaker(IrisListeningService.this); } catch (Throwable ignored) { }
-                // If we're currently beeping via the Android recognizer, switch to
-                // silent, continuous Vosk wake immediately.
-                if (isRunning && androidWakeActive && PHASE_WAKE.equals(phase)) {
-                    handler.post(() -> {
-                        LogStore.append(IrisListeningService.this, "WAKE", "Switching to silent Vosk wake");
-                        startWakeDetection();
-                    });
-                }
-            }
-            @Override public void onError(String message) {
-                voskReady = false;
-                LogStore.append(IrisListeningService.this, "VOSK", "Model unavailable, using fallback: " + message);
-            }
-        });
+        initializeWakeModel();
         // Load the AI brain only if the user has opted in (off by default for
         // stability — some devices crash natively during on-device inference).
         llmAgent = new LlmAgent();
@@ -746,43 +727,71 @@ public class IrisListeningService extends Service implements RecognitionListener
         handler.removeCallbacks(retryWake);
         handler.postDelayed(retryWake, delay);
     }
+    private void initializeWakeModel() {
+        voskEngine.initForWake(this, new VoskEngine.InitListener() {
+            @Override public void onReady() {
+                voskReady = true;
+                LogStore.append(IrisListeningService.this, "VOSK", "Voice model ready");
+                // Load the speaker model for voice verification (non-fatal).
+                try { voskEngine.initSpeaker(IrisListeningService.this); } catch (Throwable ignored) { }
+                // If we're currently beeping via the Android recognizer, switch to
+                // silent, continuous Vosk wake immediately.
+                if (isRunning && androidWakeActive && PHASE_WAKE.equals(phase)) {
+                    handler.post(() -> {
+                        LogStore.append(IrisListeningService.this, "WAKE", "Switching to silent Vosk wake");
+                        startWakeDetection();
+                    });
+                }
+            }
+            @Override public void onError(String message) {
+                voskReady = false;
+                wakeReadiness="Voice model unavailable: "+message;
+                LogStore.append(IrisListeningService.this, "VOSK", wakeReadiness);
+            }
+        });
+    }
+    private long lastVoiceModelRetryAt;
+    private long lastWakeDiagnosticAt;
+    private long lastSpeakerRetryAt;
     private void startWakeDetection() {
         if (!isRunning) return;
         final long epoch = ++wakeEpoch;
         handler.removeCallbacks(retryWake);
         destroyRecognizer();
-        if (voskEngine != null) voskEngine.stop();
+        if (voskEngine != null) try { voskEngine.stop(); } catch(IllegalStateException stopping) {
+            phase=PHASE_WAKE;currentPhase=phase;
+            wakeReadiness="Microphone stopping; retrying";scheduleWakeRetry(1500);return;
+        }
         IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.MICROPHONE);
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
         phase = PHASE_WAKE;
         currentPhase = phase;
         broadcastState(true, phase);
         androidWakeActive = false;
-        // Only the phrase is required to arm wake listening (8.4.0's zero-training design).
-        // Owner-voice matching, if enabled, is judged per-attempt in isOwnerVoice() once a
-        // candidate embedding is captured — it must never gate whether Vosk starts listening
-        // at all. The previous self-comparison check here (wake.voiceprint against itself)
-        // additionally required wake.voiceprint to be non-null, which silently blocked wake
-        // for anyone who had only trained the phrase and never separately enrolled a voiceprint.
-        if (!wake.isReady()) {
-            wakeReadiness = "Needs a wake phrase — set one in Training";
-            updateListeningNotification("Wake unavailable: train your phrase in Training");
+        // Owner enrollment is mandatory by the owner's explicit 8.17.0 request.
+        if (!wake.isReady() || !WakePolicy.owner(wake.voiceprint, wake.voiceprint, .99)) {
+            wakeReadiness = "Needs a phrase and verified owner enrollment — use Training";
+            updateListeningNotification("Wake unavailable: enroll normal and quiet owner voice in Training");
             scheduleWakeRetry(3000);
             return;
         }
-        // The Vosk speaker model is only needed when owner-voice verification is actually
-        // switched on (settings.speakerVerification(), off by default). VoskEngine itself now
-        // only requires/attaches it when told to, via requireSpeakerModel below — this check
-        // just avoids the retry loop for the case that's actually asked for.
-        if (settings.speakerVerification() && (!voskReady || voskEngine == null || !voskEngine.isSpeakerReady())) {
-            wakeReadiness = "Offline voice verification model unavailable or loading";
-            updateListeningNotification("Wake unavailable: preparing offline voice verification");
-            scheduleWakeRetry(2000);
-            return;
+        if(!voskReady || voskEngine==null){
+            wakeReadiness="Voice model unavailable or loading";
+            updateListeningNotification(wakeReadiness);
+            long now=android.os.SystemClock.elapsedRealtime();
+            if(voskEngine!=null && !voskEngine.isModelLoading() && now-lastVoiceModelRetryAt>60000){
+                lastVoiceModelRetryAt=now;initializeWakeModel();
+            }
+            scheduleWakeRetry(2000);return;
         }
-        if (!voskReady || voskEngine == null) {
-            wakeReadiness = "Voice model unavailable or loading";
-            updateListeningNotification("Wake unavailable: loading voice model");
+        if (!voskEngine.isSpeakerReady()) {
+            String error=voskEngine==null ? "" : voskEngine.speakerError();
+            wakeReadiness = error.isEmpty() ? "Offline voice verification model loading" : "Owner model unavailable: "+error;
+            updateListeningNotification(wakeReadiness);
+            long retryAt=android.os.SystemClock.elapsedRealtime();
+            if(voskReady && voskEngine!=null && !voskEngine.isSpeakerLoading() && retryAt-lastSpeakerRetryAt>60000){
+                lastSpeakerRetryAt=retryAt;voskEngine.initSpeaker(this);
+            }
             scheduleWakeRetry(2000);
             return;
         }
@@ -793,7 +802,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         restoreRecognizerBeep();
-        wakeReadiness = settings.speakerVerification() ? "Full phrase and owner checks armed" : "Phrase-only wake armed";
+        wakeReadiness = "Full phrase and owner checks armed";
         // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
         // keeps full A2DP quality while IRIS is merely awake. If a Bluetooth mic is connected
         // but not in use here, say so explicitly — "Phone microphone" alone reads as a bug
@@ -818,6 +827,15 @@ public class IrisListeningService extends Service implements RecognitionListener
             microphoneLabel = configureAudioRoute();
         }
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
+            @Override public void onDiagnostic(String reason) {
+                if(epoch!=wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase))return;
+                long now=android.os.SystemClock.elapsedRealtime();
+                if(now-lastWakeDiagnosticAt<5000)return;
+                lastWakeDiagnosticAt=now;
+                wakeReadiness="Listening: "+reason;
+                updateListeningNotification(wakeReadiness);
+                LogStore.append(IrisListeningService.this,"WAKE CHECK",reason);
+            }
             @Override public void onWakeDetected(float[] embedding) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
                 boolean media = audioManager != null && audioManager.isMusicActive();
@@ -829,11 +847,15 @@ public class IrisListeningService extends Service implements RecognitionListener
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
                         + " accepted=" + accepted);
                 voskEngine.stop();
-                if (!accepted) { scheduleWakeRetry(1500); return; }
+                if (!accepted) {
+                    wakeReadiness=media ? "Wake paused during media playback" : "Owner not verified; try the full phrase twice or enroll quiet voice";
+                    updateListeningNotification(wakeReadiness);
+                    scheduleWakeRetry(300); return;
+                }
                 lastWakeAt = now;
                 ++wakeEpoch;
                 vibrate(45);
-                String greet = wakeGreeting();
+                String greet = "Yes?";
                 broadcastMessage(greet);
                 nextOutputMinor = true;
                 speakThenRun(greet, IrisListeningService.this::startCommandRecognition);
@@ -845,7 +867,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this, "WAKE UNAVAILABLE", message);
                 scheduleWakeRetry(3000);
             }
-        }, settings.speakerVerification());
+        });
     }
 
     private long lastRejectCueAt = 0;
@@ -5194,13 +5216,10 @@ public class IrisListeningService extends Service implements RecognitionListener
      *  on but the user never enrolled a voiceprint, don't lock them out forever — fall back to
      *  phrase-only rather than rejecting every wake attempt with no way to recover by voice. */
     private boolean isOwnerVoice(float[] embedding) {
-        if (!settings.speakerVerification()) return true;
         try {
-            float[] enrolled = new ProfileStore(this).getVoiceprint();
-            if (enrolled == null || enrolled.length == 0) return true;
             return voskEngine != null && voskEngine.isSpeakerReady()
-                    && WakePolicy.owner(embedding, enrolled, voiceThreshold());
-        } catch (Throwable error) { return true; }
+                    && WakePolicy.ownerAny(embedding, new ProfileStore(this).getWakeProfile().ownerProfiles(), voiceThreshold());
+        } catch (Throwable error) { return false; }
     }
 
     private double voiceThreshold() { return WakePolicy.threshold(settings.voiceSensitivity()); }
@@ -6133,4 +6152,3 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 }
-

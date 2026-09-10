@@ -18,7 +18,7 @@ import java.util.List;
  */
 final class TrainingProgress {
     private static final String FILE = "wake_training.dat";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     static final class Data {
         String phrase = "";
@@ -32,16 +32,20 @@ final class TrainingProgress {
         return f.exists() && f.length() > 0;
     }
 
-    static void clear(Context c) {
+    static synchronized void clear(Context c) {
         File f = new File(c.getFilesDir(), FILE);
         if (f.exists()) { //noinspection ResultOfMethodCallIgnored
             f.delete(); }
     }
 
-    static void save(Context c, String phrase, int sampleIndex,
+    static synchronized void save(Context c, String phrase, int sampleIndex,
                      List<float[][]> templates, List<short[]> raw) {
         File f = new File(c.getFilesDir(), FILE);
-        try (DataOutputStream o = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f)))) {
+        android.util.AtomicFile file=new android.util.AtomicFile(f);
+        FileOutputStream stream=null;
+        try {
+            stream=file.startWrite();
+            DataOutputStream o=new DataOutputStream(new BufferedOutputStream(stream));
             o.writeInt(VERSION);
             o.writeUTF(phrase == null ? "" : phrase);
             o.writeInt(sampleIndex);
@@ -55,23 +59,28 @@ final class TrainingProgress {
                 o.writeInt(s.length);
                 for (short v : s) o.writeShort(v);
             }
-        } catch (Exception ignored) { }
+            o.flush();file.finishWrite(stream);
+        } catch (Exception ignored) { if(stream!=null)file.failWrite(stream); }
     }
 
-    static Data load(Context c) {
+    static synchronized Data load(Context c) {
         File f = new File(c.getFilesDir(), FILE);
-        if (!f.exists()) return null;
+        if (!f.exists() || f.length()>2_000_000) return null;
         try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(f)))) {
             if (in.readInt() != VERSION) return null;
             Data d = new Data();
             d.phrase = in.readUTF();
             d.sampleIndex = in.readInt();
+            if(d.sampleIndex<0 || d.sampleIndex>6 || d.phrase.length()>200)return null;
             int tc = in.readInt();
+            if(tc<0 || tc>6)return null;
             for (int i = 0; i < tc; i++) {
                 int frames = in.readInt();
+                if(frames<0 || frames>120)return null;
                 float[][] t = new float[frames][];
                 for (int fr = 0; fr < frames; fr++) {
                     int feats = in.readInt();
+                    if(feats<0 || feats>20)return null;
                     float[] frame = new float[feats];
                     for (int j = 0; j < feats; j++) frame[j] = in.readFloat();
                     t[fr] = frame;
@@ -79,8 +88,10 @@ final class TrainingProgress {
                 d.templates.add(t);
             }
             int rc = in.readInt();
+            if(rc<0 || rc>6 || rc!=d.sampleIndex || tc!=rc)return null;
             for (int i = 0; i < rc; i++) {
                 int len = in.readInt();
+                if(len<0 || len>80000)return null;
                 short[] s = new short[len];
                 for (int j = 0; j < len; j++) s[j] = in.readShort();
                 d.rawSamples.add(s);

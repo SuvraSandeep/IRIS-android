@@ -27,6 +27,7 @@ public final class WakePolicy {
     }
     public static boolean owner(float[] sample, float[] enrolled, double threshold) {
         return sample != null && sample.length == 128 && enrolled != null && enrolled.length == 128
+                && Double.isFinite(threshold) && threshold >= .65 && threshold <= 1
                 && cosine(sample, enrolled) >= threshold;
     }
     public static double threshold(float sensitivity) {
@@ -47,20 +48,50 @@ public final class WakePolicy {
         for (int i = 0; i < mean.length; i++) mean[i] /= Math.sqrt(norm);
         return mean;
     }
-    /** Reject silence, clipping and clips without sustained speech above their own noise floor. */
+    /** Exact phrase, optionally repeated twice for a short phrase's speaker evidence. */
+    public static boolean matchesRepeated(String text, List<String> phrases) {
+        if (matches(text, phrases)) return true;
+        if (phrases == null) return false;
+        String n = normalize(text);
+        for (String phrase : phrases) {
+            String p = normalize(phrase);
+            if (!p.isEmpty() && n.equals(p + " " + p)) return true;
+        }
+        return false;
+    }
+    public static boolean ownerAny(float[] sample, List<float[]> enrolled, double threshold) {
+        if (enrolled == null || enrolled.isEmpty() || enrolled.size() > 2) return false;
+        for (float[] e : enrolled) if (owner(sample, e, threshold)) return true;
+        return false;
+    }
+    /** Phrase confidence is separate from identity: neither gate can bypass the other. */
+    public static String rejection(String text, List<String> phrases, double confidence,
+                                   double duration, int speakerFrames, float[] embedding) {
+        if (!matchesRepeated(text, phrases)) return "phrase mismatch";
+        if (!Double.isFinite(confidence) || confidence < .85) return "phrase unclear";
+        if (!Double.isFinite(duration) || duration < .25 || duration > 8) return "phrase duration invalid";
+        if (speakerFrames < 20 || !owner(embedding, embedding, .99))
+            return "not enough voice evidence; say the full phrase twice with a short pause";
+        return "";
+    }
+    /** Relative signal quality, independent of volume. Recognition still verifies speech. */
     public static boolean usableAudio(short[] pcm) {
         if (pcm == null || pcm.length < 8000) return false;
         double[] levels = new double[pcm.length / 320]; int clipped = 0;
         for (int f = 0; f < levels.length; f++) {
-            double e = 0;
-            for (int i = f * 320; i < (f + 1) * 320; i++) {
-                e += pcm[i] * (double)pcm[i]; if (Math.abs((int)pcm[i]) > 32000) clipped++;
+            double mean = 0, e = 0;
+            for (int i = f*320; i < (f+1)*320; i++) mean += pcm[i];
+            mean /= 320;
+            for (int i = f*320; i < (f+1)*320; i++) {
+                double v = pcm[i]-mean; e += v*v;
+                if (Math.abs((int)pcm[i]) > 32000) clipped++;
             }
             levels[f] = Math.sqrt(e / 320);
         }
         java.util.Arrays.sort(levels);
-        double noise = Math.max(100, levels[levels.length / 10]);
-        int voiced = 0; for (double rms : levels) if (rms >= Math.max(300, noise * 3)) voiced++;
-        return voiced >= 20 && clipped < pcm.length / 100;
+        double noise = Math.max(4, levels[levels.length / 10]);
+        int voiced = 0;
+        for (double rms : levels) if (rms >= Math.max(24, noise * 2.5)) voiced++;
+        return voiced >= 15 && clipped < pcm.length / 100;
     }
 }

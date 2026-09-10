@@ -32,6 +32,13 @@ public final class ProfileStore {
         public long trainedAt;
         public final List<float[][]> templates = new ArrayList<>();
         public float[] voiceprint;
+        public float[] quietVoiceprint;
+        public List<float[]> ownerProfiles() {
+            List<float[]> out=new ArrayList<>();
+            if(WakePolicy.owner(voiceprint,voiceprint,.99))out.add(voiceprint);
+            if(WakePolicy.owner(quietVoiceprint,quietVoiceprint,.99))out.add(quietVoiceprint);
+            return out;
+        }
         public final List<String> altPhrases = new ArrayList<>();
         public boolean isReady() { return !phrase.trim().isEmpty(); }
         public boolean isVoiceEnrolled() { return voiceprint != null && voiceprint.length > 0; }
@@ -120,6 +127,11 @@ public final class ProfileStore {
                 profile.voiceprint = new float[vp.length()];
                 for (int i = 0; i < vp.length(); i++) profile.voiceprint[i] = (float) vp.getDouble(i);
             }
+            JSONArray quiet=wake.optJSONArray("quietVoiceprint");
+            if(quiet!=null && quiet.length()==128){
+                profile.quietVoiceprint=new float[128];
+                for(int i=0;i<128;i++)profile.quietVoiceprint[i]=(float)quiet.getDouble(i);
+            }
             JSONArray alts = wake.optJSONArray("altPhrases");
             if (alts != null) {
                 for (int i = 0; i < alts.length(); i++) {
@@ -131,33 +143,34 @@ public final class ProfileStore {
         return profile;
     }
 
-    public synchronized boolean setWakeProfile(String phrase, List<float[][]> templates) {
+    /** One authenticated UI operation: validation completes before the working profile is replaced. */
+    public synchronized boolean saveOwnerEnrollment(String phrase, List<float[][]> templates,
+                                                     float[] normal, float[] quiet) {
+        WakeChangeApproval.require();
+        if(phrase==null || WakePolicy.normalize(phrase).isEmpty() || phrase.length()>200
+                || !WakePolicy.owner(normal,normal,.99)
+                || (quiet!=null && !WakePolicy.owner(quiet,quiet,.99)))return false;
         try {
-            JSONObject current = root();
-            JSONObject wake = new JSONObject();
-            wake.put("phrase", phrase.trim());
-            wake.put("trainedAt", System.currentTimeMillis());
-            wake.put("threshold", WakeWordEngine.calibratedThreshold(templates));
-            JSONArray allTemplates = new JSONArray();
-            for (float[][] template : templates) {
-                JSONArray frames = new JSONArray();
-                for (float[] frame : template) {
-                    JSONArray values = new JSONArray();
-                    for (float value : frame) values.put(Math.round(value * 10000f) / 10000.0);
-                    frames.put(values);
-                }
-                allTemplates.put(frames);
+            JSONObject current=root(), wake=new JSONObject();
+            wake.put("phrase",phrase.trim()); wake.put("trainedAt",System.currentTimeMillis());
+            wake.put("threshold",WakeWordEngine.calibratedThreshold(templates));
+            JSONArray all=new JSONArray();
+            for(float[][] template:templates.subList(0,Math.min(3,templates.size()))){
+                JSONArray frames=new JSONArray();
+                for(float[] frame:template){JSONArray values=new JSONArray();for(float v:frame)values.put((double)v);frames.put(values);}
+                all.put(frames);
             }
-            wake.put("templates", allTemplates);
-            // Preserve any existing alternate phrases across a retrain of the primary.
-            JSONObject prev = current.optJSONObject("wakeWord");
-            if (prev != null && prev.optJSONArray("altPhrases") != null) {
-                wake.put("altPhrases", prev.optJSONArray("altPhrases"));
-            }
-            current.put("wakeWord", wake);
-            persist(current);
-            return true;
-        } catch (Exception ignored) { return false; }
+            wake.put("templates",all);
+            wake.put("voiceprint",vectorArray(normal));
+            if(quiet!=null)wake.put("quietVoiceprint",vectorArray(quiet));
+            wake.put("ownerPolicyVersion",3);
+            // A new phrase never silently inherits old alternate activation phrases.
+            wake.put("altPhrases",new JSONArray());
+            current.put("wakeWord",wake); persist(current); return true;
+        } catch(Exception error){return false;}
+    }
+    private static JSONArray vectorArray(float[] vector) throws Exception {
+        JSONArray out=new JSONArray(); for(float v:vector)out.put((double)v); return out;
     }
 
     /** Seed a ready-to-use text wake phrase (no training needed) if none is set yet — Option A.
@@ -182,6 +195,7 @@ public final class ProfileStore {
 
     /** Store optional alternate wake phrases (text only — Vosk recognizes them; no separate training). */
     public synchronized boolean setAltWakePhrases(List<String> phrases) {
+        WakeChangeApproval.require();
         try {
             JSONObject current = root();
             JSONObject wake = current.optJSONObject("wakeWord");
@@ -200,6 +214,7 @@ public final class ProfileStore {
     }
 
     public synchronized boolean setVoiceprint(float[] voiceprint) {
+        WakeChangeApproval.require();
         try {
             JSONObject current = root();
             JSONObject wake = current.optJSONObject("wakeWord");
@@ -210,6 +225,7 @@ public final class ProfileStore {
                 wake.put("voiceprint", vp);
             } else {
                 wake.remove("voiceprint");
+                wake.remove("quietVoiceprint");
             }
             current.put("wakeWord", wake);
             persist(current);
@@ -227,11 +243,7 @@ public final class ProfileStore {
 
     /** If a hard-coded voiceprint is provided and none is enrolled yet, seed it. */
     public synchronized void seedHardcodedVoiceprint() {
-        try {
-            if (DEFAULT_VOICEPRINT.length > 0 && getVoiceprint() == null) {
-                setVoiceprint(DEFAULT_VOICEPRINT);
-            }
-        } catch (Throwable ignored) { }
+        // No automatic identity replacement. Use explicit, authenticated enrollment.
     }
 
     /** The enrolled speaker voiceprint (x-vector), or null if none. */
@@ -568,25 +580,8 @@ public final class ProfileStore {
         }
         JSONObject result = root();
         result.put("profiles", entriesArray(new ArrayList<>(merged.values())));
-        JSONObject wake = incoming.optJSONObject("wakeWord");
-        if (wake != null && wake.optJSONArray("templates") != null) {
-            // Validate wake profile before importing
-            double threshold = wake.optDouble("threshold", 1.05);
-            if (threshold < 0.40 || threshold > 2.50) throw new IllegalArgumentException("Invalid wake threshold in imported profile.");
-            JSONArray wakeTemplates = wake.optJSONArray("templates");
-            if (wakeTemplates.length() > 5) throw new IllegalArgumentException("Too many wake templates in imported profile.");
-            for (int t = 0; t < wakeTemplates.length(); t++) {
-                JSONArray frames = wakeTemplates.getJSONArray(t);
-                if (frames.length() > 120) throw new IllegalArgumentException("Wake template too large in imported profile.");
-                for (int f = 0; f < frames.length(); f++) {
-                    JSONArray features = frames.getJSONArray(f);
-                    if (features.length() > 20) throw new IllegalArgumentException("Wake feature vector too large in imported profile.");
-                }
-            }
-            String phrase = wake.optString("phrase", "").trim();
-            if (phrase.length() > 200) throw new IllegalArgumentException("Wake phrase too long in imported profile.");
-            result.put("wakeWord", wake);
-        }
+        // Contact/profile imports cannot replace the authenticated owner identity or wake settings.
+        // Re-enroll on this device to change them explicitly.
         result.put("version", 2);
         persist(result);
         return imported;

@@ -14,6 +14,8 @@ javac -encoding UTF-8 -d "$test_dir" \
   app/src/main/java/com/iris/assistant/LocalPlanner.java \
   app/src/main/java/com/iris/assistant/AppRequest.java \
   app/src/main/java/com/iris/assistant/WakePolicy.java \
+  app/src/main/java/com/iris/assistant/QuietAudioProcessor.java \
+  app/src/main/java/com/iris/assistant/WakeChangeApproval.java \
   app/src/main/java/com/iris/assistant/TelemetrySnapshot.java \
   app/src/main/java/com/iris/assistant/TrafficRateMeter.java \
   app/src/main/java/com/iris/assistant/TelemetryEventLog.java \
@@ -38,4 +40,3 @@ java -cp "$test_dir" com.iris.assistant.TelemetryTest
 java -cp "$test_dir" com.iris.assistant.BatteryRateTrackerTest
 java -cp "$test_dir" com.iris.assistant.PhoneFactsTest
 java tests/ParseSources.java app/src/main/java
-

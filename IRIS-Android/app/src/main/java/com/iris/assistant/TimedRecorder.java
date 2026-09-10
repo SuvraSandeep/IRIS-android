@@ -5,114 +5,60 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
-/**
- * Records exactly N milliseconds of 16kHz mono PCM audio.
- * Provides a live audio level callback for UI waveform display.
- * No VAD, no guessing — just a clean timed recording.
- */
+/** Bounded 16 kHz capture. Cancellation suppresses all stale UI callbacks. */
 public final class TimedRecorder {
-    private static final int SAMPLE_RATE = 16_000;
-    private static final int FRAME_SIZE = 512;
-    private static final Handler main = new Handler(Looper.getMainLooper());
-
+    private static final Handler main=new Handler(Looper.getMainLooper());
     public interface Listener {
-        void onLevel(float normalizedLevel);  // 0.0 to 1.0, called ~30x/sec
-        void onComplete(short[] audio);       // full recording
+        void onLevel(float level);
+        void onComplete(short[] audio);
         void onError(String message);
     }
-
     private volatile boolean recording;
-    private Thread thread;
-
-    /**
-     * Record audio for the specified duration.
-     * @param durationMs recording duration in milliseconds (e.g. 3000)
-     * @param listener callbacks for level updates and completion
-     */
-    public void record(int durationMs, Listener listener) {
-        if (recording) return;
-        recording = true;
-        thread = new Thread(() -> {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
-            AudioRecord mic = null;
-            try {
-                int totalSamples = SAMPLE_RATE * durationMs / 1000;
-                int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE,
-                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-                mic = new AudioRecord.Builder()
-                        .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
-                        .setAudioFormat(new AudioFormat.Builder()
-                                .setSampleRate(SAMPLE_RATE)
-                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                .setChannelMask(AudioFormat.CHANNEL_IN_MONO).build())
-                        .setBufferSizeInBytes(Math.max(minBuf * 2, FRAME_SIZE * 8))
-                        .build();
-
-                if (mic.getState() != AudioRecord.STATE_INITIALIZED) {
-                    main.post(() -> listener.onError("Microphone not available. Close other apps using it."));
-                    return;
-                }
-
+    private volatile int generation;
+    private volatile AudioRecord microphone;
+    public void record(int durationMs,Listener listener){
+        if(recording)return;
+        if(durationMs<500 || durationMs>30000){listener.onError("Recording duration out of range");return;}
+        final int epoch=++generation;recording=true;
+        new Thread(()->{
+            AudioRecord mic=null;short[] result=null;String failure=null;
+            try{
+                int count=16000*durationMs/1000;
+                int min=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
+                if(min<=0)throw new IllegalStateException("16 kHz microphone unavailable");
+                mic=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,
+                        AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(min*2,6400));
+                microphone=mic;
+                if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
+                if(epoch!=generation)return;
                 mic.startRecording();
-                short[] audio = new short[totalSamples];
-                short[] frame = new short[FRAME_SIZE];
-                int offset = 0;
-
-                while (recording && offset < totalSamples) {
-                    int toRead = Math.min(FRAME_SIZE, totalSamples - offset);
-                    int read = mic.read(frame, 0, toRead);
-                    if (read > 0) {
-                        System.arraycopy(frame, 0, audio, offset, read);
-                        offset += read;
-                        // Report live level
-                        float level = rms(frame, read);
-                        main.post(() -> listener.onLevel(level));
-                    }
+                if(mic.getRecordingState()!=AudioRecord.RECORDSTATE_RECORDING)throw new IllegalStateException("Microphone recording blocked");
+                short[] audio=new short[count];int offset=0;
+                long deadline=SystemClock.elapsedRealtime()+durationMs+3000;
+                while(epoch==generation && offset<count){
+                    if(SystemClock.elapsedRealtime()>deadline)throw new IllegalStateException("Microphone timed out");
+                    int n=mic.read(audio,offset,Math.min(320,count-offset));
+                    if(n<0)throw new IllegalStateException("Microphone read failed ("+n+")");
+                    if(n==0)continue;
+                    double energy=0;for(int i=offset;i<offset+n;i++)energy+=audio[i]*(double)audio[i];
+                    float level=(float)Math.min(1,Math.sqrt(energy/n)/4000);offset+=n;
+                    main.post(()->{if(epoch==generation)listener.onLevel(level);});
                 }
-
-                mic.stop();
-                mic.release();
-                mic = null;
-
-                if (recording && offset >= totalSamples / 2) {
-                    short[] result = offset == totalSamples ? audio
-                            : java.util.Arrays.copyOf(audio, offset);
-                    main.post(() -> listener.onComplete(result));
-                } else {
-                    main.post(() -> listener.onError("Recording was too short."));
-                }
-            } catch (Exception e) {
-                main.post(() -> listener.onError("Recording failed: " + e.getMessage()));
-            } finally {
-                if (mic != null) {
-                    try { mic.stop(); } catch (Exception ignored) { }
-                    try { mic.release(); } catch (Exception ignored) { }
-                }
-                recording = false;
+                if(epoch==generation && offset==count)result=audio;
+            }catch(Exception e){failure=e.getMessage();}
+            finally{
+                if(mic!=null){try{mic.stop();}catch(Exception ignored){}mic.release();}
+                microphone=null;recording=false;
             }
-        }, "IRIS-TimedRecorder");
-        thread.start();
+            final short[] pcm=result;final String error=failure;
+            main.post(()->{if(epoch!=generation)return;if(pcm!=null)listener.onComplete(pcm);else listener.onError(error==null?"No audio captured":error);});
+        },"IRIS-TimedRecorder").start();
     }
-
-    /** Stop recording early. */
-    public void stop() {
-        recording = false;
-        if (thread != null) {
-            thread.interrupt();
-            thread = null;
-        }
+    public void stop(){
+        generation++; AudioRecord mic=microphone;
+        if(mic!=null)try{mic.stop();}catch(Exception ignored){}
     }
-
-    public boolean isRecording() { return recording; }
-
-    /**
-     * Compute RMS audio level, normalized to 0.0-1.0 range.
-     */
-    private static float rms(short[] samples, int length) {
-        double sum = 0;
-        for (int i = 0; i < length; i++) sum += (double) samples[i] * samples[i];
-        double rms = Math.sqrt(sum / Math.max(1, length));
-        return (float) Math.min(1.0, rms / 8000.0); // normalize: 8000 = loud speech
-    }
+    public boolean isRecording(){return recording;}
 }
