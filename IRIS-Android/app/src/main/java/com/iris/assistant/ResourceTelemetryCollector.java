@@ -66,7 +66,7 @@ public final class ResourceTelemetryCollector {
             }
             int status = bat.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
             int plugged = bat.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1);
-            String charge = status == BatteryManager.BATTERY_STATUS_FULL ? "Full"
+            String charge = status < 0 || status == BatteryManager.BATTERY_STATUS_UNKNOWN ? "" : status == BatteryManager.BATTERY_STATUS_FULL ? "Full"
                     : status == BatteryManager.BATTERY_STATUS_CHARGING
                         ? ("Charging" + (plugged == BatteryManager.BATTERY_PLUGGED_USB ? " (USB)"
                             : plugged == BatteryManager.BATTERY_PLUGGED_AC ? " (AC)"
@@ -151,3 +151,4 @@ public final class ResourceTelemetryCollector {
         }
     }
 }
+

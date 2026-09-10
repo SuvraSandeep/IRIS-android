@@ -62,11 +62,12 @@ public final class BluetoothTelemetryCollector {
     public void contribute(TelemetrySnapshot.Builder b) {
         long now = SystemClock.elapsedRealtime();
         // Audio routing first — it needs no Bluetooth permission and is the most reliable signal.
-        String out = audioRoute(true), in = audioRoute(false);
+        String out = audioRoute(true), in = IrisListeningService.isRunning && !IrisListeningService.currentMic.isEmpty()
+                ? IrisListeningService.currentMic : "Not currently selected by IRIS";
         if (!out.isEmpty()) b.value(K_AUDIO_OUT, out, "", "AudioManager", now); else b.unsupported(K_AUDIO_OUT, "AudioManager");
         if (!in.isEmpty()) b.value(K_AUDIO_IN, in, "", "AudioManager", now); else b.unsupported(K_AUDIO_IN, "AudioManager");
         if (log != null && !out.isEmpty()) {
-            String route = "Output route: " + out + " · input: " + in;
+            String route = "Available outputs: " + out + " · input: " + in;
             if (!route.equals(lastRoute)) {
                 lastRoute = route;
                 log.add(TelemetryEventLog.Category.AUDIO, route);
@@ -76,6 +77,7 @@ public final class BluetoothTelemetryCollector {
         if (!canUseBluetooth()) {
             b.permission(K_BT_STATE, "BLUETOOTH_CONNECT");
             b.permission(K_BT_SUMMARY, "BLUETOOTH_CONNECT");
+            b.permission("bt_devices", "BLUETOOTH_CONNECT");
             return;
         }
         try {
@@ -84,11 +86,15 @@ public final class BluetoothTelemetryCollector {
             android.bluetooth.BluetoothAdapter adapter = bm == null ? null : bm.getAdapter();
             if (adapter == null) { b.unsupported(K_BT_STATE, SRC); b.unsupported(K_BT_SUMMARY, SRC); return; }
             b.value(K_BT_STATE, adapter.isEnabled() ? "On" : "Off", "", SRC, now);
+            StringBuilder names = new StringBuilder();
+            for (DeviceRow row : devices()) { if (names.length() > 0) names.append("; "); names.append(row.name).append(" (observed via ").append(row.detail).append(")"); }
+            b.value("bt_devices", !adapter.isEnabled() ? "Bluetooth off" : names.length() == 0
+                    ? "No connected devices visible to IRIS; Android may hide some connections" : names.toString(), "", SRC, now);
             // devices() now returns connected devices only, deduplicated by address, so this
             // count matches exactly what the panel lists.
             int connected = devices().size();
-            b.value(K_BT_SUMMARY, connected == 0 ? "None connected"
-                    : connected + (connected == 1 ? " connected" : " connected"), "", SRC, now);
+            b.value(K_BT_SUMMARY, connected == 0 ? "None visible"
+                    : connected + " observed", "", SRC, now);
         } catch (Throwable t) {
             b.unsupported(K_BT_STATE, SRC);
             b.unsupported(K_BT_SUMMARY, SRC);
@@ -117,40 +123,23 @@ public final class BluetoothTelemetryCollector {
             try {
                 for (android.bluetooth.BluetoothDevice d :
                         bm.getConnectedDevices(android.bluetooth.BluetoothProfile.GATT)) {
-                    if (d != null && d.getAddress() != null) gattConnected.add(d.getAddress());
-                }
-            } catch (Throwable ignored) { }
-
-            // 2. Connected Bluetooth audio devices, by product name.
-            java.util.Set<String> audioNames = new java.util.HashSet<>();
-            boolean btOutActive = false;
-            try {
-                AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
-                if (am != null && Build.VERSION.SDK_INT >= 23) {
-                    for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_ALL)) {
-                        if (!isBt(d.getType())) continue;
-                        String pn = d.getProductName() == null ? "" : d.getProductName().toString().trim();
-                        if (!pn.isEmpty()) audioNames.add(pn.toLowerCase(java.util.Locale.ROOT));
-                        if (d.isSink()) btOutActive = true;
+                    if (d != null && d.getAddress() != null) {
+                        gattConnected.add(d.getAddress());
+                        byAddress.put(d.getAddress(), new DeviceRow(safeName(d).isEmpty()?"Unnamed BLE device":safeName(d), category(d), "Connected", "GATT", false, ""));
                     }
                 }
             } catch (Throwable ignored) { }
 
-            for (android.bluetooth.BluetoothDevice d : adapter.getBondedDevices()) {
-                String addr = d.getAddress() == null ? "" : d.getAddress();
-                String name = safeName(d);
-                boolean audioMatch = !name.isEmpty()
-                        && audioNames.contains(name.toLowerCase(java.util.Locale.ROOT));
-                boolean connected = gattConnected.contains(addr) || audioMatch;
-                if (!connected) continue;                      // paired only → not shown
-                if (addr.isEmpty() || byAddress.containsKey(addr)) continue;
-                byAddress.put(addr, new DeviceRow(
-                        name.isEmpty() ? "Unnamed device" : name,
-                        category(d),
-                        "Connected",
-                        audioMatch ? "Media audio" : "Connected profile",
-                        audioMatch && btOutActive,
-                        battery(d)));
+            // AudioManager reports attached endpoints, not proof of active playback.
+            AudioManager am = (AudioManager)ctx.getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_ALL)) {
+                if (!isBt(d.getType())) continue;
+                String address = Build.VERSION.SDK_INT >= 28 ? d.getAddress() : "";
+                String key = address == null || address.isEmpty() ? "endpoint:" + d.getId() : address;
+                if (byAddress.containsKey(key)) continue;
+                String name = d.getProductName() == null ? "Bluetooth audio endpoint" : d.getProductName().toString();
+                byAddress.put(key, new DeviceRow(name, "Audio endpoint", "Connected",
+                        "Audio endpoint available; active playback not established", false, ""));
             }
             rows.addAll(byAddress.values());
         } catch (Throwable ignored) { }
@@ -205,15 +194,11 @@ public final class BluetoothTelemetryCollector {
             if (am == null || Build.VERSION.SDK_INT < 23) return "";
             AudioDeviceInfo[] devices = am.getDevices(output ? AudioManager.GET_DEVICES_OUTPUTS
                     : AudioManager.GET_DEVICES_INPUTS);
-            String best = "";
+            java.util.Set<String> labels = new java.util.LinkedHashSet<>();
             for (AudioDeviceInfo d : devices) {
-                String label = routeLabel(d.getType());
-                if (label.isEmpty()) continue;
-                // Prefer an attached accessory over the built-in path.
-                if (isBt(d.getType()) || label.contains("headset") || label.contains("USB")) return label;
-                if (best.isEmpty()) best = label;
+                String label = routeLabel(d.getType()); if (!label.isEmpty()) labels.add(label);
             }
-            return best;
+            return android.text.TextUtils.join(", ", labels);
         } catch (Throwable t) { return ""; }
     }
 
@@ -233,3 +218,4 @@ public final class BluetoothTelemetryCollector {
         }
     }
 }
+

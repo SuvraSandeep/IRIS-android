@@ -135,12 +135,16 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.13.2";
+const BUILD_VERSION = "8.14.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
 
 const FEATURES = [
+  {id:"phonefacts", cat:"Info & Awareness", icon:"⌘", title:"Ask Your Phone",
+   tagline:"One set of live facts, on screen and in conversation.",
+   desc:"Search the Command Deck for phone details, expand a row for its source and availability, or ask IRIS by voice or text. Includes battery health and voltage, security patch, RAM and storage totals, display resolution and refresh rate, audio settings, network interfaces, IP and DNS, and IRIS sensor usage. Answers read local telemetry without a cloud AI request. Unavailable and permission-restricted values are explained. Dashboard rows retain expansion across updates, long values wrap, telemetry resumes with Home and pauses when hidden. An optional grid scan sweep respects Reduce motion and battery-saving visuals. Connected audio endpoints are not claimed to be active routes; VPN tunnel addresses are not labelled Wi-Fi IPs. Public IP and third-party payload contents are not probed.",
+   examples:["What is my Wi-Fi IP?","What is my battery health?","What is my screen refresh rate?","Which sensors are being used?","Tell me my battery health and free storage"], version:"8.14.0"},
   {id:"lockedcamera", cat:"Voice & Recognition", icon:"📷", title:"Photos and video while locked",
    tagline:"Capture over the lock screen, with a visible camera screen.",
    desc:"Say take a photo, take a selfie, or record back camera video for 30 seconds. IRIS opens its own capture activity above the keyguard without requesting unlock. Camera access starts after that activity resumes. If Android blocks automatic opening, tap the camera notification within 60 seconds. Grant camera, microphone and notification permissions while unlocked first. Stop and save is available on the capture screen and recording notification. Photos and videos use supported camera sizes. On Android 10+, saved files appear in Pictures/IRIS and Movies/IRIS. Leaving the capture screen ends capture. This does not bypass Android restrictions on secure screens or other apps.",
@@ -553,3 +557,4 @@ buildChips(); applyFilter(); updateFooter();
 </script>
 </body>
 </html>
+
