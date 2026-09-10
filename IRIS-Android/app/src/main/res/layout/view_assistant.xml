@@ -534,13 +534,21 @@
                     android:textSize="10sp" />
             </LinearLayout>
 
-            <!-- Quick chips + frequent contacts (existing behaviour preserved) -->
-            <LinearLayout
-                android:id="@+id/quickChipsRow"
+            <!-- Quick chips + frequent contacts (existing behaviour preserved).
+                 Horizontally scrollable so every option stays reachable on narrow screens. -->
+            <HorizontalScrollView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:orientation="horizontal" />
+                android:clipToPadding="false"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/quickChipsRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
 
             <TextView
                 android:id="@+id/frequentContactsText"

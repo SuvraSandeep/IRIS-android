@@ -84,17 +84,21 @@ public final class BluetoothTelemetryCollector {
             android.bluetooth.BluetoothAdapter adapter = bm == null ? null : bm.getAdapter();
             if (adapter == null) { b.unsupported(K_BT_STATE, SRC); b.unsupported(K_BT_SUMMARY, SRC); return; }
             b.value(K_BT_STATE, adapter.isEnabled() ? "On" : "Off", "", SRC, now);
-            List<DeviceRow> rows = devices();
-            int connected = 0;
-            for (DeviceRow r : rows) if ("Connected".equals(r.connection)) connected++;
-            b.value(K_BT_SUMMARY, connected + " connected, " + rows.size() + " known", "", SRC, now);
+            // devices() now returns connected devices only, deduplicated by address, so this
+            // count matches exactly what the panel lists.
+            int connected = devices().size();
+            b.value(K_BT_SUMMARY, connected == 0 ? "None connected"
+                    : connected + (connected == 1 ? " connected" : " connected"), "", SRC, now);
         } catch (Throwable t) {
             b.unsupported(K_BT_STATE, SRC);
             b.unsupported(K_BT_SUMMARY, SRC);
         }
     }
 
-    /** Rows for the panel. Never marks a merely-paired device as connected. */
+    /**
+     * Rows for the panel: ONLY devices that are actually connected, one row per device.
+     * Paired-but-disconnected devices are deliberately not listed.
+     */
     public List<DeviceRow> devices() {
         List<DeviceRow> rows = new ArrayList<>();
         if (!canUseBluetooth()) return rows;
@@ -104,7 +108,11 @@ public final class BluetoothTelemetryCollector {
             android.bluetooth.BluetoothAdapter adapter = bm == null ? null : bm.getAdapter();
             if (adapter == null || !adapter.isEnabled()) return rows;
 
-            // GATT-profile connections: covers supported profiles only (documented limitation).
+            // Deduplicate by hardware address: one physical device = one row, even when it
+            // reports several profiles or both a GATT link and an audio route.
+            java.util.Map<String, DeviceRow> byAddress = new java.util.LinkedHashMap<>();
+
+            // 1. GATT-profile connections (documented to cover supported profiles only).
             java.util.Set<String> gattConnected = new java.util.HashSet<>();
             try {
                 for (android.bluetooth.BluetoothDevice d :
@@ -113,34 +121,38 @@ public final class BluetoothTelemetryCollector {
                 }
             } catch (Throwable ignored) { }
 
-            // Audio-device callbacks tell us about connected headsets/A2DP reliably.
+            // 2. Connected Bluetooth audio devices, by product name.
             java.util.Set<String> audioNames = new java.util.HashSet<>();
             boolean btOutActive = false;
             try {
                 AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
                 if (am != null && Build.VERSION.SDK_INT >= 23) {
                     for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_ALL)) {
-                        if (isBt(d.getType())) {
-                            String pn = d.getProductName() == null ? "" : d.getProductName().toString().trim();
-                            if (!pn.isEmpty()) audioNames.add(pn.toLowerCase(java.util.Locale.ROOT));
-                            if (d.isSink()) btOutActive = true;
-                        }
+                        if (!isBt(d.getType())) continue;
+                        String pn = d.getProductName() == null ? "" : d.getProductName().toString().trim();
+                        if (!pn.isEmpty()) audioNames.add(pn.toLowerCase(java.util.Locale.ROOT));
+                        if (d.isSink()) btOutActive = true;
                     }
                 }
             } catch (Throwable ignored) { }
 
             for (android.bluetooth.BluetoothDevice d : adapter.getBondedDevices()) {
-                String name = safeName(d);
                 String addr = d.getAddress() == null ? "" : d.getAddress();
+                String name = safeName(d);
                 boolean audioMatch = !name.isEmpty()
                         && audioNames.contains(name.toLowerCase(java.util.Locale.ROOT));
                 boolean connected = gattConnected.contains(addr) || audioMatch;
-                String category = category(d);
-                String detail = audioMatch ? "Media audio" : (connected ? "Connected profile" : "Paired");
-                rows.add(new DeviceRow(name.isEmpty() ? "Unnamed device" : name, category,
-                        connected ? "Connected" : "Paired", detail,
-                        audioMatch && btOutActive, battery(d)));
+                if (!connected) continue;                      // paired only → not shown
+                if (addr.isEmpty() || byAddress.containsKey(addr)) continue;
+                byAddress.put(addr, new DeviceRow(
+                        name.isEmpty() ? "Unnamed device" : name,
+                        category(d),
+                        "Connected",
+                        audioMatch ? "Media audio" : "Connected profile",
+                        audioMatch && btOutActive,
+                        battery(d)));
             }
+            rows.addAll(byAddress.values());
         } catch (Throwable ignored) { }
         return rows;
     }

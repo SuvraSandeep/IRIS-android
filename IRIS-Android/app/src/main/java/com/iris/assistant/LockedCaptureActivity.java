@@ -171,6 +171,8 @@ public final class LockedCaptureActivity extends Activity {
                 @Override public void onOpened(CameraDevice c) {
                     if (finished) { c.close(); return; }
                     camera = c;
+                    IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.CAMERA,
+                            photoMode ? "Taking a photo" : "Recording video");
                     if (photoMode) takePhoto(); else startRecording();
                 }
                 @Override public void onDisconnected(CameraDevice c) { c.close(); done("Camera disconnected."); }
@@ -388,6 +390,7 @@ public final class LockedCaptureActivity extends Activity {
         if (finished) return;
         finished = true;
         if (instance == this) instance = null;
+        IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.CAMERA);
         main.removeCallbacksAndMessages(null);
         try { ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(REC_NOTIF); } catch (Throwable ignored) { }
         boolean success = message != null && message.startsWith("Saved");

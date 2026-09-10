@@ -384,6 +384,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     private AppSettings settings;
     private String phase = PHASE_WAKE;
     private String microphoneLabel = "Phone microphone";
+    /** True only while a short command window / recording is open. Wake listening must never
+     *  hold the Bluetooth SCO mic, because that degrades A2DP music quality. */
+    private volatile boolean btMicAllowed;
     /** Last mic route IRIS configured — readable by the UI even between broadcasts. */
     public static volatile String currentMic = "";
     private String recognitionLabel = "System speech service";
@@ -734,6 +737,13 @@ public class IrisListeningService extends Service implements RecognitionListener
         restoreRecognizerBeep();
         updateListeningNotification("Owner wake ready: “" + wake.phrase + "”");
         IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Wake listening");
+        // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
+        // keeps full A2DP quality while IRIS is merely awake.
+        if (btMicAllowed) {
+            btMicAllowed = false;
+            releaseAudioRoute();
+            microphoneLabel = configureAudioRoute();
+        }
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
             @Override public void onWakeDetected(float[] embedding) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
@@ -799,6 +809,12 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void startCommandRecognition() {
         commandWindowOpenedAt = System.currentTimeMillis();
+        // A command window is short, so the headset mic is worth it here (and only here).
+        if (!btMicAllowed) {
+            btMicAllowed = true;
+            microphoneLabel = configureAudioRoute();
+        }
+        IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Command listening");
         // Server STT (Whisper) when server mode is on, online and healthy; else on-device.
         if (serverMonitor.shouldUseServer(settings) && settings.serverStt()) {
             startServerSttCommand();
@@ -5114,11 +5130,12 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference) {
-        // Automatic: allow the Bluetooth mic unless music is actually playing, because grabbing
-        // the BT mic switches A2DP to call-quality SCO and changes the music tone.
+        // Automatic may use the Bluetooth mic ONLY for a short command window / explicit
+        // recording. Holding it during always-on wake listening forces A2DP into call-quality
+        // SCO, which is what made music sound bad while IRIS was merely awake.
         boolean musicPlaying = false;
         try { musicPlaying = audioManager != null && audioManager.isMusicActive(); } catch (Throwable ignored) { }
-        return chooseDevice(devices, preference, !musicPlaying);
+        return chooseDevice(devices, preference, btMicAllowed && !musicPlaying);
     }
 
     private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference,

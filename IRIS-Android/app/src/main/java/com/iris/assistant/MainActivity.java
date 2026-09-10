@@ -481,8 +481,8 @@ public class MainActivity extends Activity {
                     java.util.List<BluetoothTelemetryCollector.DeviceRow> devices =
                             telemetry.bluetoothCollector().devices();
                     if (devices.isEmpty()) {
-                        row("Devices", snap.get(BluetoothTelemetryCollector.K_BT_STATE).isAvailable()
-                                ? "None paired" : snap.display(BluetoothTelemetryCollector.K_BT_STATE));
+                        row("Connected devices", snap.get(BluetoothTelemetryCollector.K_BT_STATE).isAvailable()
+                                ? "None connected" : snap.display(BluetoothTelemetryCollector.K_BT_STATE));
                     }
                     for (BluetoothTelemetryCollector.DeviceRow d : devices) {
                         // Tap a device to expand its detail (§4).
@@ -494,8 +494,9 @@ public class MainActivity extends Activity {
                                                        : "\nBattery: " + d.battery));
                     }
                 }
-                note("Paired is not the same as connected. No single Android API lists every connection, "
-                        + "so this combines profile queries with audio routing.");
+                note("Only currently connected devices are listed — paired-but-disconnected ones are "
+                        + "omitted, and each physical device appears once. No single Android API lists "
+                        + "every connection, so this combines profile queries with audio routing.");
                 break;
             case "sensors":
                 groupHeader("HARDWARE AVAILABLE");
