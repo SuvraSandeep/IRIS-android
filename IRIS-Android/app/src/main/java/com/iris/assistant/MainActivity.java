@@ -2093,22 +2093,22 @@ public class MainActivity extends Activity {
             });
         }
         // ── Command Deck customisation ──
-        bindDeckSwitch(view, R.id.deckTelemetrySwitch, s.deckTelemetry(), s::setDeckTelemetry);
-        bindDeckSwitch(view, R.id.deckActivitySwitch, s.deckActivityStream(), s::setDeckActivityStream);
-        bindDeckSwitch(view, R.id.deckTilesSwitch, s.deckTiles(), s::setDeckTiles);
-        bindDeckSwitch(view, R.id.deckSaverSwitch, s.deckBatterySaver(), s::setDeckBatterySaver);
-        bindDeckSwitch(view, R.id.deckScanlineSwitch, s.deckScanline(), s::setDeckScanline);
-        bindDeckSwitch(view, R.id.deckPublicIpSwitch, s.telemetryPublicIp(), s::setTelemetryPublicIp);
+        bindDeckSwitch(view, R.id.deckTelemetrySwitch, settings.deckTelemetry(), settings::setDeckTelemetry);
+        bindDeckSwitch(view, R.id.deckActivitySwitch, settings.deckActivityStream(), settings::setDeckActivityStream);
+        bindDeckSwitch(view, R.id.deckTilesSwitch, settings.deckTiles(), settings::setDeckTiles);
+        bindDeckSwitch(view, R.id.deckSaverSwitch, settings.deckBatterySaver(), settings::setDeckBatterySaver);
+        bindDeckSwitch(view, R.id.deckScanlineSwitch, settings.deckScanline(), settings::setDeckScanline);
+        bindDeckSwitch(view, R.id.deckPublicIpSwitch, settings.telemetryPublicIp(), settings::setTelemetryPublicIp);
         final TextView orbLabel = view.findViewById(R.id.deckOrbSizeLabel);
         SeekBar orbSeek = view.findViewById(R.id.deckOrbSizeSeek);
         if (orbSeek != null) {
-            orbSeek.setProgress(Math.max(0, Math.min(140, s.deckOrbSize() - 120)));
-            if (orbLabel != null) orbLabel.setText("Orb size: " + s.deckOrbSize() + "dp");
+            orbSeek.setProgress(Math.max(0, Math.min(140, settings.deckOrbSize() - 120)));
+            if (orbLabel != null) orbLabel.setText("Orb size: " + settings.deckOrbSize() + "dp");
             orbSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override public void onProgressChanged(SeekBar bar, int p, boolean fromUser) {
                     int dp = 120 + p;
                     if (orbLabel != null) orbLabel.setText("Orb size: " + dp + "dp");
-                    if (fromUser) s.setDeckOrbSize(dp);
+                    if (fromUser) settings.setDeckOrbSize(dp);
                 }
                 @Override public void onStartTrackingTouch(SeekBar bar) { }
                 @Override public void onStopTrackingTouch(SeekBar bar) { }
@@ -2121,10 +2121,10 @@ public class MainActivity extends Activity {
             ArrayAdapter<String> ad = new ArrayAdapter<>(this,
                     android.R.layout.simple_spinner_dropdown_item, labels);
             tabSpinner.setAdapter(ad);
-            for (int i = 0; i < keys.length; i++) if (keys[i].equals(s.deckDefaultTab())) tabSpinner.setSelection(i);
+            for (int i = 0; i < keys.length; i++) if (keys[i].equals(settings.deckDefaultTab())) tabSpinner.setSelection(i);
             tabSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
-                    s.setDeckDefaultTab(keys[pos]);
+                    settings.setDeckDefaultTab(keys[pos]);
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> p) { }
             });
