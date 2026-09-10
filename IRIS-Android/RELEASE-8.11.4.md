@@ -1,6 +1,6 @@
-# IRIS 8.11.3 — owner wake repair
+# IRIS 8.11.4 — owner wake repair
 
-Based on main 6328b1404e82652072bfb10eb268b756389d14bf.
+Based on main 0ec33d1795c38a4d7eea842f1d504c5fb52d497c.
 
 - Mandatory local Vosk owner verification; unavailable identity/model data rejects.
 - Removed Android wake fallback, last-word/fuzzy triggers and repeated-rejection bypass.

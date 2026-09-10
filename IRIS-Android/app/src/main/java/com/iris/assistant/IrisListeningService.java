@@ -2979,15 +2979,20 @@ public class IrisListeningService extends Service implements RecognitionListener
         final boolean notificationAvailable = canNotify;
         handler.postDelayed(() -> {
             if (cameraLaunchTimeout != null && LockedCaptureActivity.instance == null) {
-                broadcastMessage(notificationAvailable
+                // Android blocked the launch silently. Say it out loud — the user is very
+                // likely looking at a lock screen, not at IRIS.
+                String m = notificationAvailable
                         ? "If the camera hasn't appeared, tap the IRIS camera notification on your lock screen."
-                        : "If the camera hasn't appeared, unlock once and enable IRIS notifications, then try again.");
+                        : "If the camera hasn't appeared, unlock once and enable IRIS notifications, then try again.";
+                broadcastMessage(m);
+                speak(m);
             }
-        }, 1500);
+        }, 2500);
         cameraLaunchTimeout = () -> {
             clearCameraLaunch();
-            broadcastMessage("Camera request expired before it opened. Please try again.");
-            rearmAfterAction();
+            String m = "Camera request expired before it opened. Please try again.";
+            broadcastMessage(m);
+            speakThenRun(m, this::rearmAfterAction);
         };
         handler.postDelayed(cameraLaunchTimeout, 60000);
     }
@@ -5890,3 +5895,4 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 }
+

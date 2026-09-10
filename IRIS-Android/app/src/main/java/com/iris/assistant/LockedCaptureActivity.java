@@ -43,7 +43,7 @@ import java.util.Collections;
  * showWhenLocked / turnScreenOn so it can capture over the lock screen. No preview surface
  * is used (records straight to the recorder surface) to keep the pipeline simple and robust.
  *
- * NOTE: background/locked camera behaviour varies by OEM and Android version — this is the
+ * NOTE: background/locked camera behaviour varies by OEM and Android version â€” this is the
  * best-effort path and may require the CAMERA permission to be pre-granted and battery
  * optimisation disabled for IRIS on some devices.
  */
@@ -84,6 +84,7 @@ public final class LockedCaptureActivity extends Activity {
     private java.io.File legacyFile;
     private TextView statusLabel;
     private volatile boolean recording;
+    private volatile boolean usedFallbackLens;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -143,7 +144,7 @@ public final class LockedCaptureActivity extends Activity {
                 .setAction(IrisListeningService.ACTION_CAPTURE_STARTED));
         // While-in-use camera access begins only after the lock-screen activity is visible.
         bg.post(this::openCamera);
-        if (photoMode) statusLabel.setText("Capturing photo…");
+        if (photoMode) statusLabel.setText("Capturing photoâ€¦");
         main.postDelayed(() -> {
             if (!finished && !recording) done("The camera did not become ready. Check camera access and try again.");
         }, 12000);
@@ -154,7 +155,16 @@ public final class LockedCaptureActivity extends Activity {
         try {
             cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
             String id = pickCamera(cameraManager, front);
-            if (id == null) { done("I couldn't find that camera."); return; }
+            if (id == null) {
+                // Requested lens is absent. Use another one, but never silently: say so.
+                id = anyCamera(cameraManager);
+                if (id == null) { done("This device has no usable camera."); return; }
+                final String wanted = front ? "front" : "back";
+                main.post(() -> {
+                    if (statusLabel != null) statusLabel.setText("No " + wanted + " camera — using the other lens");
+                });
+                usedFallbackLens = true;
+            }
             characteristics = cameraManager.getCameraCharacteristics(id);
             //noinspection MissingPermission
             cameraManager.openCamera(id, new CameraDevice.StateCallback() {
@@ -183,10 +193,14 @@ public final class LockedCaptureActivity extends Activity {
                 try {
                     img = reader.acquireLatestImage();
                     if (img == null) return;
+                    // A frame can still arrive after the capture was cancelled or the screen
+                    // closed — drop it rather than publishing an unwanted photo.
+                    if (finished) { img.close(); img = null; return; }
                     byte[] bytes = new byte[img.getPlanes()[0].getBuffer().remaining()];
                     img.getPlanes()[0].getBuffer().get(bytes);
                     img.close();
                     img = null;
+                    if (finished) return;
                     savePhoto(bytes);
                 } catch (Throwable t) {
                     done("I couldn't save the photo.");
@@ -206,7 +220,7 @@ public final class LockedCaptureActivity extends Activity {
                                 b.addTarget(target);
                                 b.set(CaptureRequest.CONTROL_MODE,
                                         android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
-                                b.set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation());
+                                b.set(CaptureRequest.JPEG_ORIENTATION, captureOrientation());
                                 s.capture(b.build(), null, bg);
                             } catch (Exception e) {
                                 done("I couldn't take the photo.");
@@ -237,6 +251,7 @@ public final class LockedCaptureActivity extends Activity {
                 try (java.io.OutputStream os = getContentResolver().openOutputStream(mediaUri)) {
                     if (os == null) throw new java.io.IOException("No photo output stream");
                     os.write(jpeg);
+                    os.flush();
                 }
                 location = "Pictures/IRIS";
             } else {
@@ -273,7 +288,7 @@ public final class LockedCaptureActivity extends Activity {
                                 recorder.start();
                                 recording = true;
                                 startedAt = android.os.SystemClock.elapsedRealtime();
-                                main.post(() -> statusLabel.setText("Recording video — tap Stop and save to finish"));
+                                main.post(() -> statusLabel.setText("Recording video â€” tap Stop and save to finish"));
                                 main.post(LockedCaptureActivity.this::postRecordingNotification);
                                 main.postDelayed(LockedCaptureActivity.this::stopRecording, seconds * 1000L);
                             } catch (Exception e) {
@@ -305,7 +320,7 @@ public final class LockedCaptureActivity extends Activity {
         recorder.setVideoSize(size.getWidth(), size.getHeight());
         recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
         recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-        recorder.setOrientationHint(sensorOrientation());
+        recorder.setOrientationHint(captureOrientation());
         recorder.prepare();
     }
 
@@ -346,7 +361,7 @@ public final class LockedCaptureActivity extends Activity {
     }
 
     /** Release everything, finalise/cancel the MediaStore entry, tell the service, and finish. */
-    /** Show a "⏹ Stop" notification so the user can end the recording early (works on the watch/lock screen). */
+    /** Show a "â¹ Stop" notification so the user can end the recording early (works on the watch/lock screen). */
     private void postRecordingNotification() {
         try {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -391,18 +406,32 @@ public final class LockedCaptureActivity extends Activity {
             try {
                 if (success) {
                     ContentValues cv = new ContentValues();
-                    cv.put(MediaStore.Video.Media.IS_PENDING, 0);
+                    cv.put(MediaStore.MediaColumns.IS_PENDING, 0);
                     if (getContentResolver().update(mediaUri, cv, null, null) != 1)
                         throw new java.io.IOException("Could not publish capture");
+                    // Publication only counts if the entry really has content.
+                    if (sizeOf(mediaUri) <= 0) throw new java.io.IOException("Published capture is empty");
                 } else {
                     getContentResolver().delete(mediaUri, null, null);
                 }
             } catch (Exception error) {
-                resultMessage = "The capture could not be published to your gallery.";
+                // Never claim success when the gallery entry didn't land.
+                success = false;
+                resultMessage = photoMode
+                        ? "I took the photo but couldn't save it to your gallery."
+                        : "I recorded it but couldn't save it to your gallery.";
                 try { getContentResolver().delete(mediaUri, null, null); } catch (Exception ignored) { }
+                mediaUri = null;
             }
         }
-        if (!success && legacyFile != null) legacyFile.delete();
+        if (!success && legacyFile != null) {
+            //noinspection ResultOfMethodCallIgnored
+            legacyFile.delete();
+        }
+        if (success && usedFallbackLens) {
+            resultMessage = resultMessage + " I used the other lens \u2014 the "
+                    + (front ? "front" : "back") + " camera isn't available.";
+        }
         try { if (bgThread != null) bgThread.quitSafely(); } catch (Exception ignored) { }
         try {
             startService(new Intent(this, IrisListeningService.class)
@@ -412,6 +441,20 @@ public final class LockedCaptureActivity extends Activity {
         main.post(this::finish);
     }
 
+    /** Bytes actually stored for a MediaStore entry (0 when empty/unreadable). */
+    private long sizeOf(Uri uri) {
+        try (android.database.Cursor c = getContentResolver().query(uri,
+                new String[]{ MediaStore.MediaColumns.SIZE }, null, null, null)) {
+            if (c != null && c.moveToFirst() && !c.isNull(0)) return c.getLong(0);
+        } catch (Throwable ignored) { }
+        // Fall back to opening the stream when SIZE isn't reported.
+        try (ParcelFileDescriptor d = getContentResolver().openFileDescriptor(uri, "r")) {
+            return d == null ? 0 : d.getStatSize();
+        } catch (Throwable ignored) { }
+        return 0;
+    }
+
+    /** The requested lens, or null when the device has none at all. */
     private static String pickCamera(CameraManager cm, boolean front) throws CameraAccessException {
         int want = front ? CameraCharacteristics.LENS_FACING_FRONT : CameraCharacteristics.LENS_FACING_BACK;
         for (String id : cm.getCameraIdList()) {
@@ -421,10 +464,53 @@ public final class LockedCaptureActivity extends Activity {
         return null;
     }
 
-    private int sensorOrientation() {
-        Integer sensor = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
-        // This activity is portrait-locked; use the actual sensor mounting, not a lens guess.
-        return sensor == null ? 0 : sensor;
+    /** Any usable lens, used only after telling the user the requested one is missing. */
+    private static String anyCamera(CameraManager cm) throws CameraAccessException {
+        String[] ids = cm.getCameraIdList();
+        return ids == null || ids.length == 0 ? null : ids[0];
+    }
+
+    /**
+     * Correct JPEG / MediaRecorder rotation for THIS lens and THIS device.
+     *
+     * Two things were previously assumed and are now measured:
+     *  - the device's natural orientation is portrait (false on many tablets), and
+     *  - both lenses need the same hint (false: the front sensor is mirrored, so the
+     *    display rotation is added rather than subtracted).
+     */
+    private int captureOrientation() {
+        int sensor = 0;
+        boolean isFront = front;
+        try {
+            Integer s = characteristics == null ? null
+                    : characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+            if (s != null) sensor = s;
+            Integer facing = characteristics == null ? null
+                    : characteristics.get(CameraCharacteristics.LENS_FACING);
+            if (facing != null) isFront = facing == CameraCharacteristics.LENS_FACING_FRONT;
+        } catch (Throwable ignored) { }
+        int deg = displayRotationDegrees();
+        return isFront ? (sensor + deg) % 360 : (sensor - deg + 360) % 360;
+    }
+
+    /** Actual display rotation in degrees (never assumed to be 0). */
+    private int displayRotationDegrees() {
+        try {
+            int r;
+            if (Build.VERSION.SDK_INT >= 30) {
+                r = getDisplay() == null ? Surface.ROTATION_0 : getDisplay().getRotation();
+            } else {
+                WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+                r = wm == null || wm.getDefaultDisplay() == null
+                        ? Surface.ROTATION_0 : wm.getDefaultDisplay().getRotation();
+            }
+            switch (r) {
+                case Surface.ROTATION_90:  return 90;
+                case Surface.ROTATION_180: return 180;
+                case Surface.ROTATION_270: return 270;
+                default:                   return 0;
+            }
+        } catch (Throwable t) { return 0; }
     }
 
     private static android.util.Size chooseSize(android.util.Size[] sizes, long targetArea) {
@@ -469,3 +555,4 @@ public final class LockedCaptureActivity extends Activity {
         });
     }
 }
+
