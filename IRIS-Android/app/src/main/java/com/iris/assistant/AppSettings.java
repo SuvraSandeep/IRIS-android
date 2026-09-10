@@ -106,7 +106,7 @@ public final class AppSettings {
     /** CSV of quick-action chip ids shown on the home screen. */
     public String homeChips() { return prefs.getString("home_chips", "call,text,alarm,weather,torch,time"); }
     public void setHomeChips(String csv) { prefs.edit().putString("home_chips", csv).apply(); }
-    public boolean speakerVerification() { return true; // owner verification is mandatory for voice wake }
+    public boolean speakerVerification() { return true; } // owner verification is mandatory for voice wake
     public void setSpeakerVerification(boolean value) { prefs.edit().putBoolean("speaker_verification", value).apply(); }
     public boolean shakeToWake() { return prefs.getBoolean("shake_to_wake", false); }
     public void setShakeToWake(boolean v) { prefs.edit().putBoolean("shake_to_wake", v).apply(); }
