@@ -47,6 +47,7 @@ public final class PhoneFacts {
         new Field("battery_health","Battery health","resources","battery health|battery condition"),
         new Field("battery_voltage","Battery voltage","resources","battery voltage"),
         new Field("battery_technology","Battery technology","resources","battery technology|battery chemistry"),
+        new Field("battery_discharge_rate","Battery discharge rate","resources","battery discharge rate|how fast is my battery draining|draining rate|battery drain rate|discharge rate|battery drain|how fast is it draining"),
         new Field("power_save","Battery saver","resources","battery saver|power saving|power saver"),
         new Field("thermal","Thermal status","resources","thermal status|thermal throttling"),
         new Field("ram_free","Available RAM","resources","free ram|available ram|free memory"),

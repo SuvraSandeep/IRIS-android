@@ -55,7 +55,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String ACTION_STOP_SPEAKING = "com.iris.assistant.STOP_SPEAKING";
     public static final String ACTION_STOP_VIDEO = "com.iris.assistant.STOP_VIDEO";
     public static final String EVENT_STATE = "com.iris.assistant.EVENT_STATE";
-    public static final String EVENT_TRANSCRIPT = "com.iris.assistant.EVENT_TRANSCRIPT";
+    /** Fired just before the process is actually killed (self-destruct), so any open UI can
+     *  finish() itself instead of being torn down mid-frame by the OS. */
+    public static final String EVENT_SHUTDOWN = "com.iris.assistant.EVENT_SHUTDOWN";
     public static final String EVENT_CALL_PROMPT = "com.iris.assistant.EVENT_CALL_PROMPT";
     public static final String EVENT_DISAMBIGUATE = "com.iris.assistant.EVENT_DISAMBIGUATE";
     public static final String EVENT_TEACH = "com.iris.assistant.EVENT_TEACH";
@@ -224,6 +226,21 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern MODE_SET_PATTERN = Pattern.compile(
             "^(?:(turn\\s+on|turn\\s+off|switch\\s+on|switch\\s+off|enable|disable|start|stop|end|go)\\s+)?"
             + "(?:the\\s+)?" + MODE_WORDS + "\\s*(?:mode)?\\s*(on|off)?$",
+            Pattern.CASE_INSENSITIVE);
+    // Battery saving mode: "turn on battery saving mode" (system settings + IRIS's own saver),
+    // "...for yourself/IRIS" (IRIS only, no system settings opened), off variants, status query.
+    // Separate from MODE_WORDS/MODE_SET_PATTERN above: this controls two independent things
+    // (Android's own Battery Saver, which apps can't toggle directly, and IRIS's resource use),
+    // not a single system ringer/DND/airplane state.
+    private static final Pattern BATTERY_SAVER_SET_PATTERN = Pattern.compile(
+            "^(?:(turn\\s+on|turn\\s+off|switch\\s+on|switch\\s+off|enable|disable|start|stop)\\s+)?"
+            + "(?:the\\s+)?battery\\s*(?:sav(?:ing|er))\\s*mode"
+            + "(?:\\s+(on|off))?"
+            + "(?:\\s+for\\s+(yourself|iris|you|only\\s+iris|iris\\s+only))?$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern BATTERY_SAVER_QUERY_PATTERN = Pattern.compile(
+            "^(?:is|are)\\s+(?:the\\s+)?battery\\s*(?:sav(?:ing|er))\\s*mode\\s*(?:on|off|active|enabled)?\\s*\\??$"
+            + "|^(?:is\\s+)?iris\\s+(?:in\\s+)?(?:battery\\s*sav(?:ing|er)|power\\s*sav(?:ing|er))\\s*(?:mode)?\\s*\\??$",
             Pattern.CASE_INSENSITIVE);
     // Self-awareness: recall / repeat the last action.
     private static final Pattern LAST_ACTION_PATTERN = Pattern.compile(
@@ -477,7 +494,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             llmGuard.edit().putBoolean("inference_active", false).apply();
             LogStore.append(this, "LLM", "AI brain crashed during last use — auto-disabled for stability");
         }
-        if (settings.aiEnabled()) {
+        if (settings.aiEnabled() && !settings.irisPowerSaver()) {
             new Thread(() -> {
                 boolean ok = llmAgent.loadModel(this);
                 llmReady = ok;
@@ -485,7 +502,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             }, "IRIS-LLM-Load").start();
         } else {
             llmReady = false;
-            LogStore.append(this, "LLM", "AI brain disabled in Settings — using rule-based chat");
+            LogStore.append(this, "LLM", settings.irisPowerSaver()
+                    ? "AI brain skipped — IRIS battery saver is on" : "AI brain disabled in Settings — using rule-based chat");
         }
         setupTriggers();
     }
@@ -1461,6 +1479,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         if (BT_DEVICE_PATTERN.matcher(normalized).matches()) { handleBluetoothQuery(); return; }
         if (STATUS_PATTERN.matcher(normalized).matches()) { handlePhoneStatus(); return; }
+        if (BATTERY_SAVER_QUERY_PATTERN.matcher(normalized).matches()) { handleBatterySaverQuery(); return; }
+        Matcher batSaverM = BATTERY_SAVER_SET_PATTERN.matcher(normalized);
+        if (batSaverM.matches()) { handleBatterySaverSet(batSaverM.group(1), batSaverM.group(2), batSaverM.group(3)); return; }
         Matcher modeQ = MODE_QUERY_PATTERN.matcher(normalized);
         if (modeQ.matches()) { handleModeQuery(modeQ.group(1)); return; }
         Matcher modeS = MODE_SET_PATTERN.matcher(normalized);
@@ -2062,9 +2083,9 @@ public class IrisListeningService extends Service implements RecognitionListener
             LogStore.append(this, "QUICK", "Help requested");
         } else if (normalized.matches("^(?:kill(?:\\s+(?:yourself|iris))?|self[\\s-]?destruct|shut\\s*down|shutdown|power\\s+off|terminate(?:\\s+(?:yourself|iris))?|turn\\s+(?:yourself\\s+|iris\\s+)?off|turn\\s+off\\s+iris|shut\\s+(?:yourself\\s+|iris\\s+)?down)$")) {
             // KILL — fully stop the service; user must reopen the app to restart
-            broadcastMessage("Shutting down. Open the app to start me again.");
-            LogStore.append(this, "KILL", "Full shutdown by voice");
-            speakThenRun("Shutting down.", () -> stopIris("Killed by voice command"));
+            broadcastMessage("Shutting down completely. Open the app to start me again.");
+            LogStore.append(this, "KILL", "Full process kill by voice");
+            speakThenRun("Shutting down.", this::killApp);
             return;
         } else {
             // STOP / sleep — stay alive, go back to waiting for the wake phrase
@@ -3881,6 +3902,83 @@ public class IrisListeningService extends Service implements RecognitionListener
         LogStore.append(this, "MODE", "airplane → open settings (was " + (isOn ? "on" : "off") + ")");
     }
 
+    /**
+     * "Turn on battery saving mode" (no qualifier) = both: open Android's own Battery Saver
+     * settings (apps cannot toggle that switch directly — same platform limit as airplane
+     * mode above) AND turn on IRIS's own resource-saving mode. "...for yourself" / "...for
+     * IRIS" / "...for you" = IRIS-only, no system settings screen opened.
+     */
+    private void handleBatterySaverSet(String actionRaw, String onOffRaw, String scopeRaw) {
+        String a = actionRaw == null ? "" : actionRaw.toLowerCase(Locale.ROOT);
+        String o = onOffRaw == null ? "" : onOffRaw.toLowerCase(Locale.ROOT);
+        boolean turnOff = a.contains("off") || a.startsWith("disable") || a.startsWith("stop") || "off".equals(o);
+        boolean turnOn = !turnOff;
+        boolean irisOnly = scopeRaw != null && !scopeRaw.trim().isEmpty();
+
+        boolean wasOn = settings.irisPowerSaver();
+        if (turnOn == wasOn) {
+            String scopeWord = irisOnly ? "for me" : "";
+            inform("Battery saving mode " + (irisOnly ? scopeWord + " is" : "for IRIS is") + " already " + (wasOn ? "on." : "off.")
+                    + (irisOnly ? "" : " Check the system Battery Saver switch separately if you meant that too."));
+            return;
+        }
+        settings.setIrisPowerSaver(turnOn);
+        LogStore.append(this, "POWER SAVER", (turnOn ? "on" : "off") + (irisOnly ? " (IRIS only)" : " (IRIS + system requested)"));
+
+        if (!turnOn) {
+            // Re-enable the AI brain if the user has it configured on and we're now off saver.
+            if (settings.aiEnabled() && llmAgent != null && !llmAgent.isReady()) {
+                new Thread(() -> {
+                    boolean ok = llmAgent.loadModel(this);
+                    llmReady = ok;
+                    LogStore.append(this, "LLM", ok ? "AI brain reloaded after battery saver off" : "AI brain still unavailable");
+                }, "IRIS-LLM-Reload").start();
+            }
+        } else if (llmAgent != null) {
+            llmAgent.close();
+            llmReady = false;
+        }
+
+        if (irisOnly) {
+            String msg = turnOn
+                    ? "Battery saving mode on for me. I'll skip the AI brain, use the lighter voice model, and check in less often."
+                    : "Battery saving mode off for me. Back to normal.";
+            broadcastMessage(msg);
+            speakThenRun(msg, this::rearmAfterAction);
+            return;
+        }
+
+        // Full scope: also open Android's own Battery Saver panel — this app cannot flip that
+        // switch directly, the same platform restriction as airplane mode.
+        String msg = turnOn
+                ? "Battery saving mode on for me — I'll use fewer resources. Opening Android's Battery Saver so you can turn that on too."
+                : "Battery saving mode off for me. Opening Android's Battery Saver in case you want to turn that off as well.";
+        broadcastMessage(msg);
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_BATTERY_SAVER_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            try { startActivity(new Intent(android.provider.Settings.ACTION_POWER_USAGE_SUMMARY)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (Exception ignored) { }
+        }
+        speakThenRun(msg, this::rearmAfterAction);
+    }
+
+    /** "Is battery saving mode on?" — reports both IRIS's own mode and, where readable, Android's. */
+    private void handleBatterySaverQuery() {
+        boolean irisOn = settings.irisPowerSaver();
+        String msg;
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            boolean systemOn = pm != null && pm.isPowerSaveMode();
+            msg = "IRIS's battery saving is " + (irisOn ? "on" : "off") + ". "
+                    + "Android's Battery Saver is " + (systemOn ? "on" : "off") + ".";
+        } catch (Throwable t) {
+            msg = "IRIS's battery saving is " + (irisOn ? "on" : "off") + ".";
+        }
+        inform(msg);
+    }
+
     private void handleRinger(int mode) {
         try {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -5389,6 +5487,32 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
+    }
+
+    /**
+     * "Kill" / "self destruct" — actually terminate the app's process, not just this service.
+     * stopSelf() alone (the previous behaviour) leaves MainActivity running if it's open, and
+     * Android may keep the process alive briefly for other components (broadcast receivers,
+     * the notification listener). This goes further: it tells any open UI to finish() itself,
+     * cleanly tears down the service exactly like stopIris(), then kills the process outright
+     * via Process.killProcess — the same mechanism Android itself uses to end a process.
+     *
+     * Honest limit: this is not identical to Settings → Apps → Force Stop. True Force Stop is
+     * a privileged system operation that also marks the app "stopped" so nothing in it runs
+     * again — not even a broadcast receiver — until the user manually launches something.
+     * A third-party app cannot invoke that specific system behaviour on itself; only System UI
+     * can. This kills the running process completely, which is the strongest a normal app is
+     * permitted to do to itself.
+     */
+    private void killApp() {
+        try { sendBroadcast(new Intent(EVENT_SHUTDOWN).setPackage(getPackageName())); } catch (Throwable ignored) { }
+        stopIris("Killed by voice command (full process termination)");
+        // Give the UI's finish() and the service's own teardown a beat to complete before the
+        // process disappears out from under them.
+        handler.postDelayed(() -> {
+            LogStore.append(this, "KILL", "Process.killProcess(" + android.os.Process.myPid() + ")");
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }, 400);
     }
 
     private void stopWakeEngine() {

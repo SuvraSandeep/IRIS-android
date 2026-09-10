@@ -156,6 +156,17 @@
                 android:text="Clear voice security" android:textAllCaps="false" android:textColor="@color/danger" android:textSize="13sp" />
 
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" android:text="IRIS BATTERY SAVER"
+                android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Real resource savings, not just visual: disables the AI brain, forces the small offline voice model, freezes the orb, and stops live dashboard polling. Say “turn on battery saving mode for yourself” to enable this without touching Android's own Battery Saver."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
+            <Switch android:id="@+id/irisPowerSaverSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="6dp"
+                android:text="Battery saving mode for IRIS" android:textColor="@color/text_primary" android:textSize="14sp" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="12dp" android:text="COMMAND DECK (home screen)"
                 android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"

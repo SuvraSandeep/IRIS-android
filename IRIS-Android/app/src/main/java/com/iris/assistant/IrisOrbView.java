@@ -57,6 +57,9 @@ public class IrisOrbView extends View {
     private float pulse;              // breathing / speaking 0..1
     private float spin;               // slow outer-ring rotation 0..360
     private float segment;            // processing segment 0..360
+    private float counterSegment;     // second, counter-rotating processing segment 0..360
+    private float shimmer;            // slow sphere-gradient drift 0..1, wake only
+    private float speakRipple;        // repeating outward ring while speaking 0..1
     private float ripple = -1f;       // completion ripple 0..1, <0 = inactive
     private boolean active;
     private String phase = PHASE_OFF;
@@ -67,7 +70,8 @@ public class IrisOrbView extends View {
     private boolean staticMode;
     private long errorAt;
 
-    private ValueAnimator pulseAnimator, spinAnimator, segmentAnimator, rippleAnimator;
+    private ValueAnimator pulseAnimator, spinAnimator, segmentAnimator, rippleAnimator,
+            counterSegmentAnimator, shimmerAnimator, speakRippleAnimator;
 
     public IrisOrbView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -92,6 +96,31 @@ public class IrisOrbView extends View {
         segmentAnimator.setRepeatCount(ValueAnimator.INFINITE);
         segmentAnimator.setInterpolator(new LinearInterpolator());
         segmentAnimator.addUpdateListener(a -> { segment = (float) a.getAnimatedValue(); invalidate(); });
+
+        // Second processing segment, counter-rotating and slower, for more visible depth
+        // while thinking without changing what the state communicates.
+        counterSegmentAnimator = ValueAnimator.ofFloat(360f, 0f);
+        counterSegmentAnimator.setDuration(1700);
+        counterSegmentAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        counterSegmentAnimator.setInterpolator(new LinearInterpolator());
+        counterSegmentAnimator.addUpdateListener(a -> { counterSegment = (float) a.getAnimatedValue(); invalidate(); });
+
+        // Slow drift across the sphere's highlight while awake — a subtle "alive" shimmer,
+        // distinct from the breathing pulse, that doesn't affect ring/halo semantics.
+        shimmerAnimator = ValueAnimator.ofFloat(0f, 1f);
+        shimmerAnimator.setDuration(6000);
+        shimmerAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        shimmerAnimator.setRepeatMode(ValueAnimator.REVERSE);
+        shimmerAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+        shimmerAnimator.addUpdateListener(a -> { shimmer = (float) a.getAnimatedValue(); if (active) invalidate(); });
+
+        // Repeating outward ring while speaking, so speech reads as active talking rather
+        // than a single static pulse.
+        speakRippleAnimator = ValueAnimator.ofFloat(0f, 1f);
+        speakRippleAnimator.setDuration(1400);
+        speakRippleAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        speakRippleAnimator.setInterpolator(new LinearInterpolator());
+        speakRippleAnimator.addUpdateListener(a -> { speakRipple = (float) a.getAnimatedValue(); if (active) invalidate(); });
     }
 
     // ─────────────────────────── configuration ───────────────────────────
@@ -117,6 +146,9 @@ public class IrisOrbView extends View {
         if (spinAnimator != null) spinAnimator.cancel();
         if (segmentAnimator != null) segmentAnimator.cancel();
         if (rippleAnimator != null) rippleAnimator.cancel();
+        if (counterSegmentAnimator != null) counterSegmentAnimator.cancel();
+        if (shimmerAnimator != null) shimmerAnimator.cancel();
+        if (speakRippleAnimator != null) speakRippleAnimator.cancel();
         super.onDetachedFromWindow();
     }
     @Override public void onVisibilityAggregated(boolean shown) {
@@ -176,6 +208,9 @@ public class IrisOrbView extends View {
                 || PHASE_COMMAND.equals(phase) || PHASE_CONFIRM.equals(phase)));
         toggle(spinAnimator, allow && PHASE_WAKE.equals(phase));
         toggle(segmentAnimator, allow && PHASE_THINKING.equals(phase));
+        toggle(counterSegmentAnimator, allow && PHASE_THINKING.equals(phase));
+        toggle(shimmerAnimator, allow && PHASE_WAKE.equals(phase));
+        toggle(speakRippleAnimator, allow && PHASE_SPEAKING.equals(phase));
     }
 
     private static void toggle(ValueAnimator a, boolean on) {
@@ -253,6 +288,16 @@ public class IrisOrbView extends View {
             canvas.drawCircle(cx, cy, base * (1.1f + ripple * 0.75f), paint);
         }
 
+        // ── speaking: a repeating outward ring while audio is actually playing, distinct
+        // from the one-shot green completion ripple above ──
+        if (PHASE_SPEAKING.equals(phase) && active) {
+            float sr = animate ? speakRipple : 0.4f;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(base * 0.045f * (1f - sr));
+            paint.setColor(withAlpha(state, (int) (0xB0 * (1f - sr))));
+            canvas.drawCircle(cx, cy, base * (1.05f + sr * 0.55f), paint);
+        }
+
         // ── rings ──
         paint.setStyle(Paint.Style.STROKE);
         float ringR = base * 1.2f;
@@ -268,13 +313,17 @@ public class IrisOrbView extends View {
             paint.setColor(withAlpha(ATTENTION, 0xDD));
             canvas.drawCircle(cx, cy, ringR, paint);
         } else if (PHASE_THINKING.equals(phase)) {
-            // Faint track + travelling segment.
+            // Faint track + two travelling segments (counter-rotating, different speeds) for
+            // more visible "working" depth without changing what the state communicates.
             paint.setStrokeWidth(base * 0.035f);
             paint.setColor(withAlpha(accentColor, 0x33));
             canvas.drawCircle(cx, cy, ringR, paint);
             paint.setStrokeWidth(base * 0.06f);
             paint.setColor(withAlpha(accentColor, 0xEE));
             canvas.drawArc(arc, animate ? segment : -90f, 70f, false, paint);
+            paint.setStrokeWidth(base * 0.04f);
+            paint.setColor(withAlpha(accentColor, 0x99));
+            canvas.drawArc(arc, animate ? counterSegment : 90f, 40f, false, paint);
         } else if (PHASE_ERROR.equals(phase)) {
             paint.setStrokeWidth(base * (System.currentTimeMillis() - errorAt < 900 ? 0.09f : 0.05f));
             paint.setColor(withAlpha(ERROR, 0xEE));
@@ -299,7 +348,10 @@ public class IrisOrbView extends View {
         if (PHASE_COMMAND.equals(phase)) {
             paint.setStrokeWidth(base * 0.045f);
             paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setColor(withAlpha(HEALTHY, 0xDD));
+            // Alpha breathes gently with the shared pulse — real amplitude still drives height,
+            // this only adds a touch of life to an otherwise static-looking bar chart.
+            int waveAlpha = animate ? (int) (0xB0 + pulse * 0x4F) : 0xDD;
+            paint.setColor(withAlpha(HEALTHY, waveAlpha));
             float span = base * 1.6f, step = span / (waveform.length - 1);
             for (int i = 0; i < waveform.length; i++) {
                 float x = cx - span / 2f + i * step;
@@ -312,7 +364,11 @@ public class IrisOrbView extends View {
         paint.setStyle(Paint.Style.FILL);
         int inner = active ? state : 0xFF1B2B33;
         int outer = active ? darker(state) : 0xFF243740;
-        paint.setShader(new RadialGradient(cx - base * .25f, cy - base * .3f, base * 1.45f,
+        // Subtle highlight drift while awake — the gradient's hot-spot glides slightly instead
+        // of sitting frozen, without changing the ring/halo that actually communicate state.
+        float driftAmt = (active && animate && PHASE_WAKE.equals(phase)) ? shimmer : 0.5f;
+        float hlx = cx - base * (.35f - driftAmt * 0.2f), hly = cy - base * (.4f - driftAmt * 0.15f);
+        paint.setShader(new RadialGradient(hlx, hly, base * 1.45f,
                 new int[]{ active ? 0xFFF2FBFD : 0xFF7E939C, inner, outer },
                 new float[]{ 0f, .27f, 1f }, Shader.TileMode.CLAMP));
         canvas.drawCircle(cx, cy, base, paint);

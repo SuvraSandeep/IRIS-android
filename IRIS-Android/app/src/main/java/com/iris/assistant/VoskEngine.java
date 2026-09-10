@@ -66,8 +66,10 @@ public final class VoskEngine {
         if (modelLoaded) { main.post(listener::onReady); return; }
         Context app = context.getApplicationContext();
         // High-accuracy path (opt-in): use the large en-IN model, downloaded on first use.
+        // Skipped entirely under IRIS battery saver — the ~1GB model stays resident the whole
+        // time IRIS listens, which is exactly the RAM cost battery saver exists to avoid.
         boolean large = false;
-        try { large = new AppSettings(app).highAccuracyVoice(); } catch (Throwable ignored) { }
+        try { large = new AppSettings(app).highAccuracyVoice() && !new AppSettings(app).irisPowerSaver(); } catch (Throwable ignored) { }
         if (large) {
             File lg = new File(app.getFilesDir(), LARGE_DIR_NAME);
             if (isValidModelDir(lg)) { loadFromPath(lg.getAbsolutePath(), listener); return; }

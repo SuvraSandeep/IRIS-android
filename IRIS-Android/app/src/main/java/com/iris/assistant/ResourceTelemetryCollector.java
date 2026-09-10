@@ -20,6 +20,7 @@ public final class ResourceTelemetryCollector {
     public static final String K_CHARGING = "charging";
     public static final String K_POWER_SAVE = "power_save";
     public static final String K_BATTERY_TEMP = "battery_temp";
+    public static final String K_BATTERY_RATE = "battery_discharge_rate";
     public static final String K_THERMAL = "thermal";
     public static final String K_RAM_FREE = "ram_free";
     public static final String K_RAM_IRIS = "ram_iris";
@@ -33,6 +34,9 @@ public final class ResourceTelemetryCollector {
     private final Context ctx;
     private final TelemetryEventLog log;
     private String lastBattery = "";
+    // Static so the rolling window survives across short-lived collector instances (a new one
+    // is created per SystemTelemetryController), matching how battery % naturally changes slowly.
+    private static final BatteryRateTracker rateTracker = new BatteryRateTracker();
 
     public ResourceTelemetryCollector(Context context, TelemetryEventLog log) {
         this.ctx = context.getApplicationContext();
@@ -51,6 +55,7 @@ public final class ResourceTelemetryCollector {
             b.unsupported(K_BATTERY, "BatteryManager");
             b.unsupported(K_CHARGING, "BatteryManager");
             b.unsupported(K_BATTERY_TEMP, "BatteryManager");
+            b.unsupported(K_BATTERY_RATE, "BatteryManager");
         } else {
             int level = bat.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
             int scale = bat.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
@@ -61,8 +66,15 @@ public final class ResourceTelemetryCollector {
                     String msg = "Battery " + pct + "%";
                     if (!msg.equals(lastBattery)) { lastBattery = msg; }
                 }
+                int statusForRate = bat.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                boolean chargingForRate = statusForRate == BatteryManager.BATTERY_STATUS_CHARGING
+                        || statusForRate == BatteryManager.BATTERY_STATUS_FULL;
+                rateTracker.record(pct, chargingForRate, now);
+                BatteryRateTracker.Estimate rate = rateTracker.estimate();
+                b.value(K_BATTERY_RATE, BatteryRateTracker.describe(rate), "", "BatteryRateTracker", now);
             } else {
                 b.unsupported(K_BATTERY, "BatteryManager");
+                b.unsupported(K_BATTERY_RATE, "BatteryManager");
             }
             int status = bat.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
             int plugged = bat.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1);

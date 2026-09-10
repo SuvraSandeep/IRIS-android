@@ -224,6 +224,10 @@ public class MainActivity extends Activity {
                 offerCorrection(intent.getStringExtra(IrisListeningService.EXTRA_TEXT));
             } else if (IrisListeningService.EVENT_LEVEL.equals(action)) {
                 if (irisOrb != null) irisOrb.setVoiceLevel(intent.getFloatExtra(IrisListeningService.EXTRA_LEVEL, 0));
+            } else if (IrisListeningService.EVENT_SHUTDOWN.equals(action)) {
+                // The service is about to kill the whole process (self-destruct). Finish this
+                // activity cleanly instead of letting the OS tear it down mid-frame.
+                finishAndRemoveTask();
             }
         }
     };
@@ -283,7 +287,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
-        if (selectedTab == 0 && telemetry != null) telemetry.start();
+        if (selectedTab == 0 && telemetry != null) {
+            AppSettings as = new AppSettings(this);
+            if (as.deckContinuousRead() && !as.irisPowerSaver()) telemetry.start();
+            else telemetry.refreshNow();
+        }
         IntentFilter filter = new IntentFilter();
         filter.addAction(IrisListeningService.EVENT_STATE);
         filter.addAction(IrisListeningService.EVENT_TRANSCRIPT);
@@ -292,6 +300,7 @@ public class MainActivity extends Activity {
         filter.addAction(IrisListeningService.EVENT_TEACH);
         filter.addAction(IrisListeningService.EVENT_LEVEL);
         filter.addAction(IrisListeningService.EVENT_MESSAGE);
+        filter.addAction(IrisListeningService.EVENT_SHUTDOWN);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(irisEvents, filter, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(irisEvents, filter);
     }
@@ -350,8 +359,9 @@ public class MainActivity extends Activity {
                 orb.getLayoutParams().height = px;
                 orb.requestLayout();
                 if (orb instanceof IrisOrbView) {
-                    // Battery-saving visuals and Reduce motion both stop continuous animation.
-                    ((IrisOrbView) orb).setStaticMode(s.deckBatterySaver());
+                    // Battery-saving visuals, Reduce motion, and IRIS's own power saver mode
+                    // all stop continuous orb animation.
+                    ((IrisOrbView) orb).setStaticMode(s.deckBatterySaver() || s.irisPowerSaver());
                     ((IrisOrbView) orb).setReduceMotion(s.reduceMotion());
                 }
             }
@@ -456,7 +466,34 @@ public class MainActivity extends Activity {
 
         if (telemetry == null) telemetry = new SystemTelemetryController(this);
         telemetry.setListener(this::renderDeck);
-        telemetry.start();
+        // Telemetry no longer auto-starts continuous polling just because this screen opened.
+        // Default is a single Read Once snapshot; Continuous is an explicit opt-in that keeps
+        // ticking until switched off or the deck is left (matches the existing onStop() cutoff).
+        // IRIS battery saver overrides Continuous entirely — it always reads once.
+        TextView readOnceBtn = view.findViewById(R.id.deckReadOnceButton);
+        TextView continuousBtn = view.findViewById(R.id.deckContinuousToggle);
+        Runnable renderContinuousState = () -> {
+            boolean on = s.deckContinuousRead() && !s.irisPowerSaver();
+            if (continuousBtn != null) {
+                continuousBtn.setText(s.irisPowerSaver() ? "\u25CF CONTINUOUS: OFF (saver)"
+                        : on ? "\u25CF CONTINUOUS: ON" : "\u25CF CONTINUOUS: OFF");
+                continuousBtn.setTextColor(getColor(on ? R.color.accent : R.color.deck_text_dim));
+                continuousBtn.setEnabled(!s.irisPowerSaver());
+            }
+        };
+        if (readOnceBtn != null) readOnceBtn.setOnClickListener(v -> {
+            telemetry.refreshNow();
+            renderDeck(telemetry.latest());
+        });
+        if (continuousBtn != null) continuousBtn.setOnClickListener(v -> {
+            if (s.irisPowerSaver()) { toast("Continuous read is off while IRIS battery saver is on."); return; }
+            boolean nowOn = !s.deckContinuousRead();
+            s.setDeckContinuousRead(nowOn);
+            renderContinuousState.run();
+            if (nowOn) telemetry.start(); else telemetry.stop();
+        });
+        renderContinuousState.run();
+        if (s.deckContinuousRead() && !s.irisPowerSaver()) telemetry.start(); else telemetry.refreshNow();
         renderDeck(telemetry.latest());
     }
 
@@ -2288,6 +2325,22 @@ public class MainActivity extends Activity {
                 } else {
                     toast("Back to the fast, low-memory small model.");
                 }
+                if (IrisListeningService.isRunning) {
+                    stopListeningService();
+                    handler.postDelayed(this::startListeningService, 600);
+                }
+            });
+        }
+
+        Switch powerSaverSwitch = view.findViewById(R.id.irisPowerSaverSwitch);
+        if (powerSaverSwitch != null) {
+            powerSaverSwitch.setChecked(settings.irisPowerSaver());
+            powerSaverSwitch.setOnCheckedChangeListener((b, checked) -> {
+                settings.setIrisPowerSaver(checked);
+                toast(checked
+                        ? "Battery saving on for IRIS: AI brain off, small voice model, static orb, no live dashboard."
+                        : "Battery saving off for IRIS. Back to normal.");
+                if (irisOrb != null) irisOrb.setStaticMode(checked || settings.deckBatterySaver());
                 if (IrisListeningService.isRunning) {
                     stopListeningService();
                     handler.postDelayed(this::startListeningService, 600);

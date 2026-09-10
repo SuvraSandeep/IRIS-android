@@ -122,6 +122,12 @@ public final class AppSettings {
     /** Show the SYSTEM TELEMETRY section at all. */
     public boolean deckTelemetry() { return prefs.getBoolean("deck_telemetry", true); }
     public void setDeckTelemetry(boolean v) { prefs.edit().putBoolean("deck_telemetry", v).apply(); }
+    /** Off by default: opening the Command Deck reads one snapshot and stops, instead of
+     *  ticking every 1-4s. Turning this on resumes the live-updating dashboard until it's
+     *  switched off again or the deck is left. Saves RAM/CPU for the common case of a quick
+     *  glance rather than a continuous readout. */
+    public boolean deckContinuousRead() { return prefs.getBoolean("deck_continuous_read", false); }
+    public void setDeckContinuousRead(boolean v) { prefs.edit().putBoolean("deck_continuous_read", v).apply(); }
     /** Show the activity stream console. */
     public boolean deckActivityStream() { return prefs.getBoolean("deck_activity", true); }
     public void setDeckActivityStream(boolean v) { prefs.edit().putBoolean("deck_activity", v).apply(); }
@@ -134,6 +140,12 @@ public final class AppSettings {
     /** Battery-saving visual mode: no continuous animation, static rings. */
     public boolean deckBatterySaver() { return prefs.getBoolean("deck_battery_saver", false); }
     public void setDeckBatterySaver(boolean v) { prefs.edit().putBoolean("deck_battery_saver", v).apply(); }
+    /** IRIS's own resource-saving mode: distinct from deckBatterySaver, which only freezes
+     *  Command Deck visuals. This actually reduces what IRIS does: the AI brain is disabled,
+     *  the small (not high-accuracy) Vosk model is forced, the orb goes static, and telemetry
+     *  ticking is skipped in favour of read-once — real CPU/RAM/battery savings, not cosmetic. */
+    public boolean irisPowerSaver() { return prefs.getBoolean("iris_power_saver", false); }
+    public void setIrisPowerSaver(boolean v) { prefs.edit().putBoolean("iris_power_saver", v).apply(); }
     /** Faint background scanline (optional per spec). */
     public boolean deckScanline() { return prefs.getBoolean("deck_scanline", true); }
     public void setDeckScanline(boolean v) { prefs.edit().putBoolean("deck_scanline", v).apply(); }

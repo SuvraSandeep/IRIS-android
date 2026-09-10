@@ -101,6 +101,46 @@
                 </LinearLayout>
             </LinearLayout>
 
+            <!-- ── Read control: telemetry is off by default (no ticking timers). Read Once
+                 refreshes a single snapshot; Continuous switches on live polling until you
+                 leave or switch it off again. ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/deckReadOnceButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/bg_deck_card"
+                    android:fontFamily="monospace"
+                    android:gravity="center"
+                    android:letterSpacing="0.08"
+                    android:padding="10dp"
+                    android:text="\u21BB READ ONCE"
+                    android:textColor="@color/deck_text"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/deckContinuousToggle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_deck_card"
+                    android:fontFamily="monospace"
+                    android:gravity="center"
+                    android:letterSpacing="0.08"
+                    android:padding="10dp"
+                    android:text="\u25CF CONTINUOUS: OFF"
+                    android:textColor="@color/deck_text_dim"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
             <!-- ── Hero: reactive orb (size customisable in Settings) ── -->
             <FrameLayout
                 android:id="@+id/orbHolder"
