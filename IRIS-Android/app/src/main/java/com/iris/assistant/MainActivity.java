@@ -691,12 +691,12 @@ public class MainActivity extends Activity {
         TextView l = new TextView(this);
         l.setText("▸  " + label);
         l.setTextColor(getColor(R.color.deck_text));
-        l.setTextSize(11.5f);
+        l.setTextSize(13f);
         l.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         TextView v = new TextView(this);
         v.setText(value == null ? "" : value);
         v.setTextColor(getColor("Connected".equals(value) ? R.color.positive : R.color.deck_text_dim));
-        v.setTextSize(11.5f);
+        v.setTextSize(13f);
         v.setTypeface(Typeface.MONOSPACE);
         v.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f));
         head.addView(l);
@@ -733,7 +733,7 @@ public class MainActivity extends Activity {
         TextView l = new TextView(this);
         l.setText(label);
         l.setTextColor(getColor(R.color.deck_text_dim));
-        l.setTextSize(11.5f);
+        l.setTextSize(13f);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         l.setLayoutParams(lp);
@@ -743,7 +743,7 @@ public class MainActivity extends Activity {
                 || value.startsWith("Not available") || value.startsWith("Permission required")
                 || value.contains("(stale)");
         v.setTextColor(getColor(unknown ? R.color.deck_inactive : R.color.deck_text));
-        v.setTextSize(11.5f);
+        v.setTextSize(13f);
         v.setTypeface(android.graphics.Typeface.MONOSPACE);
         v.setGravity(android.view.Gravity.END);
         v.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.3f));
