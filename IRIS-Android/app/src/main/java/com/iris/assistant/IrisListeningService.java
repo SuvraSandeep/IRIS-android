@@ -58,6 +58,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     /** Fired just before the process is actually killed (self-destruct), so any open UI can
      *  finish() itself instead of being torn down mid-frame by the OS. */
     public static final String EVENT_SHUTDOWN = "com.iris.assistant.EVENT_SHUTDOWN";
+    public static final String EVENT_TRANSCRIPT = "com.iris.assistant.EVENT_TRANSCRIPT";
     public static final String EVENT_CALL_PROMPT = "com.iris.assistant.EVENT_CALL_PROMPT";
     public static final String EVENT_DISAMBIGUATE = "com.iris.assistant.EVENT_DISAMBIGUATE";
     public static final String EVENT_TEACH = "com.iris.assistant.EVENT_TEACH";
@@ -3958,7 +3959,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             startActivity(new Intent(android.provider.Settings.ACTION_BATTERY_SAVER_SETTINGS)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         } catch (Exception e) {
-            try { startActivity(new Intent(android.provider.Settings.ACTION_POWER_USAGE_SUMMARY)
+            try { startActivity(new Intent(Intent.ACTION_POWER_USAGE_SUMMARY)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (Exception ignored) { }
         }
         speakThenRun(msg, this::rearmAfterAction);
