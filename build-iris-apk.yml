@@ -129,9 +129,9 @@ jobs:
             rm -f "$ASSETS_DIR/spk.zip" || true
           fi
 
-      - name: Wake regression tests
+      - name: Regression tests (all suites)
         working-directory: ${{ env.PROJECT_DIR }}
-        run: bash tests/run-wake-tests.sh
+        run: bash scripts/test-speech.sh
 
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}

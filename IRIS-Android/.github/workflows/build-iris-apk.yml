@@ -11,6 +11,7 @@ on:
         options:
           - debug
           - release
+  pull_request:
   push:
     branches: [main, master]
     paths-ignore:
@@ -71,7 +72,7 @@ jobs:
           # The app self-downloads the Vosk model at runtime, so this is only a
           # best-effort speed-up. It must NEVER fail the build.
           ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
-          MODEL_DIR="$ASSETS_DIR/model-en-us"
+          MODEL_DIR="$ASSETS_DIR/model-en-in"
           if [[ -d "$MODEL_DIR/am" ]]; then
             echo "Vosk model already present, skipping."
           else
@@ -79,9 +80,9 @@ jobs:
             mkdir -p "$ASSETS_DIR"
             rm -rf "$MODEL_DIR"
             if curl -fSL --retry 2 --max-time 180 -o "$ASSETS_DIR/vosk-model.zip" \
-                 https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip \
+                 https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip \
                && unzip -q "$ASSETS_DIR/vosk-model.zip" -d "$ASSETS_DIR"; then
-              mv "$ASSETS_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR" || true
+              mv "$ASSETS_DIR/vosk-model-small-en-in-0.4" "$MODEL_DIR" || true
               echo "Vosk model bundled."
             else
               echo "::warning::Vosk model download failed — app will download it at runtime instead."
@@ -127,6 +128,10 @@ jobs:
             fi
             rm -f "$ASSETS_DIR/spk.zip" || true
           fi
+
+      - name: Regression tests (all suites)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: bash scripts/test-speech.sh
 
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
