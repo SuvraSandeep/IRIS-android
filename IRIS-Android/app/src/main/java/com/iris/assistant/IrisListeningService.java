@@ -375,6 +375,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final String PHASE_CONFIRM = "confirm";
 
     public static volatile boolean isRunning;
+    public static volatile long serviceStartedAt;
+    public static volatile String wakeReadiness = "Service stopped";
+    private long phoneQuestionGeneration;
     public static volatile String currentPhase = "off";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -608,6 +611,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 broadcastMessage("Microphone permission is required."); return START_STICKY;
             }
             if (!isRunning) {
+                if (!isRunning) serviceStartedAt = android.os.SystemClock.elapsedRealtime();
                 isRunning = true;
                 recognitionLabel = resolveRecognitionLabel();
                 microphoneLabel = configureAudioRoute();
@@ -647,6 +651,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 startForeground(LISTENING_NOTIFICATION, listeningNotification());
             }
             if (!isRunning) {
+                if (!isRunning) serviceStartedAt = android.os.SystemClock.elapsedRealtime();
                 isRunning = true;
                 recognitionLabel = resolveRecognitionLabel();
                 microphoneLabel = configureAudioRoute();
@@ -670,7 +675,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
 
         if (!isRunning) {
-            isRunning = true;
+            if (!isRunning) serviceStartedAt = android.os.SystemClock.elapsedRealtime();
+                isRunning = true;
             recognitionLabel = resolveRecognitionLabel();
             microphoneLabel = configureAudioRoute();
             registerAudioChanges();
@@ -714,27 +720,32 @@ public class IrisListeningService extends Service implements RecognitionListener
         handler.removeCallbacks(retryWake);
         destroyRecognizer();
         if (voskEngine != null) voskEngine.stop();
+        IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.MICROPHONE);
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
         phase = PHASE_WAKE;
         currentPhase = phase;
         broadcastState(true, phase);
         androidWakeActive = false;
         if (!wake.isReady() || !WakePolicy.owner(wake.voiceprint, wake.voiceprint, .99)) {
+            wakeReadiness = "Needs phrase and owner enrollment";
             updateListeningNotification("Wake unavailable: train your phrase and voice in Training");
             scheduleWakeRetry(3000);
             return;
         }
         if (!voskReady || voskEngine == null || !voskEngine.isSpeakerReady()) {
+            wakeReadiness = "Offline voice verification model unavailable or loading";
             updateListeningNotification("Wake unavailable: preparing offline voice verification");
             scheduleWakeRetry(2000);
             return;
         }
         if (audioManager != null && audioManager.isMusicActive()) {
+            wakeReadiness = "Paused during media playback";
             updateListeningNotification("Wake paused during media playback. Pause media to speak.");
             scheduleWakeRetry(1500);
             return;
         }
         restoreRecognizerBeep();
+        wakeReadiness = "Full phrase and owner checks armed";
         updateListeningNotification("Owner wake ready: “" + wake.phrase + "”");
         IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Wake listening");
         // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
@@ -766,6 +777,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
             @Override public void onError(String message) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
+                wakeReadiness = "Wake unavailable: " + message;
+                IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.MICROPHONE);
                 LogStore.append(IrisListeningService.this, "WAKE UNAVAILABLE", message);
                 scheduleWakeRetry(3000);
             }
@@ -1057,6 +1070,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Guarded entry point: no command-handling error may crash the app. */
     private void handleCommand(String heard) {
+        phoneQuestionGeneration++;
         if (heard != null && !heard.trim().isEmpty()) {
             String hl = heard.trim().toLowerCase(Locale.ROOT);
             if (!REPEAT_ACTION_PATTERN.matcher(hl).matches() && !LAST_ACTION_PATTERN.matcher(hl).matches()
@@ -1119,6 +1133,27 @@ public class IrisListeningService extends Service implements RecognitionListener
 
         LogStore.append(this, "HEARD", clean);
         broadcastTranscript(clean);
+
+        java.util.List<PhoneFacts.Field> phoneFields = PhoneFacts.select(clean);
+        if (!phoneFields.isEmpty()) {
+            final long question = phoneQuestionGeneration;
+            // Snapshot collection has no external lookup or sensor subscriptions.
+            final SystemTelemetryController probe = new SystemTelemetryController(this);
+            probe.refreshNow();
+            boolean rateQuestion = false;
+            for (PhoneFacts.Field field : phoneFields)
+                if (field.key.equals("iris_rx_rate") || field.key.equals("iris_tx_rate")) rateQuestion = true;
+            if (rateQuestion) {
+                broadcastMessage("Measuring IRIS traffic for one second…");
+                handler.postDelayed(() -> {
+                    if (!isRunning || question != phoneQuestionGeneration) return;
+                    probe.refreshNow();
+                    reply(PhoneFacts.answer(phoneFields, probe.latest()));
+                }, 1100);
+            } else reply(PhoneFacts.answer(phoneFields, probe.latest()));
+            return;
+        }
+
 
         if (clean.matches("(?i)^(?:reply to (?:a |my |the )?notifications?|open notification replies)$")) {
             KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
@@ -4970,6 +5005,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
             // Now it is safe to stand down.
             isRunning = false;
+        serviceStartedAt = 0; wakeReadiness = "Service stopped"; phoneQuestionGeneration++;
             broadcastState(false, "off");
             destroyRecognizer();
             stopWakeEngine();
@@ -5299,6 +5335,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void stopIris(String reason) {
         clearCameraLaunch();
         isRunning = false;
+        serviceStartedAt = 0; wakeReadiness = "Service stopped"; phoneQuestionGeneration++;
         currentPhase = "off";
         handler.removeCallbacksAndMessages(null);
         androidWakeActive = false;
@@ -5891,6 +5928,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     @Override
     public void onDestroy() {
         isRunning = false;
+        serviceStartedAt = 0; wakeReadiness = "Service stopped"; phoneQuestionGeneration++;
         handler.removeCallbacksAndMessages(null);
         teardownTriggers();
         abandonSpeechFocus();
@@ -5918,3 +5956,4 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 }
+

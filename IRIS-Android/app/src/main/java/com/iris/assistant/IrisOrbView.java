@@ -110,7 +110,18 @@ public class IrisOrbView extends View {
         applyAnimators();
     }
 
-    private boolean animationsAllowed() { return !reduceMotion && !staticMode; }
+    private boolean animationsAllowed() { return isAttachedToWindow() && isShown() && getWindowVisibility() == VISIBLE && !reduceMotion && !staticMode; }
+
+    @Override protected void onDetachedFromWindow() {
+        if (pulseAnimator != null) pulseAnimator.cancel();
+        if (spinAnimator != null) spinAnimator.cancel();
+        if (segmentAnimator != null) segmentAnimator.cancel();
+        if (rippleAnimator != null) rippleAnimator.cancel();
+        super.onDetachedFromWindow();
+    }
+    @Override public void onVisibilityAggregated(boolean shown) {
+        super.onVisibilityAggregated(shown); applyAnimators();
+    }
 
     public void setActive(boolean active) {
         this.active = active;
@@ -362,3 +373,4 @@ public class IrisOrbView extends View {
         }
     }
 }
+

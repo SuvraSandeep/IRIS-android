@@ -42,6 +42,7 @@ public final class SystemTelemetryController {
     private long slowCounter;
     private volatile TelemetrySnapshot latest = TelemetrySnapshot.empty();
     private long serviceStartElapsed;
+    private TelemetrySnapshot slowSnapshot = TelemetrySnapshot.empty();
 
     private final Runnable fastTick = new Runnable() {
         @Override public void run() {
@@ -77,8 +78,8 @@ public final class SystemTelemetryController {
     public void start() {
         if (running) return;
         running = true;
-        serviceStartElapsed = IrisListeningService.isRunning && serviceStartElapsed == 0
-                ? SystemClock.elapsedRealtime() : serviceStartElapsed;
+        serviceStartElapsed = IrisListeningService.serviceStartedAt;
+        network.rxMeter().reset(); network.txMeter().reset(); network.sampleTraffic();
         network.start();
         events.add(TelemetryEventLog.Category.SYS, "Command deck telemetry started");
         rebuild(true);
@@ -101,30 +102,18 @@ public final class SystemTelemetryController {
             TelemetrySnapshot.Builder b = TelemetrySnapshot.builder(SystemClock.elapsedRealtime());
             network.contribute(b, settings.telemetryPublicIp());
             if (full) {
-                bluetooth.contribute(b);
-                resources.contribute(b, serviceStartElapsed);
-            } else {
-                // Carry forward the slower values rather than dropping them to "unavailable".
-                for (TelemetrySnapshot.Metric m : latest.all().values()) {
-                    if (m.key.startsWith("bt_") || m.key.startsWith("audio_")
-                            || m.key.equals(ResourceTelemetryCollector.K_BATTERY)
-                            || m.key.equals(ResourceTelemetryCollector.K_CHARGING)
-                            || m.key.equals(ResourceTelemetryCollector.K_RAM_FREE)
-                            || m.key.equals(ResourceTelemetryCollector.K_RAM_IRIS)
-                            || m.key.equals(ResourceTelemetryCollector.K_STORAGE_FREE)
-                            || m.key.equals(ResourceTelemetryCollector.K_DEVICE)
-                            || m.key.equals(ResourceTelemetryCollector.K_ANDROID)
-                            || m.key.equals(ResourceTelemetryCollector.K_APP_VERSION)
-                            || m.key.startsWith("battery_")
-                            || m.key.equals(ResourceTelemetryCollector.K_THERMAL)
-                            || m.key.equals(ResourceTelemetryCollector.K_POWER_SAVE)) {
-                        b.put(m);
-                    }
-                }
+                TelemetrySnapshot.Builder slow = TelemetrySnapshot.builder(SystemClock.elapsedRealtime());
+                bluetooth.contribute(slow);
+                resources.contribute(slow, IrisListeningService.isRunning ? IrisListeningService.serviceStartedAt : 0);
+                PhoneDetailsCollector.contribute(ctx, slow);
+                slowSnapshot = slow.build();
             }
+            for (TelemetrySnapshot.Metric m : slowSnapshot.all().values()) b.put(m);
             addIrisState(b);
             // Age it so a frozen collector cannot keep looking live.
             latest = b.build().agedAt(SystemClock.elapsedRealtime(), STALE_AFTER_MS);
+            events.add(TelemetryEventLog.Category.WAKE, latest.display("wake_ready"));
+            events.add(TelemetryEventLog.Category.SENSOR, latest.display("active_sensors"));
             if (listener != null) listener.onTelemetry(latest);
         } catch (Throwable ignored) { }
     }
@@ -140,9 +129,9 @@ public final class SystemTelemetryController {
             ProfileStore.WakeProfile wake = new ProfileStore(ctx).getWakeProfile();
             b.value("wake_phrase", wake.phrase == null || wake.phrase.isEmpty() ? "not set" : wake.phrase,
                     "", "ProfileStore", now);
-            b.value("wake_ready", wake.isReady() ? "Ready" : "Needs setup", "", "ProfileStore", now);
+            b.value("wake_ready", IrisListeningService.isRunning ? IrisListeningService.wakeReadiness : "Service stopped", "", "IRIS service", now);
             // Never claim the owner is verified before a real match.
-            b.value("owner_check", wake.isVoiceEnrolled() ? "Owner check ready" : "Not enrolled",
+            b.value("owner_check", wake.isVoiceEnrolled() ? "Voice enrolled; not proof of a current match" : "Not enrolled",
                     "", "ProfileStore", now);
         } catch (Throwable t) {
             b.unsupported("wake_ready", "ProfileStore");
@@ -154,5 +143,6 @@ public final class SystemTelemetryController {
     }
 
     /** Force a full refresh (e.g. the user opened a panel). */
-    public void refreshNow() { if (running) rebuild(true); else rebuild(true); }
+    public void refreshNow() { network.sampleTraffic(); rebuild(true); }
 }
+

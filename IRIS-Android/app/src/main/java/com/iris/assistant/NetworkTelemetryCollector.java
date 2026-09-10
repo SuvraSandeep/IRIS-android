@@ -151,10 +151,16 @@ public final class NetworkTelemetryCollector {
         }
 
         // Addresses, gateway and DNS come from LinkProperties (no extra permission).
-        boolean onWifi = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
-        boolean onCell = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+        boolean vpn = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
+        boolean onWifi = caps != null && !vpn && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+        boolean onCell = caps != null && !vpn && caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
         String v4 = "", v6 = "";
         if (link != null) {
+            b.value("net_interface", link.getInterfaceName(), "", SRC_LP, now);
+            if (link.getMtu() > 0) b.value("net_mtu", String.valueOf(link.getMtu()), "bytes", SRC_LP, now);
+            if (Build.VERSION.SDK_INT >= 28) b.value("net_private_dns", link.isPrivateDnsActive()
+                    ? "Active" + (link.getPrivateDnsServerName() == null ? "" : " · " + link.getPrivateDnsServerName())
+                    : "Not active", "", SRC_LP, now);
             try {
                 for (android.net.LinkAddress la : link.getLinkAddresses()) {
                     String host = la.getAddress() == null ? "" : la.getAddress().getHostAddress();
@@ -196,6 +202,7 @@ public final class NetworkTelemetryCollector {
         }
         if (!v6.isEmpty()) b.value(K_PHONE_IP6, v6, "", SRC_LP, now); else b.unsupported(K_PHONE_IP6, SRC_LP);
 
+        b.value("net_ip", (v4 + (v6.isEmpty() ? "" : " · " + v6)).trim(), "(default connection)", SRC_LP, now);
         contributeWifi(b, onWifi, now);
 
         b.value(K_LAST_CHANGE, lastChangeElapsed <= 0 ? "since start"
@@ -210,7 +217,7 @@ public final class NetworkTelemetryCollector {
         else if (!tx.supported()) b.unsupported(K_TX_RATE, SRC_TS);
         else b.value(K_TX_RATE, "measuring\u2026", "", SRC_TS, now);
 
-        if (rx.supported() || tx.supported()) {
+        if (rx.supported() && tx.supported()) {
             b.value(K_SESSION, "\u2193 " + TelemetrySnapshot.bytes(rx.sessionBytes())
                     + "  \u2191 " + TelemetrySnapshot.bytes(tx.sessionBytes()), "", SRC_TS, now);
         } else {
@@ -227,7 +234,7 @@ public final class NetworkTelemetryCollector {
         }
 
         // Off by default: finding the internet-facing address means contacting an outside service.
-        if (allowPublicIpLookup) b.value(K_PUBLIC_IP, "lookup enabled \u2014 not yet queried", "", "opt-in", now);
+        if (allowPublicIpLookup) b.value(K_PUBLIC_IP, "Not queried: external lookup is not implemented", "", "local-only telemetry", now);
         else b.value(K_PUBLIC_IP, "Not queried", "", "disabled by default", now);
     }
 
@@ -259,7 +266,7 @@ public final class NetworkTelemetryCollector {
             else b.value(K_WIFI_NAME, ssid, "", SRC_WIFI, now);
 
             int rssi = info.getRssi();
-            if (rssi != Integer.MIN_VALUE && rssi < 0) {
+            if (rssi > -127 && rssi < 0) {
                 b.value(K_WIFI_SIGNAL, rssi + " dBm (" + signalWords(rssi) + ")", "", SRC_WIFI, now);
             } else {
                 b.unsupported(K_WIFI_SIGNAL, SRC_WIFI);
@@ -319,3 +326,4 @@ public final class NetworkTelemetryCollector {
         catch (Throwable t) { return null; }
     }
 }
+

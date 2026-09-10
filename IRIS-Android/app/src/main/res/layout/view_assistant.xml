@@ -10,7 +10,7 @@
   phaseChip, liveTranscript, micRouteText, recognitionText, quickChipsRow,
   frequentContactsText, commandInput, sendCommandButton.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.iris.assistant.CommandDeckLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical">
@@ -445,6 +445,27 @@
                     android:background="@color/deck_border" />
 
                 <!-- Panel body: rows are built at runtime from the snapshot -->
+                <EditText
+                    android:id="@+id/phoneDetailSearch"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:singleLine="true"
+                    android:inputType="text"
+                    android:importantForAutofill="no"
+                    android:hint="Find a phone detail: IP, battery, display…"
+                    android:textSize="13sp"
+                    android:textColor="@color/deck_text"
+                    android:textColorHint="@color/deck_text_dim" />
+                <TextView
+                    android:id="@+id/phoneDetailHelp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:gravity="center_vertical"
+                    android:text="ASK THIS PHONE  ›  Tap for example questions"
+                    android:textColor="@color/accent"
+                    android:textSize="12sp" />
                 <LinearLayout
                     android:id="@+id/telemetryBody"
                     android:layout_width="match_parent"
@@ -600,4 +621,5 @@
             android:textColor="@color/accent"
             android:textSize="17sp" />
     </LinearLayout>
-</LinearLayout>
+</com.iris.assistant.CommandDeckLayout>
+

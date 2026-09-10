@@ -154,6 +154,34 @@ public class MainActivity extends Activity {
     private String lastTranscriptSeen = "";
     // ── Command Deck ──
     private SystemTelemetryController telemetry;
+    private final java.util.Map<String, View> deckCells = new java.util.LinkedHashMap<>();
+    private final java.util.Set<String> deckSeen = new java.util.HashSet<>();
+    private String deckRenderedTab = "";
+    private String deckSearch = "";
+    private int deckCellPosition;
+    private TelemetrySnapshot displayedPhoneFacts = TelemetrySnapshot.empty();
+
+    private void placeDeckCell(String key, View cell) {
+        deckSeen.add(key); deckCells.put(key, cell);
+        int current = deckBody.indexOfChild(cell);
+        if (current != deckCellPosition) {
+            if (current >= 0) deckBody.removeView(cell);
+            deckBody.addView(cell, Math.min(deckCellPosition, deckBody.getChildCount()));
+        }
+        deckCellPosition++;
+    }
+    private void finishDeckCells() {
+        java.util.Iterator<java.util.Map.Entry<String,View>> it=deckCells.entrySet().iterator();
+        while(it.hasNext()){java.util.Map.Entry<String,View> e=it.next();if(!deckSeen.contains(e.getKey())){deckBody.removeView(e.getValue());it.remove();}}
+    }
+    private void phoneFactRow(PhoneFacts.Field f, TelemetrySnapshot snap) {
+        TelemetrySnapshot.Metric metric=snap.get(f.key);
+        expandableRow(f.label,metric.display(), "Source: " + metric.source + "\nState: " + metric.availability
+                + "\nAsk IRIS: What is my " + f.label.toLowerCase(java.util.Locale.ROOT) + "?"
+                + "\nLong-press this row to copy its current value.");
+        View v=deckCells.get("expand:"+f.label);
+        if(v!=null)v.setOnLongClickListener(x->{copyToClipboard(f.label+": "+metric.display(),"Phone detail copied");return true;});
+    }
     private LinearLayout deckBody;
     private TelemetrySparklineView deckSparkline;
     private TextView deckActivity, deckFreshness, deckServiceState;
@@ -255,6 +283,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        if (selectedTab == 0 && telemetry != null) telemetry.start();
         IntentFilter filter = new IntentFilter();
         filter.addAction(IrisListeningService.EVENT_STATE);
         filter.addAction(IrisListeningService.EVENT_TRANSCRIPT);
@@ -306,6 +335,11 @@ public class MainActivity extends Activity {
 
     /** Bind the Command Deck telemetry to the freshly-inflated assistant view. */
     private void setupCommandDeck(View view) {
+        deckCells.clear(); deckRenderedTab=""; deckSearch=""; deckTabViews.clear();
+        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) { }
+            @Override public void onViewDetachedFromWindow(View v) { if(telemetry!=null)telemetry.stop(); }
+        });
         AppSettings s = new AppSettings(this);
         // Orb size is user-customisable (spec suggests 190–210dp).
         try {
@@ -330,6 +364,17 @@ public class MainActivity extends Activity {
         toggleVisible(view, R.id.deckTiles2, s.deckTiles());
 
         deckBody = view.findViewById(R.id.telemetryBody);
+        EditText detailSearch=view.findViewById(R.id.phoneDetailSearch);
+        if(detailSearch!=null)detailSearch.addTextChangedListener(new android.text.TextWatcher(){
+            @Override public void beforeTextChanged(CharSequence t,int start,int count,int after){}
+            @Override public void onTextChanged(CharSequence t,int start,int before,int count){deckSearch=t.toString().trim();if(telemetry!=null)renderDeckPanel(telemetry.latest());}
+            @Override public void afterTextChanged(android.text.Editable e){}
+        });
+        TextView ask=view.findViewById(R.id.phoneDetailHelp);
+        if(ask!=null)ask.setOnClickListener(v->{
+            String[] examples={"What is my Wi-Fi IP?","What is my battery health?","What is my screen refresh rate?","Which sensors are being used?","What devices are connected to Bluetooth?","What data is being transmitted?","What is my security patch?"};
+            new AlertDialog.Builder(this).setTitle("Ask about this phone").setItems(examples,(dialog,which)->sendTextCommand(examples[which])).setNegativeButton("Close",null).show();
+        });
         deckSparkline = view.findViewById(R.id.trafficSparkline);
         deckActivity = view.findViewById(R.id.activityStream);
         deckFreshness = view.findViewById(R.id.deckFreshness);
@@ -430,7 +475,8 @@ public class MainActivity extends Activity {
 
     /** Paint the current snapshot. Availability is respected: nothing is invented. */
     private void renderDeck(TelemetrySnapshot snap) {
-        if (snap == null) return;
+        if (snap == null || selectedTab != 0) return;
+        displayedPhoneFacts = snap;
         long now = android.os.SystemClock.elapsedRealtime();
         if (deckFreshness != null) deckFreshness.setText(snap.freshness(now));
         if (deckServiceState != null) {
@@ -454,7 +500,15 @@ public class MainActivity extends Activity {
 
     /** Build the rows for the selected telemetry tab. */
     private void renderDeckPanel(TelemetrySnapshot snap) {
-        deckBody.removeAllViews();
+        if (deckBody == null) return;
+        deckSeen.clear(); deckCellPosition=0;
+        if (!deckTab.equals(deckRenderedTab)) { deckBody.removeAllViews(); deckCells.clear(); deckRenderedTab=deckTab; }
+        if (!deckSearch.isEmpty()) {
+            java.util.List<PhoneFacts.Field> matches=PhoneFacts.search(deckSearch);
+            if(matches.isEmpty())note("No matching phone detail. Try IP, battery, memory, display or sensors.");
+            for(PhoneFacts.Field field:matches)phoneFactRow(field,snap);
+            finishDeckCells(); return;
+        }
         switch (deckTab) {
             case "network":
                 row("Active transport", snap.display(NetworkTelemetryCollector.K_TRANSPORT));
@@ -472,31 +526,36 @@ public class MainActivity extends Activity {
                 row("Connection cost", snap.display(NetworkTelemetryCollector.K_METERED));
                 row("Public IP", snap.display(NetworkTelemetryCollector.K_PUBLIC_IP));
                 row("Last network change", snap.display(NetworkTelemetryCollector.K_LAST_CHANGE));
+                row("Default interface",snap.display("net_interface"));
+                row("MTU",snap.display("net_mtu"));
+                row("Private DNS",snap.display("net_private_dns"));
+                row("Device traffic since boot",snap.display("device_total_traffic"));
+                note("When a VPN is active, default-interface addresses belong to its tunnel and are not labelled as Wi-Fi addresses.");
                 break;
             case "devices":
                 row("Bluetooth", snap.display(BluetoothTelemetryCollector.K_BT_STATE));
-                row("Audio output", snap.display(BluetoothTelemetryCollector.K_AUDIO_OUT));
+                row("Available audio outputs", snap.display(BluetoothTelemetryCollector.K_AUDIO_OUT));
                 row("Microphone route", snap.display(BluetoothTelemetryCollector.K_AUDIO_IN));
                 if (telemetry != null) {
                     java.util.List<BluetoothTelemetryCollector.DeviceRow> devices =
                             telemetry.bluetoothCollector().devices();
                     if (devices.isEmpty()) {
                         row("Connected devices", snap.get(BluetoothTelemetryCollector.K_BT_STATE).isAvailable()
-                                ? "None connected" : snap.display(BluetoothTelemetryCollector.K_BT_STATE));
+                                ? "No connected devices visible to IRIS" : snap.display(BluetoothTelemetryCollector.K_BT_STATE));
                     }
                     for (BluetoothTelemetryCollector.DeviceRow d : devices) {
                         // Tap a device to expand its detail (§4).
                         expandableRow(d.name, d.connection,
                                 "Category: " + d.category
                                 + "\nState: " + d.connection + " · " + d.detail
-                                + "\nAudio output: " + (d.audioActive ? "active" : "not active")
+                                + "\nActive audio route: not established by endpoint visibility"
                                 + (d.battery.isEmpty() ? "\nBattery: not exposed by this device"
                                                        : "\nBattery: " + d.battery));
                     }
                 }
-                note("Only currently connected devices are listed — paired-but-disconnected ones are "
-                        + "omitted, and each physical device appears once. No single Android API lists "
-                        + "every connection, so this combines profile queries with audio routing.");
+                note("Observed GATT connections and available audio endpoints are listed. Hidden addresses "
+                        + "can prevent correlating endpoints with physical devices. Some connections are "
+                        + "not visible to IRIS; availability does not establish active playback.");
                 break;
             case "sensors":
                 groupHeader("HARDWARE AVAILABLE");
@@ -519,6 +578,7 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (!anyActive) row("Nothing in use", "IRIS is not sampling any sensor");
+                for(PhoneFacts.Field field:PhoneFacts.group("sensors"))phoneFactRow(field,snap);
                 note("Only IRIS's own usage is shown. Android does not expose what other apps are "
                         + "doing with sensors, and nothing here is switched on just to animate.");
                 break;
@@ -529,7 +589,7 @@ public class MainActivity extends Activity {
                 row("Battery temperature", snap.display(ResourceTelemetryCollector.K_BATTERY_TEMP));
                 row("Thermal status", snap.display(ResourceTelemetryCollector.K_THERMAL));
                 row("Free RAM", snap.display(ResourceTelemetryCollector.K_RAM_FREE));
-                row("IRIS memory", snap.display(ResourceTelemetryCollector.K_RAM_IRIS));
+                row("IRIS Java heap", snap.display(ResourceTelemetryCollector.K_RAM_IRIS));
                 row("Free storage", snap.display(ResourceTelemetryCollector.K_STORAGE_FREE));
                 row("Device", snap.display(ResourceTelemetryCollector.K_DEVICE));
                 row("System", snap.display(ResourceTelemetryCollector.K_ANDROID));
@@ -539,6 +599,12 @@ public class MainActivity extends Activity {
                 row("Wake phrase", snap.display("wake_phrase"));
                 row("Wake model", snap.display("wake_ready"));
                 row("Owner check", snap.display("owner_check"));
+                groupHeader("MORE PHONE DETAILS · TAP TO EXPLAIN");
+                for(PhoneFacts.Field field:PhoneFacts.FIELDS)
+                    if(field.group.equals("display") || field.group.equals("system") || field.group.equals("audio")
+                        || field.key.equals("battery_health") || field.key.equals("battery_voltage") || field.key.equals("battery_technology")
+                        || field.key.equals("ram_total") || field.key.equals("ram_used") || field.key.equals("storage_total") || field.key.equals("storage_used"))
+                        phoneFactRow(field,snap);
                 note("Battery temperature is the battery, not the CPU. Android exposes no public "
                         + "CPU temperature, so none is shown.");
                 break;
@@ -553,6 +619,7 @@ public class MainActivity extends Activity {
                 row("Service", snap.display("iris_service"));
                 break;
         }
+        finishDeckCells();
     }
 
     /** Add one filter chip to the activity stream. */
@@ -591,6 +658,8 @@ public class MainActivity extends Activity {
 
     /** A small group label inside a panel (e.g. HARDWARE AVAILABLE). */
     private void groupHeader(String text) {
+        View existing=deckCells.get("group:"+text);
+        if(existing!=null){placeDeckCell("group:"+text,existing);return;}
         float d = getResources().getDisplayMetrics().density;
         TextView t = new TextView(this);
         t.setText(text);
@@ -599,11 +668,18 @@ public class MainActivity extends Activity {
         t.setLetterSpacing(0.1f);
         t.setTypeface(null, Typeface.BOLD);
         t.setPadding(0, (int) (10 * d), 0, (int) (2 * d));
-        deckBody.addView(t);
+        placeDeckCell("group:"+text,t);
     }
 
     /** A row that reveals extra detail when tapped, with a short fade (spec §4/§6). */
     private void expandableRow(String label, String value, String detail) {
+        LinearLayout old=(LinearLayout)deckCells.get("expand:"+label);
+        if(old!=null){
+            TextView val=(TextView)((LinearLayout)old.getChildAt(0)).getChildAt(1);
+            if(!val.getText().toString().equals(value))val.setText(value);
+            ((TextView)old.getChildAt(1)).setText(detail);
+            placeDeckCell("expand:"+label,old);return;
+        }
         float d = getResources().getDisplayMetrics().density;
         LinearLayout holder = new LinearLayout(this);
         holder.setOrientation(LinearLayout.VERTICAL);
@@ -615,13 +691,14 @@ public class MainActivity extends Activity {
         TextView l = new TextView(this);
         l.setText("▸  " + label);
         l.setTextColor(getColor(R.color.deck_text));
-        l.setTextSize(11.5f);
+        l.setTextSize(13f);
         l.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         TextView v = new TextView(this);
         v.setText(value == null ? "" : value);
         v.setTextColor(getColor("Connected".equals(value) ? R.color.positive : R.color.deck_text_dim));
-        v.setTextSize(11.5f);
+        v.setTextSize(13f);
         v.setTypeface(Typeface.MONOSPACE);
+        v.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f));
         head.addView(l);
         head.addView(v);
         holder.addView(head);
@@ -638,14 +715,17 @@ public class MainActivity extends Activity {
             boolean show = body.getVisibility() != View.VISIBLE;
             body.setAlpha(0f);
             body.setVisibility(show ? View.VISIBLE : View.GONE);
-            if (show) body.animate().alpha(1f).setDuration(200).start();
+            if (show && !new AppSettings(this).reduceMotion()) body.animate().alpha(1f).setDuration(200).start();
+            else body.setAlpha(1f);
             l.setText((show ? "▾  " : "▸  ") + label);
         });
-        deckBody.addView(holder);
+        placeDeckCell("expand:"+label,holder);
     }
 
     /** One label/value row, dimmed when the value isn't a real reading. */
     private void row(String label, String value) {
+        LinearLayout old=(LinearLayout)deckCells.get("row:"+label);
+        if(old!=null){TextView v=(TextView)old.getChildAt(1);if(!v.getText().toString().equals(value))v.setText(value);placeDeckCell("row:"+label,old);return;}
         float d = getResources().getDisplayMetrics().density;
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
@@ -653,7 +733,7 @@ public class MainActivity extends Activity {
         TextView l = new TextView(this);
         l.setText(label);
         l.setTextColor(getColor(R.color.deck_text_dim));
-        l.setTextSize(11.5f);
+        l.setTextSize(13f);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         l.setLayoutParams(lp);
@@ -663,23 +743,26 @@ public class MainActivity extends Activity {
                 || value.startsWith("Not available") || value.startsWith("Permission required")
                 || value.contains("(stale)");
         v.setTextColor(getColor(unknown ? R.color.deck_inactive : R.color.deck_text));
-        v.setTextSize(11.5f);
+        v.setTextSize(13f);
         v.setTypeface(android.graphics.Typeface.MONOSPACE);
         v.setGravity(android.view.Gravity.END);
+        v.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.3f));
         r.addView(l);
         r.addView(v);
-        deckBody.addView(r);
+        placeDeckCell("row:"+label,r);
     }
 
     /** Small explanatory footnote under a panel. */
     private void note(String text) {
+        View existing=deckCells.get("note:"+text);
+        if(existing!=null){placeDeckCell("note:"+text,existing);return;}
         float d = getResources().getDisplayMetrics().density;
         TextView t = new TextView(this);
         t.setText(text);
         t.setTextColor(getColor(R.color.deck_text_dim));
         t.setTextSize(10f);
         t.setPadding(0, (int) (8 * d), 0, 0);
-        deckBody.addView(t);
+        placeDeckCell("note:"+text,t);
     }
 
     private void showAssistant() {
@@ -1304,7 +1387,7 @@ public class MainActivity extends Activity {
         {"📈 Recognition report", "Settings → RECOGNITION & LEARNING → “Recognition report” shows how well IRIS is really hearing you: attempts, how many were clear on the first try, average response time, corrections taught, and wrong actions.\nThe goal is zero wrong actions — asking once is better than acting wrongly. A low first-try rate usually means microphone or noise, not your wording. You can reset the stats anytime.\nSay “that was wrong” right after a mistake to log it and teach the fix."},
         {"⏹ Stop / interrupt IRIS", "If IRIS is talking too long (e.g. reading many notifications), tap the ⏹ Stop button on IRIS's notification — it cuts the speech off instantly and works on the lock screen. Saying “stop” also works whenever the mic is open. Example: “read my notifications” → tap ⏹ Stop to halt."},
         {"🧭 Remembers its last action", "IRIS keeps track of what it just did. Ask “what did you just do?” and it tells you. Say “do that again” or “repeat that” to re-run your last command. Example: “take a screenshot” … then “do that again”."},
-        {"📊 Phone status", "Ask “phone status”, “how's my phone?”, or “mobile status” and IRIS reports it all: ringer (silent/vibrate/normal), Do Not Disturb, airplane mode, internet (Wi-Fi or mobile data), the actual connected Bluetooth device (not just on/off), battery, device model + Android version, free storage, RAM usage, and uptime.\nAsk “what's connected to Bluetooth?” on its own anytime.\nA dense [SYS]/[PWR]/[NET]-style status also lands in your notifications for a quick-glance look."},
+        {"📊 Phone status", "Ask “What is my Wi-Fi IP?”, “What is my battery health?”, “What is my screen refresh rate?”, “Which sensors are being used?”, or “phone status” and IRIS reports it all: ringer (silent/vibrate/normal), Do Not Disturb, airplane mode, internet (Wi-Fi or mobile data), the actual connected Bluetooth device (not just on/off), battery, device model + Android version, free storage, RAM usage, and uptime.\nAsk “what's connected to Bluetooth?” on its own anytime.\nA dense [SYS]/[PWR]/[NET]-style status also lands in your notifications for a quick-glance look."},
         {"🔕 Phone modes", "Turn modes on/off and check them; IRIS tells you if it's already in that state.\nSay: “silent mode on/off”, “vibrate mode”, “normal mode”, “turn on/off do not disturb”, “airplane mode on/off”.\nAsk: “is silent mode on?”, “is airplane mode on?”, “is DND on?”.\nNotes: silent/vibrate/DND need Do-Not-Disturb access once. Airplane mode can't be toggled by apps — IRIS opens Settings for you (but can tell you if it's on)."},
         {"🔦 Torch / flashlight", "Say: “turn on the flashlight”, “torch off”."},
         {"🌦️ Weather", "Say: “what's the weather”, “weather today”. (Uses your location.)"},
@@ -3950,3 +4033,4 @@ public class MainActivity extends Activity {
         @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
     }
 }
+

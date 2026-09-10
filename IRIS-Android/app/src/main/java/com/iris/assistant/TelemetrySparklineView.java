@@ -58,7 +58,7 @@ public final class TelemetrySparklineView extends View {
     /** Push the newest history from a meter. */
     public void update(TrafficRateMeter meter) {
         if (meter == null) return;
-        available = meter.supported();
+        available = meter.supported() && meter.hasRate();
         samples = meter.history();
         peak = Math.max(1, meter.peak());
         invalidate();
@@ -112,7 +112,7 @@ public final class TelemetrySparklineView extends View {
 
     private void drawAxis(Canvas canvas, float w, float h) {
         label.setColor(0xFF6B818C);
-        canvas.drawText("60s ago", 0, h - dp(1f), label);
+        canvas.drawText(Math.max(0, samples.length - 1) + "s history", 0, h - dp(1f), label);
         String now = "Now";
         float tw = label.measureText(now);
         canvas.drawText(now, w - tw, h - dp(1f), label);
@@ -121,3 +121,4 @@ public final class TelemetrySparklineView extends View {
                 h - dp(1f), label);
     }
 }
+

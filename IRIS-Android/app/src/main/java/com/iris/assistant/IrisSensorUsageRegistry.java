@@ -17,7 +17,7 @@ import java.util.Map;
 public final class IrisSensorUsageRegistry {
 
     /** Hardware IRIS may use. */
-    public enum Hardware { MICROPHONE, ACCELEROMETER, CAMERA, PROXIMITY, LOCATION }
+    public enum Hardware { MICROPHONE, ACCELEROMETER, CAMERA, PROXIMITY, LOCATION, GYROSCOPE, LIGHT, MAGNETOMETER, PRESSURE }
 
     /** What IRIS is doing with it right now. */
     public static final class Usage {
@@ -87,6 +87,10 @@ public final class IrisSensorUsageRegistry {
                             ? "present" : "absent";
                 case ACCELEROMETER:
                     return hasSensor(ctx, android.hardware.Sensor.TYPE_ACCELEROMETER) ? "present" : "absent";
+                case GYROSCOPE: return hasSensor(ctx, android.hardware.Sensor.TYPE_GYROSCOPE) ? "present" : "absent";
+                case LIGHT: return hasSensor(ctx, android.hardware.Sensor.TYPE_LIGHT) ? "present" : "absent";
+                case MAGNETOMETER: return hasSensor(ctx, android.hardware.Sensor.TYPE_MAGNETIC_FIELD) ? "present" : "absent";
+                case PRESSURE: return hasSensor(ctx, android.hardware.Sensor.TYPE_PRESSURE) ? "present" : "absent";
                 case PROXIMITY:
                     return hasSensor(ctx, android.hardware.Sensor.TYPE_PROXIMITY) ? "present" : "absent";
                 case LOCATION:
@@ -113,8 +117,13 @@ public final class IrisSensorUsageRegistry {
             case ACCELEROMETER: return "Accelerometer";
             case CAMERA:        return "Camera";
             case PROXIMITY:     return "Proximity";
+            case GYROSCOPE: return "Gyroscope";
+            case LIGHT: return "Ambient light";
+            case MAGNETOMETER: return "Magnetometer";
+            case PRESSURE: return "Barometer";
             case LOCATION:      return "Location";
             default:            return hw.name();
         }
     }
 }
+

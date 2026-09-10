@@ -23,7 +23,7 @@ public final class TrafficRateMeter {
 
     private long lastBytes = UNSUPPORTED;
     private long lastAtMs = 0;
-    private long rate;
+    private long rate = -1;
     private boolean supported = true;
     private long sessionStartBytes = UNSUPPORTED;
     private long sessionBytes;
@@ -129,3 +129,4 @@ public final class TrafficRateMeter {
         return TelemetrySnapshot.rate(rate);
     }
 }
+
