@@ -691,6 +691,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         return settings.preferOnDevice() ? "System speech fallback" : "System speech service";
     }
 
+    private boolean beepMuted;
     private long wakeEpoch;
     private long lastWakeAt;
     private final Runnable retryWake = () -> {
@@ -5895,4 +5896,3 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 }
-

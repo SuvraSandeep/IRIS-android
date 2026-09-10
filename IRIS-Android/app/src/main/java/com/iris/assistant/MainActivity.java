@@ -2662,7 +2662,7 @@ public class MainActivity extends Activity {
                             @Override public void onWakeDetected(float[] embedding) {
                                 if (wakeTestEngine != engine) return;
                                 boolean accepted = (am == null || !am.isMusicActive()) && WakePolicy.owner(embedding,
-                                        wake.voiceprint, WakePolicy.threshold(settings.voiceSensitivity()));
+                                        wake.voiceprint, WakePolicy.threshold(new AppSettings(MainActivity.this).voiceSensitivity()));
                                 stopWakeTrainingEngine();
                                 wakeTrainingStatus.setText(accepted ? "Full phrase and owner verified. Test passed." : "Rejected: voice mismatch or media playing. Retrain if this was you.");
                             }
