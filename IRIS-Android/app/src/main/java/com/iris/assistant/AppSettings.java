@@ -83,8 +83,8 @@ public final class AppSettings {
     // even at normal volume, let alone whispered speech. 0.75 default now maps to a realistic
     // ~0.39 confidence floor (see VoskEngine.setSensitivity) so wake is easy out of the box;
     // users who get too many false wakes can still lower it in Settings.
-    public float voiceSensitivity() { return prefs.getFloat("owner_voice_sensitivity_v2", 0.75f); }
-    public void setVoiceSensitivity(float value) { prefs.edit().putFloat("owner_voice_sensitivity_v2", value).apply(); }
+    public float voiceSensitivity() { return Math.max(0f, Math.min(1f, prefs.getFloat("owner_voice_sensitivity_v2", 0.75f))); }
+    public void setVoiceSensitivity(float value) { prefs.edit().putFloat("owner_voice_sensitivity_v2", Math.max(0f, Math.min(1f, value))).apply(); }
     /** Use Google Speech Recognition for commands (best accuracy; falls back to Vosk offline). */
     public boolean googleSttForCommands() { return prefs.getBoolean("google_stt_commands", true); }
     public void setGoogleSttForCommands(boolean v) { prefs.edit().putBoolean("google_stt_commands", v).apply(); }
@@ -165,6 +165,4 @@ public final class AppSettings {
     /** Mirror replies even while the screen is on (not just when it's off). */
     public boolean mirrorAlways() { return prefs.getBoolean("mirror_always", true); }
     public void setMirrorAlways(boolean v) { prefs.edit().putBoolean("mirror_always", v).apply(); }
-    public float speakerThreshold() { return prefs.getFloat("speaker_threshold", 0.70f); }
-    public void setSpeakerThreshold(float value) { prefs.edit().putFloat("speaker_threshold", value).apply(); }
 }

@@ -19,6 +19,15 @@ import java.util.List;
 final class TrainingProgress {
     private static final String FILE = "wake_training.dat";
     private static final int VERSION = 1;
+    // Mirrors ProfileStore.getWakeProfile()'s caps on templates/frames/features — a corrupt or
+    // truncated resume file must never be allowed to drive an allocation size straight from
+    // untrusted file bytes (a bad int here previously could throw OutOfMemoryError, which is an
+    // Error, not caught by load()'s catch(Exception) — so a corrupt file could crash the app).
+    private static final int MAX_TEMPLATES = 5;
+    private static final int MAX_FRAMES_PER_TEMPLATE = 120;
+    private static final int MAX_FEATURES_PER_FRAME = 20;
+    private static final int MAX_RAW_SAMPLES = 5;
+    private static final int MAX_RAW_SAMPLE_LEN = 16_000 * 10; // 10s of 16kHz audio, generous cap
 
     static final class Data {
         String phrase = "";
@@ -40,8 +49,13 @@ final class TrainingProgress {
 
     static void save(Context c, String phrase, int sampleIndex,
                      List<float[][]> templates, List<short[]> raw) {
-        File f = new File(c.getFilesDir(), FILE);
-        try (DataOutputStream o = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f)))) {
+        // Write to a temp file and atomically rename over the real one, so a crash/kill mid-write
+        // can never leave a truncated file that exists() reports as present but load() can't read
+        // (previously: direct FileOutputStream over the live file — a partial write there is a
+        // silent "resume available" that fails when the user actually tries to resume).
+        File tmp = new File(c.getFilesDir(), FILE + ".tmp");
+        File dest = new File(c.getFilesDir(), FILE);
+        try (DataOutputStream o = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(tmp)))) {
             o.writeInt(VERSION);
             o.writeUTF(phrase == null ? "" : phrase);
             o.writeInt(sampleIndex);
@@ -55,7 +69,26 @@ final class TrainingProgress {
                 o.writeInt(s.length);
                 for (short v : s) o.writeShort(v);
             }
-        } catch (Exception ignored) { }
+            o.flush();
+        } catch (Exception ignored) {
+            //noinspection ResultOfMethodCallIgnored
+            tmp.delete();
+            return;
+        }
+        //noinspection ResultOfMethodCallIgnored
+        dest.delete();
+        if (!tmp.renameTo(dest)) {
+            // Rename can fail across filesystems/edge cases; fall back to a direct copy so a
+            // save attempt isn't silently lost.
+            try (FileInputStream in = new FileInputStream(tmp);
+                 FileOutputStream out = new FileOutputStream(dest)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            } catch (Exception ignored) { }
+            //noinspection ResultOfMethodCallIgnored
+            tmp.delete();
+        }
     }
 
     static Data load(Context c) {
@@ -67,11 +100,14 @@ final class TrainingProgress {
             d.phrase = in.readUTF();
             d.sampleIndex = in.readInt();
             int tc = in.readInt();
+            if (tc < 0 || tc > MAX_TEMPLATES) return null;
             for (int i = 0; i < tc; i++) {
                 int frames = in.readInt();
+                if (frames < 0 || frames > MAX_FRAMES_PER_TEMPLATE) return null;
                 float[][] t = new float[frames][];
                 for (int fr = 0; fr < frames; fr++) {
                     int feats = in.readInt();
+                    if (feats < 0 || feats > MAX_FEATURES_PER_FRAME) return null;
                     float[] frame = new float[feats];
                     for (int j = 0; j < feats; j++) frame[j] = in.readFloat();
                     t[fr] = frame;
@@ -79,12 +115,19 @@ final class TrainingProgress {
                 d.templates.add(t);
             }
             int rc = in.readInt();
+            if (rc < 0 || rc > MAX_RAW_SAMPLES) return null;
             for (int i = 0; i < rc; i++) {
                 int len = in.readInt();
+                if (len < 0 || len > MAX_RAW_SAMPLE_LEN) return null;
                 short[] s = new short[len];
                 for (int j = 0; j < len; j++) s[j] = in.readShort();
                 d.rawSamples.add(s);
             }
+            // Reconcile: sampleIndex must never point past the samples actually captured — a
+            // partial/interrupted save could otherwise leave it stale, resuming the wizard at a
+            // step with no corresponding data (captureNextWakeSample would then have nothing to
+            // show for the "already captured" steps it thinks exist).
+            if (d.sampleIndex < 0 || d.sampleIndex > d.templates.size()) d.sampleIndex = d.templates.size();
             return d;
         } catch (Exception e) {
             return null;

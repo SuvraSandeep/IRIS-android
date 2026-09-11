@@ -26,6 +26,12 @@ public final class ProfileStore {
         public long lastCalled;
     }
 
+    // Single source of truth for the legal wake-threshold band. WakeWordEngine.calibratedThreshold
+    // (the only writer) clamps to [.50, 1.40]; this wider band exists only to tolerate old/imported
+    // profiles without rejecting them outright, while still catching clearly-corrupt values.
+    private static final double WAKE_THRESHOLD_MIN = 0.40;
+    private static final double WAKE_THRESHOLD_MAX = 2.50;
+
     public static class WakeProfile {
         public String phrase = "";
         public double threshold = 1.05;
@@ -35,13 +41,19 @@ public final class ProfileStore {
         public final List<String> altPhrases = new ArrayList<>();
         public boolean isReady() { return !phrase.trim().isEmpty(); }
         public boolean isVoiceEnrolled() { return voiceprint != null && voiceprint.length > 0; }
-        /** Primary phrase + any alternates, de-duplicated. */
+        /** Primary phrase + any alternates, de-duplicated (case-insensitively). */
         public List<String> allPhrases() {
             List<String> all = new ArrayList<>();
-            if (!phrase.trim().isEmpty()) all.add(phrase.trim());
+            List<String> seenNormalized = new ArrayList<>();
+            if (!phrase.trim().isEmpty()) {
+                all.add(phrase.trim());
+                seenNormalized.add(phrase.trim().toLowerCase(Locale.ROOT));
+            }
             for (String p : altPhrases) {
-                if (p != null && !p.trim().isEmpty() && !all.contains(p.trim())
-                        && !p.equalsIgnoreCase("IRIS you there") && !p.equalsIgnoreCase("wake up IRIS")) all.add(p.trim());
+                if (p == null || p.trim().isEmpty()) continue;
+                String trimmed = p.trim();
+                String lower = trimmed.toLowerCase(Locale.ROOT);
+                if (!seenNormalized.contains(lower)) { all.add(trimmed); seenNormalized.add(lower); }
             }
             return all;
         }
@@ -98,7 +110,7 @@ public final class ProfileStore {
             JSONObject wake = root().optJSONObject("wakeWord");
             if (wake == null) return profile;
             profile.phrase = wake.optString("phrase", "");
-            profile.threshold = Math.max(.40, Math.min(2.50, wake.optDouble("threshold", 1.05)));
+            profile.threshold = Math.max(WAKE_THRESHOLD_MIN, Math.min(WAKE_THRESHOLD_MAX, wake.optDouble("threshold", 1.05)));
             profile.trainedAt = wake.optLong("trainedAt", 0);
             JSONArray templates = wake.optJSONArray("templates");
             if (templates != null) {
@@ -132,11 +144,18 @@ public final class ProfileStore {
     }
 
     public synchronized boolean setWakeProfile(String phrase, List<float[][]> templates) {
+        if (phrase == null) return false;
         try {
             JSONObject current = root();
             JSONObject wake = new JSONObject();
             wake.put("phrase", phrase.trim());
             wake.put("trainedAt", System.currentTimeMillis());
+            // NOTE: no runtime wake-detection path reads "threshold" or "templates" — actual wake
+            // detection is 100% Vosk-grammar-based (VoskEngine.startWakeDetection + WakePolicy),
+            // not the DTW/Goertzel WakeWordEngine these came from. They are kept here only as a
+            // legacy record of the training samples (so old exported profiles keep loading) and
+            // must never be treated as tunable wake-sensitivity data — see WakePolicy.threshold()
+            // and AppSettings.voiceSensitivity() for what actually controls wake-acceptance.
             wake.put("threshold", WakeWordEngine.calibratedThreshold(templates));
             JSONArray allTemplates = new JSONArray();
             for (float[][] template : templates) {
@@ -576,7 +595,7 @@ public final class ProfileStore {
         if (wake != null && wake.optJSONArray("templates") != null) {
             // Validate wake profile before importing
             double threshold = wake.optDouble("threshold", 1.05);
-            if (threshold < 0.40 || threshold > 2.50) throw new IllegalArgumentException("Invalid wake threshold in imported profile.");
+            if (threshold < WAKE_THRESHOLD_MIN || threshold > WAKE_THRESHOLD_MAX) throw new IllegalArgumentException("Invalid wake threshold in imported profile.");
             JSONArray wakeTemplates = wake.optJSONArray("templates");
             if (wakeTemplates.length() > 5) throw new IllegalArgumentException("Too many wake templates in imported profile.");
             for (int t = 0; t < wakeTemplates.length(); t++) {

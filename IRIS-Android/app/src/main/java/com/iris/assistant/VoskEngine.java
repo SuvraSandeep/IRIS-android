@@ -42,7 +42,17 @@ public final class VoskEngine {
     private volatile boolean modelLoaded;
     private Object spkModel;   // org.vosk.SpkModel via reflection (may be absent)
     private volatile boolean spkReady;
+    // Guards against a second initSpeaker() call starting a concurrent load thread before the
+    // first finishes — without this, two overlapping calls could both pass "if (spkReady) return"
+    // and both delete+re-extract SPK_DIR at once, corrupting the on-disk speaker model.
+    private final java.util.concurrent.atomic.AtomicBoolean spkLoading = new java.util.concurrent.atomic.AtomicBoolean();
     private SpeechService speechService;
+    // All mutable engine state that's read/written from both the calling thread (UI/service) and
+    // the Vosk recognition callback thread must go through this lock — startWakeDetection/stop/
+    // startListening were previously unsynchronized, so two overlapping calls (e.g. the Test Wake
+    // screen and the live service both arming at once) could both pass the generation check and
+    // both fire, since `fired` is a new AtomicBoolean per call and doesn't dedupe across calls.
+    private final Object stateLock = new Object();
 
     public interface InitListener {
         void onReady();
@@ -127,10 +137,10 @@ public final class VoskEngine {
     /** Download the small English model (~40 MB) and load it. One-time, then offline. */
     private void downloadAndLoad(Context context, InitListener listener) {
         new Thread(() -> {
+            File zip = new File(context.getCacheDir(), "vosk-model.zip");
             try {
                 File modelDir = new File(context.getFilesDir(), MODEL_DIR_NAME);
                 if (!isValidModelDir(modelDir)) {
-                    File zip = new File(context.getCacheDir(), "vosk-model.zip");
                     android.util.Log.i("IRIS", "Downloading Vosk model…");
                     downloadFile(MODEL_URL, zip);
                     File tmp = new File(context.getFilesDir(), "vosk-tmp");
@@ -151,6 +161,11 @@ public final class VoskEngine {
                 android.util.Log.i("IRIS", "Vosk model ready (downloaded)");
                 main.post(listener::onReady);
             } catch (Throwable t) {
+                // A partial/corrupt download must not sit in cache forever — the next retry
+                // reuses the same cache path, so a leftover truncated zip either gets silently
+                // re-extracted (masking the real failure) or wastes disk indefinitely.
+                //noinspection ResultOfMethodCallIgnored
+                zip.delete();
                 modelLoaded = false;
                 android.util.Log.e("IRIS", "Vosk model download/load failed: " + t.getMessage());
                 main.post(() -> listener.onError(t.getMessage()));
@@ -174,10 +189,10 @@ public final class VoskEngine {
     /** Download the large en-IN model (~1GB) and load it; fall back to the small model on any failure. */
     private void downloadAndLoadLarge(Context context, InitListener listener) {
         new Thread(() -> {
+            File zip = new File(context.getCacheDir(), "vosk-large.zip");
             try {
                 File modelDir = new File(context.getFilesDir(), LARGE_DIR_NAME);
                 if (!isValidModelDir(modelDir)) {
-                    File zip = new File(context.getCacheDir(), "vosk-large.zip");
                     android.util.Log.i("IRIS", "Downloading large Vosk model (~1GB, one-time)…");
                     downloadFile(LARGE_URL, zip);
                     File tmp = new File(context.getFilesDir(), "vosk-large-tmp");
@@ -197,6 +212,8 @@ public final class VoskEngine {
                 android.util.Log.i("IRIS", "Large Vosk model ready");
                 main.post(listener::onReady);
             } catch (Throwable t) {
+                //noinspection ResultOfMethodCallIgnored
+                zip.delete();
                 android.util.Log.w("IRIS", "Large model unavailable, falling back to small: " + t.getMessage());
                 main.post(() -> fallbackSmall(context, listener));
             }
@@ -299,9 +316,10 @@ public final class VoskEngine {
      *  NOTE — this is deliberately a SEPARATE formula from WakePolicy.threshold(), which scales
      *  the same voiceSensitivity() setting for the owner-voice cosine match instead of phrase
      *  confidence: this field goes 0.65 (low sensitivity) DOWN to 0.30 (max, easier to pass),
-     *  while WakePolicy.threshold() goes 0.65 UP to 0.85 (max, also easier to pass — a higher
-     *  cosine bound sounds stricter but the sensitivity direction there flips the accept logic).
-     *  Both formulas move sensitivity in the same "easier to wake at max" direction; see
+     *  and WakePolicy.threshold() goes 0.85 (low sensitivity) DOWN to 0.65 (max, also easier to
+     *  pass) — both formulas now descend the same direction as sensitivity rises, they just use
+     *  different numeric bounds because cosine similarity and word confidence aren't the same
+     *  scale. Both move sensitivity in the same "easier to wake at max" direction; see
      *  WakePolicy.threshold()'s doc comment for the full cross-reference. */
     private volatile long wakeGeneration;
     private double minWordConfidence = 0.55;
@@ -324,6 +342,7 @@ public final class VoskEngine {
         if (!isReady()) { listener.onError("Voice model not ready"); return; }
         boolean attachSpeaker = requireSpeakerModel && isSpeakerReady();
         if (requireSpeakerModel && !isSpeakerReady()) { listener.onError("Owner verification model not ready"); return; }
+        synchronized (stateLock) {
         stop();
         final long generation = wakeGeneration;
         final java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
@@ -345,7 +364,17 @@ public final class VoskEngine {
                 } catch (Throwable error) { rec.close(); throw new IllegalStateException("Speaker attachment failed", error); }
             }
             final boolean spkAttached = attachSpeaker;
-            speechService = new SpeechService(rec, SAMPLE_RATE);
+            SpeechService newService;
+            try {
+                newService = new SpeechService(rec, SAMPLE_RATE);
+            } catch (Throwable error) {
+                // The Recognizer's native handle must be released here too — previously only the
+                // setSpkModel failure path above closed rec; a SpeechService constructor failure
+                // (e.g. AudioRecord init failure) left it leaked with no cleanup.
+                rec.close();
+                throw error;
+            }
+            speechService = newService;
             speechService.startListening(new RecognitionListener() {
                 private void result(String json) {
                     if (generation != wakeGeneration || fired.get()) return;
@@ -374,6 +403,7 @@ public final class VoskEngine {
                 @Override public void onTimeout() { }
             });
         } catch (Exception error) { listener.onError(error.getMessage()); }
+        }
     }
 
     /**
@@ -382,6 +412,7 @@ public final class VoskEngine {
      */
     public void startListening(SttListener listener) {
         if (!isReady()) { listener.onError("Voice model not ready"); return; }
+        synchronized (stateLock) {
         stop();
         try {
             Recognizer recognizer = new Recognizer(model, SAMPLE_RATE);
@@ -407,17 +438,20 @@ public final class VoskEngine {
         } catch (Exception e) {
             listener.onError(e.getMessage());
         }
+        }
     }
 
     /** Stop any active recognition. */
     public void stop() {
-        wakeGeneration++;
-        if (speechService != null) {
-            try {
-                speechService.stop();
-                speechService.shutdown();
-            } catch (Exception ignored) { }
-            speechService = null;
+        synchronized (stateLock) {
+            wakeGeneration++;
+            if (speechService != null) {
+                try {
+                    speechService.stop();
+                    speechService.shutdown();
+                } catch (Exception ignored) { }
+                speechService = null;
+            }
         }
     }
 
@@ -443,8 +477,13 @@ public final class VoskEngine {
     /** Load the Vosk speaker model (bundled in assets/spk-model, else downloaded). Non-fatal. */
     public void initSpeaker(Context context) {
         if (spkReady) return;
+        // compareAndSet, not "if (spkLoading.get())" — the check-then-set must be atomic so two
+        // threads calling initSpeaker() at nearly the same time can't both observe "not loading"
+        // and both start a load thread, which would race on deleting/re-extracting SPK_DIR.
+        if (!spkLoading.compareAndSet(false, true)) return;
         Context app = context.getApplicationContext();
         new Thread(() -> {
+            File zip = new File(app.getCacheDir(), "vosk-spk.zip");
             try {
                 File dir = new File(app.getFilesDir(), SPK_DIR_NAME);
                 if (!isValidSpkDir(dir)) {
@@ -456,7 +495,6 @@ public final class VoskEngine {
                 }
                 if (!isValidSpkDir(dir)) {
                     // Fall back to a one-time download.
-                    File zip = new File(app.getCacheDir(), "vosk-spk.zip");
                     downloadFile(SPK_URL, zip);
                     File tmp = new File(app.getFilesDir(), "spk-tmp");
                     deleteRecursive(tmp);
@@ -476,8 +514,12 @@ public final class VoskEngine {
                     android.util.Log.i("IRIS", "Vosk speaker model ready");
                 }
             } catch (Throwable t) {
+                //noinspection ResultOfMethodCallIgnored
+                zip.delete();
                 spkReady = false;
                 android.util.Log.w("IRIS", "Speaker model unavailable (voice verification off): " + t.getMessage());
+            } finally {
+                spkLoading.set(false);
             }
         }, "Vosk-Spk-Load").start();
     }
@@ -556,6 +598,17 @@ public final class VoskEngine {
             if (spk == null) return null;
             float[] v = new float[spk.length()];
             for (int i = 0; i < v.length; i++) v[i] = (float) spk.getDouble(i);
+            // WakePolicy.owner()/enrollment() both hard-require WakePolicy.EMBED_DIM (128) and
+            // silently reject anything else — that's correct as a safety gate, but a dimension
+            // mismatch here means the loaded speaker model itself changed (e.g. a different
+            // vosk-model-spk build) and voice verification will be silently disabled everywhere.
+            // Logging it means that failure mode shows up in logs instead of just "wake never
+            // accepts my voice" with no clue why.
+            if (v.length != WakePolicy.EMBED_DIM) {
+                android.util.Log.w("IRIS", "Speaker x-vector length " + v.length + " != expected "
+                        + WakePolicy.EMBED_DIM + " — voice verification will reject all matches "
+                        + "until the speaker model is reverted or WakePolicy.EMBED_DIM is updated.");
+            }
             return v;
         } catch (Exception e) {
             return null;

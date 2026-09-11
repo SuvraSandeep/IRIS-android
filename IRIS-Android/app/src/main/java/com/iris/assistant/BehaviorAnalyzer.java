@@ -96,9 +96,12 @@ public final class BehaviorAnalyzer {
                     MemoryStore.CAT_ABOUT_ME, "name", ""));
         }
 
-        // 5. Check if voiceprint is enrolled
+        // 5. Check if voiceprint is enrolled — but only nag if the user actually trained a
+        //    phrase (captured samples exist). seedDefaultWakePhrase() auto-seeds "Hello IRIS"
+        //    with no templates for users who never opened Training at all; nagging those users
+        //    to "retrain" something they never trained is a false, confusing prompt.
         ProfileStore.WakeProfile wake = store.getWakeProfile();
-        if (wake.isReady() && !wake.isVoiceEnrolled()) {
+        if (wake.isReady() && !wake.isVoiceEnrolled() && !wake.templates.isEmpty()) {
             suggestions.add(new Suggestion("\uD83D\uDD12",
                     "Retrain wake phrase to enroll your voiceprint for security",
                     MemoryStore.CAT_RULE, "voiceprint", "not enrolled"));

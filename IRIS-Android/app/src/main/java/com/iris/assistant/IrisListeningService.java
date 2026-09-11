@@ -441,6 +441,10 @@ public class IrisListeningService extends Service implements RecognitionListener
     private long lastShakeAt;
     private android.media.session.MediaSession mediaSession;
     private long lastHeadsetHookAt;
+    // Pending "pass this single press through" callback — cancelled if a second press arrives
+    // within the double-press window, so double-presses still trigger talk instead of also
+    // being forwarded as two single-press media events.
+    private Runnable headsetHookPassThrough;
 
     @Override
     public void onCreate() {
@@ -549,9 +553,21 @@ public class IrisListeningService extends Service implements RecognitionListener
                             long now = System.currentTimeMillis();
                             if (now - lastHeadsetHookAt < 700) {       // double-press
                                 lastHeadsetHookAt = 0;
+                                handler.removeCallbacks(headsetHookPassThrough);
                                 handler.post(() -> triggerTalk("headset"));
                             } else {
+                                // Was: every single press was fully consumed (return true) while
+                                // waiting to see if a second one arrived — the OS/media app never
+                                // saw a lone click, so normal play/pause never worked while this
+                                // (opt-in) trigger was on. Wait out the double-press window, then
+                                // pass the event through if no second press showed up in time.
                                 lastHeadsetHookAt = now;
+                                final long pressTime = now;
+                                handler.removeCallbacks(headsetHookPassThrough);
+                                headsetHookPassThrough = () -> {
+                                    if (lastHeadsetHookAt == pressTime) super.onMediaButtonEvent(mediaButtonIntent);
+                                };
+                                handler.postDelayed(headsetHookPassThrough, 700);
                             }
                             return true;
                         }
@@ -817,6 +833,13 @@ public class IrisListeningService extends Service implements RecognitionListener
             btMicAllowed = false;
             releaseAudioRoute();
             microphoneLabel = configureAudioRoute();
+            // releaseAudioRoute() unregisters and nulls audioDeviceCallback/audioManager;
+            // registerAudioChanges() must be called again here or the device-change callback
+            // stays permanently unregistered for the rest of the session after this first
+            // re-arm — previously only onStartCommand's once-per-service-start init blocks
+            // called it, so hot-plugging/removing a headset after the first command→wake cycle
+            // silently stopped updating the mic route and notification.
+            registerAudioChanges();
         }
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
             @Override public void onWakeDetected(float[] embedding) {
@@ -830,6 +853,14 @@ public class IrisListeningService extends Service implements RecognitionListener
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
                         + " accepted=" + accepted);
                 voskEngine.stop();
+                // Bump the epoch immediately (before branching on accepted/rejected) so a
+                // late/duplicate callback from the just-stopped engine can never re-enter this
+                // listener on either path. Previously this only happened after the ACCEPT branch
+                // succeeded — the reject path (wrong voice/media/cooldown) left wakeEpoch
+                // unchanged until scheduleWakeRetry's delayed startWakeDetection ran (150ms or
+                // 1500ms later), so a second stale callback from that same stopping recognizer
+                // could still pass the "epoch != wakeEpoch" check and run this block again.
+                ++wakeEpoch;
                 // A rejected attempt (wrong voice, media just started, cooldown) used to wait
                 // 1.5s before re-arming — during which repeating the phrase again (the natural
                 // thing to do when you think wake didn't hear you) did nothing at all. The only
@@ -845,7 +876,6 @@ public class IrisListeningService extends Service implements RecognitionListener
                 }
                 if (!accepted) { scheduleWakeRetry(media ? 1500 : 150); return; }
                 lastWakeAt = now;
-                ++wakeEpoch;
                 vibrate(45);
                 String greet = wakeGreeting();
                 broadcastMessage(greet);
@@ -5211,7 +5241,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (!settings.speakerVerification()) return true;
         try {
             float[] enrolled = new ProfileStore(this).getVoiceprint();
-            if (enrolled == null || enrolled.length == 0) return true;
+            // Was: "enrolled == null || enrolled.length == 0" only. WakePolicy.owner() hard-
+            // requires enrolled.length == WakePolicy.EMBED_DIM (128); a corrupted or legacy
+            // voiceprint with some OTHER nonzero length fell through neither this fallback nor
+            // owner()'s guard, so owner() always returned false and — with speaker verification
+            // on — every wake attempt was rejected forever with no way to recover except finding
+            // the hidden setting and turning verification off. Treat any wrong-length voiceprint
+            // the same as "never enrolled": fall back to phrase-only rather than a silent lockout.
+            if (enrolled == null || enrolled.length != WakePolicy.EMBED_DIM) return true;
             return voskEngine != null && voskEngine.isSpeakerReady()
                     && WakePolicy.owner(embedding, enrolled, voiceThreshold());
         } catch (Throwable error) { return true; }
@@ -5219,12 +5256,11 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private double voiceThreshold() { return WakePolicy.threshold(settings.voiceSensitivity()); }
 
-    private static double cosine(float[] a, float[] b) {
-        double dot = 0, na = 0, nb = 0;
-        for (int i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-        if (na == 0 || nb == 0) return 0;
-        return dot / (Math.sqrt(na) * Math.sqrt(nb));
-    }
+    // Removed: a dead, divergent private cosine(float[], float[]) used to live here with no
+    // null/NaN guards, differing from WakePolicy.cosine's -1 sentinel behavior on degenerate
+    // input. It had zero call sites — the one live wake-decision cosine call above already uses
+    // WakePolicy.cosine — but it was a landmine for any future caller who wired speaker scoring
+    // to it expecting WakePolicy's semantics.
 
     private final java.util.Random cueRandom = new java.util.Random();
     private String lastCue = "";
@@ -5308,8 +5344,17 @@ public class IrisListeningService extends Service implements RecognitionListener
                 AudioDeviceInfo chosen = chooseDevice(arrayToList(audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)), preference);
                 if (chosen != null && chosen.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
                     audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                    // startBluetoothSco() is asynchronous with no return-value confirmation (the
+                    // SDK 31+ branch above uses setCommunicationDevice()'s boolean return for
+                    // exactly this reason) — SCO can fail or never actually connect, in which
+                    // case the mic silently falls back to the phone mic while the notification
+                    // still claimed "Bluetooth headset". Log the request so a stuck/failed SCO
+                    // connection is at least visible, even though there's no synchronous API
+                    // pre-31 to confirm it before returning a label.
                     audioManager.startBluetoothSco();
                     audioManager.setBluetoothScoOn(true);
+                    android.util.Log.i("IRIS", "Requested Bluetooth SCO for " + readableDeviceName(chosen)
+                            + " (pre-API-31: connection is asynchronous and unconfirmed here)");
                     return readableDeviceName(chosen);
                 }
                 audioManager.setMode(AudioManager.MODE_NORMAL);
@@ -5416,7 +5461,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         audioManager = null;
     }
 
-    private Notification listeningNotification() {
+    private Notification.Builder baseListeningNotificationBuilder(String contentText) {
         Intent open = new Intent(this, MainActivity.class);
         PendingIntent content = PendingIntent.getActivity(this, 0, open,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
@@ -5431,20 +5476,25 @@ public class IrisListeningService extends Service implements RecognitionListener
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, LISTENING_CHANNEL)
                 .setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS is active")
-                .setContentText(microphoneLabel).setOngoing(true).setOnlyAlertOnce(true)
+                .setContentText(contentText).setOngoing(true).setOnlyAlertOnce(true)
                 .setContentIntent(content)
                 .addAction(new Notification.Action.Builder(null, "\uD83C\uDF99 Talk", talkPending).build())
                 .addAction(new Notification.Action.Builder(null, "\u23F9 Stop", shushPending).build())
-                .addAction(new Notification.Action.Builder(null, "Turn off", stopPending).build())
-                .build();
+                .addAction(new Notification.Action.Builder(null, "Turn off", stopPending).build());
+    }
+
+    private Notification listeningNotification() {
+        return baseListeningNotificationBuilder(microphoneLabel).build();
     }
 
     private void updateListeningNotification(String text) {
-        Notification notification = new Notification.Builder(this, LISTENING_CHANNEL)
-                .setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS is active")
-                .setContentText(text + " • " + microphoneLabel).setOngoing(true).setOnlyAlertOnce(true)
-                .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class),
-                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT)).build();
+        // Was building a bare notification with only a content PendingIntent — no Talk/Stop/
+        // Turn-off actions. Since this is called on nearly every wake-state change (armed,
+        // paused, rejected, "Active through …"), those primary manual controls vanished from
+        // the persistent notification almost immediately after startForeground and stayed gone
+        // for essentially the whole listening session. Now shares baseListeningNotificationBuilder
+        // with listeningNotification() so the two can never drift apart again.
+        Notification notification = baseListeningNotificationBuilder(text + " • " + microphoneLabel).build();
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(LISTENING_NOTIFICATION, notification);
     }
 
@@ -5508,6 +5558,12 @@ public class IrisListeningService extends Service implements RecognitionListener
         destroyRecognizer();
         stopWakeEngine();
         cancelCallNotification();
+        // Was missing here (only onDestroy() called it) — if ACTION_START arrives before
+        // onDestroy() runs on a fast stop→start toggle, registerAudioChanges()'s
+        // "audioDeviceCallback != null" early-return means the new session would silently
+        // reuse the stale callback/AudioManager/communication mode from the stopped session
+        // instead of capturing a fresh previousAudioMode.
+        releaseAudioRoute();
         LogStore.append(this, "STOP", reason);
         broadcastState(false, "off");
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }

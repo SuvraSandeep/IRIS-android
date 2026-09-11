@@ -103,6 +103,12 @@ public class MainActivity extends Activity {
     private Button contactWizardCancel;
     private WakeWordEngine wakeTrainingEngine;
     private TimedRecorder timedRecorder;
+    // Tracks whichever training AlertDialog is currently showing (resume-prompt or
+    // save-confirmation) so onDestroy() can dismiss it — previously neither dialog's reference
+    // was retained, so rotating or backgrounding the app while one was up threw a WindowLeaked
+    // crash (the "Save your wake phrase?" dialog is also setCancelable(false), so the user
+    // couldn't dismiss it themselves either).
+    private AlertDialog activeTrainingDialog;
     private final List<float[][]> wakeTemplates = new ArrayList<>();
     private final List<short[]> wakeRawSamples = new ArrayList<>();
     private int wakeSampleIndex;
@@ -2688,7 +2694,7 @@ public class MainActivity extends Activity {
     }
 
     private void showResumeDialog() {
-        new AlertDialog.Builder(this)
+        activeTrainingDialog = new AlertDialog.Builder(this)
                 .setTitle("Resume wake training?")
                 .setMessage("You have a partial training saved. Resume where you left off, or start over?")
                 .setNeutralButton("Cancel", null)
@@ -2713,8 +2719,12 @@ public class MainActivity extends Activity {
         wakeTemplates.clear(); wakeTemplates.addAll(d.templates);
         wakeRawSamples.clear(); wakeRawSamples.addAll(d.rawSamples);
         wakeSampleIndex = Math.min(d.sampleIndex, 5);
-        trainWakeButton.setEnabled(false);
-        testWakeButton.setEnabled(false);
+        // Guarded like wakeNormalState/wakeWizardState below — these views may be unbound if a
+        // delayed callback runs after the user has switched off the Training tab (the layout is
+        // only inflated while that tab is showing), which previously NPE'd here unguarded even
+        // though the very next lines already treat null viewability as expected.
+        if (trainWakeButton != null) trainWakeButton.setEnabled(false);
+        if (testWakeButton != null) testWakeButton.setEnabled(false);
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.GONE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.VISIBLE);
         if (wakeTrainingStatus != null) wakeTrainingStatus.setText("Resuming at " + wakeSampleIndex + "/5\u2026");
@@ -2724,6 +2734,7 @@ public class MainActivity extends Activity {
     }
 
     private void beginWakeTraining() {
+        if (wakePhraseInput == null) return; // Training tab not currently inflated
         String phrase = wakePhraseInput.getText().toString().trim();
         if (phrase.length() < 2) {
             wakePhraseInput.setError("Give IRIS at least two characters to listen for.");
@@ -2741,8 +2752,8 @@ public class MainActivity extends Activity {
         wakeTemplates.clear();
         wakeRawSamples.clear();
         wakeSampleIndex = 0;
-        trainWakeButton.setEnabled(false);
-        testWakeButton.setEnabled(false);
+        if (trainWakeButton != null) trainWakeButton.setEnabled(false);
+        if (testWakeButton != null) testWakeButton.setEnabled(false);
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.GONE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.VISIBLE);
         handler.postDelayed(this::captureNextWakeSample, resumeAfterWakeTraining ? 700 : 150);
@@ -2780,7 +2791,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) { }
             if (wakeWizardPrompt != null) wakeWizardPrompt.setText("\uD83D\uDD34  SAY \u201C" + wakePhraseBeingTrained + "\u201D NOW");
             if (wakeWizardFeedback != null) wakeWizardFeedback.setText("Recording 3 seconds...");
-            wakeTrainingStatus.setText("\uD83C\uDF99 Recording sample " + step + "/5...");
+            if (wakeTrainingStatus != null) wakeTrainingStatus.setText("\uD83C\uDF99 Recording sample " + step + "/5...");
 
             // Record exactly 3 seconds
             timedRecorder = new TimedRecorder();
@@ -2804,7 +2815,7 @@ public class MainActivity extends Activity {
                     // REJECT only near-silent samples — normal speaking voice is fine
                     if (!WakePolicy.usableAudio(audio)) {
                         if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C I didn't hear anything — speak normally toward the phone");
-                        wakeTrainingStatus.setText("Rejected: noisy, clipped or too short. Retrying sample " + (wakeSampleIndex + 1) + "...");
+                        if (wakeTrainingStatus != null) wakeTrainingStatus.setText("Rejected: noisy, clipped or too short. Retrying sample " + (wakeSampleIndex + 1) + "...");
                         toast("\u274C Didn't hear you — say it in your normal voice");
                         rejectTone();
                         handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
@@ -2814,14 +2825,18 @@ public class MainActivity extends Activity {
                     float[][] features = WakeWordEngine.extractFeatures(audio);
                     if (features.length < 8) {
                         if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C Didn't catch it \u2014 say the whole phrase clearly");
-                        wakeTrainingStatus.setText("Rejected: unclear. Retrying...");
+                        if (wakeTrainingStatus != null) wakeTrainingStatus.setText("Rejected: unclear. Retrying...");
                         toast("\u274C Unclear \u2014 say the full phrase");
                         rejectTone();
                         handler.postDelayed(MainActivity.this::captureNextWakeSample, 1600);
                         return;
                     }
 
-                    float snr = (float) (rmsVal / 300.0);
+                    // Quality label floor matches WakePolicy.usableAudio()'s retuned whisper-realism
+                    // floor (150, not the old 300) — otherwise a legitimately-accepted quiet/whisper
+                    // sample that passed the actual gate above got mislabeled "Quiet ⚠️", implying
+                    // a problem that isn't there.
+                    float snr = (float) (rmsVal / 150.0);
                     String quality = snr >= 3 ? "Clear" : snr >= 1.2 ? "Usable" : "Quiet";
                     // Accept all captured phrases (even quiet); normal voice is fine.
 
@@ -2837,7 +2852,7 @@ public class MainActivity extends Activity {
                             "IRIS-TrainSave").start();
                     String icon = "Clear".equals(quality) ? "\u2705" : "\u26A0\uFE0F";
                     if (wakeWizardFeedback != null) wakeWizardFeedback.setText(icon + "  " + quality + " sample accepted!");
-                    wakeTrainingStatus.setText(icon + " Sample " + wakeSampleIndex + "/5 done");
+                    if (wakeTrainingStatus != null) wakeTrainingStatus.setText(icon + " Sample " + wakeSampleIndex + "/5 done");
                     toast(icon + " Sample " + wakeSampleIndex + "/5 accepted!");
                     // Success chime
                     try {
@@ -2853,10 +2868,12 @@ public class MainActivity extends Activity {
                 @Override
                 public void onError(String message) {
                     if (wakeWizardFeedback != null) wakeWizardFeedback.setText("\u274C " + message);
-                    wakeTrainingStatus.setText("Error: " + message);
+                    if (wakeTrainingStatus != null) wakeTrainingStatus.setText("Error: " + message);
                     toast("\u274C " + message);
-                    trainWakeButton.setText("Retry");
-                    trainWakeButton.setEnabled(true);
+                    if (trainWakeButton != null) {
+                        trainWakeButton.setText("Retry");
+                        trainWakeButton.setEnabled(true);
+                    }
                 }
             });
         }, 2100); // Start recording after 3-2-1 countdown (700ms * 3)
@@ -2886,8 +2903,12 @@ public class MainActivity extends Activity {
                             int pct = (int) (100.0 * (System.currentTimeMillis() - (deadline - 45000)) / 45000);
                             if (pct != lastPct && pct % 10 == 0) {
                                 lastPct = pct;
+                                // Previously computed pct but always showed the same static
+                                // string regardless of its value — dead computation that looked
+                                // like a progress indicator but never moved. Show it for real.
+                                final int shownPct = Math.max(0, Math.min(100, pct));
                                 handler.post(() -> { if (wakeTrainingStatus != null)
-                                        wakeTrainingStatus.setText("Preparing voice-lock model\u2026"); });
+                                        wakeTrainingStatus.setText("Preparing voice-lock model\u2026 " + shownPct + "%"); });
                             }
                         }
                         java.util.List<float[]> vecs = new java.util.ArrayList<>();
@@ -2977,9 +2998,12 @@ public class MainActivity extends Activity {
     }
 
     private static float[] averageVectors(java.util.List<float[]> vs) {
+        // Currently unused (no call sites), but guarded so it isn't a landmine if ever wired up:
+        // vs.get(0).length previously threw IndexOutOfBoundsException on null/empty input.
+        if (vs == null || vs.isEmpty()) return new float[0];
         int n = vs.get(0).length;
         float[] a = new float[n];
-        for (float[] v : vs) for (int i = 0; i < n && i < v.length; i++) a[i] += v[i];
+        for (float[] v : vs) if (v != null) for (int i = 0; i < n && i < v.length; i++) a[i] += v[i];
         for (int i = 0; i < n; i++) a[i] /= vs.size();
         return a;
     }
@@ -3054,7 +3078,13 @@ public class MainActivity extends Activity {
         voiceTrainStep.setText("\uD83D\uDCD6 Read phrase " + step + " of " + TRAIN_PHRASES.length);
         voiceTrainPrompt.setText("\u201C" + TRAIN_PHRASES[trainPhraseIdx] + "\u201D");
         countdownThenRecord("read the sentence aloud", 5000, audio -> {
-            if (audio != null && audio.length > 8000) voiceReadSamples.add(audio);
+            // Previously silent: a too-short recording was dropped with no feedback, so a later
+            // "enrollment too inconsistent" failure hid the real, fixable cause from the user.
+            if (audio != null && audio.length > 8000) {
+                voiceReadSamples.add(audio);
+            } else if (voiceTrainFeedback != null) {
+                voiceTrainFeedback.setText("\u26A0\uFE0F Too short — that reading won't be used, continuing to the next phrase.");
+            }
             trainPhraseIdx++;
             handler.postDelayed(() -> { if (!voiceTrainCancelled) trainReadPhraseStep(); }, 700);
         });
@@ -3146,7 +3176,12 @@ public class MainActivity extends Activity {
         toast("\uD83C\uDF93 Voice & commands trained \u2705");
         LogStore.append(this, "TRAIN", "Voice+command training done (" + learnedAliasCount + " aliases)");
         handler.postDelayed(() -> {
-            if (isFinishing()) return;
+            // voiceTrainCancelled must also be checked here — cancelVoiceCommandTraining() sets
+            // it and shows "Training cancelled.", but this deferred block previously only checked
+            // isFinishing(), so a cancel that happened AFTER this postDelayed was queued (but
+            // before it fired) could still restart the listening service / reopen Training and
+            // silently override the cancel the user just asked for.
+            if (isFinishing() || voiceTrainCancelled) return;
             if (resumeAfterWakeTraining) { resumeAfterWakeTraining = false; startListeningService(); }
             if (selectedTab == 1) showTraining();
         }, 1600);
@@ -3160,6 +3195,12 @@ public class MainActivity extends Activity {
 
     private void cancelVoiceCommandTraining() {
         voiceTrainCancelled = true;
+        // Unlike cancelWakeTraining(), this previously left every queued postDelayed step on the
+        // main handler (countdown ticks, the record trigger, per-command step chains) running —
+        // most re-check voiceTrainCancelled before doing anything visible, but clearing them
+        // outright is the same safe pattern cancelWakeTraining already uses and removes any
+        // chance of a stale callback touching UI/state after the user cancelled.
+        handler.removeCallbacksAndMessages(null);
         if (timedRecorder != null) timedRecorder.stop();
         if (trainVosk != null) { trainVosk.close(); trainVosk = null; }
         toast("Training cancelled.");
@@ -3171,7 +3212,7 @@ public class MainActivity extends Activity {
         // Confirm before saving — let the user re-record if they're not happy.
         stopWakeTrainingEngine();
         if (timedRecorder != null) timedRecorder.stop();
-        new AlertDialog.Builder(this)
+        activeTrainingDialog = new AlertDialog.Builder(this)
                 .setTitle("Save your wake phrase?")
                 .setMessage("I captured \u201C" + wakePhraseBeingTrained + "\u201D with "
                         + wakeTemplates.size() + " samples.\n\nSave it, or re-record if that didn't feel right?")
@@ -3193,9 +3234,13 @@ public class MainActivity extends Activity {
             wakeWizardPrompt.setText("\uD83C\uDF99  Last step — say a full sentence in your normal voice");
         if (wakeWizardFeedback != null)
             wakeWizardFeedback.setText("Recording 7 seconds… talk naturally (e.g. tell me about your day)");
-        wakeTrainingStatus.setText("Learning your natural voice…");
-        TimedRecorder longRec = new TimedRecorder();
-        longRec.record(7000, new TimedRecorder.Listener() {
+        if (wakeTrainingStatus != null) wakeTrainingStatus.setText("Learning your natural voice…");
+        // Must be assigned to the timedRecorder FIELD, not a local — cancelWakeTraining() and
+        // onDestroy() only stop the field, so a local-only recorder here couldn't be aborted if
+        // the user cancels or backgrounds the app during this 7-second capture, leaving the mic
+        // live and letting finalizeWakeTraining() run against a possibly-destroyed activity.
+        timedRecorder = new TimedRecorder();
+        timedRecorder.record(7000, new TimedRecorder.Listener() {
             @Override public void onLevel(float normalizedLevel) {
                 if (wakeWizardFeedback != null) {
                     int bars = Math.round(normalizedLevel * 20);
@@ -3205,7 +3250,14 @@ public class MainActivity extends Activity {
                 }
             }
             @Override public void onComplete(short[] audio) {
-                if (audio != null && audio.length > 16000) wakeRawSamples.add(audio);
+                // Previously silent: a recording just under the 16000-sample (1s) floor was
+                // dropped with zero feedback, so if enrollment later failed as "too inconsistent"
+                // the real cause (this natural-speech sample never made it in) was invisible.
+                if (audio != null && audio.length > 16000) {
+                    wakeRawSamples.add(audio);
+                } else if (wakeWizardFeedback != null) {
+                    wakeWizardFeedback.setText("\u26A0\uFE0F That sentence was too short and won't be used for voice enrollment — the wake phrase itself is still saved.");
+                }
                 finalizeWakeTraining();
             }
             @Override public void onError(String message) { finalizeWakeTraining(); }
@@ -3213,12 +3265,14 @@ public class MainActivity extends Activity {
     }
 
     private void finalizeWakeTraining() {
-        // Only use first 3 templates for DTW (remaining are for voice enrollment)
-        List<float[][]> dtwTemplates = wakeTemplates.size() > 3
-                ? wakeTemplates.subList(0, 3) : wakeTemplates;
+        // Only use first 3 templates for DTW (remaining are for voice enrollment). Copy defensively
+        // rather than pass a live subList VIEW — wakeTemplates.clear() on a later re-record/cancel
+        // path would otherwise corrupt whatever ProfileStore.setWakeProfile retained by reference.
+        List<float[][]> dtwTemplates = new java.util.ArrayList<>(
+                wakeTemplates.subList(0, Math.min(3, wakeTemplates.size())));
         if (!new ProfileStore(this).setWakeProfile(wakePhraseBeingTrained, dtwTemplates)) {
-            wakeTrainingStatus.setText("IRIS could not securely save those samples. Please retry.");
-            trainWakeButton.setEnabled(true);
+            if (wakeTrainingStatus != null) wakeTrainingStatus.setText("IRIS could not securely save those samples. Please retry.");
+            if (trainWakeButton != null) trainWakeButton.setEnabled(true);
             return;
         }
         // Enroll speaker voiceprint from the recorded samples using Vosk x-vectors.
@@ -3233,12 +3287,14 @@ public class MainActivity extends Activity {
         ProfileStore.WakeProfile saved = new ProfileStore(this).getWakeProfile();
         LogStore.append(this, "WAKE TRAINED", saved.phrase + " with " + dtwTemplates.size()
                 + " acoustic templates, " + enrollStatus);
-        wakeTrainingStatus.setText("✅  “" + saved.phrase + "” • "
+        if (wakeTrainingStatus != null) wakeTrainingStatus.setText("✅  “" + saved.phrase + "” • "
                 + dtwTemplates.size() + " templates • " + enrollStatus);
-        trainWakeButton.setText("\uD83D\uDD04  Retrain");
-        trainWakeButton.setEnabled(true);
-        trainWakeButton.setOnClickListener(v -> authenticateThen("Train owner voice", this::beginWakeTraining));
-        testWakeButton.setEnabled(true);
+        if (trainWakeButton != null) {
+            trainWakeButton.setText("\uD83D\uDD04  Retrain");
+            trainWakeButton.setEnabled(true);
+            trainWakeButton.setOnClickListener(v -> authenticateThen("Train owner voice", this::beginWakeTraining));
+        }
+        if (testWakeButton != null) testWakeButton.setEnabled(true);
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.VISIBLE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.GONE);
         stopWakeTrainingEngine();
@@ -3269,7 +3325,11 @@ public class MainActivity extends Activity {
             maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO, "Microphone"); return;
         }
         final boolean requireSpeaker = new AppSettings(this).speakerVerification();
-        if (requireSpeaker && !WakePolicy.owner(wake.voiceprint, wake.voiceprint, .99)) {
+        // Was: WakePolicy.owner(wake.voiceprint, wake.voiceprint, .99) — comparing a vector to
+        // itself is always ~1.0 cosine similarity for any non-null vector, so that call only ever
+        // tested "is voiceprint non-null", while looking like a real verification check. Same
+        // bug class as the one fixed previously for this button; use the actual enrollment flag.
+        if (requireSpeaker && !wake.isVoiceEnrolled()) {
             toast("Enroll your voice before testing (voice verification is ON)."); return;
         }
         if (IrisListeningService.isRunning) stopListeningService();
@@ -4136,6 +4196,14 @@ public class MainActivity extends Activity {
         if (testTts != null) { testTts.stop(); testTts.shutdown(); testTts = null; }
         if (timedRecorder != null) { timedRecorder.stop(); timedRecorder = null; }
         stopWakeTrainingEngine();
+        // Voice-command training runs its own background threads (enrollment + per-command
+        // transcription) that only check voiceTrainCancelled between steps — without setting it
+        // here and closing trainVosk, destroying the activity mid-training left the loaded Vosk
+        // model leaked and those threads free to keep running and post to a dead activity.
+        voiceTrainCancelled = true;
+        if (trainVosk != null) { trainVosk.close(); trainVosk = null; }
+        if (activeTrainingDialog != null && activeTrainingDialog.isShowing()) { activeTrainingDialog.dismiss(); }
+        activeTrainingDialog = null;
         super.onDestroy();
     }
 

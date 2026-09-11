@@ -90,8 +90,8 @@ Audio → Mel Spectrogram → ECAPA-TDNN Model → 192-dim Embedding Vector
 - New "Re-enroll Voice" button if voiceprint exists
 
 ### `AppSettings.java`
-- `speakerVerification()` / `setSpeakerVerification(boolean)` — default ON
-- `speakerThreshold()` / `setSpeakerThreshold(float)` — default 0.70
+- `speakerVerification()` / `setSpeakerVerification(boolean)` — default OFF (see current code; this doc predates the 7.37.0 default change)
+- Voice-match strictness is controlled by `voiceSensitivity()` / `setVoiceSensitivity(float)`, consumed via `WakePolicy.threshold()`. The separate `speakerThreshold()` field this doc originally described was never wired to any verification path and was removed as dead code.
 
 ### `view_settings.xml`
 - New switch: "Only respond to my voice" in Privacy & Safety section
