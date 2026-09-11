@@ -1161,7 +1161,6 @@ public class MainActivity extends Activity {
         }
         startTrainingButton.setOnClickListener(v -> authenticateThen("\uD83D\uDD12 Train contact", this::requestContactForTraining));
         contactWizardCancel.setOnClickListener(v -> cancelContactTraining());
-        view.findViewById(R.id.testWakeButton2).setOnClickListener(v -> testWakePhrase());
         view.findViewById(R.id.testCommandsButton).setOnClickListener(v -> testTrainedCommand());
         view.findViewById(R.id.exportProfileButton).setOnClickListener(v ->
                 authenticateThen("Export IRIS profile", this::createProfileDocument));
@@ -2631,6 +2630,11 @@ public class MainActivity extends Activity {
         }
         statusText.setTextColor(active ? getColor(R.color.cyan) : getColor(R.color.text_primary));
         micRouteText.setText("\uD83C\uDF99  Microphone: " + micLabel());
+        // Keep the Training screen's mic label live too — it used to only be set once when the
+        // screen opened, so switching mics (e.g. plugging in headphones) while still on that
+        // screen never updated it. This receiver already fires on every mic-route change.
+        TextView micLabelTrainingLive = findViewById(R.id.micLabelTraining);
+        if (micLabelTrainingLive != null) micLabelTrainingLive.setText("\uD83C\uDF99 Listening mic: " + micLabel());
         recognitionText.setText("\uD83E\uDDE0  Recognition: " + lastRecognition);
         updateFrequentContacts();
     }
@@ -2865,6 +2869,7 @@ public class MainActivity extends Activity {
         final java.util.List<short[]> capped = samples.size() > 6
                 ? new java.util.ArrayList<>(samples.subList(0, 6)) : samples;
         final VoskEngine ve = new VoskEngine();
+        ve.setSensitivity(new AppSettings(this).voiceSensitivity());
         ve.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
                 ve.initSpeaker(MainActivity.this);
@@ -2932,13 +2937,18 @@ public class MainActivity extends Activity {
                         } else {
                             LogStore.append(MainActivity.this, "VOICE", "Enrollment failed: " + usableF
                                     + " usable audio, " + vecsF + " embedded, " + transcribedF + " phrase-matched (need 3+ consistent)");
+                            // A retrain preserves any prior voiceprint (setWakeProfile no longer wipes it), so a
+                            // failed re-enrollment here does NOT necessarily leave the owner with nothing enrolled —
+                            // reflect that in the message instead of implying total loss.
+                            boolean hadExisting = new ProfileStore(MainActivity.this).getVoiceprint() != null;
                             handler.post(() -> {
                                 String detail = !ve.isSpeakerReady() ? "Offline voice-lock model wasn't ready in time — try again."
                                         : usableF == 0 ? "No clear speech detected — try again a little louder, away from noise."
                                         : "Recordings were too inconsistent with each other. Try again, speaking the same way each time.";
-                                toast("Voice wake unavailable: " + detail);
+                                String suffix = hadExisting ? " Your previous voice enrollment is kept." : "";
+                                toast("Voice wake unavailable: " + detail + suffix);
                                 if (wakeTrainingStatus != null)
-                                    wakeTrainingStatus.setText("\u26A0 " + detail + " (" + usableF + "/" + capped.size() + " usable)");
+                                    wakeTrainingStatus.setText("\u26A0 " + detail + suffix + " (" + usableF + "/" + capped.size() + " usable)");
                             });
                         }
                     } catch (Throwable t) {
@@ -2993,6 +3003,7 @@ public class MainActivity extends Activity {
         voiceTrainPrompt.setText("Warming up the voice engine — one moment…");
         voiceTrainFeedback.setText("");
         trainVosk = new VoskEngine();
+        trainVosk.setSensitivity(new AppSettings(this).voiceSensitivity());
         trainVosk.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
                 trainVosk.initSpeaker(MainActivity.this);
@@ -3247,26 +3258,35 @@ public class MainActivity extends Activity {
     private VoskEngine wakeTestEngine;
     private void testWakePhrase() {
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
-        if (!wake.isReady() || !WakePolicy.owner(wake.voiceprint, wake.voiceprint, .99)) {
-            toast("Enroll your voice before testing."); return;
+        // Only the phrase itself needs to be trained to test wake — voice enrollment is optional
+        // and only relevant when the user has turned voice verification ON in Settings. Requiring
+        // a voiceprint here regardless of that setting is what made this button say "not trained"
+        // even when phrase-only wake (the default) was working fine.
+        if (!wake.isReady()) {
+            toast("Set up your wake phrase before testing."); return;
         }
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
             maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO, "Microphone"); return;
         }
+        final boolean requireSpeaker = new AppSettings(this).speakerVerification();
+        if (requireSpeaker && !WakePolicy.owner(wake.voiceprint, wake.voiceprint, .99)) {
+            toast("Enroll your voice before testing (voice verification is ON)."); return;
+        }
         if (IrisListeningService.isRunning) stopListeningService();
         stopWakeTrainingEngine();
         final VoskEngine engine = new VoskEngine();
+        engine.setSensitivity(new AppSettings(this).voiceSensitivity());
         wakeTestEngine = engine;
         wakeTrainingStatus.setText("Preparing the same offline detector used by background listening…");
         engine.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
                 if (wakeTestEngine != engine) { engine.close(); return; }
-                engine.initSpeaker(MainActivity.this);
+                if (requireSpeaker) engine.initSpeaker(MainActivity.this);
                 final long deadline = android.os.SystemClock.elapsedRealtime() + 45000;
                 handler.post(new Runnable() {
                     @Override public void run() {
                         if (wakeTestEngine != engine) return;
-                        if (!engine.isSpeakerReady()) {
+                        if (requireSpeaker && !engine.isSpeakerReady()) {
                             if (android.os.SystemClock.elapsedRealtime() < deadline) handler.postDelayed(this, 500);
                             else { stopWakeTrainingEngine(); wakeTrainingStatus.setText("Offline speaker model unavailable. Try again after downloading it."); }
                             return;
@@ -3279,16 +3299,21 @@ public class MainActivity extends Activity {
                         engine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
                             @Override public void onWakeDetected(float[] embedding) {
                                 if (wakeTestEngine != engine) return;
-                                boolean accepted = (am == null || !am.isMusicActive()) && WakePolicy.owner(embedding,
-                                        wake.voiceprint, WakePolicy.threshold(new AppSettings(MainActivity.this).voiceSensitivity()));
+                                boolean mediaOk = (am == null || !am.isMusicActive());
+                                boolean accepted = mediaOk && (!requireSpeaker || WakePolicy.owner(embedding,
+                                        wake.voiceprint, WakePolicy.threshold(new AppSettings(MainActivity.this).voiceSensitivity())));
                                 stopWakeTrainingEngine();
-                                wakeTrainingStatus.setText(accepted ? "Full phrase and owner verified. Test passed." : "Rejected: voice mismatch or media playing. Retrain if this was you.");
+                                String result;
+                                if (accepted) result = "Full phrase" + (requireSpeaker ? " and owner verified" : "") + ". Test passed.";
+                                else if (!mediaOk) result = "Rejected: media was playing. Pause it and try again.";
+                                else result = "Rejected: voice mismatch. Retrain if this was you.";
+                                wakeTrainingStatus.setText(result);
                             }
                             @Override public void onError(String message) {
                                 if (wakeTestEngine != engine) return;
                                 stopWakeTrainingEngine(); wakeTrainingStatus.setText("Test unavailable: " + message);
                             }
-                        });
+                        }, requireSpeaker);
                         handler.postDelayed(() -> {
                             if (wakeTestEngine == engine) { stopWakeTrainingEngine(); wakeTrainingStatus.setText("No verified wake in 15 seconds. Say the complete phrase or retrain."); }
                         }, 15000);

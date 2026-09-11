@@ -830,7 +830,20 @@ public class IrisListeningService extends Service implements RecognitionListener
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
                         + " accepted=" + accepted);
                 voskEngine.stop();
-                if (!accepted) { scheduleWakeRetry(1500); return; }
+                // A rejected attempt (wrong voice, media just started, cooldown) used to wait
+                // 1.5s before re-arming — during which repeating the phrase again (the natural
+                // thing to do when you think wake didn't hear you) did nothing at all. The only
+                // real reasons to delay are external conditions that need time to change (media
+                // playback, model loading); a plain voice/cooldown rejection can re-arm almost
+                // immediately since rebuilding the Vosk recognizer itself is fast.
+                if (!accepted && media) {
+                    // Distinct from a generic rejection: media started between arming wake and
+                    // capturing speech (a real race, not a wrong voice) — say so instead of a
+                    // silent retry that looks identical to "wake just isn't working".
+                    wakeReadiness = "Media started while listening — pause it and repeat the phrase";
+                    updateListeningNotification("Wake paused: media started. Pause it and repeat the phrase.");
+                }
+                if (!accepted) { scheduleWakeRetry(media ? 1500 : 150); return; }
                 lastWakeAt = now;
                 ++wakeEpoch;
                 vibrate(45);

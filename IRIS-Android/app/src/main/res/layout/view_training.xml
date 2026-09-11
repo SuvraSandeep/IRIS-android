@@ -460,22 +460,9 @@
                 android:orientation="horizontal">
 
                 <Button
-                    android:id="@+id/testWakeButton2"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_button_secondary"
-                    android:text="\uD83C\uDF99 Test Wake"
-                    android:textAllCaps="false"
-                    android:textColor="@color/text_primary"
-                    android:textSize="12sp" />
-
-                <Button
                     android:id="@+id/testCommandsButton"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="48dp"
-                    android:layout_marginLeft="8dp"
-                    android:layout_weight="1"
                     android:background="@drawable/bg_button_secondary"
                     android:text="\uD83D\uDCDE Test Command"
                     android:textAllCaps="false"

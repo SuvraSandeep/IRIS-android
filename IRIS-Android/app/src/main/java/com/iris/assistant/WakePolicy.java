@@ -29,6 +29,18 @@ public final class WakePolicy {
         return sample != null && sample.length == 128 && enrolled != null && enrolled.length == 128
                 && cosine(sample, enrolled) >= threshold;
     }
+    /**
+     * Minimum cosine-similarity a captured embedding must reach against the enrolled voiceprint
+     * to be accepted as the owner's voice, scaled by the same voiceSensitivity() setting (0..1)
+     * as VoskEngine.minWordConfidence — but with an INDEPENDENT, differently-scaled formula:
+     *   - this (speaker match):     0.65 (low sensitivity) .. 0.85 (max) — higher sensitivity
+     *                               means the app trusts a WEAKER voice match (easier to pass).
+     *   - VoskEngine.minWordConfidence (phrase heard clearly): 0.65 (low) down to 0.30 (max) —
+     *                               higher sensitivity means a LOWER confidence bar (easier to pass).
+     * Both move the same direction in *effect* (higher sensitivity = easier to wake), just on
+     * different numeric scales/directions internally. Keep both comments in sync if either
+     * formula changes — they are read together whenever tuning "how easily does IRIS wake".
+     */
     public static double threshold(float sensitivity) {
         if (!Float.isFinite(sensitivity)) return .75;
         return .65 + Math.max(0, Math.min(1, sensitivity)) * .20;
@@ -74,7 +86,16 @@ public final class WakePolicy {
         for (int i = 0; i < mean.length; i++) mean[i] /= Math.sqrt(norm);
         return mean;
     }
-    /** Reject silence, clipping and clips without sustained speech above their own noise floor. */
+    /** Reject silence, clipping and clips without sustained speech above their own noise floor.
+     *  Published acoustic research on whispered speech shows its energy runs roughly 20 dB below
+     *  normal phonated speech — about a 10x drop in RMS amplitude. Normal speech into a phone mic
+     *  typically lands in the low thousands of RMS; a whisper can genuinely be as low as ~150-300.
+     *  The previous fixed 300 floor sat right at (or above) realistic whisper levels, meaning a
+     *  real whisper could fail this gate even after VoskEngine's confidence-floor fix — this gate
+     *  runs BEFORE any embedding/transcription is attempted, so a rejection here is silent and
+     *  looks identical to "wake isn't working". Lowered the floor and the required voiced-frame
+     *  count so quiet/whispered training samples aren't thrown out before they're even evaluated;
+     *  the noise*3 multiplier is untouched, so it still rejects genuine background hiss/noise. */
     public static boolean usableAudio(short[] pcm) {
         if (pcm == null || pcm.length < 8000) return false;
         double[] levels = new double[pcm.length / 320]; int clipped = 0;
@@ -86,8 +107,8 @@ public final class WakePolicy {
             levels[f] = Math.sqrt(e / 320);
         }
         java.util.Arrays.sort(levels);
-        double noise = Math.max(100, levels[levels.length / 10]);
-        int voiced = 0; for (double rms : levels) if (rms >= Math.max(300, noise * 3)) voiced++;
-        return voiced >= 20 && clipped < pcm.length / 100;
+        double noise = Math.max(60, levels[levels.length / 10]);
+        int voiced = 0; for (double rms : levels) if (rms >= Math.max(150, noise * 3)) voiced++;
+        return voiced >= 12 && clipped < pcm.length / 100;
     }
 }

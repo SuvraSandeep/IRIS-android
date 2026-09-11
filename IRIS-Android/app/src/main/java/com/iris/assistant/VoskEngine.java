@@ -158,8 +158,15 @@ public final class VoskEngine {
         }, "Vosk-Download").start();
     }
 
+    // A real Vosk acoustic model file (am/final.mdl) is always several hundred KB at minimum —
+    // a corrupted/truncated download (e.g. connection dropped mid-transfer) still produces a
+    // nonzero-length file that a simple length>0 check would wrongly accept, only to fail later
+    // at Model construction with a cryptic native error the user never sees. This minimum is
+    // comfortably below any real model's size but well above what a truncated download leaves.
+    private static final long MIN_PLAUSIBLE_MODEL_FILE_BYTES = 50_000;
+
     private static boolean isValidModelDir(File dir) {
-        return dir.isDirectory() && new File(dir, "am/final.mdl").length() > 0
+        return dir.isDirectory() && new File(dir, "am/final.mdl").length() > MIN_PLAUSIBLE_MODEL_FILE_BYTES
                 && new File(dir, "conf/model.conf").length() > 0
                 && new File(dir, "graph").isDirectory();
     }
@@ -288,7 +295,14 @@ public final class VoskEngine {
      *  0.85 was tuned for normal-volume speech and reliably rejected whispers and quiet rooms —
      *  Vosk's confidence score tracks acoustic clarity, so quiet speech legitimately scores
      *  lower even when the words are heard correctly. Sensitivity 0.5 (default) now needs 0.55,
-     *  not 0.85; turning sensitivity up relaxes it further for whisper-level detection. */
+     *  not 0.85; turning sensitivity up relaxes it further for whisper-level detection.
+     *  NOTE — this is deliberately a SEPARATE formula from WakePolicy.threshold(), which scales
+     *  the same voiceSensitivity() setting for the owner-voice cosine match instead of phrase
+     *  confidence: this field goes 0.65 (low sensitivity) DOWN to 0.30 (max, easier to pass),
+     *  while WakePolicy.threshold() goes 0.65 UP to 0.85 (max, also easier to pass — a higher
+     *  cosine bound sounds stricter but the sensitivity direction there flips the accept logic).
+     *  Both formulas move sensitivity in the same "easier to wake at max" direction; see
+     *  WakePolicy.threshold()'s doc comment for the full cross-reference. */
     private volatile long wakeGeneration;
     private double minWordConfidence = 0.55;
     public void setSensitivity(float sensitivity) {
@@ -469,7 +483,7 @@ public final class VoskEngine {
     }
 
     private static boolean isValidSpkDir(File dir) {
-        return dir != null && new File(dir, "final.ext.raw").length() > 0
+        return dir != null && new File(dir, "final.ext.raw").length() > MIN_PLAUSIBLE_MODEL_FILE_BYTES
                 && new File(dir, "mean.vec").length() > 0
                 && new File(dir, "transform.mat").length() > 0;
     }

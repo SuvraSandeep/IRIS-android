@@ -149,10 +149,14 @@ public final class ProfileStore {
                 allTemplates.put(frames);
             }
             wake.put("templates", allTemplates);
-            // Preserve any existing alternate phrases across a retrain of the primary.
+            // Preserve any existing alternate phrases AND enrolled voiceprint across a retrain of the primary —
+            // retraining the phrase text/samples must never silently discard a working voice enrollment.
             JSONObject prev = current.optJSONObject("wakeWord");
             if (prev != null && prev.optJSONArray("altPhrases") != null) {
                 wake.put("altPhrases", prev.optJSONArray("altPhrases"));
+            }
+            if (prev != null && prev.optJSONArray("voiceprint") != null) {
+                wake.put("voiceprint", prev.optJSONArray("voiceprint"));
             }
             current.put("wakeWord", wake);
             persist(current);
