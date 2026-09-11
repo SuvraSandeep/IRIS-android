@@ -1087,7 +1087,11 @@ public class MainActivity extends Activity {
         startVoiceTrainButton = view.findViewById(R.id.startVoiceTrainButton);
         int aliasCount = new ProfileStore(this).commandAliasCount();
         boolean enrolled = new ProfileStore(this).getWakeProfile().isVoiceEnrolled();
-        voiceTrainStatus.setText((enrolled ? "\u2705 Voice pattern learned" : "\u26A0\uFE0F Voice pattern not set")
+        boolean verifyOnForStatus = new AppSettings(this).speakerVerification();
+        String voicePatternLabel = enrolled ? "\u2705 Voice pattern learned"
+                : verifyOnForStatus ? "\u26A0\uFE0F Voice pattern not set"
+                : "Voice pattern optional (verification is off)";
+        voiceTrainStatus.setText(voicePatternLabel
                 + " \u2022 " + aliasCount + " command pronunciation" + (aliasCount == 1 ? "" : "s"));
         startVoiceTrainButton.setText(enrolled || aliasCount > 0
                 ? "\uD83D\uDD04  Retrain Voice & Commands" : "\uD83C\uDF93  Learn My Voice & Commands");
@@ -1103,7 +1107,10 @@ public class MainActivity extends Activity {
             wakeTrainingStatus.setText("\u23F8 Paused at " + savedProgress + "/5 \u2014 Resume or start over.");
             testWakeButton.setEnabled(wake.isReady());
         } else if (wake.isReady()) {
-            String voiceStatus = wake.isVoiceEnrolled() ? "voice enrolled \u2705" : "voice not enrolled \u26A0\uFE0F";
+            boolean verifyOn = new AppSettings(this).speakerVerification();
+            String voiceStatus = wake.isVoiceEnrolled() ? "voice match saved \u2705"
+                    : verifyOn ? "voice match not saved \u2014 wake still works on the phrase alone"
+                    : "voice match off (not required)";
             wakeTrainingStatus.setText("\u2705  \u201C" + wake.phrase + "\u201D \u2022 " + voiceStatus);
             testWakeButton.setEnabled(true);
         } else {
@@ -2879,38 +2886,59 @@ public class MainActivity extends Activity {
                             }
                         }
                         java.util.List<float[]> vecs = new java.util.ArrayList<>();
+                        int usableAudioCount = 0, transcribedCount = 0;
                         if (ve.isSpeakerReady()) {
                             int i = 0;
                             for (short[] s : capped) {
+                                if (!WakePolicy.usableAudio(s)) { i++; continue; }
+                                usableAudioCount++;
                                 float[] e = null;
                                 try {
+                                    // Previously required an EXACT transcription match to the
+                                    // trained phrase before even trying to embed a sample — one
+                                    // mis-transcribed word (common with quiet/whispered speech)
+                                    // silently dropped that whole sample with no explanation.
+                                    // The embedding itself doesn't need a text match: usableAudio
+                                    // already confirms real speech, and enrollment()'s consistency
+                                    // check catches genuinely bad samples. Loosely checking the
+                                    // transcript is still useful signal, logged but non-blocking.
                                     String expected = new ProfileStore(MainActivity.this).getWakeProfile().phrase;
-                                    if (WakePolicy.matches(ve.transcribe(s), java.util.Collections.singletonList(expected))) e = ve.embed(s);
+                                    String heardText = ve.transcribe(s);
+                                    if (heardText != null && WakePolicy.matches(heardText, java.util.Collections.singletonList(expected)))
+                                        transcribedCount++;
+                                    e = ve.embed(s);
                                 } catch (Throwable ignored) { }
-                                if (e != null && WakePolicy.usableAudio(s)) vecs.add(e);
+                                if (e != null) vecs.add(e);
                                 final int pct = (int) (100.0 * (++i) / capped.size());
                                 handler.post(() -> { if (wakeTrainingStatus != null)
                                         wakeTrainingStatus.setText("Learning your voice… " + pct + "%"); });
                             }
                         }
-                        if (WakePolicy.enrollment(vecs) != null) {
-                            new ProfileStore(MainActivity.this).setVoiceprint(WakePolicy.enrollment(vecs));
-                            LogStore.append(MainActivity.this, "VOICE", "Enrolled voiceprint from " + vecs.size() + " samples");
+                        float[] enrolled = WakePolicy.enrollment(vecs);
+                        final int usableF = usableAudioCount, transcribedF = transcribedCount, vecsF = vecs.size();
+                        if (enrolled != null) {
+                            new ProfileStore(MainActivity.this).setVoiceprint(enrolled);
+                            LogStore.append(MainActivity.this, "VOICE", "Enrolled voiceprint from " + vecs.size()
+                                    + " of " + capped.size() + " samples (" + transcribedCount + " phrase-matched)");
                             // Show what IRIS actually heard (engine is already loaded — no extra cost).
                             String heard = "";
                             try { heard = ve.transcribe(capped.get(capped.size() - 1)); } catch (Throwable ignored) { }
                             final String heardF = heard == null ? "" : heard.trim();
                             handler.post(() -> {
-                                toast("\uD83D\uDD10 Voice enrolled \u2705");
+                                toast("\uD83D\uDD10 Voice enrolled \u2705 (" + vecsF + "/" + capped.size() + " samples used)");
                                 if (wakeTrainingStatus != null && !heardF.isEmpty())
                                     wakeTrainingStatus.setText("\u2705 Saved. I heard: \u201C" + heardF + "\u201D");
                             });
                         } else {
-                            LogStore.append(MainActivity.this, "VOICE", "Enrollment skipped (speaker model unavailable)");
+                            LogStore.append(MainActivity.this, "VOICE", "Enrollment failed: " + usableF
+                                    + " usable audio, " + vecsF + " embedded, " + transcribedF + " phrase-matched (need 3+ consistent)");
                             handler.post(() -> {
-                                toast("Voice wake unavailable. Load the offline models and record at least three clear, consistent samples of the full phrase.");
+                                String detail = !ve.isSpeakerReady() ? "Offline voice-lock model wasn't ready in time — try again."
+                                        : usableF == 0 ? "No clear speech detected — try again a little louder, away from noise."
+                                        : "Recordings were too inconsistent with each other. Try again, speaking the same way each time.";
+                                toast("Voice wake unavailable: " + detail);
                                 if (wakeTrainingStatus != null)
-                                    wakeTrainingStatus.setText("\u26A0 Voice wake unavailable: check offline models and retrain in a quiet room.");
+                                    wakeTrainingStatus.setText("\u26A0 " + detail + " (" + usableF + "/" + capped.size() + " usable)");
                             });
                         }
                     } catch (Throwable t) {
@@ -3034,24 +3062,34 @@ public class MainActivity extends Activity {
                 try { Thread.sleep(150); } catch (InterruptedException ignored) { }
             }
             java.util.List<float[]> vecs = new java.util.ArrayList<>();
-            if (trainVosk != null && trainVosk.isSpeakerReady()) {
+            int usableCount = 0;
+            boolean speakerReady = trainVosk != null && trainVosk.isSpeakerReady();
+            if (speakerReady) {
                 for (short[] s : samples) {
+                    if (!WakePolicy.usableAudio(s)) continue;
+                    usableCount++;
                     float[] e = null;
                     try { e = trainVosk.embed(s); } catch (Throwable ignored) { }
-                    if (e != null && WakePolicy.usableAudio(s)) vecs.add(e);
+                    if (e != null) vecs.add(e);
                 }
             }
-            final boolean enrolled = WakePolicy.enrollment(vecs) != null;
-            if (enrolled) {
-                new ProfileStore(MainActivity.this).setVoiceprint(WakePolicy.enrollment(vecs));
+            final float[] enrolledVec = WakePolicy.enrollment(vecs);
+            final int usableF = usableCount, vecsF = vecs.size(), totalF = samples.size();
+            if (enrolledVec != null) {
+                new ProfileStore(MainActivity.this).setVoiceprint(enrolledVec);
                 LogStore.append(MainActivity.this, "VOICE",
-                        "Voice pattern enrolled from " + vecs.size() + " read phrases");
+                        "Voice pattern enrolled from " + vecs.size() + " of " + samples.size() + " read phrases");
             } else {
-                LogStore.append(MainActivity.this, "VOICE",
-                        "Voice pattern not saved (speaker model unavailable)");
+                LogStore.append(MainActivity.this, "VOICE", "Voice pattern not saved: speakerReady="
+                        + speakerReady + " usable=" + usableF + "/" + totalF + " embedded=" + vecsF);
             }
             handler.post(() -> {
-                if (!enrolled) toast("Voice wake unavailable. Check offline models and retrain with at least three clear, consistent samples.");
+                if (enrolledVec == null) {
+                    String detail = !speakerReady ? "the voice-lock model wasn't ready in time"
+                            : usableF == 0 ? "no clear speech was detected in your recordings"
+                            : "the recordings were too inconsistent with each other";
+                    toast("Voice wake unavailable: " + detail + ". You can retrain from Training.");
+                }
                 if (!voiceTrainCancelled) trainCommandStep();
             });
         }, "IRIS-VoiceTrain-Enroll").start();

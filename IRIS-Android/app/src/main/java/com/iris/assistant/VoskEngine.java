@@ -284,7 +284,17 @@ public final class VoskEngine {
         startWakeDetection(java.util.Collections.singletonList(phrase), listener);
     }
 
+    /** Minimum per-word confidence to accept a wake phrase, scaled by sensitivity (0..1).
+     *  0.85 was tuned for normal-volume speech and reliably rejected whispers and quiet rooms —
+     *  Vosk's confidence score tracks acoustic clarity, so quiet speech legitimately scores
+     *  lower even when the words are heard correctly. Sensitivity 0.5 (default) now needs 0.55,
+     *  not 0.85; turning sensitivity up relaxes it further for whisper-level detection. */
     private volatile long wakeGeneration;
+    private double minWordConfidence = 0.55;
+    public void setSensitivity(float sensitivity) {
+        float s = Math.max(0f, Math.min(1f, sensitivity));
+        minWordConfidence = 0.65 - s * 0.35;   // 0.65 (low sensitivity) down to 0.30 (max)
+    }
     public void startWakeDetection(java.util.List<String> phrases, WakeListener listener) {
         startWakeDetection(phrases, listener, true);
     }
@@ -334,7 +344,7 @@ public final class VoskEngine {
                         for (int i = 0; i < words.length(); i++) score = Math.min(score, words.getJSONObject(i).optDouble("conf", 0));
                         double duration = words.getJSONObject(words.length()-1).optDouble("end", 0)
                                 - words.getJSONObject(0).optDouble("start", 0);
-                        if (!Double.isFinite(score) || score < .85 || duration < .5 || duration > 4) return;
+                        if (!Double.isFinite(score) || score < minWordConfidence || duration < .35 || duration > 5) return;
                         // The spk_frames field only appears when a speaker model is attached to
                         // the recognizer — gate on it only when we actually attached one.
                         if (spkAttached && result.optInt("spk_frames", 0) < 50) return;

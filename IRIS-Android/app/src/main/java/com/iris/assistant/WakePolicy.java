@@ -33,13 +33,40 @@ public final class WakePolicy {
         if (!Float.isFinite(sensitivity)) return .75;
         return .65 + Math.max(0, Math.min(1, sensitivity)) * .20;
     }
+    /**
+     * Build an enrollment voiceprint from recorded samples, keeping consistent ones and
+     * dropping outliers rather than discarding the whole batch over one noisy/mismatched
+     * recording. Previously any single sample failing the .65 pairwise-similarity bar against
+     * ANY other sample discarded every sample, so one bad take silently failed enrollment with
+     * no way for the trainee to know which recording was the problem. Now each sample is
+     * scored against the others; only the samples that agree with the majority are kept, and
+     * enrollment only fails if fewer than 3 usable samples remain.
+     */
     public static float[] enrollment(List<float[]> samples) {
-        if (samples == null || samples.size() < 3) return null;
+        if (samples == null) return null;
+        List<float[]> valid = new java.util.ArrayList<>();
+        for (float[] a : samples) if (a != null && a.length == 128 && cosine(a, a) >= .99) valid.add(a);
+        if (valid.size() < 3) return null;
+        // Keep only samples that agree (cosine >= .65) with at least half of the others —
+        // this tolerates one or two inconsistent takes instead of failing on any single one.
+        // Compared by index, not object identity: two recordings can legitimately be the same
+        // reference (e.g. duplicate samples), and reference equality would wrongly treat a
+        // sample as disagreeing with itself.
+        List<float[]> kept = new java.util.ArrayList<>();
+        for (int i = 0; i < valid.size(); i++) {
+            float[] a = valid.get(i);
+            int agree = 0;
+            for (int j = 0; j < valid.size(); j++) {
+                if (i == j) continue;
+                if (cosine(a, valid.get(j)) >= .65) agree++;
+            }
+            if (agree >= Math.max(1, (valid.size() - 1) / 2)) kept.add(a);
+        }
+        if (kept.size() < 3) return null;
         float[] mean = new float[128];
-        for (float[] a : samples) {
-            if (a == null || a.length != 128 || cosine(a, a) < .99) return null;
-            for (float[] b : samples) if (cosine(a, b) < .65) return null;
+        for (float[] a : kept) {
             double norm = 0; for (float v : a) norm += v * (double)v;
+            if (norm <= 0) continue;
             for (int i = 0; i < 128; i++) mean[i] += a[i] / Math.sqrt(norm);
         }
         double norm = 0; for (float v : mean) norm += v * (double)v;

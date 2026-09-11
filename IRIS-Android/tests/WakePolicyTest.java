@@ -25,6 +25,12 @@ public final class WakePolicyTest {
         check(WakePolicy.enrollment(List.of(owner, owner)) == null, "minimum samples");
         check(WakePolicy.enrollment(List.of(owner, owner, other)) == null, "mixed speakers");
         check(WakePolicy.owner(WakePolicy.enrollment(List.of(owner, owner, owner)), owner, .99), "consistent enrollment");
+        // One noisy/mismatched sample among several good ones must not fail the whole batch —
+        // this is the exact training-reliability bug: previously any single outlier discarded
+        // every sample. With 4 good + 1 bad, the 4 good ones should still enroll successfully.
+        float[] slightlyOff = owner.clone(); slightlyOff[0] = 0.85f; slightlyOff[5] = 0.3f;
+        check(WakePolicy.owner(WakePolicy.enrollment(List.of(owner, owner, slightlyOff, owner, other)), owner, .9),
+                "outlier tolerance: majority still enrolls");
         check(!WakePolicy.usableAudio(new short[48000]), "silence");
         short[] clipped = new short[48000]; Arrays.fill(clipped, Short.MAX_VALUE);
         check(!WakePolicy.usableAudio(clipped), "clipping");

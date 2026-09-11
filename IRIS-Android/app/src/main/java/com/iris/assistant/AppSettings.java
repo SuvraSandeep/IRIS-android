@@ -79,7 +79,11 @@ public final class AppSettings {
     public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }
     public void setLockScreenControl(boolean value) { prefs.edit().putBoolean("lock_screen_control", value).apply(); }
     /** Voice-verification strictness 0=lenient .. 1=strict (default balanced; missing verification always rejects). */
-    public float voiceSensitivity() { return prefs.getFloat("owner_voice_sensitivity_v2", 0.5f); }
+    // Default raised from 0.5: the old 0.85-fixed word-confidence floor made wake unreliable
+    // even at normal volume, let alone whispered speech. 0.75 default now maps to a realistic
+    // ~0.39 confidence floor (see VoskEngine.setSensitivity) so wake is easy out of the box;
+    // users who get too many false wakes can still lower it in Settings.
+    public float voiceSensitivity() { return prefs.getFloat("owner_voice_sensitivity_v2", 0.75f); }
     public void setVoiceSensitivity(float value) { prefs.edit().putFloat("owner_voice_sensitivity_v2", value).apply(); }
     /** Use Google Speech Recognition for commands (best accuracy; falls back to Vosk offline). */
     public boolean googleSttForCommands() { return prefs.getBoolean("google_stt_commands", true); }

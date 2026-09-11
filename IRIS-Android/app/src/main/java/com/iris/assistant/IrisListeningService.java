@@ -793,6 +793,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         restoreRecognizerBeep();
+        voskEngine.setSensitivity(settings.voiceSensitivity());
         wakeReadiness = settings.speakerVerification() ? "Full phrase and owner checks armed" : "Phrase-only wake armed";
         // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
         // keeps full A2DP quality while IRIS is merely awake. If a Bluetooth mic is connected
