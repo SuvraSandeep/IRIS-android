@@ -98,24 +98,54 @@ public final class SystemTelemetryController {
 
     /** Rebuild the snapshot. {@code full} also refreshes the slower/expensive sources. */
     private void rebuild(boolean full) {
+        TelemetrySnapshot.Builder b = TelemetrySnapshot.builder(SystemClock.elapsedRealtime());
         try {
-            TelemetrySnapshot.Builder b = TelemetrySnapshot.builder(SystemClock.elapsedRealtime());
             network.contribute(b, settings.telemetryPublicIp());
-            if (full) {
-                TelemetrySnapshot.Builder slow = TelemetrySnapshot.builder(SystemClock.elapsedRealtime());
+        } catch (Throwable t) {
+            LogStore.append(ctx, "TELEMETRY", "network collector failed: " + t);
+        }
+        if (full) {
+            TelemetrySnapshot.Builder slow = TelemetrySnapshot.builder(SystemClock.elapsedRealtime());
+            try {
                 bluetooth.contribute(slow);
-                resources.contribute(slow, IrisListeningService.isRunning ? IrisListeningService.serviceStartedAt : 0);
-                PhoneDetailsCollector.contribute(ctx, slow);
-                slowSnapshot = slow.build();
+            } catch (Throwable t) {
+                LogStore.append(ctx, "TELEMETRY", "bluetooth collector failed: " + t);
             }
+            try {
+                resources.contribute(slow, IrisListeningService.isRunning ? IrisListeningService.serviceStartedAt : 0);
+            } catch (Throwable t) {
+                LogStore.append(ctx, "TELEMETRY", "resources collector failed: " + t);
+            }
+            try {
+                PhoneDetailsCollector.contribute(ctx, slow);
+            } catch (Throwable t) {
+                LogStore.append(ctx, "TELEMETRY", "phone details collector failed: " + t);
+            }
+            try {
+                slowSnapshot = slow.build();
+            } catch (Throwable t) {
+                LogStore.append(ctx, "TELEMETRY", "slow snapshot build failed: " + t);
+            }
+        }
+        try {
             for (TelemetrySnapshot.Metric m : slowSnapshot.all().values()) b.put(m);
+        } catch (Throwable t) {
+            LogStore.append(ctx, "TELEMETRY", "merging slow snapshot failed: " + t);
+        }
+        try {
             addIrisState(b);
+        } catch (Throwable t) {
+            LogStore.append(ctx, "TELEMETRY", "IRIS state collector failed: " + t);
+        }
+        try {
             // Age it so a frozen collector cannot keep looking live.
             latest = b.build().agedAt(SystemClock.elapsedRealtime(), STALE_AFTER_MS);
             events.add(TelemetryEventLog.Category.WAKE, latest.display("wake_ready"));
             events.add(TelemetryEventLog.Category.SENSOR, latest.display("active_sensors"));
             if (listener != null) listener.onTelemetry(latest);
-        } catch (Throwable ignored) { }
+        } catch (Throwable t) {
+            LogStore.append(ctx, "TELEMETRY", "finalizing/publishing snapshot failed: " + t);
+        }
     }
 
     /** IRIS's own state: wake readiness, engine, and what hardware IRIS is really using. */

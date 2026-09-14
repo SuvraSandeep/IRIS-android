@@ -118,6 +118,30 @@
                 android:text="Let IRIS act while your phone is locked. Quick actions (texts, torch, volume, info, reminders) run instantly; opening apps (WhatsApp, Maps, email…) asks for a fingerprint/PIN first."
                 android:textColor="@color/text_muted" android:textSize="11sp" />
 
+            <TextView android:id="@+id/batteryOptStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="10dp" android:text="Background reliability: checking\u2026"
+                android:textColor="@color/text_muted" android:textSize="12sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Android can kill IRIS in the background to save power, which stops wake listening and lock-screen capture. Exempting IRIS from battery optimization keeps it running reliably."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
+            <Button android:id="@+id/fixBatteryOptButton" android:layout_width="match_parent" android:layout_height="48dp"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_primary"
+                android:text="Fix now — keep IRIS running" android:textAllCaps="false"
+                android:textColor="@color/text_primary" android:textStyle="bold" />
+
+            <TextView android:id="@+id/screenshotFastPathStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="10dp" android:text="Instant screenshots: checking\u2026"
+                android:textColor="@color/text_muted" android:textSize="12sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Without this, asking IRIS for a screenshot falls back to Android's screen-recording consent dialog every time — a platform limitation, not something IRIS can skip on its own. Turning this on makes screenshots instant with no dialog."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
+            <Button android:id="@+id/fixScreenshotFastPathButton" android:layout_width="match_parent" android:layout_height="48dp"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_primary"
+                android:text="Turn on instant screenshots" android:textAllCaps="false"
+                android:textColor="@color/text_primary" android:textStyle="bold" />
+
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="14dp" android:text="VOICE SECURITY"
                 android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
@@ -137,8 +161,22 @@
                 android:text="Shake the phone to talk to IRIS" android:textColor="@color/text_primary" android:textSize="14sp" />
             <Switch android:id="@+id/headsetSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="6dp"
-                android:text="Double-press headset button to talk (may take over the earphone button from music apps)"
+                android:text="Press headset button to talk (may take over the button from music apps)"
                 android:textColor="@color/text_primary" android:textSize="14sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" android:layout_marginStart="12dp"
+                android:text="Which button:" android:textColor="@color/text_muted" android:textSize="11sp" />
+            <Spinner android:id="@+id/triggerButtonSpinner" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="2dp" android:layout_marginStart="12dp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:layout_marginStart="12dp"
+                android:text="Presses needed:" android:textColor="@color/text_muted" android:textSize="11sp" />
+            <Spinner android:id="@+id/triggerPressCountSpinner" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="2dp" android:layout_marginStart="12dp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Volume up/down isn't offered here — Bluetooth earphone volume presses can't be intercepted by any app, only play/pause/next/previous can."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
             <Switch android:id="@+id/mirrorSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="6dp"
                 android:text="Show IRIS replies as a notification (visible on your watch)"
@@ -247,33 +285,6 @@
                 android:layout_marginTop="4dp"
                 android:text="Downloads a larger offline Indian-English model for noticeably better recognition of your accent. One-time ~1GB download; uses more storage and RAM. Falls back to the small model automatically if it can't load."
                 android:textColor="@color/text_muted" android:textSize="11sp" />
-
-            <Switch android:id="@+id/aiEnabledSwitch" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:layout_marginTop="14dp"
-                android:text="Use AI brain (experimental)" android:textColor="@color/text_primary" android:textSize="14sp" />
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Off by default. Rule-based replies handle all commands reliably. Turn on for conversational AI (may be unstable on some phones)."
-                android:textColor="@color/text_muted" android:textSize="11sp" />
-            <Button android:id="@+id/downloadBrainButton" android:layout_width="match_parent" android:layout_height="52dp"
-                android:layout_marginTop="8dp" android:background="@drawable/bg_button_primary"
-                android:text="\uD83E\uDDE0 Download AI brain (~550 MB)" android:textAllCaps="false"
-                android:textColor="@color/text_primary" android:textStyle="bold" />
-            <TextView android:id="@+id/brainStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="6dp" android:text="AI brain: not installed (using rule-based replies)"
-                android:textColor="@color/text_muted" android:textSize="12sp" />
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="The default AI brain is open (no account needed) — just tap Download. The token field below is optional, only needed if you switch to a gated model."
-                android:textColor="@color/text_muted" android:textSize="11sp" />
-            <EditText android:id="@+id/hfTokenInput" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary" android:padding="12dp"
-                android:hint="Paste Hugging Face token (hf_...)" android:textColorHint="@color/text_muted"
-                android:textColor="@color/text_primary" android:textSize="13sp" android:inputType="textNoSuggestions"
-                android:maxLines="1" android:importantForAutofill="no" />
-            <Button android:id="@+id/saveTokenButton" android:layout_width="match_parent" android:layout_height="48dp"
-                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
-                android:text="Save token" android:textAllCaps="false" android:textColor="@color/text_primary" />
         </LinearLayout>
 
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"

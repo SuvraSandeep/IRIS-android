@@ -49,6 +49,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     public static final String ACTION_TALK = "com.iris.assistant.TALK";
     public static final String ACTION_CAPTURE_DONE = "com.iris.assistant.CAPTURE_DONE";
     public static final String ACTION_CAPTURE_STARTED = "com.iris.assistant.CAPTURE_STARTED";
+    /** Re-registers shake/headset triggers from current Settings without a full restart. */
+    public static final String ACTION_REFRESH_TRIGGERS = "com.iris.assistant.REFRESH_TRIGGERS";
     private Runnable cameraLaunchTimeout;
     private PendingIntent cameraLaunchIntent;
     private static final int CAMERA_LAUNCH_NOTIFICATION = 0xC0DE;
@@ -384,7 +386,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern RECALL_PATTERN = Pattern.compile(
             ".*\\b(?:what\\s+do\\s+you\\s+(?:know|remember)(?:\\s+about\\s+(.+))?"
             + "|know\\s+about\\s+me"
-            + "|tell\\s+me\\s+about\\s+(?:me|myself)"
+            + "|tell\\s+me\\s+(?:something\\s+)?about\\s+(?:me|myself)"
             + "|what.?s?\\s+in\\s+my\\s+memory"
             + "|my\\s+(?:memories|info|memory|details|profile))\\b.*",
             Pattern.CASE_INSENSITIVE);
@@ -428,9 +430,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private MediaMemoRecorder memoRecorder;
     private boolean voskReady;
     private volatile boolean androidWakeActive;
-    private LlmAgent llmAgent;
     private final ConnectivityMonitor serverMonitor = new ConnectivityMonitor();
-    private volatile boolean llmReady;
     private final ConversationManager conversation = new ConversationManager();
     private long lastLevelBroadcast;
     private Runnable commandTimeout;
@@ -440,10 +440,14 @@ public class IrisListeningService extends Service implements RecognitionListener
     private android.hardware.SensorEventListener shakeListener;
     private long lastShakeAt;
     private android.media.session.MediaSession mediaSession;
-    private long lastHeadsetHookAt;
-    // Pending "pass this single press through" callback — cancelled if a second press arrives
-    // within the double-press window, so double-presses still trigger talk instead of also
-    // being forwarded as two single-press media events.
+    /** Generalized press-counter state for the configurable trigger button (play/pause,
+     *  next, or previous — see AppSettings#triggerButton). Replaces the old hardcoded
+     *  double-press-only headset-hook counter so any configured press count (1-3) works. */
+    private int triggerPressRunCount;
+    private long lastTriggerPressAt;
+    // Pending "pass this single press through" callback — cancelled if another press arrives
+    // within the press window, so a multi-press trigger doesn't also forward each individual
+    // press as a normal media event once the count is satisfied.
     private Runnable headsetHookPassThrough;
 
     @Override
@@ -487,29 +491,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this, "VOSK", "Model unavailable, using fallback: " + message);
             }
         });
-        // Load the AI brain only if the user has opted in (off by default for
-        // stability — some devices crash natively during on-device inference).
-        llmAgent = new LlmAgent();
         serverMonitor.register(this);
-        // Crash-guard: if the app was killed mid-inference last time (native LLM crash),
-        // auto-disable the AI brain so we don't crash-loop. The rule-based engine still works.
-        android.content.SharedPreferences llmGuard = getSharedPreferences("iris_llm_guard", MODE_PRIVATE);
-        if (settings.aiEnabled() && llmGuard.getBoolean("inference_active", false)) {
-            settings.setAiEnabled(false);
-            llmGuard.edit().putBoolean("inference_active", false).apply();
-            LogStore.append(this, "LLM", "AI brain crashed during last use — auto-disabled for stability");
-        }
-        if (settings.aiEnabled() && !settings.irisPowerSaver()) {
-            new Thread(() -> {
-                boolean ok = llmAgent.loadModel(this);
-                llmReady = ok;
-                LogStore.append(this, "LLM", ok ? "AI brain ready" : "No LLM model, using rule-based chat");
-            }, "IRIS-LLM-Load").start();
-        } else {
-            llmReady = false;
-            LogStore.append(this, "LLM", settings.irisPowerSaver()
-                    ? "AI brain skipped — IRIS battery saver is on" : "AI brain disabled in Settings — using rule-based chat");
-        }
         setupTriggers();
     }
 
@@ -544,28 +526,37 @@ public class IrisListeningService extends Service implements RecognitionListener
         } catch (Throwable ignored) { }
         try {
             if (settings.headsetTrigger()) {
+                final int wantKeyCode = triggerKeyCodeFor(settings.triggerButton());
+                final int wantPresses = settings.triggerPressCount();
                 mediaSession = new android.media.session.MediaSession(this, "IRIS");
                 mediaSession.setCallback(new android.media.session.MediaSession.Callback() {
                     @Override public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
                         android.view.KeyEvent ke = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
                         if (ke != null && ke.getAction() == android.view.KeyEvent.ACTION_UP
-                                && ke.getKeyCode() == android.view.KeyEvent.KEYCODE_HEADSETHOOK) {
+                                && ke.getKeyCode() == wantKeyCode) {
                             long now = System.currentTimeMillis();
-                            if (now - lastHeadsetHookAt < 700) {       // double-press
-                                lastHeadsetHookAt = 0;
-                                handler.removeCallbacks(headsetHookPassThrough);
+                            if (now - lastTriggerPressAt < 700) {
+                                triggerPressRunCount++;
+                            } else {
+                                triggerPressRunCount = 1;
+                            }
+                            lastTriggerPressAt = now;
+                            handler.removeCallbacks(headsetHookPassThrough);
+                            if (triggerPressRunCount >= wantPresses) {
+                                triggerPressRunCount = 0;
                                 handler.post(() -> triggerTalk("headset"));
                             } else {
                                 // Was: every single press was fully consumed (return true) while
-                                // waiting to see if a second one arrived — the OS/media app never
-                                // saw a lone click, so normal play/pause never worked while this
-                                // (opt-in) trigger was on. Wait out the double-press window, then
-                                // pass the event through if no second press showed up in time.
-                                lastHeadsetHookAt = now;
+                                // waiting to see if enough presses arrived — the OS/media app
+                                // never saw a lone click, so normal play/pause/skip never worked
+                                // while this (opt-in) trigger was on. Wait out the press window,
+                                // then pass the event through if the count wasn't met in time.
                                 final long pressTime = now;
-                                handler.removeCallbacks(headsetHookPassThrough);
                                 headsetHookPassThrough = () -> {
-                                    if (lastHeadsetHookAt == pressTime) super.onMediaButtonEvent(mediaButtonIntent);
+                                    if (lastTriggerPressAt == pressTime) {
+                                        triggerPressRunCount = 0;
+                                        super.onMediaButtonEvent(mediaButtonIntent);
+                                    }
                                 };
                                 handler.postDelayed(headsetHookPassThrough, 700);
                             }
@@ -574,12 +565,36 @@ public class IrisListeningService extends Service implements RecognitionListener
                         return super.onMediaButtonEvent(mediaButtonIntent);
                     }
                 });
-                android.media.session.PlaybackState ps = new android.media.session.PlaybackState.Builder()
-                        .setActions(android.media.session.PlaybackState.ACTION_PLAY_PAUSE)
-                        .setState(android.media.session.PlaybackState.STATE_PAUSED, 0, 0f).build();
-                mediaSession.setPlaybackState(ps);
-                mediaSession.setActive(true);
+                reassertMediaSessionPriority();
             }
+        } catch (Throwable ignored) { }
+    }
+
+    /** Maps the user's chosen trigger button (Settings) to the KeyEvent code to listen for. */
+    private static int triggerKeyCodeFor(String triggerButton) {
+        if ("next".equals(triggerButton)) return android.view.KeyEvent.KEYCODE_MEDIA_NEXT;
+        if ("previous".equals(triggerButton)) return android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS;
+        return android.view.KeyEvent.KEYCODE_HEADSETHOOK; // covers KEYCODE_MEDIA_PLAY_PAUSE too on most devices
+    }
+
+    /** Re-publish IRIS's MediaSession as active with a fresh PlaybackState. Android routes
+     *  Bluetooth/wired media-button events to whichever session it currently considers
+     *  "preferred" — normally whatever app most recently started active playback. Calling
+     *  setActive(true) only once at service startup loses that priority the moment another
+     *  app starts playing, which is exactly when this trigger is most needed. Re-asserting on
+     *  every wake-phase entry gives IRIS a real (though not 100% guaranteed — Android's exact
+     *  priority algorithm is undocumented and OEM-dependent) chance of receiving the event
+     *  while music is actively playing. */
+    private void reassertMediaSessionPriority() {
+        if (mediaSession == null) return;
+        try {
+            android.media.session.PlaybackState ps = new android.media.session.PlaybackState.Builder()
+                    .setActions(android.media.session.PlaybackState.ACTION_PLAY_PAUSE
+                            | android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT
+                            | android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS)
+                    .setState(android.media.session.PlaybackState.STATE_PAUSED, 0, 0f).build();
+            mediaSession.setPlaybackState(ps);
+            mediaSession.setActive(true);
         } catch (Throwable ignored) { }
     }
 
@@ -588,6 +603,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.ACCELEROMETER);
         IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.MICROPHONE);
         try { if (mediaSession != null) { mediaSession.setActive(false); mediaSession.release(); mediaSession = null; } } catch (Throwable ignored) { }
+        handler.removeCallbacks(headsetHookPassThrough);
+        triggerPressRunCount = 0;
+        lastTriggerPressAt = 0;
     }
 
     @Override
@@ -612,6 +630,13 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (ACTION_CAPTURE_STARTED.equals(action)) {
             clearCameraLaunch();
             pauseListeningForCapture();
+            return START_STICKY;
+        }
+        if (ACTION_REFRESH_TRIGGERS.equals(action)) {
+            // Lets a Settings toggle for shake/headset triggers, or a change to the chosen
+            // trigger button/press-count, take effect immediately — no full app restart needed.
+            teardownTriggers();
+            setupTriggers();
             return START_STICKY;
         }
         if (ACTION_CAPTURE_DONE.equals(action)) {
@@ -731,7 +756,6 @@ public class IrisListeningService extends Service implements RecognitionListener
                         : amgr.getProcessMemoryInfo(new int[]{android.os.Process.myPid()});
                 long pssMb = (mi != null && mi.length > 0) ? mi[0].getTotalPss() / 1024 : -1;
                 LogStore.append(this, "MEMORY", "voice model=" + (settings.highAccuracyVoice() ? "high-accuracy (~1GB)" : "small (~40MB)")
-                        + " ai_brain=" + (settings.aiEnabled() ? "on" : "off")
                         + (pssMb >= 0 ? " process PSS=" + pssMb + "MB" : ""));
             } catch (Throwable ignored) { }
         }
@@ -773,6 +797,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         phase = PHASE_WAKE;
         currentPhase = phase;
         broadcastState(true, phase);
+        reassertMediaSessionPriority();  // give the headset trigger a fresh shot at priority
         androidWakeActive = false;
         // Only the phrase is required to arm wake listening (8.4.0's zero-training design).
         // Owner-voice matching, if enabled, is judged per-attempt in isOwnerVoice() once a
@@ -1216,6 +1241,9 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void handleCommandInner(String heard) {
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+        // Safety net: a new command should never inherit a stale pause-flag from a prior
+        // command that ended abnormally (e.g. crashed mid-flow before rearmAfterAction ran).
+        commandPausedMedia = false;
         String clean = heard == null ? "" : heard.trim();
         if (clean.isEmpty()) {
             rearmAfterAction();
@@ -1517,7 +1545,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         if (SCREEN_REC_PATTERN.matcher(normalized).matches()) { beginScreenRecording(parseDuration(normalized, 60)); return; }
         Matcher photoM = PHOTO_PATTERN.matcher(normalized);
-        if (photoM.matches()) { handleTakePhoto(photoM.group(1)); return; }
+        if (photoM.matches()) {
+            // "take a selfie" has no lens word BEFORE the trailing noun, so group(1) is null —
+            // the regex's trailing alternation (photo|picture|pic|selfie) consumed "selfie"
+            // itself instead. Treat that case as an implicit front-camera request too.
+            String camWord = photoM.group(1);
+            if (camWord == null && normalized.contains("selfie")) camWord = "selfie";
+            handleTakePhoto(camWord);
+            return;
+        }
         if (SCREENSHOT_PATTERN.matcher(normalized).matches()) { handleScreenshot(); return; }
         if (VIDEO_RECORD_PATTERN.matcher(normalized).matches()) {
             beginVideoRecording(parseDuration(normalized, 60), extractCamWord(normalized)); return;
@@ -1665,12 +1701,6 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
-        // Phase 5: give the local planner a chance BEFORE falling back to conversation.
-        // Nothing above matched, so this can only add capability. Opt-in (AI enabled) and
-        // strictly validated — an invalid or doubtful plan is ignored.
-        if (settings.aiEnabled() && llmReady && llmAgent != null
-                && tryLocalPlanner(original, normalized, store)) return;
-
         // Server brain first — only when server mode is on, online, and healthy.
         if (serverMonitor.shouldUseServer(settings)) {
             broadcastMessage("Thinking\u2026");
@@ -1715,33 +1745,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         return o;
     }
 
-    /** On-device chat: the LLM if ready, else the rule-based engine. */
+    /** On-device chat: rule-based engine only (local LLM removed for stability). */
     private void offlineChat(String original, String normalized, ProfileStore store) {
-        if (llmReady && llmAgent != null && llmAgent.isReady()) {
-            broadcastMessage("Thinking\u2026");
-            new Thread(() -> {
-                android.content.SharedPreferences guard =
-                        getSharedPreferences("iris_llm_guard", MODE_PRIVATE);
-                guard.edit().putBoolean("inference_active", true).apply();
-                String llmOut = llmAgent.generateReply(this, original, conversation.transcript());
-                guard.edit().putBoolean("inference_active", false).apply();
-                handler.post(() -> {
-                    if (llmOut == null || llmOut.isEmpty()) {
-                        ruleBasedChat(original, normalized, store);
-                    } else {
-                        try {
-                            conversation.add(original, llmOut.replaceAll("\\[.*?\\]", "").trim());
-                            handleLlmOutput(llmOut, store);
-                        } catch (Throwable t) {
-                            LogStore.append(this, "LLM ERROR",
-                                    "reply handling crashed: " + t + " | reply was: " + llmOut);
-                            ruleBasedChat(original, normalized, store);
-                        }
-                    }
-                });
-            }, "IRIS-LLM-Gen").start();
-            return;
-        }
         ruleBasedChat(original, normalized, store);
     }
 
@@ -3009,8 +3014,18 @@ public class IrisListeningService extends Service implements RecognitionListener
             broadcastMessage(m); speakThenRun(m, this::rearmAfterAction);
             return;
         }
-        // Fallback: MediaProjection (Android shows a one-time capture consent).
-        String m = "Taking a screenshot.";
+        // Fast path unavailable — falling back to Android's MediaProjection screenshot, which
+        // means the system's own "Start recording or casting?" consent dialog will appear. A
+        // MediaProjection-based screenshot is technically implemented as starting (and
+        // immediately stopping) the same recording API Android uses for screen recording; there
+        // is no lighter-weight screenshot-only consent flow, so that dialog is unavoidable here.
+        // Nudging the user toward the accessibility permission (which skips this dialog
+        // entirely) is handled by a status row + button in Settings, not by stacking a second
+        // system screen on top of this request — see MainActivity's screenshotFastPathStatus.
+        boolean fastPathOff = Build.VERSION.SDK_INT >= 30 && !IrisAccessibilityService.available();
+        String m = fastPathOff
+                ? "Taking a screenshot the slow way — Android will ask you to confirm. Turn on IRIS's instant-screenshot permission in Settings to skip this next time."
+                : "Taking a screenshot.";
         broadcastMessage(m);
         speakThenRun(m, () -> launchScreenCapture("shot", 0));
     }
@@ -3382,98 +3397,6 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
         }
         reply("I can't undo " + ActionLedger.spoken(r) + ".");
-    }
-
-    /**
-     * Phase 5 — ask the local model for a validated plan, off the main thread.
-     * Returns true if we took ownership of this utterance (so the caller must not also reply).
-     *
-     * The plan is never executed directly: it is converted back into a canonical command string
-     * and routed through the same proven handlers, so no new execution path exists.
-     */
-    private boolean tryLocalPlanner(final String original, final String normalized, final ProfileStore store) {
-        try {
-            final LlmAgent agent = llmAgent;
-            final LocalPlanner planner = new LocalPlanner(new LocalPlanner.Engine() {
-                @Override public boolean ready() { return agent != null && agent.isReady(); }
-                @Override public String generate(String prompt) { return agent.generateRaw(prompt); }
-            });
-            if (!planner.available()) return false;
-            broadcastMessage("Thinking\u2026");
-            final java.util.List<String> ctxLines = new java.util.ArrayList<>();
-            try {
-                for (ActionLedger.Record r : ledger().recent(5)) {
-                    ctxLines.add(r.intent + ": " + r.summary
-                            + (r.location == null || r.location.isEmpty() ? "" : " (" + r.location + ")"));
-                }
-            } catch (Throwable ignored) { }
-            final String ctx = LocalPlanner.contextFrom(ctxLines);
-            new Thread(() -> {
-                Plan plan;
-                try { plan = planner.plan(original, ctx); }
-                catch (Throwable t) { plan = Plan.unknown(); }
-                final Plan result = plan;
-                handler.post(() -> {
-                    if (result.isUnknown()) {
-                        // Planner had nothing trustworthy — carry on as conversation.
-                        LogStore.append(this, "PLANNER", "no usable plan for: " + original);
-                        offlineChat(original, normalized, store);
-                        return;
-                    }
-                    LogStore.append(this, "PLANNER", result.toString());
-                    if (!result.isComplete()) {
-                        String q = IntentParser.clarifyQuestion(result);
-                        if (!q.isEmpty()) {
-                            pendingPlan = result;
-                            broadcastMessage(q);
-                            nextOutputMinor = true;
-                            speakThenRun(q, this::startCommandRecognition);
-                            return;
-                        }
-                        offlineChat(original, normalized, store);
-                        return;
-                    }
-                    String command = commandFor(result);
-                    if (command.isEmpty()) { offlineChat(original, normalized, store); return; }
-                    // Sensitive plans are read back by the handler they route into.
-                    handleCommand(command);
-                });
-            }, "IRIS-Planner").start();
-            return true;
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    /** Turn a validated plan into the canonical phrasing the existing handlers already accept. */
-    private String commandFor(Plan plan) {
-        if (plan == null) return "";
-        // App plans must contain exactly one matching, validated tool. Never ignore extra steps.
-        if (plan.intent() == IrisIntent.APP_SEARCH || plan.intent() == IrisIntent.APP_SHARE) {
-            AppRequest r = AppRequest.fromPlan(plan);
-            if (r == null) return "";
-            if (r.action.equals("search")) return "search " + r.value + " on " + r.app;
-            if (r.action.equals("share_media")) return "share the latest " + r.value + " via " + r.app;
-            return "share via " + r.app + ": " + r.value;
-        }
-        switch (plan.intent()) {
-            case SET_ALARM:       return "set an alarm for " + plan.entity("time");
-            case SET_TIMER:       return "set a timer for " + plan.entity("duration");
-            case CALL_CONTACT:    return "call " + plan.entity("recipient");
-            case TAKE_SCREENSHOT: return "take a screenshot";
-            case TAKE_PHOTO:      return "take " + ("front".equals(plan.entity("camera")) ? "a selfie" : "a photo");
-            case TORCH:           return "torch " + plan.entity("state");
-            case RECORD_SCREEN:   return "record the screen"
-                    + (plan.entity("duration").isEmpty() ? "" : " for " + plan.entity("duration"));
-            case RECORD_VIDEO:    return "record " + ("front".equals(plan.entity("camera")) ? "front " : "")
-                    + "camera video"
-                    + (plan.entity("duration").isEmpty() ? "" : " " + plan.entity("duration"));
-            case RECORD_VOICE:    return "record voice"
-                    + (plan.entity("duration").isEmpty() ? "" : " " + plan.entity("duration"));
-            case PHONE_STATUS:    return "phone status";
-            case READ_NOTIFICATIONS: return "read my notifications";
-            default:              return "";
-        }
     }
 
     private void handleAppIntegration(AppRequest request) {
@@ -3980,20 +3903,6 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         settings.setIrisPowerSaver(turnOn);
         LogStore.append(this, "POWER SAVER", (turnOn ? "on" : "off") + (irisOnly ? " (IRIS only)" : " (IRIS + system requested)"));
-
-        if (!turnOn) {
-            // Re-enable the AI brain if the user has it configured on and we're now off saver.
-            if (settings.aiEnabled() && llmAgent != null && !llmAgent.isReady()) {
-                new Thread(() -> {
-                    boolean ok = llmAgent.loadModel(this);
-                    llmReady = ok;
-                    LogStore.append(this, "LLM", ok ? "AI brain reloaded after battery saver off" : "AI brain still unavailable");
-                }, "IRIS-LLM-Reload").start();
-            }
-        } else if (llmAgent != null) {
-            llmAgent.close();
-            llmReady = false;
-        }
 
         if (irisOnly) {
             String msg = turnOn
@@ -5310,6 +5219,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void rearmAfterAction() {
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
+        finishCommandMediaResume();   // resume media once, only if this whole command paused it
         smsCompose = null;
         spellingCall = false;
         pendingPlan = null;          // an unanswered clarification expires with the session
@@ -5328,6 +5238,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (manager == null) return "Phone microphone";
         if (audioManager == null) previousAudioMode = manager.getMode();
         audioManager = manager;
+        logDetectedInputDevices(manager);
         try {
             String preference = settings.preferredMicrophone();
             if (Build.VERSION.SDK_INT >= 31) {
@@ -5362,6 +5273,27 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
         } catch (Exception ignored) { return "Active system microphone"; }
         return "Phone microphone";
+    }
+
+    /** Diagnostic: log every detected audio input device's exact AudioDeviceInfo type whenever
+     *  the mic route is (re)configured. Lets a "still using phone mic despite headphones"
+     *  report be root-caused from a log capture — e.g. a no-name wired headset reporting as a
+     *  type not yet covered by the wired-device check in chooseDevice() below — instead of
+     *  guessing at the device model over remote description. */
+    private void logDetectedInputDevices(AudioManager manager) {
+        try {
+            StringBuilder sb = new StringBuilder("Input devices:");
+            java.util.List<AudioDeviceInfo> devices = Build.VERSION.SDK_INT >= 31
+                    ? manager.getAvailableCommunicationDevices()
+                    : arrayToList(manager.getDevices(AudioManager.GET_DEVICES_INPUTS));
+            if (devices.isEmpty()) sb.append(" (none reported)");
+            for (AudioDeviceInfo d : devices) {
+                sb.append(' ').append('[').append(d.getType()).append(' ')
+                        .append(readableDeviceName(d)).append(']');
+            }
+            android.util.Log.i("IRIS", sb.toString());
+            LogStore.append(this, "AUDIO ROUTE", sb.toString());
+        } catch (Throwable ignored) { }
     }
 
     /** True if the mic is a Bluetooth headset (SCO/BLE) that needs communication mode. */
@@ -5680,7 +5612,10 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private Object speechFocusRequest;
     private volatile boolean speechCancelled;
-    private volatile boolean pausedMediaForSpeech;
+    /** Set once per command the first time we actually pause media for speech; only this
+     *  flag (not per-utterance state) decides whether media is resumed, and only once, when
+     *  the whole command finishes — never after each individual TTS utterance. */
+    private volatile boolean commandPausedMedia;
     private String lastUserCommand = "";
     private String lastActionSummary = "";
     private volatile boolean nextOutputMinor;
@@ -5702,8 +5637,12 @@ public class IrisListeningService extends Service implements RecognitionListener
         try {
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
             if (am == null) return;
-            pausedMediaForSpeech = am.isMusicActive();
-            if (pausedMediaForSpeech) {
+            // Only the FIRST speech-focus request in a command may pause media — later
+            // utterances in the same command (e.g. "Taking a photo…" then "Saved a photo to…")
+            // must not re-sample isMusicActive(), which is flaky and can report a false "true"
+            // for a session that already stopped, causing an unwanted resume later.
+            if (!commandPausedMedia && am.isMusicActive()) {
+                commandPausedMedia = true;
                 am.dispatchMediaKeyEvent(new android.view.KeyEvent(
                         android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE));
                 am.dispatchMediaKeyEvent(new android.view.KeyEvent(
@@ -5726,7 +5665,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         } catch (Exception ignored) { }
     }
 
-    /** Release focus and resume whatever we actually paused. */
+    /** Release audio focus after this utterance. Does NOT resume media — resuming is deferred
+     *  to {@link #finishCommandMediaResume()}, called once the whole command finishes, so a
+     *  multi-utterance flow (e.g. photo capture's "Taking a photo…" + "Saved a photo to…")
+     *  doesn't resume media between its own utterances. */
     private void abandonSpeechFocus() {
         try {
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
@@ -5737,13 +5679,22 @@ public class IrisListeningService extends Service implements RecognitionListener
             } else {
                 am.abandonAudioFocus(null);
             }
-            if (pausedMediaForSpeech) {
-                pausedMediaForSpeech = false;
-                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                        android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
-                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                        android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
-            }
+        } catch (Exception ignored) { }
+    }
+
+    /** Resume media if — and only if — this command actually paused it, exactly once. Call
+     *  this when the whole command flow ends (rearmAfterAction), or when speech is cut short
+     *  by the user or a service stop (stopSpeaking/onDestroy), never after each utterance. */
+    private void finishCommandMediaResume() {
+        if (!commandPausedMedia) return;
+        commandPausedMedia = false;
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (am == null) return;
+            am.dispatchMediaKeyEvent(new android.view.KeyEvent(
+                    android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
+            am.dispatchMediaKeyEvent(new android.view.KeyEvent(
+                    android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
         } catch (Exception ignored) { }
     }
 
@@ -5755,6 +5706,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         abandonSpeechFocus();
         LogStore.append(this, "STOP", "Speech interrupted by user");
         if (isRunning) rearmAfterAction();
+        else finishCommandMediaResume();
     }
 
     private void speak(String text) {
@@ -6179,6 +6131,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         handler.removeCallbacksAndMessages(null);
         teardownTriggers();
         abandonSpeechFocus();
+        finishCommandMediaResume();   // don't leave media paused if the service is stopping mid-command
         restoreRecognizerBeep();
         destroyRecognizer();
         stopWakeEngine();
@@ -6188,7 +6141,6 @@ public class IrisListeningService extends Service implements RecognitionListener
         releaseServerTts();
 
         if (voskEngine != null) { voskEngine.close(); voskEngine = null; }
-        if (llmAgent != null) { llmAgent.close(); llmAgent = null; }
         super.onDestroy();
     }
 

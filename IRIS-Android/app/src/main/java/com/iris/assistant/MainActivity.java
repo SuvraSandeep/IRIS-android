@@ -280,14 +280,6 @@ public class MainActivity extends Activity {
         tabSettings.setOnClickListener(v -> showSettings());
         showTabByIndex(getSharedPreferences("iris_ui", MODE_PRIVATE).getInt("last_tab", 0));
         handleLaunchIntent(getIntent());
-        // Auto-download the AI brain in the background only if the user enabled AI
-        try {
-            if (new AppSettings(this).aiEnabled()) {
-                ModelManager.autoDownloadGemmaIfNeeded(this);
-            }
-        } catch (Throwable t) {
-            android.util.Log.w("IRIS", "Auto model download skipped: " + t.getMessage());
-        }
     }
 
     @Override
@@ -298,6 +290,8 @@ public class MainActivity extends Activity {
             if (as.deckContinuousRead() && !as.irisPowerSaver()) telemetry.start();
             else telemetry.refreshNow();
         }
+        refreshBatteryOptStatus(findViewById(R.id.batteryOptStatus), findViewById(R.id.fixBatteryOptButton));
+        refreshScreenshotFastPathStatus(findViewById(R.id.screenshotFastPathStatus), findViewById(R.id.fixScreenshotFastPathButton));
         IntentFilter filter = new IntentFilter();
         filter.addAction(IrisListeningService.EVENT_STATE);
         filter.addAction(IrisListeningService.EVENT_TRANSCRIPT);
@@ -2073,6 +2067,61 @@ public class MainActivity extends Activity {
                 .setType("*/*"), IMPORT_MEMORY);
     }
 
+    /** Reflects whether IRIS is exempt from battery optimization, so it can keep running
+     *  reliably in the background (wake listening, lock-screen capture). Safe to call even
+     *  when the Settings view isn't currently inflated — both views may be null. */
+    private void refreshBatteryOptStatus(View statusView, View buttonView) {
+        if (!(statusView instanceof TextView)) return;
+        TextView status = (TextView) statusView;
+        Button button = buttonView instanceof Button ? (Button) buttonView : null;
+        boolean exempt;
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            exempt = pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+        } catch (Throwable t) {
+            exempt = false;
+        }
+        if (exempt) {
+            status.setText("Background reliability: \u2705 exempted \u2014 IRIS can keep running");
+            if (button != null) { button.setText("Already fixed"); button.setEnabled(false); }
+        } else {
+            status.setText("Background reliability: \u26A0\uFE0F not exempted \u2014 Android may kill IRIS in the background");
+            if (button != null) { button.setText("Fix now \u2014 keep IRIS running"); button.setEnabled(true); }
+        }
+    }
+
+    /** Reflects whether IRIS's accessibility-based instant-screenshot fast path is enabled.
+     *  When it isn't, every screenshot request falls back to Android's own MediaProjection
+     *  consent dialog — a platform limitation, not something IRIS can bypass in code. */
+    private void refreshScreenshotFastPathStatus(View statusView, View buttonView) {
+        if (!(statusView instanceof TextView)) return;
+        TextView status = (TextView) statusView;
+        Button button = buttonView instanceof Button ? (Button) buttonView : null;
+        boolean available;
+        try {
+            available = android.os.Build.VERSION.SDK_INT < 30 || IrisAccessibilityService.available();
+        } catch (Throwable t) {
+            available = false;
+        }
+        if (available) {
+            status.setText("Instant screenshots: \u2705 on \u2014 no confirmation dialog needed");
+            if (button != null) { button.setText("Already on"); button.setEnabled(false); }
+        } else {
+            status.setText("Instant screenshots: \u26A0\uFE0F off \u2014 screenshots will show Android's recording-consent dialog");
+            if (button != null) { button.setText("Turn on instant screenshots"); button.setEnabled(true); }
+        }
+    }
+
+    /** Ask IrisListeningService to re-register shake/headset triggers from current Settings
+     *  immediately, so toggling them (or changing the button/press-count) doesn't require a
+     *  full app restart. Safe to call even if the service isn't currently running. */
+    private void refreshTriggers() {
+        try {
+            startService(new Intent(this, IrisListeningService.class)
+                    .setAction(IrisListeningService.ACTION_REFRESH_TRIGGERS));
+        } catch (Throwable ignored) { }
+    }
+
     private void showSettings() {
         selectedTab = 4;
         contentHost.removeAllViews();
@@ -2147,8 +2196,6 @@ public class MainActivity extends Activity {
         view.findViewById(R.id.downloadModelButton).setOnClickListener(v -> showOfflineSpeechStatus());
         view.findViewById(R.id.testTtsButton).setOnClickListener(v -> testVoice());
 
-        TextView brainStatus = view.findViewById(R.id.brainStatus);
-        Button brainButton = view.findViewById(R.id.downloadBrainButton);
         Switch lockControlSwitch = view.findViewById(R.id.lockControlSwitch);
         if (lockControlSwitch != null) {
             lockControlSwitch.setChecked(settings.lockScreenControl());
@@ -2159,7 +2206,39 @@ public class MainActivity extends Activity {
                         : "Lock-screen control off.");
             });
         }
-        // Voice security
+
+        TextView batteryOptStatus = view.findViewById(R.id.batteryOptStatus);
+        Button fixBatteryOptButton = view.findViewById(R.id.fixBatteryOptButton);
+        refreshBatteryOptStatus(batteryOptStatus, fixBatteryOptButton);
+        if (fixBatteryOptButton != null) {
+            fixBatteryOptButton.setOnClickListener(v -> {
+                try {
+                    android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+                    if (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                        toast("Already exempted — IRIS should stay running reliably.");
+                        return;
+                    }
+                    Intent i = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    i.setData(android.net.Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                } catch (Throwable t) {
+                    toast("Couldn't open the battery settings prompt. Open Settings \u2192 Battery \u2192 IRIS manually.");
+                }
+            });
+        }
+
+        TextView screenshotFastPathStatus = view.findViewById(R.id.screenshotFastPathStatus);
+        Button fixScreenshotFastPathButton = view.findViewById(R.id.fixScreenshotFastPathButton);
+        refreshScreenshotFastPathStatus(screenshotFastPathStatus, fixScreenshotFastPathButton);
+        if (fixScreenshotFastPathButton != null) {
+            fixScreenshotFastPathButton.setOnClickListener(v -> {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                } catch (Throwable t) {
+                    toast("Couldn't open Accessibility settings. Open Settings \u2192 Accessibility \u2192 IRIS screenshots manually.");
+                }
+            });
+        }        // Voice security
         android.widget.SeekBar sensSeek = view.findViewById(R.id.sensitivitySeek);
         if (sensSeek != null) {
             sensSeek.setProgress(Math.round(settings.voiceSensitivity() * 100));
@@ -2182,7 +2261,8 @@ public class MainActivity extends Activity {
             shakeSwitch.setChecked(settings.shakeToWake());
             shakeSwitch.setOnCheckedChangeListener((b, checked) -> {
                 settings.setShakeToWake(checked);
-                toast("Shake trigger " + (checked ? "on" : "off") + " — restart IRIS to apply.");
+                refreshTriggers();
+                toast("Shake trigger " + (checked ? "on" : "off") + ".");
             });
         }
         Switch headsetSwitch = view.findViewById(R.id.headsetSwitch);
@@ -2190,8 +2270,33 @@ public class MainActivity extends Activity {
             headsetSwitch.setChecked(settings.headsetTrigger());
             headsetSwitch.setOnCheckedChangeListener((b, checked) -> {
                 settings.setHeadsetTrigger(checked);
-                toast("Headset trigger " + (checked ? "on" : "off") + " — restart IRIS to apply.");
+                refreshTriggers();
+                toast("Headset trigger " + (checked ? "on" : "off") + ".");
             });
+        }
+        Spinner triggerButtonSpinner = view.findViewById(R.id.triggerButtonSpinner);
+        if (triggerButtonSpinner != null) {
+            String[] triggerButtons = {"Play/Pause", "Next", "Previous"};
+            String[] triggerButtonValues = {"play_pause", "next", "previous"};
+            int curIdx = 0;
+            for (int i = 0; i < triggerButtonValues.length; i++) {
+                if (triggerButtonValues[i].equals(settings.triggerButton())) { curIdx = i; break; }
+            }
+            setSpinner(triggerButtonSpinner, triggerButtons, triggerButtons[curIdx]);
+            triggerButtonSpinner.setOnItemSelectedListener(new SimpleItemSelected(position -> {
+                settings.setTriggerButton(triggerButtonValues[position]);
+                refreshTriggers();
+            }));
+        }
+        Spinner triggerPressCountSpinner = view.findViewById(R.id.triggerPressCountSpinner);
+        if (triggerPressCountSpinner != null) {
+            String[] pressCounts = {"1 (single press)", "2 (double press)", "3 (triple press)"};
+            int curCount = Math.max(1, Math.min(3, settings.triggerPressCount()));
+            setSpinner(triggerPressCountSpinner, pressCounts, pressCounts[curCount - 1]);
+            triggerPressCountSpinner.setOnItemSelectedListener(new SimpleItemSelected(position -> {
+                settings.setTriggerPressCount(position + 1);
+                refreshTriggers();
+            }));
         }
         Switch mirrorSwitch = view.findViewById(R.id.mirrorSwitch);
         if (mirrorSwitch != null) {
@@ -2350,7 +2455,7 @@ public class MainActivity extends Activity {
             powerSaverSwitch.setOnCheckedChangeListener((b, checked) -> {
                 settings.setIrisPowerSaver(checked);
                 toast(checked
-                        ? "Battery saving on for IRIS: AI brain off, small voice model, static orb, no live dashboard."
+                        ? "Battery saving on for IRIS: small voice model, static orb, no live dashboard."
                         : "Battery saving off for IRIS. Back to normal.");
                 if (irisOrb != null) irisOrb.setStaticMode(checked || settings.deckBatterySaver());
                 if (IrisListeningService.isRunning) {
@@ -2418,72 +2523,6 @@ public class MainActivity extends Activity {
                 }, "IRIS-ServerTest").start();
             });
         }
-
-        Switch aiEnabledSwitch = view.findViewById(R.id.aiEnabledSwitch);
-        if (aiEnabledSwitch != null) {
-            aiEnabledSwitch.setChecked(settings.aiEnabled());
-            aiEnabledSwitch.setOnCheckedChangeListener((b, checked) -> {
-                settings.setAiEnabled(checked);
-                if (checked) {
-                    toast("AI enabled. Download the brain if needed, then restart IRIS listening.");
-                    try { ModelManager.autoDownloadGemmaIfNeeded(this); } catch (Throwable ignored) { }
-                } else {
-                    toast("AI disabled. Using reliable rule-based replies.");
-                }
-            });
-        }
-        EditText hfTokenInput = view.findViewById(R.id.hfTokenInput);
-        Button saveTokenButton = view.findViewById(R.id.saveTokenButton);
-        if (hfTokenInput != null) {
-            String existing = settings.hfToken();
-            if (!existing.isEmpty()) hfTokenInput.setText(existing);
-        }
-        if (saveTokenButton != null) {
-            saveTokenButton.setOnClickListener(v -> {
-                String tok = hfTokenInput.getText().toString().trim();
-                settings.setHfToken(tok);
-                toast(tok.isEmpty() ? "Token cleared." : "Token saved \u2705");
-            });
-        }
-        if (ModelManager.gemmaPresent(this)) {
-            brainStatus.setText("\uD83E\uDDE0 AI brain: installed \u2705 — conversational AI active");
-            brainButton.setText("\uD83E\uDDE0 Re-download AI brain");
-        }
-        brainButton.setOnClickListener(v -> {
-            if (ModelManager.gemmaPresent(this)) {
-                toast("AI brain already installed.");
-                return;
-            }
-            new AlertDialog.Builder(this)
-                    .setTitle("\uD83E\uDDE0 Download AI brain?")
-                    .setMessage("This downloads an open AI model (Qwen 2.5, ~550 MB) so IRIS can chat with real AI, fully offline. No account needed.\n\nUse WiFi if you can. This is a one-time download.")
-                    .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Download", (d, w) -> {
-                        brainButton.setEnabled(false);
-                        brainStatus.setText("\u2B07\uFE0F Starting download…");
-                        ModelManager.downloadGemma(this, new ModelManager.LlmDownloadListener() {
-                            @Override public void onProgress(int percent, long done, long total) {
-                                String mb = total > 0
-                                        ? (done / 1048576) + " / " + (total / 1048576) + " MB"
-                                        : (done / 1048576) + " MB";
-                                brainStatus.setText("\u2B07\uFE0F Downloading AI brain: "
-                                        + (percent >= 0 ? percent + "% • " : "") + mb);
-                            }
-                            @Override public void onComplete(java.io.File model) {
-                                brainStatus.setText("\uD83E\uDDE0 AI brain installed \u2705 — restart IRIS listening to activate");
-                                brainButton.setText("\uD83E\uDDE0 Re-download AI brain");
-                                brainButton.setEnabled(true);
-                                toast("\u2705 AI brain ready! Restart IRIS to use it.");
-                                LogStore.append(MainActivity.this, "LLM", "Gemma model downloaded");
-                            }
-                            @Override public void onError(String message) {
-                                brainStatus.setText("\u274C Download failed: " + message);
-                                brainButton.setEnabled(true);
-                                toast("Download failed: " + message);
-                            }
-                        });
-                    }).show();
-        });
 
         Spinner personality = view.findViewById(R.id.personalitySpinner);
         String[] personalities = {"Sarcastic", "Warm", "Professional", "Silent"};

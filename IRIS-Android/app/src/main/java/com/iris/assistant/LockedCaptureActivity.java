@@ -89,7 +89,11 @@ public final class LockedCaptureActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (instance != null && !instance.finished) { finished = true; finish(); return; }
+        LogStore.append(this, "LOCK CAPTURE", "onCreate reached — activity did launch");
+        if (instance != null && !instance.finished) {
+            LogStore.append(this, "LOCK CAPTURE", "Aborting: a capture is already active");
+            finished = true; finish(); return;
+        }
         seconds = Math.max(1, Math.min(3600, getIntent().getIntExtra(EXTRA_SECONDS, 60)));
         front = getIntent().getBooleanExtra(EXTRA_FRONT, false);
         photoMode = "photo".equals(getIntent().getStringExtra(EXTRA_MODE));
@@ -126,6 +130,7 @@ public final class LockedCaptureActivity extends Activity {
         setContentView(root);
 
         if (checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            LogStore.append(this, "LOCK CAPTURE", "Stage=PERMISSION_CHECK: camera permission not granted");
             done(photoMode ? "I don't have camera permission, so I couldn't take a photo."
                     : "I don't have camera permission, so I couldn't record.");
             return;
@@ -140,13 +145,17 @@ public final class LockedCaptureActivity extends Activity {
         if (opened || finished || bg == null) return;
         opened = true;
         instance = this;
+        LogStore.append(this, "LOCK CAPTURE", "Stage=RESUMED: activity became visible, opening camera");
         startService(new Intent(this, IrisListeningService.class)
                 .setAction(IrisListeningService.ACTION_CAPTURE_STARTED));
         // While-in-use camera access begins only after the lock-screen activity is visible.
         bg.post(this::openCamera);
         if (photoMode) statusLabel.setText("Capturing photoâ€¦");
         main.postDelayed(() -> {
-            if (!finished && !recording) done("The camera did not become ready. Check camera access and try again.");
+            if (!finished && !recording) {
+                LogStore.append(this, "LOCK CAPTURE", "Stage=CAMERA_READY_TIMEOUT: camera never became ready within 12s");
+                done("The camera did not become ready. Check camera access and try again.");
+            }
         }, 12000);
     }
 
@@ -158,8 +167,12 @@ public final class LockedCaptureActivity extends Activity {
             if (id == null) {
                 // Requested lens is absent. Use another one, but never silently: say so.
                 id = anyCamera(cameraManager);
-                if (id == null) { done("This device has no usable camera."); return; }
+                if (id == null) {
+                    LogStore.append(this, "LOCK CAPTURE", "Stage=PICK_CAMERA: device reports no usable camera at all");
+                    done("This device has no usable camera."); return;
+                }
                 final String wanted = front ? "front" : "back";
+                LogStore.append(this, "LOCK CAPTURE", "Stage=PICK_CAMERA: requested " + wanted + " lens absent, falling back to lens id=" + id);
                 main.post(() -> {
                     if (statusLabel != null) statusLabel.setText("No " + wanted + " camera — using the other lens");
                 });
@@ -171,14 +184,24 @@ public final class LockedCaptureActivity extends Activity {
                 @Override public void onOpened(CameraDevice c) {
                     if (finished) { c.close(); return; }
                     camera = c;
+                    LogStore.append(LockedCaptureActivity.this, "LOCK CAPTURE", "Stage=CAMERA_OPENED: starting " + (photoMode ? "photo" : "video"));
                     IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.CAMERA,
                             photoMode ? "Taking a photo" : "Recording video");
                     if (photoMode) takePhoto(); else startRecording();
                 }
-                @Override public void onDisconnected(CameraDevice c) { c.close(); done("Camera disconnected."); }
-                @Override public void onError(CameraDevice c, int error) { c.close(); done("The camera failed to open."); }
+                @Override public void onDisconnected(CameraDevice c) {
+                    c.close();
+                    LogStore.append(LockedCaptureActivity.this, "LOCK CAPTURE", "Stage=CAMERA_OPEN: camera disconnected (likely taken by another app/OEM restriction)");
+                    done("Camera disconnected.");
+                }
+                @Override public void onError(CameraDevice c, int error) {
+                    c.close();
+                    LogStore.append(LockedCaptureActivity.this, "LOCK CAPTURE", "Stage=CAMERA_OPEN: onError code=" + error);
+                    done("The camera failed to open.");
+                }
             }, bg);
         } catch (Exception e) {
+            LogStore.append(this, "LOCK CAPTURE", "Stage=OPEN_CAMERA: exception " + e);
             done("I couldn't open the camera.");
         }
     }
@@ -205,6 +228,7 @@ public final class LockedCaptureActivity extends Activity {
                     if (finished) return;
                     savePhoto(bytes);
                 } catch (Throwable t) {
+                    LogStore.append(this, "LOCK CAPTURE", "Stage=IMAGE_READER: exception " + t);
                     done("I couldn't save the photo.");
                 } finally {
                     if (img != null) img.close();
@@ -225,15 +249,23 @@ public final class LockedCaptureActivity extends Activity {
                                 b.set(CaptureRequest.JPEG_ORIENTATION, captureOrientation());
                                 s.capture(b.build(), null, bg);
                             } catch (Exception e) {
+                                LogStore.append(LockedCaptureActivity.this, "LOCK CAPTURE", "Stage=CAPTURE_REQUEST: exception " + e);
                                 done("I couldn't take the photo.");
                             }
                         }
                         @Override public void onConfigureFailed(CameraCaptureSession s) {
+                            LogStore.append(LockedCaptureActivity.this, "LOCK CAPTURE", "Stage=SESSION_CONFIG (photo): onConfigureFailed");
                             done("The camera session failed.");
                         }
                     }, bg);
-            main.postDelayed(() -> { if (!finished) done("The camera timed out."); }, 8000);
+            main.postDelayed(() -> {
+                if (!finished) {
+                    LogStore.append(this, "LOCK CAPTURE", "Stage=PHOTO_TIMEOUT: no result within 8s");
+                    done("The camera timed out.");
+                }
+            }, 8000);
         } catch (Exception e) {
+            LogStore.append(this, "LOCK CAPTURE", "Stage=TAKE_PHOTO: exception " + e);
             done("I couldn't take the photo.");
         }
     }
@@ -268,6 +300,7 @@ public final class LockedCaptureActivity extends Activity {
             }
             done("Saved a photo to " + location + ".");
         } catch (Exception e) {
+            LogStore.append(this, "LOCK CAPTURE", "Stage=SAVE_PHOTO: exception " + e);
             done("I couldn't save the photo.");
         }
     }
@@ -294,14 +327,17 @@ public final class LockedCaptureActivity extends Activity {
                                 main.post(LockedCaptureActivity.this::postRecordingNotification);
                                 main.postDelayed(LockedCaptureActivity.this::stopRecording, seconds * 1000L);
                             } catch (Exception e) {
+                                LogStore.append(LockedCaptureActivity.this, "LOCK CAPTURE", "Stage=START_RECORDING: exception " + e);
                                 done("I couldn't start the recording.");
                             }
                         }
                         @Override public void onConfigureFailed(CameraCaptureSession s) {
+                            LogStore.append(LockedCaptureActivity.this, "LOCK CAPTURE", "Stage=SESSION_CONFIG (video): onConfigureFailed");
                             done("The camera session failed.");
                         }
                     }, bg);
         } catch (Exception e) {
+            LogStore.append(this, "LOCK CAPTURE", "Stage=SETUP_RECORDER: exception " + e);
             done("I couldn't start recording video.");
         }
     }
@@ -352,11 +388,17 @@ public final class LockedCaptureActivity extends Activity {
     private void stopRecording() {
         if (bg != null && android.os.Looper.myLooper() != bg.getLooper()) { bg.post(this::stopRecording); return; }
         if (finished) return;
-        if (!recording) { done("Recording cancelled before it started."); return; }
+        if (!recording) {
+            LogStore.append(this, "LOCK CAPTURE", "Stage=STOP_RECORDING: stop requested before recording actually started");
+            done("Recording cancelled before it started."); return;
+        }
         recording = false;
         boolean ok = true;
         try { if (session != null) session.stopRepeating(); } catch (Exception ignored) { }
-        try { if (recorder != null) recorder.stop(); } catch (Exception e) { ok = false; }
+        try { if (recorder != null) recorder.stop(); } catch (Exception e) {
+            ok = false;
+            LogStore.append(this, "LOCK CAPTURE", "Stage=RECORDER_STOP: exception " + e);
+        }
         long actualSeconds = Math.max(1, (android.os.SystemClock.elapsedRealtime() - startedAt) / 1000);
         done(ok ? ("Saved a " + actualSeconds + " second video to " + location + ".")
                 : "The video was too short to save.");
@@ -420,6 +462,7 @@ public final class LockedCaptureActivity extends Activity {
             } catch (Exception error) {
                 // Never claim success when the gallery entry didn't land.
                 success = false;
+                LogStore.append(this, "LOCK CAPTURE", "Stage=MEDIASTORE_PUBLISH: exception " + error);
                 resultMessage = photoMode
                         ? "I took the photo but couldn't save it to your gallery."
                         : "I recorded it but couldn't save it to your gallery.";
@@ -435,6 +478,7 @@ public final class LockedCaptureActivity extends Activity {
             resultMessage = resultMessage + " I used the other lens \u2014 the "
                     + (front ? "front" : "back") + " camera isn't available.";
         }
+        LogStore.append(this, "LOCK CAPTURE", "Final outcome: success=" + success + " message=\"" + resultMessage + "\"");
         try { if (bgThread != null) bgThread.quitSafely(); } catch (Exception ignored) { }
         try {
             startService(new Intent(this, IrisListeningService.class)

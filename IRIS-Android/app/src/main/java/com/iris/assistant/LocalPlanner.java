@@ -14,8 +14,9 @@ import java.util.Locale;
  *   4. Return {@link Plan#unknown()} on anything doubtful so the caller falls back to the
  *      deterministic {@link IntentParser} / keyword router.
  *
- * The engine is injected, so today it runs on the already-integrated {@link LlmAgent}
- * (MediaPipe, opt-in) and a future {@code llama.cpp} build can be dropped in without touching
+ * The engine is injected and swappable; no local LLM engine is currently wired in (removed for
+ * native-crash stability — see BUG-ROADMAP-2026-09-14.md #1). A future engine (e.g. a
+ * {@code llama.cpp} build) can be dropped in via the {@link Engine} interface without touching
  * this class or the executor.
  *
  * <b>The model only ever proposes. It receives no permissions, no shell, no code execution, and

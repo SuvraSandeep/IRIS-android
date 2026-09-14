@@ -10,8 +10,8 @@ android {
         applicationId 'com.iris.assistant'
         minSdk 26
         targetSdk 35
-        versionCode 310
-        versionName '8.19.0'
+        versionCode 311
+        versionName '8.20.0'
     }
 
     signingConfigs {
@@ -49,8 +49,5 @@ android {
 
 dependencies {
     implementation 'com.alphacephei:vosk-android:0.3.75'
-    // MediaPipe LLM runtime (library only — the Gemma model is downloaded at
-    // runtime via ModelManager.downloadGemma(), never bundled in the APK).
-    implementation 'com.google.mediapipe:tasks-genai:0.10.24'
 }
 

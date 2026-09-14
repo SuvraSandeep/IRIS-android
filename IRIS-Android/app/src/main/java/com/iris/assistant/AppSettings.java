@@ -48,12 +48,6 @@ public final class AppSettings {
     }
     public float textScale() { return prefs.getFloat("text_scale", 1.0f); }
     public void setTextScale(float value) { prefs.edit().putFloat("text_scale", value).apply(); }
-    public String hfToken() { return prefs.getString("hf_token", ""); }
-    public void setHfToken(String value) { prefs.edit().putString("hf_token", value == null ? "" : value.trim()).apply(); }
-    /** Whether the on-device AI brain (LLM) is used. Off by default for stability;
-     *  the rule-based engine handles all commands reliably without it. */
-    public boolean aiEnabled() { return prefs.getBoolean("ai_enabled", false); }
-    public void setAiEnabled(boolean value) { prefs.edit().putBoolean("ai_enabled", value).apply(); }
     /** Use the large, high-accuracy Vosk en-IN model (~1GB, downloaded on first use).
      *  Off by default; falls back to the small model automatically if it can't load. */
     public boolean highAccuracyVoice() { return prefs.getBoolean("high_accuracy_voice", false); }
@@ -120,6 +114,15 @@ public final class AppSettings {
     public void setShakeToWake(boolean v) { prefs.edit().putBoolean("shake_to_wake", v).apply(); }
     public boolean headsetTrigger() { return prefs.getBoolean("headset_trigger", false); }
     public void setHeadsetTrigger(boolean v) { prefs.edit().putBoolean("headset_trigger", v).apply(); }
+    /** Which media button wakes IRIS: "play_pause" (default, matches the old hardcoded
+     *  behaviour), "next", or "previous". Volume up/down are deliberately not offered —
+     *  Bluetooth earphone volume presses go through AVRCP as system broadcasts, not
+     *  KEYCODE_MEDIA_* events, and cannot be intercepted by any regular app. */
+    public String triggerButton() { return prefs.getString("trigger_button", "play_pause"); }
+    public void setTriggerButton(String v) { prefs.edit().putString("trigger_button", v == null ? "play_pause" : v).apply(); }
+    /** How many presses of the chosen button, within the double-press window, wake IRIS. */
+    public int triggerPressCount() { return prefs.getInt("trigger_press_count", 2); }
+    public void setTriggerPressCount(int v) { prefs.edit().putInt("trigger_press_count", Math.max(1, Math.min(3, v))).apply(); }
     public boolean mirrorReplies() { return prefs.getBoolean("mirror_replies", true); }
 
     // ─────────────── Command Deck (fully customisable) ───────────────
