@@ -116,7 +116,15 @@ public final class VoskEngine {
                     if (!staging.renameTo(target)) throw new java.io.IOException("Could not install Indian voice bundle");
                 }
                 deleteRecursive(staging);
-                if(!installModel(new Model(target.getAbsolutePath())))return;
+                // installModel() returns false only when this engine was close()d while this
+                // background load was still in flight (e.g. training UI torn down/recreated
+                // mid-load). Previously this silently returned with NO callback at all, leaving
+                // any caller still waiting on init() (like the wake-training wizard) stuck on
+                // "Preparing speech model" forever — no error, no timeout recovery, no retry.
+                if(!installModel(new Model(target.getAbsolutePath()))){
+                    main.post(()->listener.onError("Voice engine was closed before the model finished loading."));
+                    return;
+                }
                 main.post(listener::onReady);
             } catch (Throwable t) {
                 deleteRecursive(staging);
@@ -129,7 +137,12 @@ public final class VoskEngine {
     private void loadFromPath(String path, InitListener listener) {
         new Thread(() -> {
             try {
-                if(!installModel(new Model(path)))return;
+                // See the identical fix in loadBundledIndianOrDownload above: installModel()
+                // returning false (engine closed mid-load) must never be a silent no-op.
+                if(!installModel(new Model(path))){
+                    main.post(()->listener.onError("Voice engine was closed before the model finished loading."));
+                    return;
+                }
                 main.post(listener::onReady);
             } catch (Throwable t) {
                 modelLoaded = false;
@@ -160,7 +173,10 @@ public final class VoskEngine {
                     //noinspection ResultOfMethodCallIgnored
                     zip.delete();
                 }
-                if(!installModel(new Model(modelDir.getAbsolutePath())))return;
+                if(!installModel(new Model(modelDir.getAbsolutePath()))){
+                    main.post(()->listener.onError("Voice engine was closed before the model finished loading."));
+                    return;
+                }
                 android.util.Log.i("IRIS", "Vosk model ready (downloaded)");
                 main.post(listener::onReady);
             } catch (Throwable t) {
@@ -210,7 +226,10 @@ public final class VoskEngine {
                     //noinspection ResultOfMethodCallIgnored
                     zip.delete();
                 }
-                if(!installModel(new Model(modelDir.getAbsolutePath())))return;
+                if(!installModel(new Model(modelDir.getAbsolutePath()))){
+                    main.post(()->listener.onError("Voice engine was closed before the model finished loading."));
+                    return;
+                }
                 android.util.Log.i("IRIS", "Large Vosk model ready");
                 main.post(listener::onReady);
             } catch (Throwable t) {
