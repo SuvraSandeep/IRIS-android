@@ -36,6 +36,15 @@
                 android:textColor="@color/text_muted"
                 android:textSize="12sp" />
 
+                <TextView
+                    android:id="@+id/wakeTrainingStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="⚠️  Not configured yet"
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
+
             <!-- Normal state (not training) -->
             <LinearLayout
                 android:id="@+id/wakeNormalState"
@@ -57,14 +66,7 @@
                     android:textColorHint="@color/text_muted"
                     android:textSize="15sp" />
 
-                <TextView
-                    android:id="@+id/wakeTrainingStatus"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="⚠️  Not configured yet"
-                    android:textColor="@color/text_muted"
-                    android:textSize="13sp" />
+
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -140,7 +142,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Step 1 of 3"
+                        android:text="Preparing training"
                         android:textColor="@color/text_primary"
                         android:textSize="18sp"
                         android:textStyle="bold" />
@@ -149,7 +151,7 @@
                         android:id="@+id/wakeWizardDots"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="● ○ ○"
+                        android:text="0 / 14"
                         android:textColor="@color/cyan"
                         android:textSize="18sp" />
                 </LinearLayout>
@@ -160,7 +162,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:minHeight="48dp"
-                    android:text="Say your wake phrase now…"
+                    android:text="Wait for the models and microphone to be ready before speaking."
                     android:textColor="@color/text_secondary"
                     android:textSize="16sp" />
 
@@ -169,10 +171,15 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="\uD83D\uDD34  Recording…"
+                    android:text="Preparing — microphone not started"
                     android:textColor="@color/magenta"
                     android:textSize="14sp"
                     android:textStyle="bold" />
+
+                <Button android:id="@+id/ownerRetryButton" android:layout_width="match_parent"
+                    android:layout_height="48dp" android:text="Retry this take" android:textAllCaps="false"
+                    android:visibility="gone" android:background="@drawable/bg_button_secondary"
+                    android:textColor="@color/text_primary" />
 
                 <Button
                     android:id="@+id/wakeWizardCancel"
@@ -180,7 +187,7 @@
                     android:layout_height="48dp"
                     android:layout_marginTop="14dp"
                     android:background="@drawable/bg_button_secondary"
-                    android:text="Pause (resume later)"
+                    android:text="Cancel training"
                     android:textAllCaps="false"
                     android:textColor="@color/danger"
                     android:textSize="14sp" />
@@ -380,7 +387,7 @@
                         android:id="@+id/contactWizardDots"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="● ○ ○"
+                        android:text="0 / 14"
                         android:textColor="@color/magenta"
                         android:textSize="18sp" />
                 </LinearLayout>

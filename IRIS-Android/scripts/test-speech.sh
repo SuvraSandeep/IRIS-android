@@ -30,7 +30,12 @@ javac -encoding UTF-8 -d "$test_dir" \
   tests/PhoneFactsTest.java \
   app/src/main/java/com/iris/assistant/QuietAudioProcessor.java \
   app/src/main/java/com/iris/assistant/WakeChangeApproval.java \
-  tests/OwnerContractTest.java
+  tests/OwnerContractTest.java \
+  app/src/main/java/com/iris/assistant/RecordingDeadline.java \
+  tests/RecordingDeadlineTest.java \
+  app/src/main/java/com/iris/assistant/OwnerTrainingPlan.java \
+  app/src/main/java/com/iris/assistant/OwnerTrainingStage.java \
+  tests/OwnerTrainingStageTest.java
 java -cp "$test_dir" com.iris.assistant.SpeechTextTest
 java -cp "$test_dir" com.iris.assistant.PersonalVocabularyTest
 java -cp "$test_dir" com.iris.assistant.PlanTest
@@ -41,5 +46,16 @@ java -cp "$test_dir" com.iris.assistant.TelemetryTest
 java -cp "$test_dir" com.iris.assistant.BatteryRateTrackerTest
 java -cp "$test_dir" com.iris.assistant.PhoneFactsTest
 java -cp "$test_dir" com.iris.assistant.OwnerContractTest
+java -cp "$test_dir" com.iris.assistant.RecordingDeadlineTest
 java tests/ParseSources.java app/src/main/java
 
+
+java -cp "$test_dir" com.iris.assistant.OwnerTrainingStageTest
+python3 tests/check-training-layout.py
+mkdir -p "$test_dir/recorder"
+javac -encoding UTF-8 -d "$test_dir/recorder" \
+  $(find tests/recorder-stubs -name '*.java') \
+  app/src/main/java/com/iris/assistant/RecordingDeadline.java \
+  app/src/main/java/com/iris/assistant/TimedRecorder.java \
+  tests/TimedRecorderFlowTest.java
+java -cp "$test_dir/recorder" com.iris.assistant.TimedRecorderFlowTest
