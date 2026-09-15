@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.22.1";
+const BUILD_VERSION = "8.23.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -212,8 +212,8 @@ const FEATURES = [
    desc:"Pronunciation practice teaches command aliases and cannot replace the protected owner identity. Use the exact owner training wizard for wake enrollment.",
    examples:["Training → “🎓 Learn My Voice & Commands”"], version:"7.19.0"},
   {id:"waketrain", cat:"Voice & Recognition", icon:"🎤", title:"Robust Wake Training",
-   tagline:"Exact phrase, normal and quiet voice",
-   desc:"Recording and analysis have bounded deadlines and explicit stage/error feedback; a stalled microphone cannot wait indefinitely for samples. Eight validated takes: three normal, three soft/quiet, then two held-out verification takes. Each complete offline transcript must equal the typed phrase before progress advances. An authenticated atomic save replaces the owner profile; cancellation keeps the old profile. No arbitrary sentence is accepted as phrase training.",
+   tagline:"Visible stages and 14 validated takes",
+   desc:"The wizard shows speech-model preparation, speaker-model preparation, microphone opening, actual recording, analysis and review separately, with elapsed time and bounded timeouts. Five normal and five quiet takes build separate voice profiles; two normal and two quiet held-out takes verify them. Wrong phrases or insufficient speaker evidence do not advance progress; Retry this take waits for you. Cancel preserves the previous profile. Saving requires device authentication. More samples improve coverage but do not guarantee whisper recognition or replay resistance.",
    examples:["Training → “Set Up Wake Phrase” → Save / Re-record","Pause → later → “▶ Resume training (3/5)”"], version:"8.19.0"},
   {id:"bigmodel", cat:"Voice & Recognition", icon:"🎯", title:"High-Accuracy Voice Model (opt-in)",
    tagline:"A bigger offline model for tough accents.",

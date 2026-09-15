@@ -44,6 +44,8 @@ public final class VoskEngine {
     private volatile boolean modelLoaded;
     private Object spkModel;   // org.vosk.SpkModel via reflection (may be absent)
     private volatile boolean spkReady;
+    private volatile String speakerError="";
+    public String speakerLoadError(){return speakerError;}
     // Guards against a second initSpeaker() call starting a concurrent load thread before the
     // first finishes — without this, two overlapping calls could both pass "if (spkReady) return"
     // and both delete+re-extract SPK_DIR at once, corrupting the on-disk speaker model.
@@ -473,6 +475,7 @@ public final class VoskEngine {
     /** Load the Vosk speaker model (bundled in assets/spk-model, else downloaded). Non-fatal. */
     public void initSpeaker(Context context) {
         if (closed || spkReady) return;
+        speakerError="";
         // compareAndSet, not "if (spkLoading.get())" — the check-then-set must be atomic so two
         // threads calling initSpeaker() at nearly the same time can't both observe "not loading"
         // and both start a load thread, which would race on deleting/re-extracting SPK_DIR.
@@ -516,8 +519,10 @@ public final class VoskEngine {
                 //noinspection ResultOfMethodCallIgnored
                 zip.delete();
                 spkReady = false;
+                speakerError="Offline speaker model failed to load: "+t.getClass().getSimpleName()+". Check storage and model download availability.";
                 android.util.Log.w("IRIS", "Speaker model unavailable (voice verification off): " + t.getMessage());
             } finally {
+                if(!closed&&!spkReady&&speakerError.isEmpty())speakerError="The speaker model is missing or incomplete. Check the model download and available storage.";
                 spkLoading.set(false);
             }
         }, "Vosk-Spk-Load").start();

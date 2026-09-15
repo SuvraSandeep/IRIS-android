@@ -1,0 +1,1 @@
+package android.media; public class AudioFormat {public static final int CHANNEL_IN_MONO=1,ENCODING_PCM_16BIT=2;public static class Builder {public Builder setSampleRate(int v){return this;}public Builder setEncoding(int v){return this;}public Builder setChannelMask(int v){return this;}public AudioFormat build(){return new AudioFormat();}}}
