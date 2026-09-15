@@ -287,7 +287,7 @@ public final class LockedCaptureActivity extends Activity {
                 @Override public void onCaptureCompleted(CameraCaptureSession session,
                         CaptureRequest request, android.hardware.camera2.TotalCaptureResult result) {
                     if (finished || captured[0]) return;
-                    Integer aeState = result.get(CaptureRequest.CONTROL_AE_STATE);
+                    Integer aeState = result.get(android.hardware.camera2.CaptureResult.CONTROL_AE_STATE);
                     if (!triggered[0]) {
                         triggered[0] = true;
                         try {
