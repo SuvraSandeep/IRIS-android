@@ -2863,22 +2863,34 @@ public class MainActivity extends Activity {
             timedRecorder=new TimedRecorder(this);
             timedRecorder.record(5000,new TimedRecorder.Listener(){
                 public void onLevel(float level){if(generation==ownerTrainingGeneration&&wakeWizardFeedback!=null)wakeWizardFeedback.setText("Recording… "+Math.round(level*100)+"%");}
-                public void onError(String error){if(ownerTrainingActive&&generation==ownerTrainingGeneration){wakeTrainingStatus.setText(error);handler.postDelayed(MainActivity.this::captureNextWakeSample,1200);}}
+                public void onError(String error){if(ownerTrainingActive&&generation==ownerTrainingGeneration){cancelWakeTraining();wakeTrainingStatus.setText(error);if(wakeWizardFeedback!=null)wakeWizardFeedback.setText(error);}}
                 public void onComplete(short[] pcm){
                     if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
+                    if(wakeWizardFeedback!=null)wakeWizardFeedback.setText("Recording complete. Checking your phrase…");
                     wakeTrainingStatus.setText("Checking the complete phrase and speaker evidence…");
+                    final java.util.concurrent.atomic.AtomicBoolean validationDone=new java.util.concurrent.atomic.AtomicBoolean();
+                    final Runnable validationTimeout=()->{
+                        if(ownerTrainingActive&&generation==ownerTrainingGeneration&&validationDone.compareAndSet(false,true)){
+                            cancelWakeTraining();wakeTrainingStatus.setText("Voice analysis timed out. Your saved owner profile is unchanged. Please retry training.");
+                        }
+                    };
+                    handler.postDelayed(validationTimeout,30000);
                     new Thread(()->{
                         String transcript="";float[] vector=null;
-                        synchronized(engine){
+                        try { synchronized(engine){
                             if(ownerTrainingActive&&generation==ownerTrainingGeneration&&WakePolicy.usableAudio(pcm)){
                                 short[] prepared=QuietAudioProcessor.prepare(pcm);
                                 transcript=engine.transcribe(prepared);
                                 if(WakePolicy.matches(transcript,java.util.Collections.singletonList(wakePhraseBeingTrained)))vector=engine.embed(prepared);
                             }
                         }
+                        } catch(Throwable analysisError) { transcript="Analysis failed; please retry"; }
                         final String heard=transcript;final float[] embedding=vector;
                         handler.post(()->{
+                            if(!validationDone.compareAndSet(false,true))return;
+                            handler.removeCallbacks(validationTimeout);
                             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
+                            if(wakeWizardFeedback!=null)wakeWizardFeedback.setText("Analysis complete");
                             if(!WakePolicy.owner(embedding,embedding,.99)){
                                 wakeTrainingStatus.setText("Not accepted. Expected: “"+wakePhraseBeingTrained+"”. Heard: “"+heard+"”. Say the whole phrase once, with no extra words.");
                                 handler.postDelayed(MainActivity.this::captureNextWakeSample,2500);return;
