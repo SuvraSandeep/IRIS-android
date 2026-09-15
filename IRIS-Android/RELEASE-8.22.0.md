@@ -7,8 +7,9 @@ Repairs owner verification, exact-phrase enrollment, actual microphone reporting
 - Vosk now uses application-owned AudioRecord capture with observed-route reporting. Phone/headset routing is measured; Bluetooth use may change media quality.
 - Preview uses a separate drained YUV surface; only the final JPEG/result transaction is saved. Flash capability and outcome are checked; timeout does not fake flash success.
 - System Battery Saver requests do not alter IRIS power saving or return early based on its state. DND responses check effective state. Airplane/Battery Saver still require Android settings interaction.
+- Bounded gain is shared by live wake and enrollment; raw audio quality is checked before amplification.
 - Speech recognition is local; remote STT preferences cannot activate uploads.
 
-Validation: 516 offline regression checks pass, plus source parsing. Android build pending. Real-device microphone, whisper, replay, camera and OEM mode tests remain required; no universal recognition, liveness or locked-screen system-toggle guarantee.
+Validation: 519 offline regression checks pass, plus source parsing. Android build validated before final shared-audio hardening; final build required. Real-device microphone, whisper, replay, camera and OEM mode tests remain required; no universal recognition, liveness or locked-screen system-toggle guarantee.
 
 Commit message: fix: enforce owner wake and exact enrollment; repair capture routing and system modes

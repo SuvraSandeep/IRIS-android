@@ -5223,6 +5223,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private String configureAudioRoute() {
+        if(audioManager==null)audioManager=(AudioManager)getSystemService(AUDIO_SERVICE);
         // Capture owners request and observe their actual AudioRecord route.
         return AudioRouteController.observed;
     }
@@ -5337,9 +5338,6 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (audioManager == null) return;
         try {
             if (audioDeviceCallback != null) audioManager.unregisterAudioDeviceCallback(audioDeviceCallback);
-            if (Build.VERSION.SDK_INT >= 31) audioManager.clearCommunicationDevice();
-            else { audioManager.setBluetoothScoOn(false); audioManager.stopBluetoothSco(); }
-            audioManager.setMode(previousAudioMode);
         } catch (Exception ignored) { }
         audioDeviceCallback = null;
         audioManager = null;
@@ -5378,6 +5376,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         // the persistent notification almost immediately after startForeground and stayed gone
         // for essentially the whole listening session. Now shares baseListeningNotificationBuilder
         // with listeningNotification() so the two can never drift apart again.
+        microphoneLabel=AudioRouteController.observed;
         Notification notification = baseListeningNotificationBuilder(text + " • " + microphoneLabel).build();
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(LISTENING_NOTIFICATION, notification);
     }

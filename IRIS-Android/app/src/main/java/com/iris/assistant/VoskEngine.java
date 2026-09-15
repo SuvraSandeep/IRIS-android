@@ -38,6 +38,7 @@ public final class VoskEngine {
     private static final String SPK_URL =
             "https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip";
 
+    private volatile boolean closed;
     private Context captureContext;
     private Model model;
     private volatile boolean modelLoaded;
@@ -74,6 +75,7 @@ public final class VoskEngine {
 
     /** Load the Vosk model: bundled assets first, else download at runtime. */
     public void init(Context context, InitListener listener) {
+        if(closed){listener.onError("Voice engine is closed");return;}
         captureContext=context.getApplicationContext();
         if (modelLoaded) { main.post(listener::onReady); return; }
         Context app = context.getApplicationContext();
@@ -112,8 +114,7 @@ public final class VoskEngine {
                     if (!staging.renameTo(target)) throw new java.io.IOException("Could not install Indian voice bundle");
                 }
                 deleteRecursive(staging);
-                model = new Model(target.getAbsolutePath());
-                modelLoaded = true;
+                if(!installModel(new Model(target.getAbsolutePath())))return;
                 main.post(listener::onReady);
             } catch (Throwable t) {
                 deleteRecursive(staging);
@@ -126,8 +127,7 @@ public final class VoskEngine {
     private void loadFromPath(String path, InitListener listener) {
         new Thread(() -> {
             try {
-                model = new Model(path);
-                modelLoaded = true;
+                if(!installModel(new Model(path)))return;
                 main.post(listener::onReady);
             } catch (Throwable t) {
                 modelLoaded = false;
@@ -158,8 +158,7 @@ public final class VoskEngine {
                     //noinspection ResultOfMethodCallIgnored
                     zip.delete();
                 }
-                model = new Model(modelDir.getAbsolutePath());
-                modelLoaded = true;
+                if(!installModel(new Model(modelDir.getAbsolutePath())))return;
                 android.util.Log.i("IRIS", "Vosk model ready (downloaded)");
                 main.post(listener::onReady);
             } catch (Throwable t) {
@@ -209,8 +208,7 @@ public final class VoskEngine {
                     //noinspection ResultOfMethodCallIgnored
                     zip.delete();
                 }
-                model = new Model(modelDir.getAbsolutePath());
-                modelLoaded = true;
+                if(!installModel(new Model(modelDir.getAbsolutePath())))return;
                 android.util.Log.i("IRIS", "Large Vosk model ready");
                 main.post(listener::onReady);
             } catch (Throwable t) {
@@ -382,7 +380,7 @@ public final class VoskEngine {
                     if (generation != wakeGeneration || fired.get()) return;
                     try {
                         JSONObject result = new JSONObject(json);
-                        if (!WakePolicy.matches(result.optString("text"), norm)) return;
+                        if (!result.optBoolean("iris_audio_usable",false) || !WakePolicy.matches(result.optString("text"), norm)) return;
                         JSONArray words = result.optJSONArray("result");
                         if (words == null || words.length() == 0) return;
                         double score = 1;
@@ -448,10 +446,7 @@ public final class VoskEngine {
         synchronized (stateLock) {
             wakeGeneration++;
             if (speechService != null) {
-                try {
-                    speechService.stop();
-                    speechService.shutdown();
-                } catch (Exception ignored) { }
+                speechService.stop();
                 speechService = null;
             }
         }
@@ -459,18 +454,17 @@ public final class VoskEngine {
 
     /** Release all resources. */
     public void close() {
-        stop();
-        if (model != null) {
-            try { model.close(); } catch (Exception ignored) { }
-            model = null;
+        synchronized(stateLock){
+            closed=true;stop();
+            if(model!=null){model.close();model=null;}
+            if(spkModel!=null){try{spkModel.getClass().getMethod("close").invoke(spkModel);}catch(Throwable ignored){}spkModel=null;}
+            spkReady=false;modelLoaded=false;
         }
-        if (spkModel != null) {
-            try { spkModel.getClass().getMethod("close").invoke(spkModel); } catch (Throwable ignored) { }
-            spkModel = null;
-        }
-        spkReady = false;
-        modelLoaded = false;
     }
+    private boolean installModel(Model candidate){
+        synchronized(stateLock){if(closed){candidate.close();return false;}model=candidate;modelLoaded=true;return true;}
+    }
+
 
     // ─── Speaker model (voice verification) ───
 
@@ -478,7 +472,7 @@ public final class VoskEngine {
 
     /** Load the Vosk speaker model (bundled in assets/spk-model, else downloaded). Non-fatal. */
     public void initSpeaker(Context context) {
-        if (spkReady) return;
+        if (closed || spkReady) return;
         // compareAndSet, not "if (spkLoading.get())" — the check-then-set must be atomic so two
         // threads calling initSpeaker() at nearly the same time can't both observe "not loading"
         // and both start a load thread, which would race on deleting/re-extracting SPK_DIR.
@@ -511,8 +505,11 @@ public final class VoskEngine {
                 }
                 if (isValidSpkDir(dir)) {
                     Class<?> spkClass = Class.forName("org.vosk.SpkModel");
-                    spkModel = spkClass.getConstructor(String.class).newInstance(dir.getAbsolutePath());
-                    spkReady = true;
+                    Object candidate=spkClass.getConstructor(String.class).newInstance(dir.getAbsolutePath());
+                    synchronized(stateLock){
+                        if(closed){spkClass.getMethod("close").invoke(candidate);return;}
+                        spkModel=candidate;spkReady=true;
+                    }
                     android.util.Log.i("IRIS", "Vosk speaker model ready");
                 }
             } catch (Throwable t) {
@@ -575,20 +572,15 @@ public final class VoskEngine {
 
     /** Compute a speaker x-vector for a PCM clip (16kHz mono). Null if unavailable. */
     public float[] embed(short[] pcm) {
-        if (!isReady() || !isSpeakerReady() || pcm == null || pcm.length < 3200) return null;
-        try {
-            Class<?> spkClass = Class.forName("org.vosk.SpkModel");
-            Recognizer rec = (Recognizer) Recognizer.class
-                    .getConstructor(Model.class, float.class, spkClass)
-                    .newInstance(model, SAMPLE_RATE, spkModel);
-            rec.acceptWaveForm(pcm, pcm.length);
-            String json = rec.getFinalResult();
-            rec.close();
+        if(!isReady()||!isSpeakerReady()||pcm==null||pcm.length<3200)return null;
+        Recognizer rec=null;
+        try{
+            rec=new Recognizer(model,SAMPLE_RATE);
+            rec.getClass().getMethod("setSpkModel",Class.forName("org.vosk.SpkModel")).invoke(rec,spkModel);
+            rec.acceptWaveForm(pcm,pcm.length);String json=rec.getFinalResult();
+            if(new JSONObject(json).optInt("spk_frames",0)<50)return null;
             return extractSpk(json);
-        } catch (Throwable t) {
-            android.util.Log.w("IRIS", "embed failed: " + t.getMessage());
-            return null;
-        }
+        }catch(Throwable error){return null;}finally{if(rec!=null)rec.close();}
     }
 
     private static float[] extractSpk(String json) {

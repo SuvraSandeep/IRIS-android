@@ -24,18 +24,28 @@ final class ManagedSpeechService {
                 mic=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(4096,buffer*2));
                 if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
                 route.request(context,mic);mic.startRecording();AudioRouteController.observe(mic);
-                short[] frame=new short[320];int frames=0,lastRoute=-1;
+                short[] frame=new short[320],raw=new short[80000];int rawCount=0,rawOffset=0;int frames=0,lastRoute=-1;
+                QuietAudioProcessor gain=new QuietAudioProcessor();
                 while(running){
                     int n=mic.read(frame,0,frame.length);
                     if(n<0)throw new IllegalStateException("Microphone read failed: "+n);
                     if(n==0)continue;
                     if(++frames%25==0){
                         AudioDeviceInfo actual=mic.getRoutedDevice();int id=actual==null?-1:actual.getId();
-                        if(lastRoute!=-1&&id!=lastRoute)recognizer.reset();lastRoute=id;
+                        if(lastRoute!=-1&&id!=lastRoute){recognizer.reset();rawCount=rawOffset=0;gain=new QuietAudioProcessor();}lastRoute=id;
                         AudioRouteController.observe(mic);
                     }
+                    for(int i=0;i<n;i++){raw[rawOffset]=frame[i];rawOffset=(rawOffset+1)%raw.length;rawCount=Math.min(raw.length,rawCount+1);}
+                    gain.process(frame,n);
                     boolean complete=recognizer.acceptWaveForm(frame,n);
-                    String result=complete?recognizer.getResult():recognizer.getPartialResult();
+                    String output=complete?recognizer.getResult():recognizer.getPartialResult();
+                    if(complete){
+                        short[] clip=new short[rawCount];int start=(rawOffset-rawCount+raw.length)%raw.length;
+                        for(int i=0;i<rawCount;i++)clip[i]=raw[(start+i)%raw.length];
+                        output=new org.json.JSONObject(output).put("iris_audio_usable",WakePolicy.usableAudio(clip)).toString();
+                        rawCount=rawOffset=0;gain=new QuietAudioProcessor();
+                    }
+                    final String result=output;
                     main.post(()->{if(running){if(complete)listener.onResult(result);else listener.onPartialResult(result);}});
                 }
             }catch(Exception error){main.post(()->{if(running)listener.onError(error);});}

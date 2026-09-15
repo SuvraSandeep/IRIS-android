@@ -28,6 +28,7 @@ javac -encoding UTF-8 -d "$test_dir" \
   tests/BatteryRateTrackerTest.java \
   app/src/main/java/com/iris/assistant/PhoneFacts.java \
   tests/PhoneFactsTest.java \
+  app/src/main/java/com/iris/assistant/QuietAudioProcessor.java \
   app/src/main/java/com/iris/assistant/WakeChangeApproval.java \
   tests/OwnerContractTest.java
 java -cp "$test_dir" com.iris.assistant.SpeechTextTest

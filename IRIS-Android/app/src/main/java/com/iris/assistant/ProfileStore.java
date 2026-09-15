@@ -40,7 +40,7 @@ public final class ProfileStore {
         public float[] voiceprint;
         public final List<String> altPhrases = new ArrayList<>();
         public boolean isReady() { return !phrase.trim().isEmpty(); }
-        public boolean isVoiceEnrolled() { return voiceprint != null && voiceprint.length > 0; }
+        public boolean isVoiceEnrolled() { return WakePolicy.owner(voiceprint,voiceprint,.99); }
         /** Primary phrase + any alternates, de-duplicated (case-insensitively). */
         public List<String> allPhrases() {
             List<String> all = new ArrayList<>();

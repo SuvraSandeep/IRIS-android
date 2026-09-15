@@ -17,6 +17,10 @@ public final class OwnerContractTest {
         boolean blocked=false;try{WakeChangeApproval.require();}catch(SecurityException e){blocked=true;}check(blocked);
         WakeChangeApproval.runApproved(()->WakeChangeApproval.require());
         blocked=false;try{WakeChangeApproval.require();}catch(SecurityException e){blocked=true;}check(blocked);
+        short[] silence=new short[16000];check(!WakePolicy.usableAudio(QuietAudioProcessor.prepare(silence)));
+        short[] loud=new short[16000];for(int i=0;i<loud.length;i++)loud[i]=(short)(i%2==0?32767:-32767);
+        short[] prepared=QuietAudioProcessor.prepare(loud);check(loud[0]==32767);
+        boolean bounded=true;for(short value:prepared)if(Math.abs((int)value)>28000)bounded=false;check(bounded);
         System.out.println("Passed "+checks+" owner contract checks");
     }
 }

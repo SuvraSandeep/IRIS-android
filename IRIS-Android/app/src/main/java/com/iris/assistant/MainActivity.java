@@ -2839,6 +2839,7 @@ public class MainActivity extends Activity {
         final long generation=ownerTrainingGeneration;
         if(ownerTrainingEngine==null){
             ownerTrainingEngine=new VoskEngine();
+            ownerTrainingEngine.setSensitivity(new AppSettings(this).voiceSensitivity());
             final VoskEngine engine=ownerTrainingEngine;
             wakeTrainingStatus.setText("Preparing offline voice models. No recordings are uploaded.");
             engine.init(this,new VoskEngine.InitListener(){
@@ -2870,8 +2871,9 @@ public class MainActivity extends Activity {
                         String transcript="";float[] vector=null;
                         synchronized(engine){
                             if(ownerTrainingActive&&generation==ownerTrainingGeneration&&WakePolicy.usableAudio(pcm)){
-                                transcript=engine.transcribe(pcm);
-                                if(WakePolicy.matches(transcript,java.util.Collections.singletonList(wakePhraseBeingTrained)))vector=engine.embed(pcm);
+                                short[] prepared=QuietAudioProcessor.prepare(pcm);
+                                transcript=engine.transcribe(prepared);
+                                if(WakePolicy.matches(transcript,java.util.Collections.singletonList(wakePhraseBeingTrained)))vector=engine.embed(prepared);
                             }
                         }
                         final String heard=transcript;final float[] embedding=vector;
@@ -3019,49 +3021,7 @@ public class MainActivity extends Activity {
     }
 
     private void enrollFromReadSamplesThenCommands() {
-        if (voiceTrainCancelled) return;
-        voiceTrainStep.setText("\uD83E\uDDE0 Learning your voice…");
-        voiceTrainPrompt.setText("Building your voice pattern from what you read…");
-        voiceTrainFeedback.setText("");
-        final java.util.List<short[]> samples = new ArrayList<>(voiceReadSamples);
-        new Thread(() -> {
-            long deadline = System.currentTimeMillis() + 45000;   // model may need a one-time download
-            while (trainVosk != null && !trainVosk.isSpeakerReady()
-                    && System.currentTimeMillis() < deadline) {
-                try { Thread.sleep(150); } catch (InterruptedException ignored) { }
-            }
-            java.util.List<float[]> vecs = new java.util.ArrayList<>();
-            int usableCount = 0;
-            boolean speakerReady = trainVosk != null && trainVosk.isSpeakerReady();
-            if (speakerReady) {
-                for (short[] s : samples) {
-                    if (!WakePolicy.usableAudio(s)) continue;
-                    usableCount++;
-                    float[] e = null;
-                    try { e = trainVosk.embed(s); } catch (Throwable ignored) { }
-                    if (e != null) vecs.add(e);
-                }
-            }
-            final float[] enrolledVec = WakePolicy.enrollment(vecs);
-            final int usableF = usableCount, vecsF = vecs.size(), totalF = samples.size();
-            if (enrolledVec != null) {
-                // Command practice cannot replace owner enrollment.
-                LogStore.append(MainActivity.this, "VOICE",
-                        "Voice pattern enrolled from " + vecs.size() + " of " + samples.size() + " read phrases");
-            } else {
-                LogStore.append(MainActivity.this, "VOICE", "Voice pattern not saved: speakerReady="
-                        + speakerReady + " usable=" + usableF + "/" + totalF + " embedded=" + vecsF);
-            }
-            handler.post(() -> {
-                if (enrolledVec == null) {
-                    String detail = !speakerReady ? "the voice-lock model wasn't ready in time"
-                            : usableF == 0 ? "no clear speech was detected in your recordings"
-                            : "the recordings were too inconsistent with each other";
-                    toast("Voice wake unavailable: " + detail + ". You can retrain from Training.");
-                }
-                if (!voiceTrainCancelled) trainCommandStep();
-            });
-        }, "IRIS-VoiceTrain-Enroll").start();
+        if(!voiceTrainCancelled)trainCommandStep();
     }
 
     private void trainCommandStep() {
