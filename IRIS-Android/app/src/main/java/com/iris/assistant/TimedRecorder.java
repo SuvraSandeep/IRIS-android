@@ -22,6 +22,9 @@ public final class TimedRecorder {
         void onError(String message);
     }
 
+    private final android.content.Context context;
+    public TimedRecorder(){context=null;}
+    public TimedRecorder(android.content.Context context){this.context=context.getApplicationContext();}
     private volatile boolean recording;
     private Thread thread;
 
@@ -36,6 +39,7 @@ public final class TimedRecorder {
         thread = new Thread(() -> {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
             AudioRecord mic = null;
+            AudioRouteController route=new AudioRouteController(context);
             try {
                 int totalSamples = SAMPLE_RATE * durationMs / 1000;
                 int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE,
@@ -54,7 +58,8 @@ public final class TimedRecorder {
                     return;
                 }
 
-                mic.startRecording();
+                if(context!=null)route.request(context,mic);
+                mic.startRecording();AudioRouteController.observe(mic);
                 short[] audio = new short[totalSamples];
                 short[] frame = new short[FRAME_SIZE];
                 int offset = 0;
@@ -62,6 +67,7 @@ public final class TimedRecorder {
                 while (recording && offset < totalSamples) {
                     int toRead = Math.min(FRAME_SIZE, totalSamples - offset);
                     int read = mic.read(frame, 0, toRead);
+                    if(read<0)throw new IllegalStateException("Microphone read failed");
                     if (read > 0) {
                         System.arraycopy(frame, 0, audio, offset, read);
                         offset += read;
@@ -89,6 +95,7 @@ public final class TimedRecorder {
                     try { mic.stop(); } catch (Exception ignored) { }
                     try { mic.release(); } catch (Exception ignored) { }
                 }
+                route.close();
                 recording = false;
             }
         }, "IRIS-TimedRecorder");

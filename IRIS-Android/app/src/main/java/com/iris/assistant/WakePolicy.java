@@ -8,7 +8,7 @@ public final class WakePolicy {
     private WakePolicy() { }
     public static String normalize(String text) {
         return text == null ? "" : text.toLowerCase(Locale.ROOT)
-                .replaceAll("[^\\p{L}\\p{N} ]", " ").trim().replaceAll("\\s+", " ");
+                .replaceAll("[^\\p{L}\\p{M}\\p{N} ]", " ").trim().replaceAll("\\s+", " ");
     }
     public static boolean matches(String text, List<String> phrases) {
         String n = normalize(text);
@@ -26,8 +26,11 @@ public final class WakePolicy {
         return aa > 0 && bb > 0 ? dot / Math.sqrt(aa * bb) : -1;
     }
     public static boolean owner(float[] sample, float[] enrolled, double threshold) {
-        return sample != null && sample.length == EMBED_DIM && enrolled != null && enrolled.length == EMBED_DIM
+        return Double.isFinite(threshold) && threshold >= 0 && threshold <= 1 && sample != null && sample.length == EMBED_DIM && enrolled != null && enrolled.length == EMBED_DIM
                 && cosine(sample, enrolled) >= threshold;
+    }
+    public static boolean ownerEither(float[] sample,float[] normal,float[] quiet,double threshold) {
+        return owner(sample,normal,threshold)||owner(sample,quiet,threshold);
     }
     /** Expected dimension of a Vosk speaker x-vector (vosk-model-spk-0.4 produces 128-dim
      *  embeddings). Shared by VoskEngine.extractSpk() and every length check here, so a future

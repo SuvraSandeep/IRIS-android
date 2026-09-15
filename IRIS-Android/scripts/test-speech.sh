@@ -27,7 +27,9 @@ javac -encoding UTF-8 -d "$test_dir" \
   app/src/main/java/com/iris/assistant/BatteryRateTracker.java \
   tests/BatteryRateTrackerTest.java \
   app/src/main/java/com/iris/assistant/PhoneFacts.java \
-  tests/PhoneFactsTest.java
+  tests/PhoneFactsTest.java \
+  app/src/main/java/com/iris/assistant/WakeChangeApproval.java \
+  tests/OwnerContractTest.java
 java -cp "$test_dir" com.iris.assistant.SpeechTextTest
 java -cp "$test_dir" com.iris.assistant.PersonalVocabularyTest
 java -cp "$test_dir" com.iris.assistant.PlanTest
@@ -37,5 +39,6 @@ java -cp "$test_dir" com.iris.assistant.WakePolicyTest
 java -cp "$test_dir" com.iris.assistant.TelemetryTest
 java -cp "$test_dir" com.iris.assistant.BatteryRateTrackerTest
 java -cp "$test_dir" com.iris.assistant.PhoneFactsTest
+java -cp "$test_dir" com.iris.assistant.OwnerContractTest
 java tests/ParseSources.java app/src/main/java
 

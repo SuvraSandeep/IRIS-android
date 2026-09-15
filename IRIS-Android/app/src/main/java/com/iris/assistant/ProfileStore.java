@@ -49,12 +49,6 @@ public final class ProfileStore {
                 all.add(phrase.trim());
                 seenNormalized.add(phrase.trim().toLowerCase(Locale.ROOT));
             }
-            for (String p : altPhrases) {
-                if (p == null || p.trim().isEmpty()) continue;
-                String trimmed = p.trim();
-                String lower = trimmed.toLowerCase(Locale.ROOT);
-                if (!seenNormalized.contains(lower)) { all.add(trimmed); seenNormalized.add(lower); }
-            }
             return all;
         }
     }
@@ -144,6 +138,7 @@ public final class ProfileStore {
     }
 
     public synchronized boolean setWakeProfile(String phrase, List<float[][]> templates) {
+        WakeChangeApproval.require();
         if (phrase == null) return false;
         try {
             JSONObject current = root();
@@ -205,6 +200,7 @@ public final class ProfileStore {
 
     /** Store optional alternate wake phrases (text only — Vosk recognizes them; no separate training). */
     public synchronized boolean setAltWakePhrases(List<String> phrases) {
+        WakeChangeApproval.require();
         try {
             JSONObject current = root();
             JSONObject wake = current.optJSONObject("wakeWord");
@@ -222,7 +218,29 @@ public final class ProfileStore {
         } catch (Exception ignored) { return false; }
     }
 
+    public synchronized boolean commitOwnerProfile(String phrase, float[] normal, float[] quiet) {
+        WakeChangeApproval.require();
+        if (WakePolicy.normalize(phrase).isEmpty() || !WakePolicy.owner(normal,normal,.99)
+                || !WakePolicy.owner(quiet,quiet,.99)) return false;
+        try {
+            JSONObject current=root(), wake=new JSONObject();
+            wake.put("phrase",phrase.trim()).put("trainedAt",System.currentTimeMillis())
+                .put("schema",3).put("speakerModel","vosk-model-spk-0.4").put("threshold",1.05);
+            JSONArray n=new JSONArray(),q=new JSONArray();
+            for(float v:normal)n.put((double)v);for(float v:quiet)q.put((double)v);
+            wake.put("voiceprint",n).put("quietVoiceprint",q);
+            current.put("wakeWord",wake);persist(current);return true;
+        } catch(Exception error){return false;}
+    }
+    public synchronized float[] getQuietVoiceprint() {
+        try { JSONArray a=root().getJSONObject("wakeWord").getJSONArray("quietVoiceprint");
+            if(a.length()!=WakePolicy.EMBED_DIM)return null;
+            float[] v=new float[a.length()];for(int i=0;i<v.length;i++)v[i]=(float)a.getDouble(i);return v;
+        }catch(Exception e){return null;}
+    }
+
     public synchronized boolean setVoiceprint(float[] voiceprint) {
+        WakeChangeApproval.require();
         try {
             JSONObject current = root();
             JSONObject wake = current.optJSONObject("wakeWord");
@@ -232,7 +250,7 @@ public final class ProfileStore {
                 for (float v : voiceprint) vp.put(Math.round(v * 1000000f) / 1000000.0);
                 wake.put("voiceprint", vp);
             } else {
-                wake.remove("voiceprint");
+                wake.remove("voiceprint");wake.remove("quietVoiceprint");
             }
             current.put("wakeWord", wake);
             persist(current);
@@ -591,26 +609,7 @@ public final class ProfileStore {
         }
         JSONObject result = root();
         result.put("profiles", entriesArray(new ArrayList<>(merged.values())));
-        JSONObject wake = incoming.optJSONObject("wakeWord");
-        if (wake != null && wake.optJSONArray("templates") != null) {
-            // Validate wake profile before importing
-            double threshold = wake.optDouble("threshold", 1.05);
-            if (threshold < WAKE_THRESHOLD_MIN || threshold > WAKE_THRESHOLD_MAX) throw new IllegalArgumentException("Invalid wake threshold in imported profile.");
-            JSONArray wakeTemplates = wake.optJSONArray("templates");
-            if (wakeTemplates.length() > 5) throw new IllegalArgumentException("Too many wake templates in imported profile.");
-            for (int t = 0; t < wakeTemplates.length(); t++) {
-                JSONArray frames = wakeTemplates.getJSONArray(t);
-                if (frames.length() > 120) throw new IllegalArgumentException("Wake template too large in imported profile.");
-                for (int f = 0; f < frames.length(); f++) {
-                    JSONArray features = frames.getJSONArray(f);
-                    if (features.length() > 20) throw new IllegalArgumentException("Wake feature vector too large in imported profile.");
-                }
-            }
-            String phrase = wake.optString("phrase", "").trim();
-            if (phrase.length() > 200) throw new IllegalArgumentException("Wake phrase too long in imported profile.");
-            result.put("wakeWord", wake);
-        }
-        result.put("version", 2);
+        // Imports merge contacts only; owner enrollment is device-authenticated.
         persist(result);
         return imported;
     }

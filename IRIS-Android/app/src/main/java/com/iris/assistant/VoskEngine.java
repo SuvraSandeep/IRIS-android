@@ -9,7 +9,7 @@ import org.json.JSONObject;
 import org.vosk.Model;
 import org.vosk.Recognizer;
 import org.vosk.android.RecognitionListener;
-import org.vosk.android.SpeechService;
+
 import org.vosk.android.StorageService;
 
 import java.io.File;
@@ -38,6 +38,7 @@ public final class VoskEngine {
     private static final String SPK_URL =
             "https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip";
 
+    private Context captureContext;
     private Model model;
     private volatile boolean modelLoaded;
     private Object spkModel;   // org.vosk.SpkModel via reflection (may be absent)
@@ -46,7 +47,7 @@ public final class VoskEngine {
     // first finishes — without this, two overlapping calls could both pass "if (spkReady) return"
     // and both delete+re-extract SPK_DIR at once, corrupting the on-disk speaker model.
     private final java.util.concurrent.atomic.AtomicBoolean spkLoading = new java.util.concurrent.atomic.AtomicBoolean();
-    private SpeechService speechService;
+    private ManagedSpeechService speechService;
     // All mutable engine state that's read/written from both the calling thread (UI/service) and
     // the Vosk recognition callback thread must go through this lock — startWakeDetection/stop/
     // startListening were previously unsynchronized, so two overlapping calls (e.g. the Test Wake
@@ -73,6 +74,7 @@ public final class VoskEngine {
 
     /** Load the Vosk model: bundled assets first, else download at runtime. */
     public void init(Context context, InitListener listener) {
+        captureContext=context.getApplicationContext();
         if (modelLoaded) { main.post(listener::onReady); return; }
         Context app = context.getApplicationContext();
         // High-accuracy path (opt-in): use the large en-IN model, downloaded on first use.
@@ -355,7 +357,7 @@ public final class VoskEngine {
             }
             if (norm.isEmpty()) { listener.onError("No wake phrase"); return; }
             grammar.put("[unk]");
-            Recognizer rec = new Recognizer(model, SAMPLE_RATE, grammar.toString());
+            Recognizer rec = new Recognizer(model, SAMPLE_RATE);
             rec.setWords(true);
             if (attachSpeaker) {
                 try {
@@ -364,12 +366,12 @@ public final class VoskEngine {
                 } catch (Throwable error) { rec.close(); throw new IllegalStateException("Speaker attachment failed", error); }
             }
             final boolean spkAttached = attachSpeaker;
-            SpeechService newService;
+            ManagedSpeechService newService;
             try {
-                newService = new SpeechService(rec, SAMPLE_RATE);
+                newService = new ManagedSpeechService(captureContext,rec, SAMPLE_RATE);
             } catch (Throwable error) {
                 // The Recognizer's native handle must be released here too — previously only the
-                // setSpkModel failure path above closed rec; a SpeechService constructor failure
+                // setSpkModel failure path above closed rec; a ManagedSpeechService constructor failure
                 // (e.g. AudioRecord init failure) left it leaked with no cleanup.
                 rec.close();
                 throw error;
@@ -416,7 +418,7 @@ public final class VoskEngine {
         stop();
         try {
             Recognizer recognizer = new Recognizer(model, SAMPLE_RATE);
-            speechService = new SpeechService(recognizer, SAMPLE_RATE);
+            speechService = new ManagedSpeechService(captureContext,recognizer, SAMPLE_RATE);
             speechService.startListening(new RecognitionListener() {
                 @Override public void onPartialResult(String hypothesis) {
                     String text = extractText(hypothesis, "partial");
@@ -559,17 +561,16 @@ public final class VoskEngine {
     /** Transcribe a PCM clip (16kHz mono) with the full vocabulary — used to learn how the
      *  user pronounces a command word. Returns lowercase text, or "" on failure. */
     public String transcribe(short[] pcm) {
-        if (!isReady() || pcm == null || pcm.length < 1600) return "";
+        if(!isReady() || pcm==null || pcm.length<1600)return "";
+        Recognizer rec=null;
         try {
-            Recognizer rec = new Recognizer(model, SAMPLE_RATE);
-            rec.acceptWaveForm(pcm, pcm.length);
-            String json = rec.getFinalResult();
-            rec.close();
-            return extractText(json, "text");
-        } catch (Throwable t) {
-            android.util.Log.w("IRIS", "transcribe failed: " + t.getMessage());
-            return "";
-        }
+            rec=new Recognizer(model,SAMPLE_RATE);StringBuilder text=new StringBuilder();
+            for(int offset=0;offset<pcm.length;offset+=1600){
+                short[] part=java.util.Arrays.copyOfRange(pcm,offset,Math.min(pcm.length,offset+1600));
+                if(rec.acceptWaveForm(part,part.length)){String t=extractText(rec.getResult(),"text");if(!t.isEmpty())text.append(t).append(' ');}
+            }
+            text.append(extractText(rec.getFinalResult(),"text"));return text.toString().trim();
+        }catch(Throwable e){return "";}finally{if(rec!=null)rec.close();}
     }
 
     /** Compute a speaker x-vector for a PCM clip (16kHz mono). Null if unavailable. */

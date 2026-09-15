@@ -60,7 +60,7 @@ public final class AppSettings {
     public String serverToken() { return prefs.getString("server_token", ""); }
     public void setServerToken(String v) { prefs.edit().putString("server_token", v == null ? "" : v.trim()).apply(); }
     /** Send audio to the server's Whisper endpoint for transcription (best accent accuracy). */
-    public boolean serverStt() { return prefs.getBoolean("server_stt", true); }
+    public boolean serverStt() { return false; }
     public void setServerStt(boolean v) { prefs.edit().putBoolean("server_stt", v).apply(); }
     /** Speak replies with the server's Piper voice (falls back to Android TTS if unavailable). */
     public boolean serverTts() { return prefs.getBoolean("server_tts", false); }
@@ -77,10 +77,13 @@ public final class AppSettings {
     // even at normal volume, let alone whispered speech. 0.75 default now maps to a realistic
     // ~0.39 confidence floor (see VoskEngine.setSensitivity) so wake is easy out of the box;
     // users who get too many false wakes can still lower it in Settings.
+    public float ownerStrictness() { return prefs.getFloat("owner_strictness_v3", 1f-voiceSensitivity()); }
+    public double ownerThreshold() { return .65 + .20 * Math.max(0, Math.min(1, ownerStrictness())); }
+    public void setOwnerStrictness(float value) { WakeChangeApproval.require(); prefs.edit().putFloat("owner_strictness_v3",Math.max(0,Math.min(1,value))).commit(); }
     public float voiceSensitivity() { return Math.max(0f, Math.min(1f, prefs.getFloat("owner_voice_sensitivity_v2", 0.75f))); }
-    public void setVoiceSensitivity(float value) { prefs.edit().putFloat("owner_voice_sensitivity_v2", Math.max(0f, Math.min(1f, value))).apply(); }
+    public void setVoiceSensitivity(float value) { WakeChangeApproval.require(); prefs.edit().putFloat("owner_voice_sensitivity_v2", Math.max(0f, Math.min(1f, value))).apply(); }
     /** Use Google Speech Recognition for commands (best accuracy; falls back to Vosk offline). */
-    public boolean googleSttForCommands() { return prefs.getBoolean("google_stt_commands", true); }
+    public boolean googleSttForCommands() { return false; }
     public void setGoogleSttForCommands(boolean v) { prefs.edit().putBoolean("google_stt_commands", v).apply(); }
     /** Speak a cue when a wake voice isn't recognized as the owner. */
     public boolean voiceCueEnabled() { return prefs.getBoolean("voice_cue_enabled", true); }
@@ -108,8 +111,8 @@ public final class AppSettings {
     // voice-matched wake. Previously hardcoded to true, which silently rejected every wake
     // attempt for anyone who hadn't completed voice enrollment (no voiceprint → owner() always
     // false), even though the phrase was heard correctly. That regression is fixed here.
-    public boolean speakerVerification() { return prefs.getBoolean("speaker_verification", false); }
-    public void setSpeakerVerification(boolean value) { prefs.edit().putBoolean("speaker_verification", value).apply(); }
+    public boolean speakerVerification() { return true; }
+    public void setSpeakerVerification(boolean value) { WakeChangeApproval.require(); prefs.edit().putBoolean("speaker_verification", value).apply(); }
     public boolean shakeToWake() { return prefs.getBoolean("shake_to_wake", false); }
     public void setShakeToWake(boolean v) { prefs.edit().putBoolean("shake_to_wake", v).apply(); }
     public boolean headsetTrigger() { return prefs.getBoolean("headset_trigger", false); }

@@ -81,6 +81,12 @@ public final class LockedCaptureActivity extends Activity {
     private boolean front;
     private boolean photoMode;
     private boolean flashRequested;
+    private ImageReader previewReader;
+    private boolean stillSubmitted,stillResultReceived;
+    private long stillTimestamp=-1,pendingImageTimestamp=-2;
+    private byte[] pendingJpeg;
+    private String flashOutcome="";
+
     private volatile boolean finished;
     private boolean opened;
     private CameraCharacteristics characteristics;
@@ -226,12 +232,14 @@ public final class LockedCaptureActivity extends Activity {
                     // A frame can still arrive after the capture was cancelled or the screen
                     // closed — drop it rather than publishing an unwanted photo.
                     if (finished) { img.close(); img = null; return; }
+                    long imageTimestamp=img.getTimestamp();
                     byte[] bytes = new byte[img.getPlanes()[0].getBuffer().remaining()];
                     img.getPlanes()[0].getBuffer().get(bytes);
                     img.close();
                     img = null;
                     if (finished) return;
-                    savePhoto(bytes);
+                    if(!stillSubmitted)return;
+                    pendingJpeg=bytes;pendingImageTimestamp=imageTimestamp;publishFinalPhoto();
                 } catch (Throwable t) {
                     LogStore.append(this, "LOCK CAPTURE", "Stage=IMAGE_READER: exception " + t);
                     done("I couldn't save the photo.");
@@ -240,7 +248,16 @@ public final class LockedCaptureActivity extends Activity {
                 }
             }, bg);
             Surface target = imageReader.getSurface();
-            camera.createCaptureSession(Collections.singletonList(target),
+            android.util.Size previewSize=chooseSize(config==null?null:config.getOutputSizes(ImageFormat.YUV_420_888),640L*480);
+            previewReader=ImageReader.newInstance(previewSize.getWidth(),previewSize.getHeight(),ImageFormat.YUV_420_888,2);
+            previewReader.setOnImageAvailableListener(reader->{try(Image ignored=reader.acquireLatestImage()){}catch(Exception ignored){}},bg);
+            if(flashRequested){
+                boolean available=Boolean.TRUE.equals(characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE));
+                int[] modes=characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES);
+                boolean supported=false;if(modes!=null)for(int mode:modes)if(mode==CaptureRequest.CONTROL_AE_MODE_ON_ALWAYS_FLASH)supported=true;
+                if(!available||!supported){done("This camera cannot provide the requested photo flash. Ask for a photo without flash.");return;}
+            }
+            camera.createCaptureSession(java.util.Arrays.asList(target,previewReader.getSurface()),
                     new CameraCaptureSession.StateCallback() {
                         @Override public void onConfigured(CameraCaptureSession s) {
                             if (finished) { s.close(); return; }
@@ -278,11 +295,12 @@ public final class LockedCaptureActivity extends Activity {
     private void startAeConvergedCapture(CameraCaptureSession s, Surface target) {
         try {
             CaptureRequest.Builder preview = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            preview.addTarget(target);
+            preview.addTarget(previewReader.getSurface());
             preview.set(CaptureRequest.CONTROL_MODE, android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
             applyFlashMode(preview);
             final boolean[] triggered = {false};
             final boolean[] captured = {false};
+            final boolean[] precaptureSeen={false};
             s.setRepeatingRequest(preview.build(), new CameraCaptureSession.CaptureCallback() {
                 @Override public void onCaptureCompleted(CameraCaptureSession session,
                         CaptureRequest request, android.hardware.camera2.TotalCaptureResult result) {
@@ -292,7 +310,7 @@ public final class LockedCaptureActivity extends Activity {
                         triggered[0] = true;
                         try {
                             CaptureRequest.Builder pre = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                            pre.addTarget(target);
+                            pre.addTarget(previewReader.getSurface());
                             pre.set(CaptureRequest.CONTROL_MODE, android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
                             pre.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
                                     CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_START);
@@ -301,10 +319,11 @@ public final class LockedCaptureActivity extends Activity {
                         } catch (Throwable ignored) { }
                         return;
                     }
-                    boolean converged = aeState == null
+                    if(aeState!=null && aeState==CaptureRequest.CONTROL_AE_STATE_PRECAPTURE){precaptureSeen[0]=true;return;}
+                    boolean converged = (!flashRequested || precaptureSeen[0]) && (aeState == null
                             || aeState == CaptureRequest.CONTROL_AE_STATE_CONVERGED
                             || aeState == CaptureRequest.CONTROL_AE_STATE_FLASH_REQUIRED
-                            || aeState == CaptureRequest.CONTROL_AE_STATE_LOCKED;
+                            || aeState == CaptureRequest.CONTROL_AE_STATE_LOCKED);
                     if (converged) {
                         captured[0] = true;
                         fireStillCapture(s, target);
@@ -313,13 +332,14 @@ public final class LockedCaptureActivity extends Activity {
             }, bg);
             // AE convergence should settle in a few frames; never wait indefinitely — capture
             // anyway after a short timeout rather than leaving the user stuck on unusual scenes.
-            main.postDelayed(() -> {
+            bg.postDelayed(() -> {
                 if (!finished && !captured[0]) {
                     captured[0] = true;
                     LogStore.append(this, "LOCK CAPTURE", "Stage=AE_CONVERGE_TIMEOUT: capturing anyway after 1.5s");
-                    fireStillCapture(s, target);
+                    if(flashRequested)done("Flash exposure did not settle. Please try again.");
+                    else fireStillCapture(s,target);
                 }
-            }, 1500);
+            }, 2500);
         } catch (Exception e) {
             LogStore.append(this, "LOCK CAPTURE", "Stage=AE_SEQUENCE: exception " + e);
             done("I couldn't take the photo.");
@@ -329,26 +349,44 @@ public final class LockedCaptureActivity extends Activity {
     /** Set the requested flash mode on a capture request builder. No-op if no flash was asked
      *  for, or (checked earlier in openCamera-adjacent code path) the lens has none. */
     private void applyFlashMode(CaptureRequest.Builder b) {
-        if (!flashRequested) return;
+        if (!flashRequested) { b.set(CaptureRequest.CONTROL_AE_MODE,CaptureRequest.CONTROL_AE_MODE_ON); b.set(CaptureRequest.FLASH_MODE,CaptureRequest.FLASH_MODE_OFF);return; }
         try { b.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_ALWAYS_FLASH); }
         catch (Throwable ignored) { }
     }
 
     private void fireStillCapture(CameraCaptureSession s, Surface target) {
         try {
+            if(finished||stillSubmitted)return;
+            stillSubmitted=true;
             s.stopRepeating();
             CaptureRequest.Builder b = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             b.addTarget(target);
             b.set(CaptureRequest.CONTROL_MODE, android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
             b.set(CaptureRequest.JPEG_ORIENTATION, captureOrientation());
             applyFlashMode(b);
-            s.capture(b.build(), null, bg);
+            b.setTag("iris-final-photo");
+            s.capture(b.build(), new CameraCaptureSession.CaptureCallback(){
+                @Override public void onCaptureCompleted(CameraCaptureSession session,CaptureRequest request,android.hardware.camera2.TotalCaptureResult result){
+                    if(finished)return;
+                    Long ts=result.get(android.hardware.camera2.CaptureResult.SENSOR_TIMESTAMP);
+                    stillTimestamp=ts==null?-1:ts;stillResultReceived=true;
+                    Integer flash=result.get(android.hardware.camera2.CaptureResult.FLASH_STATE);
+                    flashOutcome=!flashRequested?"":(flash!=null&&flash==android.hardware.camera2.CaptureResult.FLASH_STATE_FIRED?" Flash fired.":" Flash was requested; firing was not confirmed.");
+                    publishFinalPhoto();
+                }
+                @Override public void onCaptureFailed(CameraCaptureSession session,CaptureRequest request,android.hardware.camera2.CaptureFailure failure){done("The final photo capture failed.");}
+            }, bg);
         } catch (Exception e) {
             LogStore.append(this, "LOCK CAPTURE", "Stage=CAPTURE_REQUEST: exception " + e);
             done("I couldn't take the photo.");
         }
     }
 
+    private void publishFinalPhoto(){
+        if(finished||!stillSubmitted||!stillResultReceived||pendingJpeg==null)return;
+        if(stillTimestamp>=0 && pendingImageTimestamp!=stillTimestamp){done("Camera returned an unexpected frame. No photo was saved.");return;}
+        byte[] bytes=pendingJpeg;pendingJpeg=null;savePhoto(bytes);
+    }
     private void savePhoto(byte[] jpeg) {
         String name = "IRIS_PHOTO_" + timestamp() + ".jpg";
         try {
@@ -377,7 +415,7 @@ public final class LockedCaptureActivity extends Activity {
                 }
                 location = "the IRIS folder";
             }
-            done("Saved a photo to " + location + ".");
+            done("Saved a photo to " + location + "."+flashOutcome);
         } catch (Exception e) {
             LogStore.append(this, "LOCK CAPTURE", "Stage=SAVE_PHOTO: exception " + e);
             done("I couldn't save the photo.");
@@ -522,6 +560,7 @@ public final class LockedCaptureActivity extends Activity {
         recorder = null;
         try { if (imageReader != null) imageReader.close(); } catch (Exception ignored) { }
         imageReader = null;
+        try{if(previewReader!=null)previewReader.close();}catch(Exception ignored){}previewReader=null;pendingJpeg=null;
         try { if (camera != null) camera.close(); } catch (Exception ignored) { }
         camera = null;
         try { if (pfd != null) pfd.close(); } catch (Exception ignored) { }
