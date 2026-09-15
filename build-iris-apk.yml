@@ -71,23 +71,28 @@ jobs:
         run: |
           # The app self-downloads the Vosk model at runtime, so this is only a
           # best-effort speed-up. It must NEVER fail the build.
+          #
+          # Bundled as a single zip asset (not unpacked loose files): AAPT compresses
+          # loose nested asset files by default, and AssetManager.list() on compressed
+          # nested asset directories is unreliable on-device (can silently miss files),
+          # which produced corrupt/incomplete model directories that crashed the native
+          # Vosk model loader. Shipping one zip and streaming it through
+          # AssetManager.open() + ZipInputStream at runtime avoids AssetManager.list()
+          # entirely, matching the official Vosk-Android StorageService.unpack pattern.
           ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
-          MODEL_DIR="$ASSETS_DIR/model-en-in"
-          if [[ -d "$MODEL_DIR/am" ]]; then
+          MODEL_ZIP="$ASSETS_DIR/model-en-in.zip"
+          if [[ -f "$MODEL_ZIP" ]]; then
             echo "Vosk model already present, skipping."
           else
             echo "Attempting Vosk model download (best-effort)..."
             mkdir -p "$ASSETS_DIR"
-            rm -rf "$MODEL_DIR"
-            if curl -fSL --retry 2 --max-time 180 -o "$ASSETS_DIR/vosk-model.zip" \
-                 https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip \
-               && unzip -q "$ASSETS_DIR/vosk-model.zip" -d "$ASSETS_DIR"; then
-              mv "$ASSETS_DIR/vosk-model-small-en-in-0.4" "$MODEL_DIR" || true
+            if curl -fSL --retry 2 --max-time 180 -o "$MODEL_ZIP" \
+                 https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip; then
               echo "Vosk model bundled."
             else
+              rm -f "$MODEL_ZIP" || true
               echo "::warning::Vosk model download failed — app will download it at runtime instead."
             fi
-            rm -f "$ASSETS_DIR/vosk-model.zip" || true
           fi
 
       - name: Bundle personal profile (iris-me.json, optional)
@@ -111,22 +116,20 @@ jobs:
         run: |
           # Enables voice verification (only-owner wake). App downloads it at
           # runtime if this is skipped, so this must NEVER fail the build.
+          # Bundled as a single zip asset (see the Vosk model step above for why).
           ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
-          SPK_DIR="$ASSETS_DIR/spk-model"
-          if [[ -n "$(ls -A "$SPK_DIR" 2>/dev/null)" ]]; then
+          SPK_ZIP="$ASSETS_DIR/spk-model.zip"
+          if [[ -f "$SPK_ZIP" ]]; then
             echo "Speaker model already present, skipping."
           else
             mkdir -p "$ASSETS_DIR"
-            rm -rf "$SPK_DIR"
-            if curl -fSL --retry 2 --max-time 180 -o "$ASSETS_DIR/spk.zip" \
-                 https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip \
-               && unzip -q "$ASSETS_DIR/spk.zip" -d "$ASSETS_DIR"; then
-              mv "$ASSETS_DIR/vosk-model-spk-0.4" "$SPK_DIR" || true
+            if curl -fSL --retry 2 --max-time 180 -o "$SPK_ZIP" \
+                 https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip; then
               echo "Vosk speaker model bundled."
             else
+              rm -f "$SPK_ZIP" || true
               echo "::warning::Speaker model download failed — app downloads it at runtime."
             fi
-            rm -f "$ASSETS_DIR/spk.zip" || true
           fi
 
       - name: Regression tests (all suites)

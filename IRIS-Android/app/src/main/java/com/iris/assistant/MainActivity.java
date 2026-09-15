@@ -3745,8 +3745,9 @@ public class MainActivity extends Activity {
     private void showOfflineSpeechStatus() {
         boolean bundled = false;
         try {
-            String[] f = getAssets().list("model-en-in");
-            bundled = f != null && f.length > 0;
+            for (String name : getAssets().list("")) {
+                if (name.equals("model-en-in.zip")) { bundled = true; break; }
+            }
         } catch (Exception ignored) { }
         java.io.File extracted = new java.io.File(getFilesDir(), "vosk-model-en-in-0.4");
         boolean downloaded = extracted.exists() && extracted.list() != null && extracted.list().length > 0;

@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.24.1";
+const BUILD_VERSION = "8.25.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -181,8 +181,8 @@ const FEATURES = [
   // ---- Voice & Recognition ----
   {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
    tagline:"Exact owner-only wake",
-   desc:"Only the complete primary phrase and a valid enrolled owner vector can open a wake session. Missing identity or model errors reject; alternate text-only wake phrases are disabled. Media playback still pauses wake. Fixed a real hang: if the offline speech model finished loading just as the training screen was torn down or recreated (e.g. mid screen-recording, or backgrounding the app), the model-loading callback was silently dropped and training froze forever on \u201CPreparing speech model\u201D with no error and no way to recover except restarting the app. It now always reports back \u2014 either ready, or a clear error you can retry from.",
-   examples:["“Hello IRIS”, or any extra phrase you add"], version:"8.24.0"},
+   desc:"Only the complete primary phrase and a valid enrolled owner vector can open a wake session. Missing identity or model errors reject; alternate text-only wake phrases are disabled. Media playback still pauses wake. Fixed a real crash/hang: the bundled offline speech and speaker models were unpacked from loose nested asset files, which Android's AssetManager can silently mis-list or drop on some devices/builds \u2014 producing a corrupt model that crashed the native loader (or a torn-down callback that froze training on \u201CPreparing speech model\u201D forever, with no error and no recovery). Both models are now shipped as a single zip asset and streamed straight through a zip reader, matching the same approach the Vosk project itself uses, and any load failure now always reports back with a clear, retryable error instead of hanging or crashing silently.",
+   examples:["“Hello IRIS”, or any extra phrase you add"], version:"8.25.0"},
   {id:"cmdstt", cat:"Voice & Recognition", icon:"👂", title:"Indian English Command Recognition",
    tagline:"Speak naturally; wait for the ready cue.",
    desc:"Defaults to English (India) with the system speech service, without forcing on-device recognition. Existing explicit preferences remain unchanged; use Indian English accuracy setup in Settings to apply the preset. System speech may process audio online. Bundled and downloaded offline fallback models now match Indian English, using staged installation rather than a US model or uuid-dependent unpack. Unclear speech gets one retry; low-confidence results are not executed. Common natural phrases are normalised while contact names and dictated messages are preserved. Accent accuracy still depends on microphone, noise and provider; no claim of watch-equivalent accuracy.",

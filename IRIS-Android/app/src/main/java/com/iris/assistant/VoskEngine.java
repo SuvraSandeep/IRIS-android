@@ -101,19 +101,26 @@ public final class VoskEngine {
         loadBundledIndianOrDownload(app, listener);
     }
 
-    /** The upstream ZIP has no StorageService uuid asset. Copy into a staged Indian-only directory. */
+    /** The upstream ZIP has no StorageService uuid asset. Unpack the bundled zip asset (never
+     * loose nested asset files — see unzipAsset()) into a staged Indian-only directory. */
     private void loadBundledIndianOrDownload(Context app, InitListener listener) {
-        if (!assetDirExists(app, "model-en-in")) { downloadAndLoad(app, listener); return; }
         new Thread(() -> {
             File staging = new File(app.getFilesDir(), "vosk-indian-bundle-staging");
             File target = new File(app.getFilesDir(), MODEL_DIR_NAME);
             try {
                 deleteRecursive(staging);
-                copyAssetDir(app, "model-en-in", staging);
-                if (!isValidModelDir(staging)) throw new java.io.IOException("Incomplete Indian voice bundle");
+                boolean present;
+                try { present = unzipAsset(app, "model-en-in.zip", staging); }
+                catch (Throwable t) { present = false; }
+                if (!present) { deleteRecursive(staging); downloadAndLoad(app, listener); return; }
+                // The upstream archive has one top-level folder (e.g. vosk-model-small-en-in-0.4/);
+                // unwrap it so staging itself is the model root, same as the download path below.
+                File[] kids = staging.listFiles();
+                File modelRoot = (kids != null && kids.length == 1 && kids[0].isDirectory()) ? kids[0] : staging;
+                if (!isValidModelDir(modelRoot)) throw new java.io.IOException("Incomplete Indian voice bundle");
                 if (!isValidModelDir(target)) {
                     deleteRecursive(target);
-                    if (!staging.renameTo(target)) throw new java.io.IOException("Could not install Indian voice bundle");
+                    if (!modelRoot.renameTo(target)) throw new java.io.IOException("Could not install Indian voice bundle");
                 }
                 deleteRecursive(staging);
                 // installModel() returns false only when this engine was close()d while this
@@ -270,25 +277,48 @@ public final class VoskEngine {
         targetDir.mkdirs();
         try (java.util.zip.ZipInputStream zis =
                      new java.util.zip.ZipInputStream(new java.io.BufferedInputStream(new java.io.FileInputStream(zip)))) {
-            java.util.zip.ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                File outFile = new File(targetDir, entry.getName());
-                // Zip-slip guard
-                if (!outFile.getCanonicalPath().startsWith(targetDir.getCanonicalPath() + File.separator)) continue;
-                if (entry.isDirectory()) {
-                    //noinspection ResultOfMethodCallIgnored
-                    outFile.mkdirs();
-                } else {
-                    //noinspection ResultOfMethodCallIgnored
-                    outFile.getParentFile().mkdirs();
-                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(outFile)) {
-                        byte[] buf = new byte[8192];
-                        int n;
-                        while ((n = zis.read(buf)) != -1) out.write(buf, 0, n);
-                    }
-                }
-                zis.closeEntry();
+            unzipEntries(zis, targetDir);
+        }
+    }
+
+    // Unpacks a bundled asset zip (e.g. "model-en-in.zip") straight from AssetManager.open(),
+    // never via AssetManager.list(). Listing compressed nested asset directories is unreliable
+    // on-device (can silently return null/incomplete entries), which previously produced
+    // corrupt, partially-copied model directories that crashed the native Vosk model loader.
+    // A single zip asset read through a stream has no such failure mode.
+    private static boolean unzipAsset(Context c, String assetName, File targetDir) throws Exception {
+        try (java.io.InputStream raw = c.getAssets().open(assetName)) {
+            //noinspection ResultOfMethodCallIgnored
+            targetDir.mkdirs();
+            try (java.util.zip.ZipInputStream zis =
+                         new java.util.zip.ZipInputStream(new java.io.BufferedInputStream(raw))) {
+                unzipEntries(zis, targetDir);
             }
+            return true;
+        } catch (java.io.FileNotFoundException absent) {
+            return false;
+        }
+    }
+
+    private static void unzipEntries(java.util.zip.ZipInputStream zis, File targetDir) throws Exception {
+        java.util.zip.ZipEntry entry;
+        while ((entry = zis.getNextEntry()) != null) {
+            File outFile = new File(targetDir, entry.getName());
+            // Zip-slip guard
+            if (!outFile.getCanonicalPath().startsWith(targetDir.getCanonicalPath() + File.separator)) continue;
+            if (entry.isDirectory()) {
+                //noinspection ResultOfMethodCallIgnored
+                outFile.mkdirs();
+            } else {
+                //noinspection ResultOfMethodCallIgnored
+                outFile.getParentFile().mkdirs();
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(outFile)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = zis.read(buf)) != -1) out.write(buf, 0, n);
+                }
+            }
+            zis.closeEntry();
         }
     }
 
@@ -505,11 +535,20 @@ public final class VoskEngine {
             try {
                 File dir = new File(app.getFilesDir(), SPK_DIR_NAME);
                 if (!isValidSpkDir(dir)) {
-                    // Try bundled asset folder "spk-model" → copy to files.
-                    if (assetDirExists(app, "spk-model")) {
+                    // Try the bundled asset zip "spk-model.zip" → unpack straight into files
+                    // (never via AssetManager.list() on loose nested files — see unzipAsset()).
+                    File spkStaging = new File(app.getFilesDir(), "vosk-spk-bundle-staging");
+                    deleteRecursive(spkStaging);
+                    boolean present;
+                    try { present = unzipAsset(app, "spk-model.zip", spkStaging); }
+                    catch (Throwable t) { present = false; }
+                    if (present) {
+                        File[] spkKids = spkStaging.listFiles();
+                        File spkRoot = (spkKids != null && spkKids.length == 1 && spkKids[0].isDirectory()) ? spkKids[0] : spkStaging;
                         deleteRecursive(dir);
-                        copyAssetDir(app, "spk-model", dir);
+                        if (!spkRoot.renameTo(dir)) copyRecursive(spkRoot, dir);
                     }
+                    deleteRecursive(spkStaging);
                 }
                 if (!isValidSpkDir(dir)) {
                     // Fall back to a one-time download.
@@ -551,32 +590,6 @@ public final class VoskEngine {
         return dir != null && new File(dir, "final.ext.raw").length() > MIN_PLAUSIBLE_MODEL_FILE_BYTES
                 && new File(dir, "mean.vec").length() > 0
                 && new File(dir, "transform.mat").length() > 0;
-    }
-
-    private static boolean assetDirExists(Context c, String name) {
-        try { String[] f = c.getAssets().list(name); return f != null && f.length > 0; }
-        catch (Exception e) { return false; }
-    }
-
-    private static void copyAssetDir(Context c, String assetPath, File dst) throws Exception {
-        String[] entries = c.getAssets().list(assetPath);
-        if (entries == null || entries.length == 0) return;
-        //noinspection ResultOfMethodCallIgnored
-        dst.mkdirs();
-        for (String e : entries) {
-            String childAsset = assetPath + "/" + e;
-            String[] sub = c.getAssets().list(childAsset);
-            if (sub != null && sub.length > 0) {
-                copyAssetDir(c, childAsset, new File(dst, e));
-            } else {
-                try (java.io.InputStream in = c.getAssets().open(childAsset);
-                     java.io.FileOutputStream out = new java.io.FileOutputStream(new File(dst, e))) {
-                    byte[] buf = new byte[8192];
-                    int n;
-                    while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-                }
-            }
-        }
     }
 
     /** Transcribe a PCM clip (16kHz mono) with the full vocabulary — used to learn how the

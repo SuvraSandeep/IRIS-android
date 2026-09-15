@@ -59,3 +59,6 @@ javac -encoding UTF-8 -d "$test_dir/recorder" \
   app/src/main/java/com/iris/assistant/TimedRecorder.java \
   tests/TimedRecorderFlowTest.java
 java -cp "$test_dir/recorder" com.iris.assistant.TimedRecorderFlowTest
+mkdir -p "$test_dir/voskzip"
+javac -encoding UTF-8 -d "$test_dir/voskzip" tests/VoskZipUnpackTest.java
+java -cp "$test_dir/voskzip" com.iris.assistant.VoskZipUnpackTest
