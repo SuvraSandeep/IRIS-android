@@ -308,6 +308,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onStop() {
+        if(ownerTrainingActive&&!ownerAwaitingApproval)cancelWakeTraining();
         try { unregisterReceiver(irisEvents); } catch (Exception ignored) { }
         // No dashboard polling or animation while hidden (voice service is unaffected).
         try { if (telemetry != null) telemetry.stop(); } catch (Exception ignored) { }
@@ -1445,7 +1446,7 @@ public class MainActivity extends Activity {
         {"🎚️ Choose voice", "Settings → “Choose IRIS voice” to pick a female/other voice; “Test voice” to preview. (Install Google TTS en-IN voices for the best quality.)"},
         {"🎭 Personality", "Settings → Personality picks how IRIS sounds: Sarcastic (dry, witty, uses your name more), Warm (personable, name-heavy), Professional (formal, “sir” only, no first name), or Silent (no speech, no notification text — fully quiet). The tone shows up in casual chat, greetings, and how it addresses you."},
         {"🎩 How IRIS addresses you", "Like a butler, it varies — mostly nothing, sometimes “sir”, occasionally your name — instead of your name every time. How often depends on your chosen Personality."},
-        {"🔐 Voice-verified wake", "Wakes only for your voice (Settings → Voice Security). Sensitivity slider: lenient ↔ strict. If it ever won't wake for you, ease it toward lenient or retrain."},
+        {"🔐 Voice-verified wake", "Owner-only wake requires the complete trained phrase and valid speaker evidence. Train normal and soft voice samples. Owner strictness never changes automatically."},
         {"🔒 Lock-screen control", "Settings → lock-screen control lets quick actions run while locked; opening another app's screen still asks for unlock (Android requirement)."},
         {"🛰️ Server mode", "Settings → Server mode: use your own online brain (Ollama + Whisper) when connected; auto-falls back offline. Say “go online” / “go offline”. Setup: server/README.md."},
         {"🩺 Self-test", "Settings → “Run self-test” checks permissions, models, wake/voiceprint, learned commands, voice, and server — a green/red checklist."},
@@ -2268,7 +2269,7 @@ public class MainActivity extends Activity {
                 @Override public void onStartTrackingTouch(android.widget.SeekBar sb) { }
                 @Override public void onStopTrackingTouch(android.widget.SeekBar sb) {
                     final float proposed=sb.getProgress()/100f;
-                    authenticateThen("Change owner strictness",()->WakeChangeApproval.runApproved(()->settings.setOwnerStrictness(proposed)));
+                    authenticateOwner("Change owner strictness",()->WakeChangeApproval.runApproved(()->settings.setOwnerStrictness(proposed)));
                     toast("Owner strictness requested: " + sb.getProgress() + "%");
                 }
             });
@@ -2345,7 +2346,7 @@ public class MainActivity extends Activity {
         Button clearVoiceprintButton = view.findViewById(R.id.clearVoiceprintButton);
         if (clearVoiceprintButton != null) {
             clearVoiceprintButton.setOnClickListener(v -> {
-                authenticateThen("Delete owner profile",()->WakeChangeApproval.runApproved(()->new ProfileStore(this).setVoiceprint(null)));
+                authenticateOwner("Delete owner profile",()->WakeChangeApproval.runApproved(()->new ProfileStore(this).setVoiceprint(null)));
                 if (voiceprintStatus != null)
                     voiceprintStatus.setText("Voiceprint cleared. Voice wake is unavailable until you enroll again.");
                 toast("Voice security cleared.");
@@ -2445,7 +2446,7 @@ public class MainActivity extends Activity {
         if (feedbackFalse != null) {
             feedbackFalse.setOnClickListener(v -> {
                 float s = Math.min(1f, settings.ownerStrictness() + 0.08f);
-                authenticateThen("Increase owner strictness",()->WakeChangeApproval.runApproved(()->settings.setOwnerStrictness(s)));
+                authenticateOwner("Increase owner strictness",()->WakeChangeApproval.runApproved(()->settings.setOwnerStrictness(s)));
                 if (sensSeek != null) sensSeek.setProgress(Math.round(s * 100));
                 toast("Owner strictness changes require authentication.");
                 LogStore.append(this, "VOICE FEEDBACK", "false wake → sensitivity " + Math.round(s * 100) + "%");
@@ -2825,7 +2826,9 @@ public class MainActivity extends Activity {
         handler.postDelayed(this::captureNextWakeSample, resumeAfterWakeTraining ? 700 : 150);
     }
 
+    private VoskEngine wakeTestEngine;
     private VoskEngine ownerTrainingEngine;
+    private boolean ownerAwaitingApproval;
     private long ownerTrainingGeneration;
     private boolean ownerTrainingActive;
     private final java.util.List<float[]> ownerNormalSamples=new ArrayList<>(),ownerQuietSamples=new ArrayList<>();
@@ -2908,7 +2911,7 @@ public class MainActivity extends Activity {
         handler.postDelayed(()->waitForOwnerModel(engine,generation,deadline),300);
     }
     private void releaseOwnerTraining(){
-        ownerTrainingActive=false;ownerTrainingGeneration++;
+        ownerTrainingActive=false;ownerAwaitingApproval=false;ownerTrainingGeneration++;
         if(timedRecorder!=null)timedRecorder.stop();
         final VoskEngine old=ownerTrainingEngine;ownerTrainingEngine=null;
         if(old!=null)new Thread(()->{synchronized(old){old.close();}},"IRIS-ReleaseOwner").start();
@@ -3135,10 +3138,11 @@ public class MainActivity extends Activity {
 
     private void finishWakeTraining() {
         final long generation=ownerTrainingGeneration;
-        new AlertDialog.Builder(this).setTitle("Save verified owner profile?")
+        ownerAwaitingApproval=true;
+        activeTrainingDialog=new AlertDialog.Builder(this).setTitle("Save verified owner profile?")
             .setMessage("Exact phrase: “"+wakePhraseBeingTrained+"”. Normal and quiet samples passed separate verification takes. Saving replaces your previous owner profile and keeps owner-only wake enabled.")
             .setNegativeButton("Cancel",(d,w)->cancelWakeTraining())
-            .setPositiveButton("Authenticate and save",(d,w)->authenticateThen("Save owner voice",()->{
+            .setPositiveButton("Authenticate and save",(d,w)->authenticateOwner("Save owner voice",()->{
                 if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
                 WakeChangeApproval.runApproved(()->{
                     if(new ProfileStore(this).commitOwnerProfile(wakePhraseBeingTrained,candidateNormal,candidateQuiet)){
@@ -3716,6 +3720,12 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void authenticateOwner(String title,Runnable action){
+        KeyguardManager keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);
+        if(keyguard==null||!keyguard.isDeviceSecure()){toast("Set a device PIN or password before changing owner security.");return;}
+        final long deadline=android.os.SystemClock.elapsedRealtime()+60000;
+        authenticateThen(title,()->{if(!isFinishing()&&!isDestroyed()&&android.os.SystemClock.elapsedRealtime()<deadline)action.run();});
+    }
     private void authenticateThen(String title, Runnable action) {
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         if (keyguard == null || !keyguard.isDeviceSecure()) {

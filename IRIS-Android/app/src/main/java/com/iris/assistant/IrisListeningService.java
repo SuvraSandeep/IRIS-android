@@ -803,27 +803,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         broadcastState(true, phase);
         reassertMediaSessionPriority();  // give the headset trigger a fresh shot at priority
         androidWakeActive = false;
-        // Only the phrase is required to arm wake listening (8.4.0's zero-training design).
-        // Owner-voice matching, if enabled, is judged per-attempt in isOwnerVoice() once a
-        // candidate embedding is captured — it must never gate whether Vosk starts listening
-        // at all. The previous self-comparison check here (wake.voiceprint against itself)
-        // additionally required wake.voiceprint to be non-null, which silently blocked wake
-        // for anyone who had only trained the phrase and never separately enrolled a voiceprint.
-        if (!wake.isReady()) {
-            wakeReadiness = "Needs a wake phrase — set one in Training";
-            updateListeningNotification("Wake unavailable: train your phrase in Training");
-            scheduleWakeRetry(3000);
-            return;
+        if(!wake.isReady() || !WakePolicy.owner(wake.voiceprint,wake.voiceprint,.99)){
+            wakeReadiness="Owner enrollment required";
+            updateListeningNotification("Train your exact phrase and owner voice in Training");
+            scheduleWakeRetry(3000);return;
         }
-        // The Vosk speaker model is only needed when owner-voice verification is actually
-        // switched on (settings.speakerVerification(), off by default). VoskEngine itself now
-        // only requires/attaches it when told to, via requireSpeakerModel below — this check
-        // just avoids the retry loop for the case that's actually asked for.
-        if (settings.speakerVerification() && (!voskReady || voskEngine == null || !voskEngine.isSpeakerReady())) {
-            wakeReadiness = "Offline voice verification model unavailable or loading";
-            updateListeningNotification("Wake unavailable: preparing offline voice verification");
-            scheduleWakeRetry(2000);
-            return;
+        if(!voskReady||voskEngine==null||!voskEngine.isSpeakerReady()){
+            wakeReadiness="Offline speaker model unavailable or loading";
+            scheduleWakeRetry(2000);return;
         }
         if (!voskReady || voskEngine == null) {
             wakeReadiness = "Voice model unavailable or loading";
@@ -840,21 +827,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         restoreRecognizerBeep();
         voskEngine.setSensitivity(settings.voiceSensitivity());
         wakeReadiness = settings.speakerVerification() ? "Full phrase and owner checks armed" : "Phrase-only wake armed";
-        // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
-        // keeps full A2DP quality while IRIS is merely awake. If a Bluetooth mic is connected
-        // but not in use here, say so explicitly — "Phone microphone" alone reads as a bug
-        // when the user is wearing Bluetooth earphones.
-        boolean btConnectedButUnused = false;
-        try {
-            if (audioManager != null) {
-                for (AudioDeviceInfo d : audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
-                    if (isBluetoothMic(d)) { btConnectedButUnused = true; break; }
-                }
-            }
-        } catch (Throwable ignored) { }
-        updateListeningNotification(btConnectedButUnused
-                ? "Owner wake ready: \u201C" + wake.phrase + "\u201D (phone mic while awake \u2014 keeps Bluetooth music clean)"
-                : "Owner wake ready: \u201C" + wake.phrase + "\u201D");
+        updateListeningNotification("Owner wake ready: “"+wake.phrase+"”. Input: "+AudioRouteController.observed);
         IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Wake listening");
         // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
         // keeps full A2DP quality while IRIS is merely awake.
@@ -870,6 +843,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             // silently stopped updating the mic route and notification.
             registerAudioChanges();
         }
+        final long profileVersion=wake.trainedAt;
+        final double policyThreshold=settings.ownerThreshold();
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
             @Override public void onWakeDetected(float[] embedding) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
@@ -877,7 +852,9 @@ public class IrisListeningService extends Service implements RecognitionListener
                 long now = android.os.SystemClock.elapsedRealtime();
                 double score = embedding == null ? -1
                         : WakePolicy.cosine(embedding, new ProfileStore(IrisListeningService.this).getVoiceprint());
-                boolean accepted = !media && now - lastWakeAt >= 3000 && isOwnerVoice(embedding);
+                boolean unchanged=profileVersion==new ProfileStore(IrisListeningService.this).getWakeProfile().trainedAt
+                        && policyThreshold==settings.ownerThreshold();
+                boolean accepted = unchanged && !media && now - lastWakeAt >= 3000 && isOwnerVoice(embedding);
                 LogStore.append(IrisListeningService.this, "WAKE DECISION",
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
                         + " accepted=" + accepted);
@@ -3823,7 +3800,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     } else {
                         if (!isOn) { inform("Silent mode is already off."); return; }
                         if(!dndAccess()){requestDndAccess("change the ringer mode");return;}
-                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform("Silent mode off — ringer is back to normal.");
+                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform(am.getRingerMode()==AudioManager.RINGER_MODE_NORMAL?"Ringer is normal.":"Ringer change was not confirmed.");
                     }
                     return;
                 }
@@ -3836,14 +3813,14 @@ public class IrisListeningService extends Service implements RecognitionListener
                     } else {
                         if (!isOn) { inform("Vibrate mode is already off."); return; }
                         if(!dndAccess()){requestDndAccess("change the ringer mode");return;}
-                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform("Vibrate mode off — ringer is back to normal.");
+                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform(am.getRingerMode()==AudioManager.RINGER_MODE_NORMAL?"Ringer is normal.":"Ringer change was not confirmed.");
                     }
                     return;
                 }
                 case "normal": {
                     if (am.getRingerMode() == AudioManager.RINGER_MODE_NORMAL) inform("The ringer is already normal.");
                     else { if(!dndAccess()){requestDndAccess("change the ringer mode");return;}
-                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform("Ringer set to normal."); }
+                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform(am.getRingerMode()==AudioManager.RINGER_MODE_NORMAL?"Ringer is normal.":"Ringer change was not confirmed."); }
                     return;
                 }
                 case "dnd": {

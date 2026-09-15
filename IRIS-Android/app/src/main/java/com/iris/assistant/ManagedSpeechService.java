@@ -24,12 +24,16 @@ final class ManagedSpeechService {
                 mic=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(4096,buffer*2));
                 if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
                 route.request(context,mic);mic.startRecording();AudioRouteController.observe(mic);
-                short[] frame=new short[320];
+                short[] frame=new short[320];int frames=0,lastRoute=-1;
                 while(running){
                     int n=mic.read(frame,0,frame.length);
                     if(n<0)throw new IllegalStateException("Microphone read failed: "+n);
                     if(n==0)continue;
-                    AudioRouteController.observe(mic);
+                    if(++frames%25==0){
+                        AudioDeviceInfo actual=mic.getRoutedDevice();int id=actual==null?-1:actual.getId();
+                        if(lastRoute!=-1&&id!=lastRoute)recognizer.reset();lastRoute=id;
+                        AudioRouteController.observe(mic);
+                    }
                     boolean complete=recognizer.acceptWaveForm(frame,n);
                     String result=complete?recognizer.getResult():recognizer.getPartialResult();
                     main.post(()->{if(running){if(complete)listener.onResult(result);else listener.onPartialResult(result);}});
