@@ -238,12 +238,12 @@ public class IrisListeningService extends Service implements RecognitionListener
     // not a single system ringer/DND/airplane state.
     private static final Pattern BATTERY_SAVER_SET_PATTERN = Pattern.compile(
             "^(?:(turn\\s+on|turn\\s+off|switch\\s+on|switch\\s+off|enable|disable|start|stop)\\s+)?"
-            + "(?:the\\s+)?battery\\s*(?:sav(?:ing|er))\\s*mode"
+            + "(?:the\\s+)?battery\\s*(?:sav(?:ing|er))\\s*(?:mode)?"
             + "(?:\\s+(on|off))?"
             + "(?:\\s+for\\s+(yourself|iris|you|only\\s+iris|iris\\s+only))?$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern BATTERY_SAVER_QUERY_PATTERN = Pattern.compile(
-            "^(?:is|are)\\s+(?:the\\s+)?battery\\s*(?:sav(?:ing|er))\\s*mode\\s*(?:on|off|active|enabled)?\\s*\\??$"
+            "^(?:is|are)\\s+(?:the\\s+)?battery\\s*(?:sav(?:ing|er))\\s*(?:mode)?\\s*(?:on|off|active|enabled)?\\s*\\??$"
             + "|^(?:is\\s+)?iris\\s+(?:in\\s+)?(?:battery\\s*sav(?:ing|er)|power\\s*sav(?:ing|er))\\s*(?:mode)?\\s*\\??$",
             Pattern.CASE_INSENSITIVE);
     // Self-awareness: recall / repeat the last action.
@@ -803,27 +803,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         broadcastState(true, phase);
         reassertMediaSessionPriority();  // give the headset trigger a fresh shot at priority
         androidWakeActive = false;
-        // Only the phrase is required to arm wake listening (8.4.0's zero-training design).
-        // Owner-voice matching, if enabled, is judged per-attempt in isOwnerVoice() once a
-        // candidate embedding is captured — it must never gate whether Vosk starts listening
-        // at all. The previous self-comparison check here (wake.voiceprint against itself)
-        // additionally required wake.voiceprint to be non-null, which silently blocked wake
-        // for anyone who had only trained the phrase and never separately enrolled a voiceprint.
-        if (!wake.isReady()) {
-            wakeReadiness = "Needs a wake phrase — set one in Training";
-            updateListeningNotification("Wake unavailable: train your phrase in Training");
-            scheduleWakeRetry(3000);
-            return;
+        if(!wake.isReady() || !WakePolicy.owner(wake.voiceprint,wake.voiceprint,.99)){
+            wakeReadiness="Owner enrollment required";
+            updateListeningNotification("Train your exact phrase and owner voice in Training");
+            scheduleWakeRetry(3000);return;
         }
-        // The Vosk speaker model is only needed when owner-voice verification is actually
-        // switched on (settings.speakerVerification(), off by default). VoskEngine itself now
-        // only requires/attaches it when told to, via requireSpeakerModel below — this check
-        // just avoids the retry loop for the case that's actually asked for.
-        if (settings.speakerVerification() && (!voskReady || voskEngine == null || !voskEngine.isSpeakerReady())) {
-            wakeReadiness = "Offline voice verification model unavailable or loading";
-            updateListeningNotification("Wake unavailable: preparing offline voice verification");
-            scheduleWakeRetry(2000);
-            return;
+        if(!voskReady||voskEngine==null||!voskEngine.isSpeakerReady()){
+            wakeReadiness="Offline speaker model unavailable or loading";
+            scheduleWakeRetry(2000);return;
         }
         if (!voskReady || voskEngine == null) {
             wakeReadiness = "Voice model unavailable or loading";
@@ -840,21 +827,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         restoreRecognizerBeep();
         voskEngine.setSensitivity(settings.voiceSensitivity());
         wakeReadiness = settings.speakerVerification() ? "Full phrase and owner checks armed" : "Phrase-only wake armed";
-        // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
-        // keeps full A2DP quality while IRIS is merely awake. If a Bluetooth mic is connected
-        // but not in use here, say so explicitly — "Phone microphone" alone reads as a bug
-        // when the user is wearing Bluetooth earphones.
-        boolean btConnectedButUnused = false;
-        try {
-            if (audioManager != null) {
-                for (AudioDeviceInfo d : audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
-                    if (isBluetoothMic(d)) { btConnectedButUnused = true; break; }
-                }
-            }
-        } catch (Throwable ignored) { }
-        updateListeningNotification(btConnectedButUnused
-                ? "Owner wake ready: \u201C" + wake.phrase + "\u201D (phone mic while awake \u2014 keeps Bluetooth music clean)"
-                : "Owner wake ready: \u201C" + wake.phrase + "\u201D");
+        updateListeningNotification("Owner wake ready: “"+wake.phrase+"”. Input: "+AudioRouteController.observed);
         IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Wake listening");
         // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
         // keeps full A2DP quality while IRIS is merely awake.
@@ -870,6 +843,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             // silently stopped updating the mic route and notification.
             registerAudioChanges();
         }
+        final long profileVersion=wake.trainedAt;
+        final double policyThreshold=settings.ownerThreshold();
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
             @Override public void onWakeDetected(float[] embedding) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
@@ -877,7 +852,9 @@ public class IrisListeningService extends Service implements RecognitionListener
                 long now = android.os.SystemClock.elapsedRealtime();
                 double score = embedding == null ? -1
                         : WakePolicy.cosine(embedding, new ProfileStore(IrisListeningService.this).getVoiceprint());
-                boolean accepted = !media && now - lastWakeAt >= 3000 && isOwnerVoice(embedding);
+                boolean unchanged=profileVersion==new ProfileStore(IrisListeningService.this).getWakeProfile().trainedAt
+                        && policyThreshold==settings.ownerThreshold();
+                boolean accepted = unchanged && !media && now - lastWakeAt >= 3000 && isOwnerVoice(embedding);
                 LogStore.append(IrisListeningService.this, "WAKE DECISION",
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
                         + " accepted=" + accepted);
@@ -1555,7 +1532,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             // itself instead. Treat that case as an implicit front-camera request too.
             String camWord = photoM.group(1);
             if (camWord == null && normalized.contains("selfie")) camWord = "selfie";
-            boolean flash = normalized.matches(".*\\b(?:with|using)\\s+(?:the\\s+)?flash(?:\\s+on)?\\b.*");
+            boolean flash = !normalized.matches(".*\\b(?:without\\s+(?:the\\s+)?flash|flash\\s+off)\\b.*") && normalized.matches(".*\\b(?:with|using)\\s+(?:the\\s+)?flash(?:\\s+on)?\\b.*");
             handleTakePhoto(camWord, flash);
             return;
         }
@@ -3098,7 +3075,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (flashRequested && !flash) {
             // Be honest rather than silently ignoring the request — most front cameras have
             // no flash at all, and a back camera occasionally lacks one too.
-            broadcastMessage("This camera doesn't have a flash, so I'll take the photo without it.");
+            reply("This camera has no photo flash. Ask for a photo without flash."); return;
         }
         final boolean useFlash = flash;
         String intro = "Taking a photo on the " + (front ? "front" : "back") + " camera"
@@ -3819,10 +3796,11 @@ public class IrisListeningService extends Service implements RecognitionListener
                     if (turnOn) {
                         if (isOn) { inform("Silent mode is already on."); return; }
                         if (!dndAccess()) { requestDndAccess("silence the phone"); return; }
-                        am.setRingerMode(AudioManager.RINGER_MODE_SILENT); inform("Silent mode on.");
+                        am.setRingerMode(AudioManager.RINGER_MODE_SILENT); inform(am.getRingerMode()==AudioManager.RINGER_MODE_SILENT?"Silent mode on.":"Android did not confirm silent mode.");
                     } else {
                         if (!isOn) { inform("Silent mode is already off."); return; }
-                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform("Silent mode off — ringer is back to normal.");
+                        if(!dndAccess()){requestDndAccess("change the ringer mode");return;}
+                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform(am.getRingerMode()==AudioManager.RINGER_MODE_NORMAL?"Ringer is normal.":"Ringer change was not confirmed.");
                     }
                     return;
                 }
@@ -3831,16 +3809,18 @@ public class IrisListeningService extends Service implements RecognitionListener
                     if (turnOn) {
                         if (isOn) { inform("Vibrate mode is already on."); return; }
                         if (!dndAccess()) { requestDndAccess("switch to vibrate"); return; }
-                        am.setRingerMode(AudioManager.RINGER_MODE_VIBRATE); inform("Vibrate mode on.");
+                        am.setRingerMode(AudioManager.RINGER_MODE_VIBRATE); inform(am.getRingerMode()==AudioManager.RINGER_MODE_VIBRATE?"Vibrate mode on.":"Android did not confirm vibrate mode.");
                     } else {
                         if (!isOn) { inform("Vibrate mode is already off."); return; }
-                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform("Vibrate mode off — ringer is back to normal.");
+                        if(!dndAccess()){requestDndAccess("change the ringer mode");return;}
+                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform(am.getRingerMode()==AudioManager.RINGER_MODE_NORMAL?"Ringer is normal.":"Ringer change was not confirmed.");
                     }
                     return;
                 }
                 case "normal": {
                     if (am.getRingerMode() == AudioManager.RINGER_MODE_NORMAL) inform("The ringer is already normal.");
-                    else { am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform("Ringer set to normal."); }
+                    else { if(!dndAccess()){requestDndAccess("change the ringer mode");return;}
+                        am.setRingerMode(AudioManager.RINGER_MODE_NORMAL); inform(am.getRingerMode()==AudioManager.RINGER_MODE_NORMAL?"Ringer is normal.":"Ringer change was not confirmed."); }
                     return;
                 }
                 case "dnd": {
@@ -3851,12 +3831,12 @@ public class IrisListeningService extends Service implements RecognitionListener
                         if (isOn) { inform("Do Not Disturb is already on."); return; }
                         if (!dndAccess()) { requestDndAccess("turn on Do Not Disturb"); return; }
                         nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY);
-                        inform("Do Not Disturb on.");
+                        inform(nm.getCurrentInterruptionFilter()!=NotificationManager.INTERRUPTION_FILTER_ALL?"Do Not Disturb is active.":"IRIS requested its DND rule; global DND is not confirmed.");
                     } else {
                         if (!isOn) { inform("Do Not Disturb is already off."); return; }
                         if (!dndAccess()) { requestDndAccess("turn off Do Not Disturb"); return; }
                         nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL);
-                        inform("Do Not Disturb off.");
+                        inform(nm.getCurrentInterruptionFilter()==NotificationManager.INTERRUPTION_FILTER_ALL?"Do Not Disturb is off.":"IRIS requested its DND rule off. Another rule may still keep DND active.");
                     }
                     return;
                 }
@@ -3928,30 +3908,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         boolean turnOn = !turnOff;
         boolean irisOnly = scopeRaw != null && !scopeRaw.trim().isEmpty();
 
-        boolean wasOn = settings.irisPowerSaver();
-        if (turnOn == wasOn) {
-            String scopeWord = irisOnly ? "for me" : "";
-            inform("Battery saving mode " + (irisOnly ? scopeWord + " is" : "for IRIS is") + " already " + (wasOn ? "on." : "off.")
-                    + (irisOnly ? "" : " Check the system Battery Saver switch separately if you meant that too."));
-            return;
+        if(irisOnly){
+            if(settings.irisPowerSaver()!=turnOn)settings.setIrisPowerSaver(turnOn);
+            reply("IRIS power saving is "+(settings.irisPowerSaver()?"on":"off")+". Android Battery Saver was not changed.");return;
         }
-        settings.setIrisPowerSaver(turnOn);
-        LogStore.append(this, "POWER SAVER", (turnOn ? "on" : "off") + (irisOnly ? " (IRIS only)" : " (IRIS + system requested)"));
-
-        if (irisOnly) {
-            String msg = turnOn
-                    ? "Battery saving mode on for me. I'll skip the AI brain, use the lighter voice model, and check in less often."
-                    : "Battery saving mode off for me. Back to normal.";
-            broadcastMessage(msg);
-            speakThenRun(msg, this::rearmAfterAction);
-            return;
-        }
-
+        android.os.PowerManager power=(android.os.PowerManager)getSystemService(POWER_SERVICE);
+        if(power!=null && power.isPowerSaveMode()==turnOn){reply("Android Battery Saver is already "+(turnOn?"on":"off")+".");return;}
         // Full scope: also open Android's own Battery Saver panel — this app cannot flip that
         // switch directly, the same platform restriction as airplane mode.
-        String msg = turnOn
-                ? "Battery saving mode on for me — I'll use fewer resources. Opening Android's Battery Saver so you can turn that on too."
-                : "Battery saving mode off for me. Opening Android's Battery Saver in case you want to turn that off as well.";
+        String msg="Android requires you to change system Battery Saver in Settings. IRIS power saving is unchanged.";
         broadcastMessage(msg);
         try {
             startActivity(new Intent(android.provider.Settings.ACTION_BATTERY_SAVER_SETTINGS)
@@ -5181,23 +5146,13 @@ public class IrisListeningService extends Service implements RecognitionListener
      *  on but the user never enrolled a voiceprint, don't lock them out forever — fall back to
      *  phrase-only rather than rejecting every wake attempt with no way to recover by voice. */
     private boolean isOwnerVoice(float[] embedding) {
-        if (!settings.speakerVerification()) return true;
         try {
-            float[] enrolled = new ProfileStore(this).getVoiceprint();
-            // Was: "enrolled == null || enrolled.length == 0" only. WakePolicy.owner() hard-
-            // requires enrolled.length == WakePolicy.EMBED_DIM (128); a corrupted or legacy
-            // voiceprint with some OTHER nonzero length fell through neither this fallback nor
-            // owner()'s guard, so owner() always returned false and — with speaker verification
-            // on — every wake attempt was rejected forever with no way to recover except finding
-            // the hidden setting and turning verification off. Treat any wrong-length voiceprint
-            // the same as "never enrolled": fall back to phrase-only rather than a silent lockout.
-            if (enrolled == null || enrolled.length != WakePolicy.EMBED_DIM) return true;
             return voskEngine != null && voskEngine.isSpeakerReady()
-                    && WakePolicy.owner(embedding, enrolled, voiceThreshold());
-        } catch (Throwable error) { return true; }
+                    && WakePolicy.ownerEither(embedding, new ProfileStore(this).getVoiceprint(),new ProfileStore(this).getQuietVoiceprint(), voiceThreshold());
+        } catch (Throwable error) { return false; }
     }
 
-    private double voiceThreshold() { return WakePolicy.threshold(settings.voiceSensitivity()); }
+    private double voiceThreshold() { return settings.ownerThreshold(); }
 
     // Removed: a dead, divergent private cosine(float[], float[]) used to live here with no
     // null/NaN guards, differing from WakePolicy.cosine's -1 sentinel behavior on degenerate
@@ -5268,55 +5223,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private String configureAudioRoute() {
-        AudioManager manager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        if (manager == null) return "Phone microphone";
-        if (audioManager == null) previousAudioMode = manager.getMode();
-        audioManager = manager;
-        logDetectedInputDevices(manager);
-        try {
-            String preference = settings.preferredMicrophone();
-            if (Build.VERSION.SDK_INT >= 31) {
-                AudioDeviceInfo chosen = chooseDevice(audioManager.getAvailableCommunicationDevices(), preference);
-                if (chosen != null && isBluetoothMic(chosen)) {
-                    // Bluetooth headset mic requires communication mode + routing.
-                    audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                    if (audioManager.setCommunicationDevice(chosen)) return readableDeviceName(chosen);
-                    // setCommunicationDevice() failing here is distinct from Bluetooth never
-                    // being offered as a candidate at all (already visible via
-                    // logDetectedInputDevices) — without this log, a failed-but-silent routing
-                    // attempt was indistinguishable from "Bluetooth wasn't available," which
-                    // made "still shows phone mic despite headset connected" reports impossible
-                    // to root-cause from logs alone.
-                    String failMsg = "setCommunicationDevice failed for " + readableDeviceName(chosen)
-                            + " [type " + chosen.getType() + "] — falling back to phone mic";
-                    android.util.Log.w("IRIS", failMsg);
-                    LogStore.append(this, "AUDIO ROUTE", failMsg);
-                }
-                // Phone / wired mic: stay in NORMAL mode so media (music) keeps its tone.
-                audioManager.setMode(AudioManager.MODE_NORMAL);
-                if (chosen != null && !isBluetoothMic(chosen)) return readableDeviceName(chosen);
-            } else {
-                AudioDeviceInfo chosen = chooseDevice(arrayToList(audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)), preference);
-                if (chosen != null && chosen.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
-                    audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                    // startBluetoothSco() is asynchronous with no return-value confirmation (the
-                    // SDK 31+ branch above uses setCommunicationDevice()'s boolean return for
-                    // exactly this reason) — SCO can fail or never actually connect, in which
-                    // case the mic silently falls back to the phone mic while the notification
-                    // still claimed "Bluetooth headset". Log the request so a stuck/failed SCO
-                    // connection is at least visible, even though there's no synchronous API
-                    // pre-31 to confirm it before returning a label.
-                    audioManager.startBluetoothSco();
-                    audioManager.setBluetoothScoOn(true);
-                    android.util.Log.i("IRIS", "Requested Bluetooth SCO for " + readableDeviceName(chosen)
-                            + " (pre-API-31: connection is asynchronous and unconfirmed here)");
-                    return readableDeviceName(chosen);
-                }
-                audioManager.setMode(AudioManager.MODE_NORMAL);
-                if (chosen != null) return readableDeviceName(chosen);
-            }
-        } catch (Exception ignored) { return "Active system microphone"; }
-        return "Phone microphone";
+        if(audioManager==null)audioManager=(AudioManager)getSystemService(AUDIO_SERVICE);
+        // Capture owners request and observe their actual AudioRecord route.
+        return AudioRouteController.observed;
     }
 
     /** Diagnostic: log every detected audio input device's exact AudioDeviceInfo type whenever
@@ -5429,9 +5338,6 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (audioManager == null) return;
         try {
             if (audioDeviceCallback != null) audioManager.unregisterAudioDeviceCallback(audioDeviceCallback);
-            if (Build.VERSION.SDK_INT >= 31) audioManager.clearCommunicationDevice();
-            else { audioManager.setBluetoothScoOn(false); audioManager.stopBluetoothSco(); }
-            audioManager.setMode(previousAudioMode);
         } catch (Exception ignored) { }
         audioDeviceCallback = null;
         audioManager = null;
@@ -5470,6 +5376,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         // the persistent notification almost immediately after startForeground and stayed gone
         // for essentially the whole listening session. Now shares baseListeningNotificationBuilder
         // with listeningNotification() so the two can never drift apart again.
+        microphoneLabel=AudioRouteController.observed;
         Notification notification = baseListeningNotificationBuilder(text + " • " + microphoneLabel).build();
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(LISTENING_NOTIFICATION, notification);
     }
@@ -6091,7 +5998,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void broadcastState(boolean active, String statePhase) {
-        currentMic = microphoneLabel;
+        currentMic = AudioRouteController.observed;
         sendBroadcast(new Intent(EVENT_STATE).setPackage(getPackageName())
                 .putExtra(EXTRA_ACTIVE, active).putExtra(EXTRA_PHASE, statePhase)
                 .putExtra(EXTRA_MIC, microphoneLabel).putExtra(EXTRA_RECOGNITION, recognitionLabel));
