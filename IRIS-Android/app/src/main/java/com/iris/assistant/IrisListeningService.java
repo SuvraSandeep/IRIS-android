@@ -105,6 +105,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     // "what version are you", "app version" / "what's new in this version"
     private static final Pattern VERSION_PATTERN = Pattern.compile(
             "^(?:(?:what|which)(?:'?s| is)?\\s+(?:your\\s+|the\\s+|iris\\s+|app\\s+)?version(?:\\s+number)?"
+            + "|tell\\s+me\\s+(?:your\\s+|the\\s+)?version(?:\\s+number)?"
             + "|what\\s+version\\s+are\\s+you|your\\s+version|app\\s+version|version\\s+number|version)$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern WHATSNEW_PATTERN = Pattern.compile(
@@ -305,9 +306,12 @@ public class IrisListeningService extends Service implements RecognitionListener
             Pattern.CASE_INSENSITIVE);
     // Video: "record video 30", "record front camera video 20", "record video with back cam".
     // "take a photo/picture/selfie" — a still photo, NOT video (checked before VIDEO/screenshot).
+    // Trailing "with/using (the) flash (on)" is optional and captured separately so a photo
+    // request can ask for flash without needing its own separate command.
     private static final Pattern PHOTO_PATTERN = Pattern.compile(
             "^(?:take|click|capture|snap)\\s+(?:a\\s+|my\\s+|the\\s+)?"
-            + "(?:(front|selfie|back|rear)\\s+)?(?:camera\\s+)?(?:photo|picture|pic|selfie)\\b.*$",
+            + "(?:(front|selfie|back|rear)\\s+)?(?:camera\\s+)?(photo|picture|pic|selfie)"
+            + "(?:\\s+(?:with|using)\\s+(?:the\\s+)?flash(?:\\s+on)?)?\\b.*$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern VIDEO_RECORD_PATTERN = Pattern.compile(
             "^(?:record|start|take|capture)\\s+(?:a\\s+)?(?:(?:front|selfie|back|rear)\\s+)?(?:camera\\s+)?video\\b.*$",
@@ -1391,7 +1395,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         // 5b. Open an installed app ("open WhatsApp", "launch camera")
         Matcher openMatcher = OPEN_APP_PATTERN.matcher(normalized);
         if (normalized.matches("^(?:open|launch) (?:the )?(?:front |back |rear )?camera (?:and )?(?:take|click|capture) (?:a )?(?:photo|picture|selfie)$")) {
-            handleTakePhoto(normalized.contains("front") || normalized.contains("selfie") ? "front" : "back");
+            handleTakePhoto(normalized.contains("front") || normalized.contains("selfie") ? "front" : "back", false);
             return;
         }
         if (openMatcher.matches() && !containsCallVerb(normalized)) {
@@ -1551,7 +1555,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             // itself instead. Treat that case as an implicit front-camera request too.
             String camWord = photoM.group(1);
             if (camWord == null && normalized.contains("selfie")) camWord = "selfie";
-            handleTakePhoto(camWord);
+            boolean flash = normalized.matches(".*\\b(?:with|using)\\s+(?:the\\s+)?flash(?:\\s+on)?\\b.*");
+            handleTakePhoto(camWord, flash);
             return;
         }
         if (SCREENSHOT_PATTERN.matcher(normalized).matches()) { handleScreenshot(); return; }
@@ -3075,7 +3080,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Take a single still photo (not video) via the same lock-screen-capable camera activity. */
-    private void handleTakePhoto(String camWord) {
+    private void handleTakePhoto(String camWord, boolean flashRequested) {
         if (!hasPermission(Manifest.permission.CAMERA)) {
             String m = "I need camera permission to take a photo — opening settings so you can allow it.";
             broadcastMessage(m);
@@ -3089,16 +3094,45 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         final boolean front = camWord != null
                 && (camWord.toLowerCase(Locale.ROOT).startsWith("front") || camWord.toLowerCase(Locale.ROOT).startsWith("selfie"));
-        String intro = "Taking a photo on the " + (front ? "front" : "back") + " camera.";
+        boolean flash = flashRequested && lensHasFlash(front);
+        if (flashRequested && !flash) {
+            // Be honest rather than silently ignoring the request — most front cameras have
+            // no flash at all, and a back camera occasionally lacks one too.
+            broadcastMessage("This camera doesn't have a flash, so I'll take the photo without it.");
+        }
+        final boolean useFlash = flash;
+        String intro = "Taking a photo on the " + (front ? "front" : "back") + " camera"
+                + (useFlash ? ", with flash" : "") + ".";
         broadcastMessage(intro);
         speakThenRun(intro, () -> {
             pauseListeningForCapture();
             Intent i = new Intent(this, LockedCaptureActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     .putExtra(LockedCaptureActivity.EXTRA_MODE, "photo")
-                    .putExtra(LockedCaptureActivity.EXTRA_FRONT, front);
+                    .putExtra(LockedCaptureActivity.EXTRA_FRONT, front)
+                    .putExtra(LockedCaptureActivity.EXTRA_FLASH, useFlash);
             launchCaptureActivity(i, "IRIS camera", "Taking a photo\u2026");
         });
+    }
+
+    /** Whether the requested lens actually has a flash unit. Front cameras usually don't. */
+    private boolean lensHasFlash(boolean front) {
+        try {
+            android.hardware.camera2.CameraManager cm =
+                    (android.hardware.camera2.CameraManager) getSystemService(CAMERA_SERVICE);
+            if (cm == null) return false;
+            int want = front ? android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT
+                    : android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK;
+            for (String id : cm.getCameraIdList()) {
+                android.hardware.camera2.CameraCharacteristics c = cm.getCameraCharacteristics(id);
+                Integer facing = c.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING);
+                if (facing != null && facing == want) {
+                    Boolean hasFlash = c.get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                    return Boolean.TRUE.equals(hasFlash);
+                }
+            }
+        } catch (Exception ignored) { }
+        return false;
     }
 
     /** Camera requests use a resumed-activity acknowledgement and a tappable fallback.
@@ -5247,6 +5281,16 @@ public class IrisListeningService extends Service implements RecognitionListener
                     // Bluetooth headset mic requires communication mode + routing.
                     audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
                     if (audioManager.setCommunicationDevice(chosen)) return readableDeviceName(chosen);
+                    // setCommunicationDevice() failing here is distinct from Bluetooth never
+                    // being offered as a candidate at all (already visible via
+                    // logDetectedInputDevices) — without this log, a failed-but-silent routing
+                    // attempt was indistinguishable from "Bluetooth wasn't available," which
+                    // made "still shows phone mic despite headset connected" reports impossible
+                    // to root-cause from logs alone.
+                    String failMsg = "setCommunicationDevice failed for " + readableDeviceName(chosen)
+                            + " [type " + chosen.getType() + "] — falling back to phone mic";
+                    android.util.Log.w("IRIS", failMsg);
+                    LogStore.append(this, "AUDIO ROUTE", failMsg);
                 }
                 // Phone / wired mic: stay in NORMAL mode so media (music) keeps its tone.
                 audioManager.setMode(AudioManager.MODE_NORMAL);
@@ -5703,10 +5747,45 @@ public class IrisListeningService extends Service implements RecognitionListener
         speechCancelled = true;
         try { if (textToSpeech != null) textToSpeech.stop(); } catch (Exception ignored) { }
         try { releaseServerTts(); } catch (Exception ignored) { }
+        stopWordEngine();
         abandonSpeechFocus();
         LogStore.append(this, "STOP", "Speech interrupted by user");
         if (isRunning) rearmAfterAction();
         else finishCommandMediaResume();
+    }
+
+    /** Narrow words that can interrupt IRIS mid-speech. Deliberately small vocabulary: a
+     *  wide grammar here would risk misfiring on words within IRIS's own reply. */
+    private static final java.util.List<String> STOP_WORDS =
+            java.util.Arrays.asList("stop", "cancel", "shut up", "quiet", "never mind");
+
+    /**
+     * While IRIS is speaking, the command recognizer is torn down (there's no way to safely run
+     * full speech recognition alongside our own TTS output without hearing ourselves). This
+     * leaves no voice path to interrupt speech at all — the only way was the notification's
+     * physical "Stop" button. Fix: run the same lightweight Vosk wake-detection primitive
+     * already used for the wake phrase, but listening only for "stop"/"cancel" and a couple of
+     * close synonyms, for as long as this utterance is speaking. Reuses proven infrastructure
+     * (VoskEngine.startWakeDetection) instead of a second recognition mechanism.
+     */
+    private void startStopWordListener() {
+        try {
+            if (!voskReady || voskEngine == null) return;
+            voskEngine.stop();
+            voskEngine.startWakeDetection(STOP_WORDS, new VoskEngine.WakeListener() {
+                @Override public void onWakeDetected(float[] embedding) {
+                    handler.post(() -> {
+                        LogStore.append(IrisListeningService.this, "STOP", "Heard a stop word while speaking");
+                        stopSpeaking();
+                    });
+                }
+                @Override public void onError(String message) { /* non-fatal: just no interrupt path this utterance */ }
+            }, false);   // never require the speaker model — this is a command word, not identity
+        } catch (Throwable ignored) { }
+    }
+
+    private void stopWordEngine() {
+        try { if (voskEngine != null) voskEngine.stop(); } catch (Throwable ignored) { }
     }
 
     private void speak(String text) {
@@ -5857,11 +5936,13 @@ public class IrisListeningService extends Service implements RecognitionListener
         final boolean[] ran = {false};
         speechCancelled = false;
         requestSpeechFocus();
+        startStopWordListener();
         textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
             @Override public void onStart(String utteranceId) { }
             @Override public void onDone(String utteranceId) {
                 if ("iris_greet".equals(utteranceId) && !ran[0]) {
                     ran[0] = true;
+                    stopWordEngine();
                     // Small settle delay so the audio tail fully flushes before the
                     // mic opens — prevents the greeting being cut off / re-heard.
                     handler.postDelayed(() -> {
@@ -5874,6 +5955,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             @Override public void onError(String utteranceId) {
                 if (!ran[0]) {
                     ran[0] = true;
+                    stopWordEngine();
                     handler.post(() -> { textToSpeech.setOnUtteranceProgressListener(null); abandonSpeechFocus(); if (!speechCancelled) afterSpeaking.run(); });
                 }
             }
@@ -5881,12 +5963,13 @@ public class IrisListeningService extends Service implements RecognitionListener
         try {
             textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "iris_greet");
         } catch (Exception e) {
+            stopWordEngine();
             abandonSpeechFocus();
             handler.postDelayed(afterSpeaking, 600);
         }
         // Safety net: if onDone never fires (some TTS engines), run after 6s max
         handler.postDelayed(() -> {
-            if (!ran[0]) { ran[0] = true; textToSpeech.setOnUtteranceProgressListener(null); abandonSpeechFocus(); if (!speechCancelled) afterSpeaking.run(); }
+            if (!ran[0]) { ran[0] = true; stopWordEngine(); textToSpeech.setOnUtteranceProgressListener(null); abandonSpeechFocus(); if (!speechCancelled) afterSpeaking.run(); }
         }, 6000);
     }
 

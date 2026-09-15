@@ -137,10 +137,18 @@
                 android:layout_marginTop="4dp"
                 android:text="Without this, asking IRIS for a screenshot falls back to Android's screen-recording consent dialog every time — a platform limitation, not something IRIS can skip on its own. Turning this on makes screenshots instant with no dialog."
                 android:textColor="@color/text_muted" android:textSize="11sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="⚠ Banking and payment apps often refuse to show secure screens (PIN entry, payment confirmation) while ANY accessibility service is active — this is that app's own anti-fraud protection, not a bug, and applies no matter what the service actually does. Turn this off before making a payment, using the button below, then turn it back on afterwards."
+                android:textColor="@color/warning" android:textSize="11sp" />
             <Button android:id="@+id/fixScreenshotFastPathButton" android:layout_width="match_parent" android:layout_height="48dp"
                 android:layout_marginTop="6dp" android:background="@drawable/bg_button_primary"
                 android:text="Turn on instant screenshots" android:textAllCaps="false"
                 android:textColor="@color/text_primary" android:textStyle="bold" />
+            <Button android:id="@+id/disableScreenshotFastPathButton" android:layout_width="match_parent" android:layout_height="44dp"
+                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
+                android:text="Turn off now (before a payment)" android:textAllCaps="false"
+                android:textColor="@color/text_primary" android:visibility="gone" />
 
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="14dp" android:text="VOICE SECURITY"

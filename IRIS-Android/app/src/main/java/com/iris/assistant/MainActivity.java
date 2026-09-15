@@ -291,7 +291,8 @@ public class MainActivity extends Activity {
             else telemetry.refreshNow();
         }
         refreshBatteryOptStatus(findViewById(R.id.batteryOptStatus), findViewById(R.id.fixBatteryOptButton));
-        refreshScreenshotFastPathStatus(findViewById(R.id.screenshotFastPathStatus), findViewById(R.id.fixScreenshotFastPathButton));
+        refreshScreenshotFastPathStatus(findViewById(R.id.screenshotFastPathStatus), findViewById(R.id.fixScreenshotFastPathButton),
+                findViewById(R.id.disableScreenshotFastPathButton));
         IntentFilter filter = new IntentFilter();
         filter.addAction(IrisListeningService.EVENT_STATE);
         filter.addAction(IrisListeningService.EVENT_TRANSCRIPT);
@@ -2094,9 +2095,14 @@ public class MainActivity extends Activity {
      *  When it isn't, every screenshot request falls back to Android's own MediaProjection
      *  consent dialog — a platform limitation, not something IRIS can bypass in code. */
     private void refreshScreenshotFastPathStatus(View statusView, View buttonView) {
+        refreshScreenshotFastPathStatus(statusView, buttonView, null);
+    }
+
+    private void refreshScreenshotFastPathStatus(View statusView, View buttonView, View disableButtonView) {
         if (!(statusView instanceof TextView)) return;
         TextView status = (TextView) statusView;
         Button button = buttonView instanceof Button ? (Button) buttonView : null;
+        Button disableButton = disableButtonView instanceof Button ? (Button) disableButtonView : null;
         boolean available;
         try {
             available = android.os.Build.VERSION.SDK_INT < 30 || IrisAccessibilityService.available();
@@ -2110,6 +2116,7 @@ public class MainActivity extends Activity {
             status.setText("Instant screenshots: \u26A0\uFE0F off \u2014 screenshots will show Android's recording-consent dialog");
             if (button != null) { button.setText("Turn on instant screenshots"); button.setEnabled(true); }
         }
+        if (disableButton != null) disableButton.setVisibility(available ? View.VISIBLE : View.GONE);
     }
 
     /** Ask IrisListeningService to re-register shake/headset triggers from current Settings
@@ -2229,7 +2236,21 @@ public class MainActivity extends Activity {
 
         TextView screenshotFastPathStatus = view.findViewById(R.id.screenshotFastPathStatus);
         Button fixScreenshotFastPathButton = view.findViewById(R.id.fixScreenshotFastPathButton);
-        refreshScreenshotFastPathStatus(screenshotFastPathStatus, fixScreenshotFastPathButton);
+        Button disableScreenshotFastPathButton = view.findViewById(R.id.disableScreenshotFastPathButton);
+        refreshScreenshotFastPathStatus(screenshotFastPathStatus, fixScreenshotFastPathButton, disableScreenshotFastPathButton);
+        if (disableScreenshotFastPathButton != null) {
+            disableScreenshotFastPathButton.setOnClickListener(v -> {
+                try {
+                    // No app — including IRIS itself — can disable an accessibility service by
+                    // API; only the user can, from this settings screen. This gets them there
+                    // in one tap right when they need to pay, instead of navigating in cold.
+                    startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                    toast("Find IRIS in the list and turn it off, then make your payment.");
+                } catch (Throwable t) {
+                    toast("Open Settings \u2192 Accessibility \u2192 IRIS and turn it off before paying.");
+                }
+            });
+        }
         if (fixScreenshotFastPathButton != null) {
             fixScreenshotFastPathButton.setOnClickListener(v -> {
                 try {
@@ -2547,8 +2568,17 @@ public class MainActivity extends Activity {
         haptics.setOnCheckedChangeListener((button, checked) -> settings.setHaptics(checked));
         Switch speakerVerification = view.findViewById(R.id.speakerVerificationSwitch);
         speakerVerification.setChecked(settings.speakerVerification());
-        speakerVerification.setEnabled(false);
-        speakerVerification.setText("Owner verification required for voice wake");
+        speakerVerification.setText("Only wake for my enrolled voice");
+        speakerVerification.setOnCheckedChangeListener((b, checked) -> {
+            if (checked && new ProfileStore(this).getVoiceprint() == null) {
+                speakerVerification.setChecked(false);
+                toast("Enroll your voice below first, then turn this on.");
+                return;
+            }
+            settings.setSpeakerVerification(checked);
+            toast(checked ? "Wake now requires your enrolled voice."
+                    : "Wake accepts the trained phrase from anyone.");
+        });
 
         Switch requireUnlock = view.findViewById(R.id.requireUnlockSwitch);
         requireUnlock.setChecked(settings.requireUnlock());
@@ -2993,6 +3023,22 @@ public class MainActivity extends Activity {
                                 toast("\uD83D\uDD10 Voice enrolled \u2705 (" + vecsF + "/" + capped.size() + " samples used)");
                                 if (wakeTrainingStatus != null && !heardF.isEmpty())
                                     wakeTrainingStatus.setText("\u2705 Saved. I heard: \u201C" + heardF + "\u201D");
+                                // Enrolling a voice means nothing on its own unless speaker
+                                // verification is also turned on — that switch was previously a
+                                // disabled read-only display with no way to enable it at all.
+                                // Ask right here, once, instead of leaving the user to separately
+                                // discover a Settings toggle to get the behaviour they just trained for.
+                                if (!new AppSettings(MainActivity.this).speakerVerification()) {
+                                    new AlertDialog.Builder(MainActivity.this)
+                                            .setTitle("Only wake for your voice?")
+                                            .setMessage("Your voice is enrolled. Turn on owner-only wake now, so IRIS ignores the trained phrase from anyone else?")
+                                            .setPositiveButton("Turn on", (d, w) -> {
+                                                new AppSettings(MainActivity.this).setSpeakerVerification(true);
+                                                toast("Wake now requires your enrolled voice.");
+                                            })
+                                            .setNegativeButton("Not now", null)
+                                            .show();
+                                }
                             });
                         } else {
                             LogStore.append(MainActivity.this, "VOICE", "Enrollment failed: " + usableF

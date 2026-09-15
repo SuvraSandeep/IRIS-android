@@ -52,6 +52,9 @@ public final class LockedCaptureActivity extends Activity {
     public static final String EXTRA_FRONT = "front";
     /** "video" (default) or "photo". */
     public static final String EXTRA_MODE = "mode";
+    /** Fire the flash for a still photo capture. Ignored for video (see handleTorch for the
+     *  separate flashlight-toggle command, which is unrelated to this). */
+    public static final String EXTRA_FLASH = "flash";
     private static final String CHANNEL = "iris_capture";
     private static final int REC_NOTIF = 0xC0DF;
     static volatile LockedCaptureActivity instance;
@@ -77,6 +80,7 @@ public final class LockedCaptureActivity extends Activity {
     private int seconds = 15;
     private boolean front;
     private boolean photoMode;
+    private boolean flashRequested;
     private volatile boolean finished;
     private boolean opened;
     private CameraCharacteristics characteristics;
@@ -97,6 +101,7 @@ public final class LockedCaptureActivity extends Activity {
         seconds = Math.max(1, Math.min(3600, getIntent().getIntExtra(EXTRA_SECONDS, 60)));
         front = getIntent().getBooleanExtra(EXTRA_FRONT, false);
         photoMode = "photo".equals(getIntent().getStringExtra(EXTRA_MODE));
+        flashRequested = getIntent().getBooleanExtra(EXTRA_FLASH, false);
 
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true);
@@ -240,18 +245,7 @@ public final class LockedCaptureActivity extends Activity {
                         @Override public void onConfigured(CameraCaptureSession s) {
                             if (finished) { s.close(); return; }
                             session = s;
-                            try {
-                                CaptureRequest.Builder b = camera.createCaptureRequest(
-                                        CameraDevice.TEMPLATE_STILL_CAPTURE);
-                                b.addTarget(target);
-                                b.set(CaptureRequest.CONTROL_MODE,
-                                        android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
-                                b.set(CaptureRequest.JPEG_ORIENTATION, captureOrientation());
-                                s.capture(b.build(), null, bg);
-                            } catch (Exception e) {
-                                LogStore.append(LockedCaptureActivity.this, "LOCK CAPTURE", "Stage=CAPTURE_REQUEST: exception " + e);
-                                done("I couldn't take the photo.");
-                            }
+                            startAeConvergedCapture(s, target);
                         }
                         @Override public void onConfigureFailed(CameraCaptureSession s) {
                             LogStore.append(LockedCaptureActivity.this, "LOCK CAPTURE", "Stage=SESSION_CONFIG (photo): onConfigureFailed");
@@ -266,6 +260,91 @@ public final class LockedCaptureActivity extends Activity {
             }, 8000);
         } catch (Exception e) {
             LogStore.append(this, "LOCK CAPTURE", "Stage=TAKE_PHOTO: exception " + e);
+            done("I couldn't take the photo.");
+        }
+    }
+
+    /**
+     * Standard Camera2 still-capture sequence: run a repeating request so 3A actually has frames
+     * to converge on, fire an AE precapture trigger, wait for CONTROL_AE_STATE to report
+     * converged (or flash-required), then take the final still capture.
+     *
+     * Previously the code fired a single TEMPLATE_STILL_CAPTURE request immediately upon session
+     * configuration, with no repeating preview beforehand and no wait for auto-exposure to
+     * settle. On many devices/lighting conditions the very first frame after a session opens is
+     * captured before AE has converged, producing a blown-out/overexposed photo — this is a
+     * well-documented Camera2 pitfall, not a device-specific fluke.
+     */
+    private void startAeConvergedCapture(CameraCaptureSession s, Surface target) {
+        try {
+            CaptureRequest.Builder preview = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            preview.addTarget(target);
+            preview.set(CaptureRequest.CONTROL_MODE, android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
+            applyFlashMode(preview);
+            final boolean[] triggered = {false};
+            final boolean[] captured = {false};
+            s.setRepeatingRequest(preview.build(), new CameraCaptureSession.CaptureCallback() {
+                @Override public void onCaptureCompleted(CameraCaptureSession session,
+                        CaptureRequest request, android.hardware.camera2.TotalCaptureResult result) {
+                    if (finished || captured[0]) return;
+                    Integer aeState = result.get(CaptureRequest.CONTROL_AE_STATE);
+                    if (!triggered[0]) {
+                        triggered[0] = true;
+                        try {
+                            CaptureRequest.Builder pre = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                            pre.addTarget(target);
+                            pre.set(CaptureRequest.CONTROL_MODE, android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
+                            pre.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                                    CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_START);
+                            applyFlashMode(pre);
+                            s.capture(pre.build(), null, bg);
+                        } catch (Throwable ignored) { }
+                        return;
+                    }
+                    boolean converged = aeState == null
+                            || aeState == CaptureRequest.CONTROL_AE_STATE_CONVERGED
+                            || aeState == CaptureRequest.CONTROL_AE_STATE_FLASH_REQUIRED
+                            || aeState == CaptureRequest.CONTROL_AE_STATE_LOCKED;
+                    if (converged) {
+                        captured[0] = true;
+                        fireStillCapture(s, target);
+                    }
+                }
+            }, bg);
+            // AE convergence should settle in a few frames; never wait indefinitely — capture
+            // anyway after a short timeout rather than leaving the user stuck on unusual scenes.
+            main.postDelayed(() -> {
+                if (!finished && !captured[0]) {
+                    captured[0] = true;
+                    LogStore.append(this, "LOCK CAPTURE", "Stage=AE_CONVERGE_TIMEOUT: capturing anyway after 1.5s");
+                    fireStillCapture(s, target);
+                }
+            }, 1500);
+        } catch (Exception e) {
+            LogStore.append(this, "LOCK CAPTURE", "Stage=AE_SEQUENCE: exception " + e);
+            done("I couldn't take the photo.");
+        }
+    }
+
+    /** Set the requested flash mode on a capture request builder. No-op if no flash was asked
+     *  for, or (checked earlier in openCamera-adjacent code path) the lens has none. */
+    private void applyFlashMode(CaptureRequest.Builder b) {
+        if (!flashRequested) return;
+        try { b.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_ALWAYS_FLASH); }
+        catch (Throwable ignored) { }
+    }
+
+    private void fireStillCapture(CameraCaptureSession s, Surface target) {
+        try {
+            s.stopRepeating();
+            CaptureRequest.Builder b = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            b.addTarget(target);
+            b.set(CaptureRequest.CONTROL_MODE, android.hardware.camera2.CameraMetadata.CONTROL_MODE_AUTO);
+            b.set(CaptureRequest.JPEG_ORIENTATION, captureOrientation());
+            applyFlashMode(b);
+            s.capture(b.build(), null, bg);
+        } catch (Exception e) {
+            LogStore.append(this, "LOCK CAPTURE", "Stage=CAPTURE_REQUEST: exception " + e);
             done("I couldn't take the photo.");
         }
     }

@@ -110,6 +110,11 @@ public final class PhoneFacts {
         for(String g:new String[]{"network","display","sensors","resources","system","audio"}) {
             if(n.matches("(?:show |tell me |what are |give me )?(?:my |the |all )?"+g+" (?:details|status|information|specifications)"))return group(g);
         }
+        // "tell me about the connected network" / "what about my wifi" / "how's my connection" —
+        // a natural network-summary phrasing that doesn't fit the fixed "network details/status/
+        // information/specifications" suffix template above.
+        if(n.matches(".*\\b(?:tell me about|what about|how\\s+(?:is|about))\\s+(?:my\\s+|the\\s+)?(?:connected\\s+|current\\s+)?(?:network|wifi|connection)\\b.*"))
+            return group("network");
         LinkedHashSet<Field> out=new LinkedHashSet<>();
         for(String part:n.split("\\b(?:and|also|plus)\\b")) {
             int best=0;Field found=null;
