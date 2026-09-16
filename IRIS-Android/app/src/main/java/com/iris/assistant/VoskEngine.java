@@ -7,6 +7,7 @@ import android.os.Looper;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.vosk.Model;
+import org.vosk.SpeakerModel;
 import org.vosk.Recognizer;
 import org.vosk.android.RecognitionListener;
 
@@ -42,13 +43,14 @@ public final class VoskEngine {
     private Context captureContext;
     private Model model;
     private volatile boolean modelLoaded;
-    private Object spkModel;   // org.vosk.SpkModel via reflection (may be absent)
+    private SpeakerModel spkModel; // Required API: checked against the packaged dependency at build time.
     private volatile boolean spkReady;
     private volatile String speakerError="";
     public String speakerLoadError(){return speakerError;}
     // Guards against a second initSpeaker() call starting a concurrent load thread before the
     // first finishes — without this, two overlapping calls could both pass "if (spkReady) return"
     // and both delete+re-extract SPK_DIR at once, corrupting the on-disk speaker model.
+    private static final Object SPEAKER_INSTALL_LOCK = new Object();
     private final java.util.concurrent.atomic.AtomicBoolean spkLoading = new java.util.concurrent.atomic.AtomicBoolean();
     private ManagedSpeechService speechService;
     // All mutable engine state that's read/written from both the calling thread (UI/service) and
@@ -410,8 +412,7 @@ public final class VoskEngine {
             rec.setWords(true);
             if (attachSpeaker) {
                 try {
-                    rec.getClass().getMethod("setSpkModel", Class.forName("org.vosk.SpkModel"))
-                            .invoke(rec, spkModel);
+                    rec.setSpeakerModel(spkModel);
                 } catch (Throwable error) { rec.close(); throw new IllegalStateException("Speaker attachment failed", error); }
             }
             final boolean spkAttached = attachSpeaker;
@@ -420,7 +421,7 @@ public final class VoskEngine {
                 newService = new ManagedSpeechService(captureContext,rec, SAMPLE_RATE);
             } catch (Throwable error) {
                 // The Recognizer's native handle must be released here too — previously only the
-                // setSpkModel failure path above closed rec; a ManagedSpeechService constructor failure
+                // setSpeakerModel failure path above closed rec; a ManagedSpeechService constructor failure
                 // (e.g. AudioRecord init failure) left it leaked with no cleanup.
                 rec.close();
                 throw error;
@@ -508,7 +509,7 @@ public final class VoskEngine {
         synchronized(stateLock){
             closed=true;stop();
             if(model!=null){model.close();model=null;}
-            if(spkModel!=null){try{spkModel.getClass().getMethod("close").invoke(spkModel);}catch(Throwable ignored){}spkModel=null;}
+            if(spkModel!=null){spkModel.close();spkModel=null;}
             spkReady=false;modelLoaded=false;
         }
     }
@@ -533,6 +534,8 @@ public final class VoskEngine {
         new Thread(() -> {
             File zip = new File(app.getCacheDir(), "vosk-spk.zip");
             try {
+              synchronized (SPEAKER_INSTALL_LOCK) {
+                if (closed) return;
                 File dir = new File(app.getFilesDir(), SPK_DIR_NAME);
                 if (!isValidSpkDir(dir)) {
                     // Try the bundled asset zip "spk-model.zip" → unpack straight into files
@@ -565,20 +568,20 @@ public final class VoskEngine {
                     zip.delete();
                 }
                 if (isValidSpkDir(dir)) {
-                    Class<?> spkClass = Class.forName("org.vosk.SpkModel");
-                    Object candidate=spkClass.getConstructor(String.class).newInstance(dir.getAbsolutePath());
+                    SpeakerModel candidate = new SpeakerModel(dir.getAbsolutePath());
                     synchronized(stateLock){
-                        if(closed){spkClass.getMethod("close").invoke(candidate);return;}
+                        if(closed){candidate.close();return;}
                         spkModel=candidate;spkReady=true;
                     }
                     android.util.Log.i("IRIS", "Vosk speaker model ready");
                 }
+              }
             } catch (Throwable t) {
                 //noinspection ResultOfMethodCallIgnored
                 zip.delete();
                 spkReady = false;
                 speakerError="Offline speaker model failed to load: "+t.getClass().getSimpleName()+". Check storage and model download availability.";
-                android.util.Log.w("IRIS", "Speaker model unavailable (voice verification off): " + t.getMessage());
+                android.util.Log.w("IRIS", "Speaker model unavailable (owner verification cannot proceed): " + t.getMessage());
             } finally {
                 if(!closed&&!spkReady&&speakerError.isEmpty())speakerError="The speaker model is missing or incomplete. Check the model download and available storage.";
                 spkLoading.set(false);
@@ -588,6 +591,7 @@ public final class VoskEngine {
 
     private static boolean isValidSpkDir(File dir) {
         return dir != null && new File(dir, "final.ext.raw").length() > MIN_PLAUSIBLE_MODEL_FILE_BYTES
+                && new File(dir, "mfcc.conf").length() > 0
                 && new File(dir, "mean.vec").length() > 0
                 && new File(dir, "transform.mat").length() > 0;
     }
@@ -613,7 +617,7 @@ public final class VoskEngine {
         Recognizer rec=null;
         try{
             rec=new Recognizer(model,SAMPLE_RATE);
-            rec.getClass().getMethod("setSpkModel",Class.forName("org.vosk.SpkModel")).invoke(rec,spkModel);
+            rec.setSpeakerModel(spkModel);
             rec.acceptWaveForm(pcm,pcm.length);String json=rec.getFinalResult();
             if(new JSONObject(json).optInt("spk_frames",0)<50)return null;
             return extractSpk(json);

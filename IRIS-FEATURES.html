@@ -135,12 +135,13 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.25.0";
+const BUILD_VERSION = "8.25.1";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
 
 const FEATURES = [
+  {id:"training8251",cat:"Voice & Recognition",icon:"🎙",title:"Repaired owner model integration",tagline:"Training uses the real Vosk speaker API",desc:"Owner training and live verification use compile-time checked SpeakerModel APIs. Speaker installation is serialized across engines and validates its configuration. Voice sessions cannot overlap on the training screen. Enrollment retains 10 training takes and 4 independent verification takes, exact phrase checks and authenticated saving.",examples:["Train Hello Iris in your normal and soft voice"],version:"8.25.1"},
   {id:"capture822",cat:"Privacy, Safety & Robustness",icon:"📷",title:"Verified capture and phone modes",tagline:"Actual input and honest results",desc:"Recorder-owned routing reports the observed input. Photo preview and final JPEG use separate surfaces; the final result is checked before saving. System Battery Saver is separate from IRIS power saving. Restricted system modes open Android Settings without claiming success. Voice processing uses offline recognition.",examples:["Take a photo with flash","Turn on battery saver","Turn on battery saver for yourself"],version:"8.22.0"},
   {id:"stopmidspeech", cat:"Voice & Recognition", icon:"\u23F9", title:"Interrupt IRIS While It's Talking",
    tagline:"Say \u201Cstop\u201D and it actually stops.",
