@@ -2863,7 +2863,7 @@ public class MainActivity extends Activity {
         TextView summary=findViewById(R.id.ownerProfileSummary);if(summary==null)return;
         OwnerVoiceProfile saved=new ProfileStore(this).ownerEvidence();
         if(saved==null){summary.setText("No validated versioned owner profile found. Rejected takes are not saved as your voice.");return;}
-        try{summary.setText("Saved voice profile\n"+saved.list("normalSamples",3,12).size()+" normal · "+saved.list("quietSamples",3,12).size()+" soft · "+saved.list("validation",4,12).size()+" verification samples\nEncoder: "+OwnerVoiceProfile.MODE+" · 128 components\nSaved: "+java.text.DateFormat.getDateTimeInstance().format(new java.util.Date(saved.data.optLong("trainedAt")))+"\nRevision: "+saved.revision()+"\nThis is stored voice evidence, not a measured accuracy score.");}
+        try{summary.setText("Saved voice profile\n"+saved.list("normalSamples",3,12).size()+" normal · "+saved.list("quietSamples",3,12).size()+" soft · "+saved.list("validation",4,12).size()+" verification samples\nEncoder: "+OwnerVoiceProfile.MODEL+" · 128 components\nSaved: "+java.text.DateFormat.getDateTimeInstance().format(new java.util.Date(saved.data.optLong("trainedAt")))+"\nRevision: "+saved.revision()+"\nThis is stored voice evidence, not a measured accuracy score.");}
         catch(Exception error){summary.setText("Saved voice evidence could not be validated. Your profile has not been changed.");}
     }
     private boolean ownerSessionBusy(){return previewBusy()||ownerTrainingActive||trainVosk!=null||trainingRecognizer!=null||wakeTestEngine!=null;}
