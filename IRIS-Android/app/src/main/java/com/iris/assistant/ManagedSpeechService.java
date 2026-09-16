@@ -53,7 +53,7 @@ final class ManagedSpeechService {
             }catch(Exception error){main.post(()->{if(running)listener.onError(error);});}
             finally{
                 AudioRecord old=mic;mic=null;if(old!=null){try{old.stop();}catch(Exception ignored){}old.release();}
-                route.close();recognizer.close();AudioCaptureCoordinator.release(lease);
+                try{route.close();recognizer.close();}finally{AudioCaptureCoordinator.release(lease);}
             }
         },"IRIS-PCM");worker.start();
     }

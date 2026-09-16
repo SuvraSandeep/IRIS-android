@@ -20,7 +20,7 @@ final class OwnerVoiceProfile {
     }
     static OwnerVoiceProfile create(String phrase,String hash,List<float[]> normal,List<float[]> quiet,List<float[]> validation,double threshold)throws Exception {
         JSONObject j=new JSONObject().put("schema",4).put("speakerModel",MODEL).put("preprocessing",PREPROCESSING).put("modelHash",hash)
-            .put("phrase",phrase).put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis()).put("ownerThreshold",threshold)
+            .put("recognizerModel","vosk-model-small-en-us-0.15").put("phrase",phrase).put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis()).put("ownerThreshold",threshold)
             .put("normalSamples",array(normal)).put("quietSamples",array(quiet)).put("validation",array(validation)).put("negatives",new JSONArray())
             .put("voiceprint",array(WakePolicy.enrollment(normal))).put("quietVoiceprint",array(WakePolicy.enrollment(quiet)));
         return new OwnerVoiceProfile(j);

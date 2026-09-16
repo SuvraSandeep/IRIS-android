@@ -91,8 +91,7 @@ public final class TimedRecorder {
         }catch(Exception failure){error="Recording failed: "+failure.getMessage();}
         finally{
             if(mic!=null){try{mic.stop();}catch(Exception ignored){}try{mic.release();}catch(Exception ignored){}}
-            if(route!=null)route.close();
-            AudioCaptureCoordinator.release(lease);
+            try{if(route!=null)route.close();}finally{AudioCaptureCoordinator.release(lease);}
             synchronized(this){if(active==attempt)active=null;}
         }
         final short[] captured=result;final String message=error;

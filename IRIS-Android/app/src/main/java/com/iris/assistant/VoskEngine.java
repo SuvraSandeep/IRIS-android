@@ -39,6 +39,8 @@ public final class VoskEngine {
     private static final String SPK_URL =
             "https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip";
 
+    static final String OWNER_DECODER="vosk-model-small-en-us-0.15";
+    private static final Object OWNER_MODEL_INSTALL=new Object();
     private volatile boolean closed;
     private Context captureContext;
     private Model model;
@@ -81,7 +83,37 @@ public final class VoskEngine {
     }
 
     /** Load the Vosk model: bundled assets first, else download at runtime. */
+    public void initOwner(Context context,InitListener listener) {loadOwnerEnglish(context,listener);}
+    private void loadOwnerEnglish(Context context,InitListener listener){
+        captureContext=context.getApplicationContext();
+        if(closed){listener.onError("Voice engine is closed");return;}
+        if(modelLoaded){main.post(listener::onReady);return;}
+        new Thread(()->{
+            File target=new File(captureContext.getFilesDir(),OWNER_DECODER);
+            try{
+                synchronized(OWNER_MODEL_INSTALL){
+                    if(closed)throw new java.io.IOException("Training was cancelled");
+                    if(!isValidModelDir(target)){
+                        File stage=new File(captureContext.getFilesDir(),"owner-english-stage");deleteRecursive(stage);
+                        boolean bundled=false;try{bundled=unzipAsset(captureContext,"model-en-us.zip",stage);}catch(Exception ignored){}
+                        if(!bundled){
+                            File zip=new File(captureContext.getCacheDir(),"owner-english.zip");
+                            try{downloadFile("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",zip);deleteRecursive(stage);unzip(zip,stage);}finally{zip.delete();}
+                        }
+                        File[] kids=stage.listFiles();File src=kids!=null&&kids.length==1&&kids[0].isDirectory()?kids[0]:stage;
+                        if(!isValidModelDir(src))throw new java.io.IOException("English voice pack is incomplete");
+                        deleteRecursive(target);if(!src.renameTo(target))throw new java.io.IOException("Cannot install English voice pack");deleteRecursive(stage);
+                    }
+                }
+                if(!installModel(new Model(target.getAbsolutePath())))throw new java.io.IOException("Training was cancelled");
+                main.post(listener::onReady);
+            }catch(Exception error){main.post(()->listener.onError("English voice pack: "+error.getMessage()));}
+        },"IRIS-OwnerEnglish").start();
+    }
     public void init(Context context, InitListener listener) {
+        OwnerVoiceProfile active=new ProfileStore(context).ownerEvidence();
+        if(active!=null&&OWNER_DECODER.equals(active.data.optString("recognizerModel"))){loadOwnerEnglish(context,listener);return;}
+
         if(closed){listener.onError("Voice engine is closed");return;}
         captureContext=context.getApplicationContext();
         if (modelLoaded) { main.post(listener::onReady); return; }
