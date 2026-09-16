@@ -135,12 +135,14 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "8.25.1";
+const BUILD_VERSION = "8.26.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
 
 const FEATURES = [
+  {id:"owner826",cat:"Voice & Recognition",icon:"🎙",title:"Owner voice evidence and corrections",tagline:"Separate phrase checks, protected identity updates",desc:"Pause-aware enrollment compares unconstrained raw and processed recognition without accepting missing words. Normal and soft samples plus independent validation are saved in versioned profiles. Review recent wake events, propose a different-speaker correction, collect fresh samples after missed wakes and undo the last profile update. Corrections require authentication and must preserve saved owner validation. Recent evidence expires from memory after two minutes. Accuracy, whispers and playback resistance still require real-device testing.",examples:["That was not me","You missed me"],version:"8.26.0"},
+  {id:"ownerportable826",cat:"Privacy, Safety & Robustness",icon:"🔐",title:"Encrypted owner voice transfer",tagline:"Portable profile, verified on the receiving phone",desc:"Export a passphrase-encrypted owner profile separately from contacts. Imports check the exact speaker-model fingerprint and require four fresh verification takes plus authenticated saving. Raw recordings and other speakers' negative examples are excluded from export. Existing profiles remain active until a replacement is verified and saved.",examples:["Training → Export encrypted owner voice","Training → Import owner voice"],version:"8.26.0"},
   {id:"training8251",cat:"Voice & Recognition",icon:"🎙",title:"Repaired owner model integration",tagline:"Training uses the real Vosk speaker API",desc:"Owner training and live verification use compile-time checked SpeakerModel APIs. Speaker installation is serialized across engines and validates its configuration. Voice sessions cannot overlap on the training screen. Enrollment retains 10 training takes and 4 independent verification takes, exact phrase checks and authenticated saving.",examples:["Train Hello Iris in your normal and soft voice"],version:"8.25.1"},
   {id:"capture822",cat:"Privacy, Safety & Robustness",icon:"📷",title:"Verified capture and phone modes",tagline:"Actual input and honest results",desc:"Recorder-owned routing reports the observed input. Photo preview and final JPEG use separate surfaces; the final result is checked before saving. System Battery Saver is separate from IRIS power saving. Restricted system modes open Android Settings without claiming success. Voice processing uses offline recognition.",examples:["Take a photo with flash","Turn on battery saver","Turn on battery saver for yourself"],version:"8.22.0"},
   {id:"stopmidspeech", cat:"Voice & Recognition", icon:"\u23F9", title:"Interrupt IRIS While It's Talking",

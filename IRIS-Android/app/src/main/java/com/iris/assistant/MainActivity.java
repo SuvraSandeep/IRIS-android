@@ -1069,6 +1069,8 @@ public class MainActivity extends Activity {
         ownerRetryButton=view.findViewById(R.id.ownerRetryButton);
         ownerRetryButton.setOnClickListener(v->{if(ownerTrainingActive&&ownerStage.kind()==OwnerTrainingStage.Kind.RETRY)captureNextWakeSample();});
 
+        installOwnerTools(view);
+
         // Contact section
         profileSummary = view.findViewById(R.id.profileSummary);
         startTrainingButton = view.findViewById(R.id.startTrainingButton);
@@ -2443,24 +2445,9 @@ public class MainActivity extends Activity {
             });
         }
         Button feedbackMissed = view.findViewById(R.id.feedbackMissedButton);
-        if (feedbackMissed != null) {
-            feedbackMissed.setOnClickListener(v -> authenticateThen("Improve owner voice", () -> {
-                new ProfileStore(this).setPendingVoiceSample(null);
-                toast("Record fresh samples in a quiet room. Rejected background voices are never added to your profile.");
-                beginWakeTraining();
-            }));
-        }
-
+        if(feedbackMissed!=null)feedbackMissed.setOnClickListener(v->startOwnerRefinement());
         Button feedbackFalse = view.findViewById(R.id.feedbackFalseButton);
-        if (feedbackFalse != null) {
-            feedbackFalse.setOnClickListener(v -> {
-                float s = Math.min(1f, settings.ownerStrictness() + 0.08f);
-                authenticateOwner("Increase owner strictness",()->WakeChangeApproval.runApproved(()->settings.setOwnerStrictness(s)));
-                if (sensSeek != null) sensSeek.setProgress(Math.round(s * 100));
-                toast("Owner strictness changes require authentication.");
-                LogStore.append(this, "VOICE FEEDBACK", "false wake → sensitivity " + Math.round(s * 100) + "%");
-            });
-        }
+        if(feedbackFalse!=null)feedbackFalse.setOnClickListener(v->reviewWakeEvents());
 
         Switch highAccSwitch = view.findViewById(R.id.highAccuracyVoiceSwitch);
         if (highAccSwitch != null) {
@@ -2785,27 +2772,134 @@ public class MainActivity extends Activity {
         resumeAfterWakeTraining = IrisListeningService.isRunning;
         if (resumeAfterWakeTraining) stopListeningService();
         releaseOwnerTraining();
-        ownerTrainingActive=true;ownerNormalSamples.clear();ownerQuietSamples.clear();candidateNormal=null;candidateQuiet=null;
+        ownerTrainingActive=true;enrollment.clear();candidateNormal=null;candidateQuiet=null;
+        ownerBaseRevision=new ProfileStore(this).ownerRevision();
         wakePhraseBeingTrained = phrase;
         TrainingProgress.clear(this);   // fresh start — drop any old partial
         wakeTemplates.clear();
         wakeRawSamples.clear();
         wakeSampleIndex = 0;
+        if(ownerImport!=null){wakeSampleIndex=OwnerTrainingPlan.ENROLLMENT;candidateNormal=ownerImport.normal();candidateQuiet=ownerImport.quiet();}
         if (trainWakeButton != null) trainWakeButton.setEnabled(false);
         if (testWakeButton != null) testWakeButton.setEnabled(false);
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.GONE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.VISIBLE);
-        showOwnerStage(OwnerTrainingStage.Kind.SPEECH_MODEL,"Preparing training: 5 normal takes, 5 quiet takes, then 4 verification takes. Microphone not started.",90000);
+        showOwnerStage(OwnerTrainingStage.Kind.SPEECH_MODEL,ownerImport!=null?"Verify imported voice: 2 normal and 2 soft takes. Microphone not started.":"Preparing training: 5 normal takes, 5 soft takes, then 4 verification takes. Microphone not started.",90000);
         ownerTrainingHandler.post(ownerHeartbeat);
         ownerTrainingHandler.postDelayed(this::captureNextWakeSample, resumeAfterWakeTraining ? 700 : 150);
     }
 
+    private boolean ownerSessionBusy(){return ownerTrainingActive||trainVosk!=null||trainingRecognizer!=null||wakeTestEngine!=null;}
+    private void installOwnerTools(View view){
+        LinearLayout box=view.findViewById(R.id.wakeSection);
+        String[] labels={"Voice diagnostics","Improve my voice profile","Review recent wake events","Export encrypted owner voice","Import owner voice","Undo last voice update"};
+        Runnable[] actions={()->new AlertDialog.Builder(this).setTitle("Last take diagnostics").setMessage(lastOwnerDiagnostic+"\nNo recording is saved. Recognition errors are not proof that you spoke incorrectly.").setPositiveButton("Close",null).show(),
+            this::startOwnerRefinement,this::reviewWakeEvents,this::exportOwnerProfile,
+            ()->{if(ownerSessionBusy()){toast("Finish the current voice session first.");return;}startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/octet-stream"),IMPORT_OWNER);},
+            ()->{if(ownerSessionBusy()){toast("Finish the current voice session first.");return;}authenticateOwner("Undo last voice update",()->WakeChangeApproval.runApproved(()->{
+                boolean restored=new ProfileStore(this).rollbackOwner();toast(restored?"Previous owner profile restored.":"No valid previous profile is available.");
+            }));}};
+        for(int i=0;i<labels.length;i++){Button b=new Button(this);b.setText(labels[i]);final Runnable action=actions[i];b.setOnClickListener(v->action.run());box.addView(b);}
+    }
+    private void startOwnerRefinement(){
+        if(ownerSessionBusy()){toast("Finish or cancel the current voice session first.");return;}
+        authenticateThen("Improve owner voice",()->{
+            OwnerVoiceProfile existing=new ProfileStore(this).ownerEvidence();
+            showTraining();ownerRefinement=existing;
+            if(existing!=null)wakePhraseInput.setText(existing.phrase());
+            else toast("Your older profile has no validation bank. This session will create one.");
+            beginWakeTraining();
+        });
+    }
+    private void askOwnerPassword(String title,java.util.function.Consumer<char[]> action){
+        EditText password=new EditText(this);password.setHint("Passphrase: at least 12 characters");password.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setMessage("Keep this passphrase safe. It is required on the receiving phone; IRIS cannot recover it.").setView(password).setNegativeButton("Cancel",null).setPositiveButton("Continue",null).create();
+        dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            if(password.length()<12||password.length()>256){password.setError("Use 12–256 characters");return;}
+            char[] secret=password.getText().toString().toCharArray();password.setText("");dialog.dismiss();action.accept(secret);
+        }));dialog.show();
+    }
+    private void exportOwnerProfile(){
+        if(ownerSessionBusy()){toast("Finish the current voice session first.");return;}
+        authenticateThen("Export owner voice",()->{
+            OwnerVoiceProfile profile=new ProfileStore(this).ownerEvidence();
+            if(profile==null){toast("Complete the new enrollment once to create a portable validated profile.");return;}
+            askOwnerPassword("Encrypt owner voice",secret->new Thread(()->{
+                try{
+                    org.json.JSONObject portable=new org.json.JSONObject(profile.data.toString());portable.put("negatives",new org.json.JSONArray());
+                    byte[] encrypted=VoiceProfileCrypto.seal(portable.toString().getBytes(StandardCharsets.UTF_8),secret);
+                    handler.post(()->{if(isFinishing()||isDestroyed())return;pendingOwnerExport=encrypted;
+                        startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,"IRIS-owner-voice.irisvoice"),EXPORT_OWNER);});
+                }catch(Exception e){handler.post(()->toast("Export failed: "+e.getMessage()));}finally{java.util.Arrays.fill(secret,'\0');}
+            },"IRIS-EncryptOwner").start());
+        });
+    }
+    private void handleOwnerDocument(int request,Uri uri){
+        if(request==EXPORT_OWNER){
+            final byte[] encrypted=pendingOwnerExport;pendingOwnerExport=null;
+            if(encrypted==null){toast("Export expired. Start export again.");return;}
+            new Thread(()->{try(java.io.OutputStream out=getContentResolver().openOutputStream(uri,"wt")){
+                if(out==null)throw new java.io.IOException("Document unavailable");out.write(encrypted);handler.post(()->toast("Encrypted owner profile exported. Raw audio and other speakers' examples are excluded."));
+            }catch(Exception e){handler.post(()->toast("Export failed: "+e.getMessage()));}},"IRIS-WriteOwner").start();return;
+        }
+        askOwnerPassword("Decrypt owner voice",secret->new Thread(()->{
+            try(java.io.InputStream in=getContentResolver().openInputStream(uri)){
+                if(in==null)throw new java.io.IOException("Document unavailable");
+                java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] buffer=new byte[8192];int n;
+                while((n=in.read(buffer))!=-1){if(out.size()+n>VoiceProfileCrypto.LIMIT+48)throw new java.io.IOException("Profile too large");out.write(buffer,0,n);}
+                byte[] plain=VoiceProfileCrypto.open(out.toByteArray(),secret);
+                OwnerVoiceProfile imported=new OwnerVoiceProfile(new org.json.JSONObject(new String(plain,StandardCharsets.UTF_8)));java.util.Arrays.fill(plain,(byte)0);
+                handler.post(()->{if(isFinishing()||isDestroyed())return;
+                    new AlertDialog.Builder(this).setTitle("Verify imported owner voice")
+                        .setMessage("Phrase: “"+imported.phrase()+"”. Four fresh normal/soft takes must pass on this phone. Nothing changes until you verify and authenticate to save.")
+                        .setNegativeButton("Cancel",null).setPositiveButton("Verify",(d,w)->{
+                            if(ownerSessionBusy()){toast("Finish the current voice session first.");return;}
+                            authenticateThen("Verify imported voice",()->{showTraining();ownerImport=imported;wakePhraseInput.setText(imported.phrase());beginWakeTraining();});
+                        }).show();});
+            }catch(Exception e){handler.post(()->toast("Import rejected: wrong passphrase, damaged file or incompatible profile. Current voice is unchanged."));}
+            finally{java.util.Arrays.fill(secret,'\0');}
+        },"IRIS-ReadOwner").start());
+    }
+    private void reviewWakeEvents(){
+        if(ownerSessionBusy()){toast("Finish the current voice session first.");return;}
+        List<WakeEventStore.Event> events=WakeEventStore.recent();
+        if(events.isEmpty()){new AlertDialog.Builder(this).setTitle("No recent wake evidence").setMessage("Events expire after two minutes and are never stored as recordings. For a missed wake, use Improve my voice profile to record fresh samples.").setPositiveButton("Close",null).show();return;}
+        String[] labels=new String[events.size()];for(int i=0;i<labels.length;i++){WakeEventStore.Event e=events.get(i);labels[i]=(e.accepted?"Woke":"Rejected")+" · "+e.reason+" · "+Math.max(0,(android.os.SystemClock.elapsedRealtime()-e.at)/1000)+"s ago";}
+        new AlertDialog.Builder(this).setTitle("Choose the event to correct").setItems(labels,(d,index)->{
+            WakeEventStore.Event event=events.get(index);
+            new AlertDialog.Builder(this).setTitle("What happened?").setItems(new String[]{"Another person's voice woke IRIS","My voice was missed","A recording/video or noise triggered it"},(dialog,kind)->{
+                if(kind==1){startOwnerRefinement();return;}
+                if(kind==2){toast("Playback/noise report noted for this session. It is not used as a negative owner voice. Pause playback and use voice diagnostics.");return;}
+                proposeNegative(event);
+            }).show();
+        }).show();
+    }
+    private void proposeNegative(WakeEventStore.Event event){
+        if(android.os.SystemClock.elapsedRealtime()-event.at>120000){toast("Event expired. No profile change made.");return;}
+        ProfileStore store=new ProfileStore(this);OwnerVoiceProfile current=store.ownerEvidence();
+        if(current==null||!current.revision().equals(event.revision)||!event.accepted||event.embedding==null){toast("This event has no compatible accepted voice evidence. Complete new enrollment or reproduce the event.");return;}
+        try{
+            OwnerVoiceProfile candidate=current.withNegative(event.embedding);
+            new AlertDialog.Builder(this).setTitle("Review voice correction")
+                .setMessage("This event will be a negative voice example. All saved owner validation takes still pass. Strictness is unchanged. This small test does not guarantee rejection of every other voice. You can undo the update.")
+                .setNegativeButton("Cancel",null).setPositiveButton("Authenticate and apply",(d,w)->authenticateOwner("Apply voice correction",()->WakeChangeApproval.runApproved(()->{
+                    boolean ok=new ProfileStore(this).commitOwnerEvidence(candidate,event.revision);toast(ok?"Voice correction applied. Previous profile retained for rollback.":"Profile changed or save failed; correction not applied.");
+                }))).show();
+        }catch(Exception e){toast("Correction not applied: "+e.getMessage()+". Collect fresh owner samples instead.");}
+    }
+
+    private final OwnerEnrollmentController enrollment=new OwnerEnrollmentController();
+    private OwnerVoiceProfile ownerImport,ownerRefinement;
+    private String ownerBaseRevision="";
+    private static final int EXPORT_OWNER=220,IMPORT_OWNER=221;
+    private byte[] pendingOwnerExport;
+    private volatile String lastOwnerDiagnostic="No take analyzed yet.";
     private VoskEngine wakeTestEngine;
     private VoskEngine ownerTrainingEngine;
     private boolean ownerAwaitingApproval;
     private volatile long ownerTrainingGeneration;
     private volatile boolean ownerTrainingActive;
-    private final java.util.List<float[]> ownerNormalSamples=new ArrayList<>(),ownerQuietSamples=new ArrayList<>();
+    private final java.util.List<float[]> ownerNormalSamples=enrollment.normal,ownerQuietSamples=enrollment.soft;
     private float[] candidateNormal,candidateQuiet;
 
     private final Handler ownerTrainingHandler=new Handler(Looper.getMainLooper());
@@ -2868,10 +2962,10 @@ public class MainActivity extends Activity {
             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
             showOwnerStage(OwnerTrainingStage.Kind.MICROPHONE,"Opening the selected microphone. Please wait before speaking.",14000);
             timedRecorder=new TimedRecorder(this);
-            timedRecorder.record(5000,new TimedRecorder.Listener(){
+            timedRecorder.recordPhrase(new TimedRecorder.Listener(){
                 public void onLevel(float level){
                     if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
-                    if(ownerStage.kind()==OwnerTrainingStage.Kind.MICROPHONE)showOwnerStage(OwnerTrainingStage.Kind.RECORDING,"Say only: “"+wakePhraseBeingTrained+"” once. Recording lasts five seconds.",13000);
+                    if(ownerStage.kind()==OwnerTrainingStage.Kind.MICROPHONE)showOwnerStage(OwnerTrainingStage.Kind.RECORDING,"Say only: “"+wakePhraseBeingTrained+"” once. Speak naturally; recording stops after a pause (up to eight seconds).",13000);
                     if(ownerStage.kind()!=OwnerTrainingStage.Kind.RECORDING)return;
                     ownerMicLevel=" • microphone level "+Math.round(level*100)+"%";renderOwnerStage();
                 }
@@ -2880,32 +2974,33 @@ public class MainActivity extends Activity {
                     if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
                     showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,"Recording finished. Checking all words and speaker evidence; no need to speak now.",30000);
                     final String expectedPhrase=wakePhraseBeingTrained;
+                    final String recordedRoute=timedRecorder.capturedRoute();
                     new Thread(()->{
                         String transcript="",failure="";float[] vector=null;
                         try{synchronized(engine){
                             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
-                            if(!WakePolicy.usableAudio(pcm))failure="Audio was too quiet, clipped, noisy or too short.";
-                            else{
-                                short[] prepared=QuietAudioProcessor.prepare(pcm);transcript=engine.transcribe(prepared);
-                                if(!WakePolicy.matches(transcript,java.util.Collections.singletonList(expectedPhrase)))failure="Expected “"+expectedPhrase+"”; heard “"+(transcript.isEmpty()?"no clear words":transcript)+"”. Say the exact phrase once.";
-                                else{vector=engine.embed(prepared);if(!WakePolicy.owner(vector,vector,.99))failure="The words matched, but there was not enough reliable speaker evidence. Try a clear, softly spoken take.";}
-                            }
+                            PhraseEvidence evidence=engine.analyzePhrase(pcm,expectedPhrase);
+                            transcript=evidence.processedText;
+                            lastOwnerDiagnostic=evidence.summary()+" Input: "+recordedRoute+"; duration: "+(pcm.length/16000.0)+"s";
+                            if(!evidence.accepted())failure=evidence.summary();
+                            else{vector=engine.embed(QuietAudioProcessor.prepare(pcm));if(!WakePolicy.owner(vector,vector,.99))failure="SPEAKER_EVIDENCE: the phrase matched, but not enough reliable voice evidence was extracted. Try a clear normal or soft voice.";}
+
                         }}catch(Throwable error){failure="Voice analysis failed. Please retry this take.";}
                         final String rejection=failure;final float[] embedding=vector;
                         ownerTrainingHandler.post(()->{
                             if(!ownerTrainingActive||generation!=ownerTrainingGeneration||wakeSampleIndex!=index||ownerStage.kind()!=OwnerTrainingStage.Kind.ANALYSIS)return;
                             if(!rejection.isEmpty()){retryOwnerTake(rejection);return;}
-                            if(index<OwnerTrainingPlan.NORMAL)ownerNormalSamples.add(embedding);
-                            else if(index<OwnerTrainingPlan.ENROLLMENT)ownerQuietSamples.add(embedding);
-                            else if(!WakePolicy.owner(embedding,OwnerTrainingPlan.quiet(index)?candidateQuiet:candidateNormal,new AppSettings(MainActivity.this).ownerThreshold())){
-                                retryOwnerTake("Verification did not match your enrolled samples. Owner strictness has not changed.");return;
+                            if(index>=OwnerTrainingPlan.ENROLLMENT && !WakePolicy.owner(embedding,OwnerTrainingPlan.quiet(index)?candidateQuiet:candidateNormal,new AppSettings(MainActivity.this).ownerThreshold())){
+                                retryOwnerTake("OWNER_MISMATCH: verification did not match this profile. Strictness has not changed.");return;
                             }
+                            if(ownerImport!=null&&!ownerImport.accepts(embedding,new AppSettings(MainActivity.this).ownerThreshold())){retryOwnerTake("This voice does not pass the imported profile policy.");return;}
+                            try{enrollment.add(index,embedding);}catch(Exception error){retryOwnerTake(error.getMessage());return;}
                             wakeSampleIndex++;
                             if(wakeSampleIndex==OwnerTrainingPlan.ENROLLMENT){
                                 candidateNormal=WakePolicy.enrollment(ownerNormalSamples);candidateQuiet=WakePolicy.enrollment(ownerQuietSamples);
                                 if(candidateNormal==null||candidateQuiet==null||WakePolicy.cosine(candidateNormal,candidateQuiet)<.65){failOwnerTraining("Normal and quiet samples were inconsistent. Your saved owner profile is unchanged. Please retrain in a quiet place.");return;}
                             }
-                            if(wakeSampleIndex==OwnerTrainingPlan.TOTAL){showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All 14 takes passed. Review and authenticate to replace the owner profile.",0);finishWakeTraining();return;}
+                            if(wakeSampleIndex==OwnerTrainingPlan.TOTAL){showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All required takes passed. Review and authenticate to replace the owner profile.",0);finishWakeTraining();return;}
                             showOwnerStage(OwnerTrainingStage.Kind.READY,"Exact phrase and speaker evidence accepted. "+wakeSampleIndex+" of "+OwnerTrainingPlan.TOTAL+" takes complete. Preparing the next take…",0);
                             ownerTrainingHandler.postDelayed(MainActivity.this::captureNextWakeSample,1500);
                         });
@@ -2916,7 +3011,11 @@ public class MainActivity extends Activity {
     }
     private void waitForOwnerModel(VoskEngine engine,long generation){
         if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
-        if(engine.isSpeakerReady()){captureNextWakeSample();return;}
+        if(engine.isSpeakerReady()){
+            OwnerVoiceProfile existing=ownerImport!=null?ownerImport:ownerRefinement;
+            if(existing!=null&&!existing.hash().equals(engine.speakerFingerprint())){failOwnerTraining("Speaker model differs from this profile. Fresh enrollment is required.");return;}
+            captureNextWakeSample();return;
+        }
         if(!engine.speakerLoadError().isEmpty()){failOwnerTraining(engine.speakerLoadError());return;}
         ownerTrainingHandler.postDelayed(()->waitForOwnerModel(engine,generation),300);
     }
@@ -3118,10 +3217,28 @@ public class MainActivity extends Activity {
             .setPositiveButton("Authenticate and save",(d,w)->authenticateOwner("Save owner voice",()->{
                 if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
                 WakeChangeApproval.runApproved(()->{
-                    if(new ProfileStore(this).commitOwnerProfile(wakePhraseBeingTrained,candidateNormal,candidateQuiet)){
+                    try{
+                        OwnerVoiceProfile candidate;
+                        if(ownerImport!=null){
+                            org.json.JSONObject imported=new org.json.JSONObject(ownerImport.data.toString());
+                            imported.put("revision",java.util.UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
+                            imported.put("validation",OwnerVoiceProfile.array(enrollment.validation));candidate=new OwnerVoiceProfile(imported);
+                        }
+                        else if(ownerRefinement!=null){
+                            List<float[]> normal=new ArrayList<>(ownerRefinement.list("normalSamples",3,12));normal.addAll(enrollment.normal);
+                            List<float[]> soft=new ArrayList<>(ownerRefinement.list("quietSamples",3,12));soft.addAll(enrollment.soft);
+                            // Bound the bank while retaining the original anchors and the fresh session.
+                            while(normal.size()>12)normal.remove(5);while(soft.size()>12)soft.remove(5);
+                            List<float[]> validation=new ArrayList<>(ownerRefinement.list("validation",4,12));validation.addAll(enrollment.validation);
+                            while(validation.size()>12)validation.remove(4);
+                            candidate=OwnerVoiceProfile.create(wakePhraseBeingTrained,ownerTrainingEngine.speakerFingerprint(),normal,soft,validation,Math.max(ownerRefinement.threshold(),new AppSettings(this).ownerThreshold()));
+                            candidate.data.put("negatives",ownerRefinement.data.getJSONArray("negatives"));candidate=new OwnerVoiceProfile(candidate.data);
+                        }else candidate=enrollment.build(wakePhraseBeingTrained,ownerTrainingEngine.speakerFingerprint(),new AppSettings(this).ownerThreshold());
+                        if(!new ProfileStore(this).commitOwnerEvidence(candidate,ownerBaseRevision))throw new IllegalStateException("Profile changed or save failed; previous profile preserved");
                         TrainingProgress.clear(this);cancelWakeTraining();
-                        showOwnerStage(OwnerTrainingStage.Kind.SAVED,OwnerTrainingPlan.TOTAL+" takes verified. Only the complete phrase and enrolled voice can wake IRIS.",0);
-                    }else failOwnerTraining("Save failed. Previous owner profile is unchanged. Please retry training.");
+                        showOwnerStage(OwnerTrainingStage.Kind.SAVED,"Owner voice saved with independent validation and rollback. Encrypted export is now available.",0);
+                    }catch(Exception error){failOwnerTraining("Profile not saved: "+error.getMessage());}
+
                 });
             })).setOnCancelListener(d->cancelWakeTraining()).show();
     }
@@ -3177,8 +3294,9 @@ public class MainActivity extends Activity {
                             @Override public void onWakeDetected(float[] embedding) {
                                 if (wakeTestEngine != engine) return;
                                 boolean mediaOk = (am == null || !am.isMusicActive());
-                                boolean accepted = mediaOk && (!requireSpeaker || WakePolicy.ownerEither(embedding,
-                                        wake.voiceprint, new ProfileStore(MainActivity.this).getQuietVoiceprint(), new AppSettings(MainActivity.this).ownerThreshold()));
+                                ProfileStore store=new ProfileStore(MainActivity.this);OwnerVoiceProfile profile=store.ownerEvidence();
+                                boolean ownerOk=store.hasVersionedOwner()?profile!=null&&profile.hash().equals(engine.speakerFingerprint())&&profile.accepts(embedding,new AppSettings(MainActivity.this).ownerThreshold()):WakePolicy.ownerEither(embedding,wake.voiceprint,store.getQuietVoiceprint(),new AppSettings(MainActivity.this).ownerThreshold());
+                                boolean accepted=mediaOk&&(!requireSpeaker||ownerOk);
                                 stopWakeTrainingEngine();
                                 String result;
                                 if (accepted) result = "Full phrase" + (requireSpeaker ? " and owner verified" : "") + ". Test passed.";
@@ -3210,6 +3328,7 @@ public class MainActivity extends Activity {
     }
 
     private void cancelWakeTraining() {
+        ownerImport=null;ownerRefinement=null;
         releaseOwnerTraining();
         stopWakeTrainingEngine();
         if (timedRecorder != null) { timedRecorder.stop(); timedRecorder = null; }
@@ -3659,6 +3778,7 @@ public class MainActivity extends Activity {
     }
 
     private void handleLaunchIntent(Intent intent) {
+        if(intent!=null&&intent.getBooleanExtra("voiceFeedback",false)){intent.removeExtra("voiceFeedback");showTraining();handler.post(this::reviewWakeEvents);return;}
         if (intent == null) return;
         String act = intent.getAction();
         if (Intent.ACTION_ASSIST.equals(act) || "android.intent.action.VOICE_COMMAND".equals(act)) {
@@ -3836,8 +3956,9 @@ public class MainActivity extends Activity {
             pendingSecureAction = null;
             return;
         }
-        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {if(requestCode==EXPORT_OWNER)pendingOwnerExport=null;return;}
         Uri uri = data.getData();
+        if(requestCode==EXPORT_OWNER||requestCode==IMPORT_OWNER){handleOwnerDocument(requestCode,uri);return;}
         try {
             if (requestCode == PICK_CONTACT) {
                 try (Cursor cursor = getContentResolver().query(uri,
@@ -3865,7 +3986,7 @@ public class MainActivity extends Activity {
                 LogStore.append(this, "IMPORT", count + " profile entries merged");
                 updateProfileSummary();
                 renderProfileManager();
-                toast("Merged " + count + " trained contacts and portable wake data.");
+                toast("Merged " + count + " trained contacts. Owner voice is imported separately.");
             } else if (requestCode == EXPORT_MEMORY) {
                 writeText(uri, MemoryStore.exportJson(this));
                 toast("IRIS memory exported.");

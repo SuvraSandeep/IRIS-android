@@ -232,6 +232,33 @@ public final class ProfileStore {
             current.put("wakeWord",wake);persist(current);return true;
         } catch(Exception error){return false;}
     }
+    public synchronized OwnerVoiceProfile ownerEvidence() {
+        try{return new OwnerVoiceProfile(root().getJSONObject("wakeWord"));}catch(Exception e){return null;}
+    }
+    public synchronized boolean hasVersionedOwner(){return root().optJSONObject("wakeWord")!=null&&root().optJSONObject("wakeWord").optInt("schema")>=4;}
+    public synchronized boolean commitOwnerEvidence(OwnerVoiceProfile candidate,String expectedRevision) {
+        WakeChangeApproval.require();
+        try {
+            JSONObject current=root();JSONObject prior=current.optJSONObject("wakeWord");
+            String revision=prior==null?"":prior.optString("revision",Long.toString(prior.optLong("trainedAt")));
+            if(expectedRevision!=null&&!expectedRevision.equals(revision))return false;
+            OwnerVoiceProfile validated=new OwnerVoiceProfile(candidate.data);
+            if(prior!=null)current.put("previousOwner",new JSONObject(prior.toString()));
+            current.put("wakeWord",validated.data);persist(current);return true;
+        }catch(Exception error){return false;}
+    }
+    public synchronized String ownerRevision(){JSONObject w=root().optJSONObject("wakeWord");return w==null?"":w.optString("revision",Long.toString(w.optLong("trainedAt")));}
+    public synchronized boolean rollbackOwner() {
+        WakeChangeApproval.require();
+        try{JSONObject current=root(),previous=current.optJSONObject("previousOwner");if(previous==null)return false;
+            if(previous.optInt("schema")>=4)new OwnerVoiceProfile(previous);
+            else if(!WakePolicy.owner(OwnerVoiceProfile.vector(previous.getJSONArray("voiceprint")),OwnerVoiceProfile.vector(previous.getJSONArray("voiceprint")),.99))return false;
+            JSONObject restored=new JSONObject(previous.toString());restored.put("trainedAt",System.currentTimeMillis());
+            if(restored.optInt("schema")>=4)restored.put("revision",java.util.UUID.randomUUID().toString());
+            current.put("wakeWord",restored);current.remove("previousOwner");persist(current);return true;
+        }catch(Exception e){return false;}
+    }
+
     public synchronized float[] getQuietVoiceprint() {
         try { JSONArray a=root().getJSONObject("wakeWord").getJSONArray("quietVoiceprint");
             if(a.length()!=WakePolicy.EMBED_DIM)return null;
@@ -561,8 +588,9 @@ public final class ProfileStore {
     public synchronized String exportJson() {
         try {
             JSONObject result = root();
+            result.remove("wakeWord");result.remove("previousOwner");
             result.put("exportedAt", System.currentTimeMillis());
-            result.put("description", "IRIS portable wake-word and calling profile");
+            result.put("description", "IRIS contacts profile; owner voice uses encrypted export");
             return result.toString(2);
         } catch (Exception error) {
             return emptyRoot().toString();

@@ -45,6 +45,8 @@ public final class VoskEngine {
     private volatile boolean modelLoaded;
     private SpeakerModel spkModel; // Required API: checked against the packaged dependency at build time.
     private volatile boolean spkReady;
+    private volatile String speakerHash="";
+    public String speakerFingerprint(){return speakerHash;}
     private volatile String speakerError="";
     public String speakerLoadError(){return speakerError;}
     // Guards against a second initSpeaker() call starting a concurrent load thread before the
@@ -68,6 +70,7 @@ public final class VoskEngine {
     public interface WakeListener {
         /** @param voiceEmbedding Vosk speaker x-vector for the wake utterance, or null if unavailable. */
         void onWakeDetected(float[] voiceEmbedding);
+        default void onRejected(String reason) { }
         void onError(String message);
     }
 
@@ -432,17 +435,18 @@ public final class VoskEngine {
                     if (generation != wakeGeneration || fired.get()) return;
                     try {
                         JSONObject result = new JSONObject(json);
-                        if (!result.optBoolean("iris_audio_usable",false) || !WakePolicy.matches(result.optString("text"), norm)) return;
+                        if (!result.optBoolean("iris_audio_usable",false)) {listener.onRejected("AUDIO_QUALITY");return;}
+                        if (!WakePolicy.matches(result.optString("text"), norm)) {if(!result.optString("text").isEmpty())listener.onRejected("PHRASE_MISMATCH");return;}
                         JSONArray words = result.optJSONArray("result");
-                        if (words == null || words.length() == 0) return;
+                        if (words == null || words.length() == 0) {listener.onRejected("NO_WORD_EVIDENCE");return;}
                         double score = 1;
                         for (int i = 0; i < words.length(); i++) score = Math.min(score, words.getJSONObject(i).optDouble("conf", 0));
                         double duration = words.getJSONObject(words.length()-1).optDouble("end", 0)
                                 - words.getJSONObject(0).optDouble("start", 0);
-                        if (!Double.isFinite(score) || score < minWordConfidence || duration < .35 || duration > 5) return;
+                        if (!Double.isFinite(score) || score < minWordConfidence || duration < .35 || duration > 5) {listener.onRejected("PHRASE_CONFIDENCE_OR_DURATION");return;}
                         // The spk_frames field only appears when a speaker model is attached to
                         // the recognizer — gate on it only when we actually attached one.
-                        if (spkAttached && result.optInt("spk_frames", 0) < 50) return;
+                        if (spkAttached && result.optInt("spk_frames", 0) < 50) {listener.onRejected("SPEAKER_EVIDENCE");return;}
                         if (fired.compareAndSet(false, true)) listener.onWakeDetected(spkAttached ? extractSpk(json) : null);
                     } catch (Exception ignored) { /* malformed results cannot wake */ }
                 }
@@ -568,10 +572,16 @@ public final class VoskEngine {
                     zip.delete();
                 }
                 if (isValidSpkDir(dir)) {
+                    java.security.MessageDigest digest=java.security.MessageDigest.getInstance("SHA-256");
+                    for(String name:new String[]{"final.ext.raw","mfcc.conf","mean.vec","transform.mat"}) {
+                        digest.update(name.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        try(java.io.InputStream in=new java.io.FileInputStream(new File(dir,name))){byte[] block=new byte[16384];int n;while((n=in.read(block))!=-1)digest.update(block,0,n);}
+                    }
+                    StringBuilder fingerprint=new StringBuilder();for(byte b:digest.digest())fingerprint.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
                     SpeakerModel candidate = new SpeakerModel(dir.getAbsolutePath());
                     synchronized(stateLock){
                         if(closed){candidate.close();return;}
-                        spkModel=candidate;spkReady=true;
+                        spkModel=candidate;speakerHash=fingerprint.toString();spkReady=true;
                     }
                     android.util.Log.i("IRIS", "Vosk speaker model ready");
                 }
@@ -609,6 +619,20 @@ public final class VoskEngine {
             }
             text.append(extractText(rec.getFinalResult(),"text"));return text.toString().trim();
         }catch(Throwable e){return "";}finally{if(rec!=null)rec.close();}
+    }
+
+    /** Two unconstrained decodes, not a grammar forced to return the requested phrase. */
+    public PhraseEvidence analyzePhrase(short[] raw,String expected) {
+        if(!WakePolicy.usableAudio(raw))return new PhraseEvidence("","","AUDIO_QUALITY: too little usable speech, clipping or noise. Check the microphone.",null);
+        short[] processed=QuietAudioProcessor.prepare(raw);
+        String enhanced=transcribe(processed);
+        String original=transcribe(raw);
+        boolean enhancedMatch=PhraseEvidence.complete(expected,enhanced),rawMatch=PhraseEvidence.complete(expected,original);
+        // An exact full-vocabulary decode can rescue a gain-distorted take. Neither decoder gets
+        // the target phrase as its grammar, so merely typing a phrase cannot force acceptance.
+        if((enhancedMatch||rawMatch)&&(WakePolicy.normalize(original).split(" ").length>WakePolicy.normalize(expected).split(" ").length||WakePolicy.normalize(enhanced).split(" ").length>WakePolicy.normalize(expected).split(" ").length))return new PhraseEvidence(original,enhanced,"EXTRA_SPEECH: the decoders disagree about extra words. Repeat only the complete phrase.",null);
+        if(enhancedMatch||rawMatch)return new PhraseEvidence(original,enhanced,"",enhancedMatch?processed:raw);
+        return new PhraseEvidence(original,enhanced,PhraseEvidence.mismatch(expected,enhanced),null);
     }
 
     /** Compute a speaker x-vector for a PCM clip (16kHz mono). Null if unavailable. */

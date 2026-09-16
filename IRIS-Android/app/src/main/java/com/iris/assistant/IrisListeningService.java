@@ -846,6 +846,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         final long profileVersion=wake.trainedAt;
         final double policyThreshold=settings.ownerThreshold();
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
+            @Override public void onRejected(String reason){if(epoch==wakeEpoch&&isRunning)WakeEventStore.add(reason,new ProfileStore(IrisListeningService.this).ownerRevision(),null,false);}
             @Override public void onWakeDetected(float[] embedding) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
                 boolean media = audioManager != null && audioManager.isMusicActive();
@@ -855,6 +856,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 boolean unchanged=profileVersion==new ProfileStore(IrisListeningService.this).getWakeProfile().trainedAt
                         && policyThreshold==settings.ownerThreshold();
                 boolean accepted = unchanged && !media && now - lastWakeAt >= 3000 && isOwnerVoice(embedding);
+                WakeEventStore.add(accepted?"OWNER_ACCEPTED":media?"PLAYBACK_CONTEXT":!unchanged?"PROFILE_CHANGED":"OWNER_REJECTED",new ProfileStore(IrisListeningService.this).ownerRevision(),embedding,accepted);
                 LogStore.append(IrisListeningService.this, "WAKE DECISION",
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
                         + " accepted=" + accepted);
@@ -1183,6 +1185,11 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Guarded entry point: no command-handling error may crash the app. */
     private void handleCommand(String heard) {
+        String feedback=WakePolicy.normalize(heard);
+        if(feedback.equals("that was not me")||feedback.equals("that wasn t me")||feedback.equals("you missed me")){
+            try{startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("voiceFeedback",true));}catch(Exception ignored){}
+            speakThenRun("Open Training to review the wake event. Changing your voice profile requires authentication.",this::rearmAfterAction);return;
+        }
         phoneQuestionGeneration++;
         if (heard != null && !heard.trim().isEmpty()) {
             String hl = heard.trim().toLowerCase(Locale.ROOT);
@@ -5147,6 +5154,8 @@ public class IrisListeningService extends Service implements RecognitionListener
      *  phrase-only rather than rejecting every wake attempt with no way to recover by voice. */
     private boolean isOwnerVoice(float[] embedding) {
         try {
+            ProfileStore store=new ProfileStore(this);OwnerVoiceProfile profile=store.ownerEvidence();
+            if(store.hasVersionedOwner())return profile!=null&&voskEngine!=null&&profile.hash().equals(voskEngine.speakerFingerprint())&&profile.accepts(embedding,voiceThreshold());
             return voskEngine != null && voskEngine.isSpeakerReady()
                     && WakePolicy.ownerEither(embedding, new ProfileStore(this).getVoiceprint(),new ProfileStore(this).getQuietVoiceprint(), voiceThreshold());
         } catch (Throwable error) { return false; }

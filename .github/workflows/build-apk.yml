@@ -136,7 +136,7 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: bash scripts/test-speech.sh
 
-      - name: Verify packaged Vosk API
+      - name: Verify Vosk API, voice profiles and encrypted transfer
         working-directory: ${{ env.PROJECT_DIR }}
         run: bash gradlew :app:testDebugUnitTest --stacktrace
 

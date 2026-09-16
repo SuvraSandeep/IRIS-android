@@ -42,6 +42,7 @@ final class AudioRouteController implements AutoCloseable {
             recorder.addOnRoutingChangedListener(r->observe(recorder),null);
         }catch(Exception error){observed="Requested microphone unavailable; checking actual input";}
     }
+    static int routeId(AudioRecord recorder){try{AudioDeviceInfo d=recorder.getRoutedDevice();return d==null?-1:d.getId();}catch(Exception e){return -1;}}
     static void observe(AudioRecord recorder){
         try{AudioDeviceInfo actual=recorder.getRoutedDevice();
             if(actual==null){observed="Recording input unconfirmed";return;}
