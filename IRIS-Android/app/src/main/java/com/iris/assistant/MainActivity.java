@@ -308,6 +308,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onStop() {
+        stopTrainingPreview();
         if(ownerTrainingActive&&!ownerAwaitingApproval)cancelWakeTraining();
         try { unregisterReceiver(irisEvents); } catch (Exception ignored) { }
         // No dashboard polling or animation while hidden (voice service is unaffected).
@@ -317,6 +318,7 @@ public class MainActivity extends Activity {
     }
 
     private void showTabByIndex(int i) {
+        stopTrainingPreview();
         if(ownerTrainingActive)cancelWakeTraining();
         switch (i) {
             case 1: showTraining(); break;
@@ -1047,6 +1049,7 @@ public class MainActivity extends Activity {
     private int getColorCompat(int res) { return getResources().getColor(res, getTheme()); }
 
     private void showTraining() {
+        stopTrainingPreview();
         if(ownerTrainingActive)cancelWakeTraining();
         phrasePreview.clear();
         selectedTab = 1;
@@ -1068,20 +1071,31 @@ public class MainActivity extends Activity {
         wakeWizardFeedback = view.findViewById(R.id.wakeWizardFeedback);
         wakeWizardCancel = view.findViewById(R.id.wakeWizardCancel);
         ownerRetryButton=view.findViewById(R.id.ownerRetryButton);
-        ownerRetryButton.setOnClickListener(v->{if(ownerTrainingActive&&ownerStage.kind()==OwnerTrainingStage.Kind.RETRY)captureNextWakeSample();});
+        ownerRetryButton.setOnClickListener(v->{if(!previewBusy()&&ownerTrainingActive&&ownerStage.kind()==OwnerTrainingStage.Kind.RETRY)captureNextWakeSample();});
 
         installOwnerTools(view);
+        view.findViewById(R.id.ownerHearPhrase).setOnClickListener(v->previewTrainingAudio(false));
+        view.findViewById(R.id.ownerHearPrompt).setOnClickListener(v->previewTrainingAudio(false));
+        view.findViewById(R.id.ownerPlayRecording).setOnClickListener(v->previewTrainingAudio(true));
+        view.findViewById(R.id.ownerStopPlayback).setOnClickListener(v->stopTrainingPreview());
+        view.findViewById(R.id.ownerBeginVoice).setOnClickListener(v->authenticateThen("Teach owner voice",()->{phrasePreview.clear();beginWakeTraining();}));
+        wakePhraseInput.addTextChangedListener(new android.text.TextWatcher(){
+            public void beforeTextChanged(CharSequence s,int start,int count,int after){}
+            public void onTextChanged(CharSequence s,int start,int before,int count){stopTrainingPreview();}
+            public void afterTextChanged(android.text.Editable text){}
+        });
+        updateOwnerProfileSummary();
         view.findViewById(R.id.ownerContinueButton).setOnClickListener(v->{
-            if(!ownerTrainingActive||!phrasePreview.passed()||ownerTrainingEngine==null)return;
+            if(previewBusy()||!ownerTrainingActive||!phrasePreview.passed()||ownerTrainingEngine==null)return;
             phrasePreview.startEnrollment();ownerRejectedTakes=0;
-            showOwnerStage(OwnerTrainingStage.Kind.SPEAKER_MODEL,"Phrase checked. Preparing your private voice profile. Next: five normal takes, five soft takes and four verification takes.",60000);
+            showOwnerStage(OwnerTrainingStage.Kind.SPEAKER_MODEL,"Phrase checked. Next: five normal sentences, five soft sentences, then four short wake-phrase verification takes.",60000);
             ownerTrainingEngine.initSpeaker(this);waitForOwnerModel(ownerTrainingEngine,ownerTrainingGeneration);
         });
         view.findViewById(R.id.ownerChangePhraseButton).setOnClickListener(v->{cancelWakeTraining();showPhraseChoices();});
         view.findViewById(R.id.ownerPhraseSuggestions).setOnClickListener(v->showPhraseChoices());
         view.findViewById(R.id.otherTrainingToggle).setOnClickListener(v->{View panel=view.findViewById(R.id.otherTrainingPanel);boolean opening=panel.getVisibility()!=View.VISIBLE;panel.setVisibility(opening?View.VISIBLE:View.GONE);((Button)v).setText(opening?"Command & contact practice  ⌄":"Command & contact practice  ›");});
         ownerRecordButton=view.findViewById(R.id.ownerRecordButton);
-        ownerRecordButton.setOnClickListener(v->{Runnable action=pendingOwnerCapture;pendingOwnerCapture=null;if(action!=null)action.run();});
+        ownerRecordButton.setOnClickListener(v->{if(previewBusy()){toast("Stop playback before recording.");return;}Runnable action=pendingOwnerCapture;pendingOwnerCapture=null;if(action!=null)action.run();});
 
         // Contact section
         profileSummary = view.findViewById(R.id.profileSummary);
@@ -1143,7 +1157,7 @@ public class MainActivity extends Activity {
         // Wire up buttons
         configureWakeButton();
         TextView micLabelTraining = view.findViewById(R.id.micLabelTraining);
-        if (micLabelTraining != null) micLabelTraining.setText("\uD83C\uDF99 Listening mic: " + micLabel());
+        if (micLabelTraining != null) micLabelTraining.setText("Input is confirmed when recording starts. Connected headphones may use a different microphone.");
         testWakeButton.setOnClickListener(v -> testWakePhrase());
         wakeWizardCancel.setOnClickListener(v -> cancelWakeTraining());
 
@@ -2761,13 +2775,13 @@ public class MainActivity extends Activity {
     /** Set the wake button to Resume (if a partial exists) or Set Up/Retrain. */
     private void configureWakeButton() {
         if(trainWakeButton==null)return;
-        trainWakeButton.setText("Check my phrase");
+        trainWakeButton.setText("Check phrase recognition (optional)");
         trainWakeButton.setEnabled(true);
         trainWakeButton.setOnClickListener(v->authenticateThen("Check wake phrase",()->{phrasePreview.begin();beginWakeTraining();}));
     }
 
     private void beginWakeTraining() {
-        if (ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
+        if (previewBusy() || ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
             toast("Finish or cancel the current voice session first."); return;
         }
         if (wakePhraseInput == null) return; // Training tab not currently inflated
@@ -2785,6 +2799,7 @@ public class MainActivity extends Activity {
         if (resumeAfterWakeTraining) stopListeningService();
         releaseOwnerTraining();
         ownerRejectedTakes=0;pendingOwnerCapture=null;ownerLastHeard="";
+        ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(wakePhraseInput.getWindowToken(),0);wakePhraseInput.clearFocus();
         ownerTrainingActive=true;enrollment.clear();candidateNormal=null;candidateQuiet=null;
         ownerBaseRevision=new ProfileStore(this).ownerRevision();
         wakePhraseBeingTrained = phrase;
@@ -2797,7 +2812,7 @@ public class MainActivity extends Activity {
         if (testWakeButton != null) testWakeButton.setEnabled(false);
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.GONE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.VISIBLE);
-        showOwnerStage(OwnerTrainingStage.Kind.SPEECH_MODEL,phrasePreview.checking()?"One quick check before enrollment. We’ll see how IRIS hears your phrase; no voice profile will be saved.":ownerImport!=null?"Verify imported voice: 2 normal and 2 soft takes. Microphone not started.":"Preparing training: 5 normal takes, 5 soft takes, then 4 verification takes. Microphone not started.",90000);
+        showOwnerStage(OwnerTrainingStage.Kind.SPEECH_MODEL,phrasePreview.checking()?"One quick check before enrollment. We’ll see how IRIS hears your phrase; no voice profile will be saved.":ownerImport!=null?"Verify imported voice: 2 normal and 2 soft takes. Microphone not started.":"Teach your voice with 5 normal and 5 soft sentences. Then check 4 wake-phrase takes. Word-for-word transcription is not required for the sentence takes.",90000);
         ownerTrainingHandler.post(ownerHeartbeat);
         ownerTrainingHandler.postDelayed(this::captureNextWakeSample, resumeAfterWakeTraining ? 700 : 150);
     }
@@ -2812,7 +2827,46 @@ public class MainActivity extends Activity {
             .show();
     }
 
-    private boolean ownerSessionBusy(){return ownerTrainingActive||trainVosk!=null||trainingRecognizer!=null||wakeTestEngine!=null;}
+    private boolean previewBusy(){return previewPending||(trainingPreview!=null&&trainingPreview.busy());}
+    private void previewTrainingAudio(boolean recording){
+        if(previewBusy()){toast("Playback is already active. Use Stop playback to cancel.");return;}
+        if(trainVosk!=null||trainingRecognizer!=null||wakeTestEngine!=null||(ownerTrainingActive&&ownerStage.busy())){toast("Wait for this take to finish before playback.");return;}
+        if(recording&&diagnosticPcm==null){toast("Enable a diagnostic take in Manage voice first. Recordings expire after two minutes.");return;}
+        final String text=ownerTrainingActive?(OwnerEnrollmentPolicy.identityTake(phrasePreview.checking(),wakeSampleIndex)?OwnerEnrollmentPolicy.prompt(wakeSampleIndex):wakePhraseBeingTrained):wakePhraseInput.getText().toString().trim();
+        if(!recording&&text.isEmpty()){wakePhraseInput.setError("Enter your phrase first.");return;}
+        previewPending=true;int request=++previewRequest;
+        resumeAfterPreview=IrisListeningService.isRunning;if(resumeAfterPreview)stopListeningService();
+        View stop=findViewById(R.id.ownerStopPlayback);if(stop!=null)stop.setVisibility(View.VISIBLE);
+        previewWhenIdle(recording,text,request,android.os.SystemClock.elapsedRealtime()+3000);
+    }
+    private void previewWhenIdle(boolean recording,String text,int request,long deadline){
+        if(request!=previewRequest||!previewPending||isFinishing()||isDestroyed())return;
+        if(AudioCaptureCoordinator.busy()){
+            if(android.os.SystemClock.elapsedRealtime()>=deadline){completeTrainingPreview("The microphone has not released yet. Retry playback shortly.");return;}
+            diagnosticExpiry.postDelayed(()->previewWhenIdle(recording,text,request,deadline),100);return;
+        }
+        if(trainingPreview==null)trainingPreview=new TrainingAudioPreview(this);
+        previewPending=false;
+        java.util.function.Consumer<String> done=message->{if(request==previewRequest)completeTrainingPreview(message);};
+        if(recording)trainingPreview.play(diagnosticPcm,done);else trainingPreview.speak(text,done);
+    }
+    private void completeTrainingPreview(String message){
+        previewPending=false;View stop=findViewById(R.id.ownerStopPlayback);if(stop!=null)stop.setVisibility(View.GONE);
+        if(!isFinishing()&&!isDestroyed()){toast(message);if(ownerTrainingActive){if(ownerStage.kind()==OwnerTrainingStage.Kind.READY&&pendingOwnerCapture==null)captureNextWakeSample();else renderOwnerStage();}}
+        if(resumeAfterPreview){resumeAfterPreview=false;if(!isFinishing()&&!isDestroyed())startListeningService();}
+    }
+    private void stopTrainingPreview(){
+        if(trainingPreview!=null&&trainingPreview.busy()){trainingPreview.stop();return;}
+        if(previewPending){previewRequest++;completeTrainingPreview("Playback cancelled.");}
+    }
+    private void updateOwnerProfileSummary(){
+        TextView summary=findViewById(R.id.ownerProfileSummary);if(summary==null)return;
+        OwnerVoiceProfile saved=new ProfileStore(this).ownerEvidence();
+        if(saved==null){summary.setText("No validated versioned owner profile found. Rejected takes are not saved as your voice.");return;}
+        try{summary.setText("Saved voice profile\n"+saved.list("normalSamples",3,12).size()+" normal · "+saved.list("quietSamples",3,12).size()+" soft · "+saved.list("validation",4,12).size()+" verification samples\nEncoder: "+OwnerVoiceProfile.MODE+" · 128 components\nSaved: "+java.text.DateFormat.getDateTimeInstance().format(new java.util.Date(saved.data.optLong("trainedAt")))+"\nRevision: "+saved.revision()+"\nThis is stored voice evidence, not a measured accuracy score.");}
+        catch(Exception error){summary.setText("Saved voice evidence could not be validated. Your profile has not been changed.");}
+    }
+    private boolean ownerSessionBusy(){return previewBusy()||ownerTrainingActive||trainVosk!=null||trainingRecognizer!=null||wakeTestEngine!=null;}
     private void installOwnerTools(View view){
         LinearLayout section=view.findViewById(R.id.wakeSection);
         Button disclosure=new Button(this);disclosure.setText("Manage voice · backup · privacy  ›");disclosure.setTextColor(getColor(R.color.text_primary));disclosure.setTextSize(13);disclosure.setAllCaps(false);disclosure.setBackgroundResource(R.drawable.bg_button_secondary);section.addView(disclosure);
@@ -2948,6 +3002,9 @@ public class MainActivity extends Activity {
     private Runnable pendingOwnerCapture;
     private float ownerMeterLevel;
     private int ownerRejectedTakes;
+    private TrainingAudioPreview trainingPreview;
+    private boolean previewPending, resumeAfterPreview;
+    private int previewRequest;
     private final PhraseCheckSession phrasePreview=new PhraseCheckSession();
     private volatile String ownerLastHeard="";
     private String ownerMicLevel="";
@@ -2963,19 +3020,22 @@ public class MainActivity extends Activity {
         int shownTotal=ownerImport!=null?4:OwnerTrainingPlan.TOTAL;
         if(wakeWizardDots!=null)wakeWizardDots.setText(phrasePreview.checking()?"One take":shownIndex+" / "+shownTotal);
         android.widget.ProgressBar progress=findViewById(R.id.ownerTakeProgress);if(progress!=null){progress.setVisibility(phrasePreview.checking()?View.GONE:View.VISIBLE);progress.setMax(shownTotal);progress.setProgress(shownIndex);}
-        TextView journey=findViewById(R.id.ownerJourney);if(journey!=null)journey.setText(phrasePreview.checking()?"● PHRASE CHECK    ○ YOUR VOICE    ○ VERIFY":wakeSampleIndex<OwnerTrainingPlan.ENROLLMENT?"✓ PHRASE    ● YOUR VOICE    ○ VERIFY":"✓ PHRASE    ✓ YOUR VOICE    ● VERIFY");
+        TextView journey=findViewById(R.id.ownerJourney);if(journey!=null)journey.setText(phrasePreview.checking()?"Optional · Check phrase recognition":wakeSampleIndex<OwnerTrainingPlan.ENROLLMENT?"Step 1 · Teach your voice":"Step 2 · Verify the wake phrase");
         TextView heard=findViewById(R.id.ownerHeardText);if(heard!=null)heard.setText(ownerLastHeard.isEmpty()?"No clear words detected":ownerLastHeard);
         View comparison=findViewById(R.id.ownerHeardPanel);if(comparison!=null)comparison.setVisibility(ownerStage.kind()==OwnerTrainingStage.Kind.RETRY||ownerStage.kind()==OwnerTrainingStage.Kind.PHRASE_READY?View.VISIBLE:View.GONE);
         View next=findViewById(R.id.ownerContinueButton);if(next!=null)next.setVisibility(phrasePreview.checking()&&phrasePreview.passed()?View.VISIBLE:View.GONE);
         View change=findViewById(R.id.ownerChangePhraseButton);if(change!=null)change.setVisibility(phrasePreview.checking()&&(ownerStage.kind()==OwnerTrainingStage.Kind.RETRY||phrasePreview.passed())?View.VISIBLE:View.GONE);
-        TextView hero=findViewById(R.id.ownerPhraseHero);if(hero!=null)hero.setText(wakePhraseBeingTrained);
+        TextView hero=findViewById(R.id.ownerPhraseHero);if(hero!=null)hero.setText(OwnerEnrollmentPolicy.identityTake(phrasePreview.checking(),wakeSampleIndex)?OwnerEnrollmentPolicy.prompt(wakeSampleIndex):wakePhraseBeingTrained);
+        TextView promptLabel=findViewById(R.id.ownerPromptLabel);if(promptLabel!=null)promptLabel.setText(OwnerEnrollmentPolicy.identityTake(phrasePreview.checking(),wakeSampleIndex)?"READ THIS SENTENCE":"YOUR WAKE PHRASE");
         VoiceTrainingVisualizer meter=findViewById(R.id.ownerVoiceMeter);if(meter!=null)meter.update(ownerStage.kind()==OwnerTrainingStage.Kind.RECORDING,ownerMeterLevel);
-        if(ownerRecordButton!=null){boolean ready=ownerStage.kind()==OwnerTrainingStage.Kind.READY&&pendingOwnerCapture!=null;ownerRecordButton.setVisibility(ready?View.VISIBLE:View.GONE);ownerRecordButton.setEnabled(ready);}
+        if(ownerRecordButton!=null){boolean ready=ownerStage.kind()==OwnerTrainingStage.Kind.READY&&pendingOwnerCapture!=null;ownerRecordButton.setVisibility(ready?View.VISIBLE:View.GONE);ownerRecordButton.setEnabled(ready&&!previewBusy());}
         if(wakeWizardPrompt!=null)wakeWizardPrompt.setText(ownerStage.message());
         if(wakeWizardFeedback!=null)wakeWizardFeedback.setText(ownerStage.title()
             +(ownerStage.busy()?" • "+ownerStage.elapsedSeconds(android.os.SystemClock.elapsedRealtime())+" seconds":"")
             +ownerMicLevel);
         if(ownerRetryButton!=null){ownerRetryButton.setVisibility(ownerStage.kind()==OwnerTrainingStage.Kind.RETRY?View.VISIBLE:View.GONE);}
+        View hear=findViewById(R.id.ownerHearPrompt);if(hear!=null)hear.setVisibility(ownerStage.kind()==OwnerTrainingStage.Kind.READY||ownerStage.kind()==OwnerTrainingStage.Kind.RETRY?View.VISIBLE:View.GONE);
+        View play=findViewById(R.id.ownerPlayRecording);if(play!=null)play.setVisibility(diagnosticPcm!=null&&!ownerStage.busy()?View.VISIBLE:View.GONE);
         TextView input=findViewById(R.id.micLabelTraining);
         if(input!=null)input.setText("Input: "+AudioRouteController.observed);
     }
@@ -2997,7 +3057,7 @@ public class MainActivity extends Activity {
         showOwnerStage(OwnerTrainingStage.Kind.RETRY,reason+guide,0);
     }
     private void captureNextWakeSample() {
-        if(!ownerTrainingActive||isFinishing()||isDestroyed())return;
+        if(previewBusy()||!ownerTrainingActive||isFinishing()||isDestroyed())return;
         final long generation=ownerTrainingGeneration;
         if(ownerTrainingEngine==null){
             ownerTrainingEngine=new VoskEngine();ownerTrainingEngine.setSensitivity(new AppSettings(this).voiceSensitivity());
@@ -3016,25 +3076,26 @@ public class MainActivity extends Activity {
         final VoskEngine engine=ownerTrainingEngine;
         if(!engine.isReady()||(!phrasePreview.checking()&&!engine.isSpeakerReady())){failOwnerTraining("Offline models are not ready. Open offline model status in Settings.");return;}
         final int index=wakeSampleIndex;
+        final boolean identityTake=OwnerEnrollmentPolicy.identityTake(phrasePreview.checking(),index);
         String prompt=phrasePreview.checking()?"Let’s check the phrase before training your voice. Tap Record, wait for Listening, then say it once.":(OwnerTrainingPlan.verification(index)?"A fresh verification take. ":"")
             +(OwnerTrainingPlan.quiet(index)?"Use a soft, clear voice; no need to whisper. ":"Use your normal speaking voice. ")
-            +"Tap Record, then say the phrase once when the microphone is ready.";
+            +(identityTake?"Read the sentence naturally, then pause. Exact transcription is not required; only usable voice evidence is collected.":"Tap Record, then say your wake phrase once. This verifies both phrase recognition and your voice." );
         showOwnerStage(OwnerTrainingStage.Kind.READY,prompt,0);
         pendingOwnerCapture=()->{
             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
             showOwnerStage(OwnerTrainingStage.Kind.MICROPHONE,"Opening the selected microphone. Please wait before speaking.",14000);
             timedRecorder=new TimedRecorder(this);
-            timedRecorder.recordPhrase(new TimedRecorder.Listener(){
+            TimedRecorder.Listener takeListener=new TimedRecorder.Listener(){
                 public void onLevel(float level){
                     if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
-                    if(ownerStage.kind()==OwnerTrainingStage.Kind.MICROPHONE)showOwnerStage(OwnerTrainingStage.Kind.RECORDING,"Listening now. Say the phrase once, then pause.",13000);
+                    if(ownerStage.kind()==OwnerTrainingStage.Kind.MICROPHONE)showOwnerStage(OwnerTrainingStage.Kind.RECORDING,identityTake?"Read the sentence in your own voice, then pause.":"Listening now. Say the wake phrase once, then pause.",13000);
                     if(ownerStage.kind()!=OwnerTrainingStage.Kind.RECORDING)return;
                     ownerMeterLevel=level;ownerMicLevel=" • microphone level "+Math.round(level*100)+"%";renderOwnerStage();
                 }
                 public void onError(String error){if(ownerTrainingActive&&generation==ownerTrainingGeneration)failOwnerTraining(error);}
                 public void onComplete(short[] pcm){
                     if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
-                    showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,"Recording finished. Checking all words and speaker evidence; no need to speak now.",30000);
+                    showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,identityTake?"Checking audio quality and extracting voice characteristics. No need to speak now.":"Checking the wake phrase and voice match. No need to speak now.",30000);
                     if(captureDiagnostic){captureDiagnostic=false;if(diagnosticPcm!=null)java.util.Arrays.fill(diagnosticPcm,(short)0);diagnosticPcm=pcm.clone();final short[] retained=diagnosticPcm;
                         diagnosticExpiry.postDelayed(()->{java.util.Arrays.fill(retained,(short)0);if(diagnosticPcm==retained)diagnosticPcm=null;},120000);}
                     final String expectedPhrase=wakePhraseBeingTrained;
@@ -3043,12 +3104,21 @@ public class MainActivity extends Activity {
                         String transcript="",failure="";float[] vector=null;
                         try{synchronized(engine){
                             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
-                            PhraseEvidence evidence=engine.analyzePhrase(pcm,expectedPhrase);
-                            transcript=PhraseEvidence.complete(expectedPhrase,evidence.rawText)?evidence.rawText:evidence.processedText;
+                            TrainingAudioQuality quality=TrainingAudioQuality.measure(pcm);
+                            if(identityTake){
+                                // The owner explicitly starts these sentence takes. ASR spelling is not an identity test.
+                                if(quality.enrollmentUsable())vector=engine.embed(QuietAudioProcessor.prepare(pcm));
+                                failure=OwnerEnrollmentPolicy.rejectIdentity(pcm,vector);
+                                transcript="Voice sample — words are not graded";
+                                lastOwnerDiagnostic=quality.summary()+"; input: "+recordedRoute+"; speaker vector: "+(vector==null?"not extracted":vector.length+" components")+"; "+failure;
+                            }else{
+                                PhraseEvidence evidence=engine.analyzePhrase(pcm,expectedPhrase);
+                                transcript=PhraseEvidence.complete(expectedPhrase,evidence.rawText)?evidence.rawText:evidence.processedText.isEmpty()?evidence.rawText:evidence.processedText;
+                                lastOwnerDiagnostic=evidence.summary()+" Input: "+recordedRoute+"; "+quality.summary();
+                                if(!evidence.accepted())failure=evidence.reason+" Recognition is uncertain; this is not proof of incorrect pronunciation.";
+                                else if(!phrasePreview.checking()){vector=engine.embed(QuietAudioProcessor.prepare(pcm));if(!WakePolicy.owner(vector,vector,.99))failure="The phrase matched, but not enough voice evidence was extracted. Try a comfortable voice.";}
+                            }
                             ownerLastHeard=transcript;
-                            lastOwnerDiagnostic=evidence.summary()+" Input: "+recordedRoute+"; duration: "+(pcm.length/16000.0)+"s";
-                            if(!evidence.accepted())failure=evidence.processedText.isEmpty()&&evidence.rawText.isEmpty()?"I couldn’t hear clear speech. Check the selected microphone in Voice tools → Diagnostics.":"I heard “"+(evidence.processedText.isEmpty()?evidence.rawText:evidence.processedText)+"”. I haven’t verified the complete phrase yet. This may be a recognition error, not your pronunciation.";
-                            else if(!phrasePreview.checking()){vector=engine.embed(QuietAudioProcessor.prepare(pcm));if(!WakePolicy.owner(vector,vector,.99))failure="SPEAKER_EVIDENCE: the phrase matched, but not enough reliable voice evidence was extracted. Try a clear normal or soft voice.";}
 
                         }}catch(Throwable error){failure="Voice analysis failed. Please retry this take.";}
                         final String rejection=failure;final float[] embedding=vector;
@@ -3059,7 +3129,7 @@ public class MainActivity extends Activity {
                             if(index>=OwnerTrainingPlan.ENROLLMENT && !WakePolicy.owner(embedding,OwnerTrainingPlan.quiet(index)?candidateQuiet:candidateNormal,new AppSettings(MainActivity.this).ownerThreshold())){
                                 retryOwnerTake("OWNER_MISMATCH: verification did not match this profile. Strictness has not changed.");return;
                             }
-                            if(ownerImport!=null&&!ownerImport.accepts(embedding,new AppSettings(MainActivity.this).ownerThreshold())){retryOwnerTake("This voice does not pass the imported profile policy.");return;}
+                            if((ownerImport!=null&&!ownerImport.accepts(embedding,new AppSettings(MainActivity.this).ownerThreshold()))||(ownerRefinement!=null&&!ownerRefinement.accepts(embedding,new AppSettings(MainActivity.this).ownerThreshold()))){retryOwnerTake("This sample does not match your existing owner profile. Record it again in your own voice.");return;}
                             try{enrollment.add(index,embedding);}catch(Exception error){retryOwnerTake(error.getMessage());return;}
                             wakeSampleIndex++;
                             if(wakeSampleIndex==OwnerTrainingPlan.ENROLLMENT){
@@ -3067,12 +3137,14 @@ public class MainActivity extends Activity {
                                 if(candidateNormal==null||candidateQuiet==null||WakePolicy.cosine(candidateNormal,candidateQuiet)<.65){failOwnerTraining("Normal and quiet samples were inconsistent. Your saved owner profile is unchanged. Please retrain in a quiet place.");return;}
                             }
                             if(wakeSampleIndex==OwnerTrainingPlan.TOTAL){showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All required takes passed. Review and authenticate to replace the owner profile.",0);finishWakeTraining();return;}
-                            showOwnerStage(OwnerTrainingStage.Kind.READY,"Exact phrase and speaker evidence accepted. "+wakeSampleIndex+" of "+OwnerTrainingPlan.TOTAL+" takes complete. Preparing the next take…",0);
+                            ownerRejectedTakes=0;
+                            showOwnerStage(OwnerTrainingStage.Kind.READY,(identityTake?"Voice characteristics extracted. ":"Wake phrase and owner match verified. ")+wakeSampleIndex+" of "+OwnerTrainingPlan.TOTAL+" takes complete. Preparing the next take…",0);
                             ownerTrainingHandler.postDelayed(MainActivity.this::captureNextWakeSample,1500);
                         });
                     },"IRIS-ValidateOwner").start();
                 }
-            });
+            };
+            if(identityTake)timedRecorder.record(8000,takeListener);else timedRecorder.recordPhrase(takeListener);
         };
         renderOwnerStage();
     }
@@ -3087,6 +3159,7 @@ public class MainActivity extends Activity {
         ownerTrainingHandler.postDelayed(()->waitForOwnerModel(engine,generation),300);
     }
     private void releaseOwnerTraining(){
+        stopTrainingPreview();
         pendingOwnerCapture=null;
         ownerTrainingHandler.removeCallbacksAndMessages(null);
         ownerTrainingActive=false;ownerAwaitingApproval=false;ownerTrainingGeneration++;
@@ -3117,7 +3190,7 @@ public class MainActivity extends Activity {
     // ─────────── Voice & command training ───────────
 
     private void beginVoiceCommandTraining() {
-        if (ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
+        if (previewBusy() || ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
             toast("Finish or cancel the current voice session first."); return;
         }
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
@@ -3302,9 +3375,10 @@ public class MainActivity extends Activity {
                             candidate=OwnerVoiceProfile.create(wakePhraseBeingTrained,ownerTrainingEngine.speakerFingerprint(),normal,soft,validation,Math.max(ownerRefinement.threshold(),new AppSettings(this).ownerThreshold()));
                             candidate.data.put("negatives",ownerRefinement.data.getJSONArray("negatives"));candidate=new OwnerVoiceProfile(candidate.data);
                         }else candidate=enrollment.build(wakePhraseBeingTrained,ownerTrainingEngine.speakerFingerprint(),new AppSettings(this).ownerThreshold());
+                        if(ownerImport==null)candidate.data.put("enrollmentMethod","sentences-v1").put("phraseValidation","four-held-out-wake-takes");
                         if(!new ProfileStore(this).commitOwnerEvidence(candidate,ownerBaseRevision))throw new IllegalStateException("Profile changed or save failed; previous profile preserved");
-                        TrainingProgress.clear(this);cancelWakeTraining();
-                        showOwnerStage(OwnerTrainingStage.Kind.SAVED,"Owner voice saved with independent validation and rollback. Encrypted export is now available.",0);
+                        TrainingProgress.clear(this);cancelWakeTraining();updateOwnerProfileSummary();
+                        showOwnerStage(OwnerTrainingStage.Kind.SAVED,"Owner profile saved and read back successfully. Independent verification passed. Encrypted export and rollback are available.",0);
                     }catch(Exception error){failOwnerTraining("Profile not saved: "+error.getMessage());}
 
                 });
@@ -3312,7 +3386,7 @@ public class MainActivity extends Activity {
     }
 
     private void testWakePhrase() {
-        if (ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
+        if (previewBusy() || ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
             toast("Finish or cancel the current voice session first."); return;
         }
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
@@ -3449,7 +3523,7 @@ public class MainActivity extends Activity {
     }
 
     private void beginContactTraining() {
-        if (ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
+        if (previewBusy() || ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
             toast("Finish or cancel the current voice session first."); return;
         }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {

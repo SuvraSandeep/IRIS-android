@@ -242,9 +242,13 @@ public final class ProfileStore {
             JSONObject current=root();JSONObject prior=current.optJSONObject("wakeWord");
             String revision=prior==null?"":prior.optString("revision",Long.toString(prior.optLong("trainedAt")));
             if(expectedRevision!=null&&!expectedRevision.equals(revision))return false;
+            JSONObject before=new JSONObject(current.toString());
             OwnerVoiceProfile validated=new OwnerVoiceProfile(candidate.data);
             if(prior!=null)current.put("previousOwner",new JSONObject(prior.toString()));
-            current.put("wakeWord",validated.data);persist(current);return true;
+            current.put("wakeWord",validated.data);persist(current);
+            OwnerVoiceProfile readback=ownerEvidence();
+            if(readback==null||!validated.data.toString().equals(readback.data.toString())){persist(before);return false;}
+            return true;
         }catch(Exception error){return false;}
     }
     public synchronized String ownerRevision(){JSONObject w=root().optJSONObject("wakeWord");return w==null?"":w.optString("revision",Long.toString(w.optLong("trainedAt")));}

@@ -1,5 +1,7 @@
 # STEERING — Wake Word, Speaker Identity & Personal Profile
 
+> September 2026: the current approved roadmap supersedes historical Porcupine/key, automatic-threshold and external-backup suggestions below. Use offline processing, explicit authenticated updates, fail-closed owner verification, and separate sentence enrollment from final phrase verification. Model replacement requires evaluation; never enable verification-disabled fallback.
+
 **Owner:** single user (private build). **Status:** approved design, ready to implement in phases.
 **Chosen options:** 1A (audio-mode fix) · 2B (model-based speaker verification, ONNX) · 3A (Porcupine wake).
 
