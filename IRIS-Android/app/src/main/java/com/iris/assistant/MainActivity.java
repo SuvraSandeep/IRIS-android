@@ -2768,6 +2768,9 @@ public class MainActivity extends Activity {
     }
 
     private void beginWakeTraining() {
+        if (ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
+            toast("Finish or cancel the current voice session first."); return;
+        }
         if (wakePhraseInput == null) return; // Training tab not currently inflated
         String phrase = wakePhraseInput.getText().toString().trim();
         if (phrase.length() < 2) {
@@ -2947,6 +2950,9 @@ public class MainActivity extends Activity {
     // ─────────── Voice & command training ───────────
 
     private void beginVoiceCommandTraining() {
+        if (ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
+            toast("Finish or cancel the current voice session first."); return;
+        }
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
             pendingTrainingKind = "voice";
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSION_TRAIN);
@@ -2964,9 +2970,10 @@ public class MainActivity extends Activity {
         voiceTrainFeedback.setText("");
         trainVosk = new VoskEngine();
         trainVosk.setSensitivity(new AppSettings(this).voiceSensitivity());
+        final VoskEngine practiceEngine = trainVosk;
         trainVosk.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
-                trainVosk.initSpeaker(MainActivity.this);
+                if (voiceTrainCancelled || trainVosk != practiceEngine) return;
                 handler.postDelayed(() -> { if (!voiceTrainCancelled) trainReadPhraseStep(); }, 400);
             }
             @Override public void onError(String message) {
@@ -3120,6 +3127,9 @@ public class MainActivity extends Activity {
     }
 
     private void testWakePhrase() {
+        if (ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
+            toast("Finish or cancel the current voice session first."); return;
+        }
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
         // Only the phrase itself needs to be trained to test wake — voice enrollment is optional
         // and only relevant when the user has turned voice verification ON in Settings. Requiring
@@ -3250,6 +3260,9 @@ public class MainActivity extends Activity {
     }
 
     private void beginContactTraining() {
+        if (ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
+            toast("Finish or cancel the current voice session first."); return;
+        }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             toast("No speech recognition service is available.");
             return;
