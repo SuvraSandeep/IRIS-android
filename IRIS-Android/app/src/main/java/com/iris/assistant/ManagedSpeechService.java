@@ -18,8 +18,10 @@ final class ManagedSpeechService {
     void startListening(RecognitionListener listener){
         running=true;
         worker=new Thread(()->{
+            Object lease=AudioCaptureCoordinator.acquire();
             AudioRouteController route=new AudioRouteController(context);
             try{
+                if(lease==null)throw new IllegalStateException("Microphone is in use by training");
                 int buffer=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
                 mic=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(4096,buffer*2));
                 if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
@@ -51,7 +53,7 @@ final class ManagedSpeechService {
             }catch(Exception error){main.post(()->{if(running)listener.onError(error);});}
             finally{
                 AudioRecord old=mic;mic=null;if(old!=null){try{old.stop();}catch(Exception ignored){}old.release();}
-                route.close();recognizer.close();
+                try{route.close();recognizer.close();}finally{AudioCaptureCoordinator.release(lease);}
             }
         },"IRIS-PCM");worker.start();
     }

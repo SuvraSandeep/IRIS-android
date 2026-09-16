@@ -56,9 +56,20 @@ mkdir -p "$test_dir/recorder"
 javac -encoding UTF-8 -d "$test_dir/recorder" \
   $(find tests/recorder-stubs -name '*.java') \
   app/src/main/java/com/iris/assistant/RecordingDeadline.java \
+  app/src/main/java/com/iris/assistant/AudioCaptureCoordinator.java \
+  app/src/main/java/com/iris/assistant/SpeechEndpoint.java \
   app/src/main/java/com/iris/assistant/TimedRecorder.java \
   tests/TimedRecorderFlowTest.java
 java -cp "$test_dir/recorder" com.iris.assistant.TimedRecorderFlowTest
 mkdir -p "$test_dir/voskzip"
 javac -encoding UTF-8 -d "$test_dir/voskzip" tests/VoskZipUnpackTest.java
 java -cp "$test_dir/voskzip" com.iris.assistant.VoskZipUnpackTest
+mkdir -p "$test_dir/voice"
+javac -encoding UTF-8 -d "$test_dir/voice" \
+  app/src/main/java/com/iris/assistant/WakePolicy.java \
+  app/src/main/java/com/iris/assistant/PhraseEvidence.java \
+  app/src/main/java/com/iris/assistant/SpeechEndpoint.java \
+  app/src/main/java/com/iris/assistant/AudioCaptureCoordinator.java \
+  app/src/main/java/com/iris/assistant/VoiceProfileCrypto.java \
+  tests/VoiceCoreTest.java
+java -cp "$test_dir/voice" com.iris.assistant.VoiceCoreTest

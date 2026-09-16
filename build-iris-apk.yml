@@ -132,11 +132,18 @@ jobs:
             fi
           fi
 
+      - name: Bundle owner English voice pack
+        shell: bash
+        run: |
+          mkdir -p "$PROJECT_DIR/app/src/main/assets"
+          curl -fSL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip -o "$PROJECT_DIR/app/src/main/assets/model-en-us.zip"
+          unzip -t "$PROJECT_DIR/app/src/main/assets/model-en-us.zip" >/dev/null
+
       - name: Regression tests (all suites)
         working-directory: ${{ env.PROJECT_DIR }}
         run: bash scripts/test-speech.sh
 
-      - name: Verify packaged Vosk API
+      - name: Verify Vosk API, voice profiles and encrypted transfer
         working-directory: ${{ env.PROJECT_DIR }}
         run: bash gradlew :app:testDebugUnitTest --stacktrace
 
