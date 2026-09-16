@@ -138,7 +138,7 @@ jobs:
 
       - name: Verify packaged Vosk API
         working-directory: ${{ env.PROJECT_DIR }}
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: bash gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
