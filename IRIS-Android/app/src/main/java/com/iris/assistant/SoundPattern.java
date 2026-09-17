@@ -59,25 +59,43 @@ final class SoundPattern {
         if(!Double.isFinite(threshold)||threshold>.22)throw new IllegalArgumentException("Sound examples vary too much. Record the same complete sound naturally");
         return threshold;
     }
-    /** Same leave-one-out comparison calibrate() uses internally, but returns WHICH template
-     *  disagreed with the others the most, instead of only a pass/fail threshold. calibrate()
-     *  failing does not mean the most-recently-recorded sample is the problem — any one of the
-     *  earlier takes could be the actual outlier (different distance from the mic, background
-     *  noise that crept in, a slightly different sound) and every leave-one-out score that
-     *  includes it gets dragged up regardless of how good the other takes are. Without this,
-     *  the only recovery available was "redo the last take," which can retry forever and never
-     *  succeed if take 3 (say) is the real problem. Returns -1 if there are fewer than 2
-     *  templates (leave-one-out needs at least one other sample to compare against).
+    /** Leave-one-out score for every template, worst (least consistent with the rest) first.
+     *  calibrate() failing does not mean the most-recently-recorded sample is the problem — any
+     *  one of the earlier takes could be the actual outlier (different distance from the mic,
+     *  background noise that crept in, a slightly different sound) and every leave-one-out score
+     *  that includes it gets dragged up regardless of how good the other takes are. Returns the
+     *  ORIGINAL INDICES into templates, sorted worst-to-best, so a caller can identify and act on
+     *  the least-consistent samples without needing to mutate templates in place (mutating a flat
+     *  batch in place by position previously caused real index-corruption bugs once a caller also
+     *  needed to keep a second, differently-grouped list in sync across repeated retries — see
+     *  MainActivity's enrollment-boundary handling, which now uses this to pick the best N of a
+     *  slightly larger batch instead of surgically removing/reinserting one slot). Empty if there
+     *  are fewer than 2 templates (leave-one-out needs at least one other sample to compare against).
      */
-    static int worstOutlier(List<float[][]> templates){
-        if(templates==null||templates.size()<2)return -1;
-        int worstIndex=0;double worstScore=-1;
+    static int[] rankByConsistency(List<float[][]> templates){
+        if(templates==null||templates.size()<2)return new int[0];
+        Integer[] order=new Integer[templates.size()];double[] scores=new double[templates.size()];
         for(int i=0;i<templates.size();i++){
             List<float[][]> others=new ArrayList<>(templates);others.remove(i);
-            double s=score(templates.get(i),others);
-            if(s>worstScore){worstScore=s;worstIndex=i;}
+            scores[i]=score(templates.get(i),others);order[i]=i;
         }
-        return worstIndex;
+        Arrays.sort(order,(a,b)->Double.compare(scores[b],scores[a])); // worst (highest score) first
+        int[] out=new int[order.length];for(int i=0;i<order.length;i++)out[i]=order[i];return out;
+    }
+    /** Given a batch that may hold a few more samples than required (e.g. 10-12 sound takes when
+     *  only 10 are needed), returns the indices of the `keep` most mutually-consistent templates
+     *  — i.e. everything EXCEPT the worst (size-keep) entries from rankByConsistency(). This lets
+     *  a caller recover from "the batch doesn't calibrate" by adding one or two fresh replacement
+     *  takes and then keeping only the best `keep` of the resulting larger pool, rather than
+     *  guessing which single original slot to blame and surgically patching it in place. */
+    static int[] bestSubset(List<float[][]> templates,int keep){
+        int[] worstFirst=rankByConsistency(templates);
+        if(worstFirst.length<keep)return worstFirst;
+        java.util.Set<Integer> drop=new java.util.HashSet<>();
+        for(int i=0;i<worstFirst.length-keep;i++)drop.add(worstFirst[i]);
+        int[] out=new int[keep];int at=0;
+        for(int i=0;i<templates.size();i++)if(!drop.contains(i))out[at++]=i;
+        return out;
     }
     private static void fft(double[] re,double[] im){
         for(int i=1,j=0;i<512;i++){int bit=256;for(; (j&bit)!=0;bit>>=1)j^=bit;j^=bit;if(i<j){double t=re[i];re[i]=re[j];re[j]=t;}}

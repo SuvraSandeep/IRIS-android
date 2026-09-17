@@ -13,5 +13,17 @@ final class OwnerEnrollmentController {
         for(float[] previous:target)if(java.util.Arrays.equals(previous,vector))throw new IllegalArgumentException("Duplicate take; record a new sample");
         target.add(vector.clone());
     }
+    /** For a spare enrollment take (index at or past ENROLLMENT, recorded because the batch
+     *  needed 1-2 extra samples to calibrate — see MainActivity's ENROLLMENT boundary check).
+     *  add(int,float[]) alone would misroute these into validation, since it treats any index
+     *  >=ENROLLMENT as a verification take; the caller already knows which group the spare
+     *  belongs to (whichever of normal/quiet currently has fewer samples) so it's passed
+     *  explicitly instead of inferred from index. */
+    void addSpare(boolean quiet,float[] vector){
+        if(!WakePolicy.owner(vector,vector,.99))throw new IllegalArgumentException("Invalid speaker evidence");
+        List<float[]> target=quiet?soft:normal;
+        for(float[] previous:target)if(java.util.Arrays.equals(previous,vector))throw new IllegalArgumentException("Duplicate take; record a new sample");
+        target.add(vector.clone());
+    }
     OwnerVoiceProfile build(String phrase,String hash,double threshold)throws Exception{return OwnerVoiceProfile.create(phrase,hash,normal,soft,validation,threshold);}
 }

@@ -49,6 +49,27 @@ final class AudioRouteController implements AutoCloseable {
         }catch(Exception error){observed="Requested microphone unavailable; checking actual input";}
     }
     static int routeId(AudioRecord recorder){try{AudioDeviceInfo d=recorder.getRoutedDevice();return d==null?-1:d.getId();}catch(Exception e){return -1;}}
+    /** What's actually plugged in / connected right now, independent of any active recording —
+     *  observed/observedRoute only update DURING a take and reset to idle the instant it ends,
+     *  so between takes (exactly when a user deciding whether to connect/disconnect a headset
+     *  needs to know) the UI previously showed "Microphone idle" instead of anything actionable.
+     *  This lets the training UI show the current hardware state continuously, and proactively
+     *  warn about a route mismatch BEFORE the next take is recorded and rejected, rather than
+     *  only after. Returns HEADSET if any Bluetooth/wired/USB input is currently connected
+     *  (whether or not it will end up being the one actually used), PHONE otherwise. */
+    static Route currentlyConnected(Context context){
+        if(context==null)return Route.UNCONFIRMED;
+        try{
+            AudioManager manager=(AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
+            if(manager==null)return Route.UNCONFIRMED;
+            for(AudioDeviceInfo d:manager.getDevices(AudioManager.GET_DEVICES_INPUTS)){
+                boolean bt=d.getType()==AudioDeviceInfo.TYPE_BLUETOOTH_SCO||(Build.VERSION.SDK_INT>=31&&d.getType()==AudioDeviceInfo.TYPE_BLE_HEADSET);
+                boolean wired=d.getType()==AudioDeviceInfo.TYPE_WIRED_HEADSET||d.getType()==AudioDeviceInfo.TYPE_USB_HEADSET||d.getType()==AudioDeviceInfo.TYPE_USB_DEVICE;
+                if(bt||wired)return Route.HEADSET;
+            }
+            return Route.PHONE;
+        }catch(Exception error){return Route.UNCONFIRMED;}
+    }
     static void observe(AudioRecord recorder){
         try{AudioDeviceInfo actual=recorder.getRoutedDevice();
             if(actual==null){observed="Recording input unconfirmed";observedRoute=Route.UNCONFIRMED;return;}

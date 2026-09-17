@@ -111,6 +111,12 @@ public class MainActivity extends Activity {
     private final List<float[][]> wakeTemplates = new ArrayList<>();
     private final List<short[]> wakeRawSamples = new ArrayList<>();
     private int wakeSampleIndex;
+    /** Number of extra sound-pattern takes recorded beyond the required 10, when the batch
+     *  didn't calibrate and a spare replacement was needed instead of surgically patching one
+     *  slot in place (see the ENROLLMENT boundary check in captureNextWakeSample). Capped at 2 —
+     *  SoundWakeProfile accepts at most 12 examples. Reset whenever a fresh enrollment session
+     *  starts. */
+    private int enrollmentOverflow;
     private String wakePhraseBeingTrained;
     private boolean resumeAfterWakeTraining;
 
@@ -303,12 +309,36 @@ public class MainActivity extends Activity {
         filter.addAction(IrisListeningService.EVENT_SHUTDOWN);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(irisEvents, filter, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(irisEvents, filter);
+        // Resume a training session that onStop() only paused (backgrounded), not cancelled —
+        // the heartbeat clock was stopped along with the recorder, so restart it here or the
+        // RETRY screen would sit with a frozen "elapsed seconds" readout and no expiry check
+        // until the user taps something.
+        if(ownerTrainingPausedForBackground&&ownerTrainingActive){
+            ownerTrainingPausedForBackground=false;
+            ownerTrainingHandler.post(ownerHeartbeat);
+        }
     }
 
     @Override
     protected void onStop() {
         stopTrainingPreview();
-        if(ownerTrainingActive&&!ownerAwaitingApproval)cancelWakeTraining();
+        // Backgrounding (minimize, screen lock, an incoming call, switching apps — all routine
+        // Android behavior, not something the user did wrong) previously called
+        // cancelWakeTraining() unconditionally here, wiping every recorded take and forcing the
+        // whole 10-14 take sequence to start over. Only the microphone/recorder actually needs
+        // to stop while hidden (it's real hardware this activity shouldn't hold in the
+        // background); the in-memory samples, enrollment lists and wizard step are kept so
+        // onStart() can resume exactly where training left off, as long as this Activity
+        // instance survives (the normal case for minimize/lock/switch — Android only destroys
+        // the process under real memory pressure, the same risk any foregrounded app's
+        // in-memory state has).
+        if(ownerTrainingActive&&!ownerAwaitingApproval){
+            ownerTrainingPausedForBackground=true;
+            if(timedRecorder!=null){try{timedRecorder.stop();}catch(Exception ignored){}}
+            pendingOwnerCapture=null;
+            ownerTrainingHandler.removeCallbacksAndMessages(null);
+            showOwnerStage(OwnerTrainingStage.Kind.RETRY,"Training paused because IRIS was moved to the background. Your "+wakeSampleIndex+" recorded takes were kept — tap Try one more take to continue from here.",0);
+        }
         try { unregisterReceiver(irisEvents); } catch (Exception ignored) { }
         // No dashboard polling or animation while hidden (voice service is unaffected).
         try { if (telemetry != null) telemetry.stop(); } catch (Exception ignored) { }
@@ -2813,7 +2843,7 @@ public class MainActivity extends Activity {
         releaseOwnerTraining();
         ownerRejectedTakes=0;pendingOwnerCapture=null;ownerLastHeard="";
         ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(wakePhraseInput.getWindowToken(),0);wakePhraseInput.clearFocus();
-        ownerTrainingActive=true;enrollment.clear();soundSamples.clear();soundValidation.clear();soundThreshold=0;candidateNormal=null;candidateQuiet=null;sessionRoute=AudioRouteController.Route.UNCONFIRMED;
+        ownerTrainingActive=true;enrollment.clear();soundSamples.clear();soundValidation.clear();soundThreshold=0;candidateNormal=null;candidateQuiet=null;sessionRoute=AudioRouteController.Route.UNCONFIRMED;enrollmentOverflow=0;
         ownerBaseRevision=new ProfileStore(this).ownerRevision();
         wakePhraseBeingTrained = phrase;
         TrainingProgress.clear(this);   // fresh start — drop any old partial
@@ -3039,6 +3069,11 @@ public class MainActivity extends Activity {
     private VoskEngine wakeTestEngine;
     private VoskEngine ownerTrainingEngine;
     private boolean ownerAwaitingApproval;
+    /** True from onStop() (training paused, not cancelled, because the app was backgrounded)
+     *  until the user resumes via "Try one more take" or cancels outright. Lets onStart() tell
+     *  "we're resuming a background-paused session" apart from every other reason the RETRY
+     *  stage can be showing. */
+    private boolean ownerTrainingPausedForBackground;
     private volatile long ownerTrainingGeneration;
     private volatile boolean ownerTrainingActive;
     private final java.util.List<float[]> ownerNormalSamples=enrollment.normal,ownerQuietSamples=enrollment.soft;
@@ -3073,8 +3108,9 @@ public class MainActivity extends Activity {
     private void renderOwnerStage(){
         if(wakeTrainingStatus!=null)wakeTrainingStatus.setText(ownerTrainingActive?ownerStage.title():ownerStage.title()+". "+ownerStage.message());
         View title=findViewById(R.id.ownerIntroTitle),subtitle=findViewById(R.id.ownerIntroSubtitle);if(title!=null)title.setVisibility(ownerTrainingActive?View.GONE:View.VISIBLE);if(subtitle!=null)subtitle.setVisibility(ownerTrainingActive?View.GONE:View.VISIBLE);
-        if(wakeWizardStep!=null)wakeWizardStep.setText(phrasePreview.checking()?"01 / Phrase check":headsetTrainingActive?HeadsetTrainingPlan.label(headsetSampleIndex):OwnerTrainingPlan.label(wakeSampleIndex));
-        int shownIndex=headsetTrainingActive?headsetSampleIndex:ownerImport!=null?Math.max(0,wakeSampleIndex-OwnerTrainingPlan.ENROLLMENT):wakeSampleIndex;
+        boolean spareTakePending=!headsetTrainingActive&&wakeSampleIndex>=OwnerTrainingPlan.ENROLLMENT&&wakeSampleIndex<OwnerTrainingPlan.ENROLLMENT+enrollmentOverflow;
+        if(wakeWizardStep!=null)wakeWizardStep.setText(phrasePreview.checking()?"01 / Phrase check":spareTakePending?"Extra take needed":headsetTrainingActive?HeadsetTrainingPlan.label(headsetSampleIndex):OwnerTrainingPlan.label(wakeSampleIndex));
+        int shownIndex=headsetTrainingActive?headsetSampleIndex:ownerImport!=null?Math.max(0,wakeSampleIndex-OwnerTrainingPlan.ENROLLMENT):Math.min(wakeSampleIndex,OwnerTrainingPlan.ENROLLMENT);
         int shownTotal=headsetTrainingActive?HeadsetTrainingPlan.TOTAL:ownerImport!=null?4:OwnerTrainingPlan.TOTAL;
         if(wakeWizardDots!=null)wakeWizardDots.setText(phrasePreview.checking()?"One take":shownIndex+" / "+shownTotal);
         TrainingStepDots stepDots=findViewById(R.id.ownerStepDots);if(stepDots!=null){stepDots.setVisibility(phrasePreview.checking()?View.GONE:View.VISIBLE);stepDots.update(shownIndex,shownTotal,ownerStage.kind()==OwnerTrainingStage.Kind.RETRY);}
@@ -3108,10 +3144,24 @@ public class MainActivity extends Activity {
             ownerRetryButton.setVisibility(showRetry?View.VISIBLE:View.GONE);
             ownerRetryButton.setText(ownerStage.kind()==OwnerTrainingStage.Kind.SAVE_FAILED?"Retry save":"Try one more take");
         }
-        View hear=findViewById(R.id.ownerHearPrompt);if(hear!=null)hear.setVisibility(ownerStage.kind()==OwnerTrainingStage.Kind.READY||ownerStage.kind()==OwnerTrainingStage.Kind.RETRY?View.VISIBLE:View.GONE);
+        View hear=findViewById(R.id.ownerHearPrompt);if(hear!=null)hear.setVisibility(ownerStage.kind()==OwnerTrainingStage.Kind.READY?View.VISIBLE:View.GONE);
         View play=findViewById(R.id.ownerPlayRecording);if(play!=null)play.setVisibility(diagnosticPcm!=null&&!ownerStage.busy()?View.VISIBLE:View.GONE);
         TextView input=findViewById(R.id.micLabelTraining);
-        if(input!=null)input.setText("Input: "+AudioRouteController.observed);
+        if(input!=null){
+            // Between takes, observed/observedRoute are reset to idle (they only reflect an
+            // ACTIVE recording) — showing that here left the user with no way to tell "am I on
+            // phone or headset right now?" before recording the next take, only finding out
+            // after a rejection. currentlyConnected() reports the actual hardware state live, at
+            // any time, and — once a session is route-locked to phone or headset — proactively
+            // says which way to go before the next take is even recorded, instead of only after.
+            AudioRouteController.Route liveRoute=ownerStage.busy()?null:AudioRouteController.currentlyConnected(this);
+            if(liveRoute==null)input.setText("Input: "+AudioRouteController.observed);
+            else if(sessionRoute!=AudioRouteController.Route.UNCONFIRMED&&liveRoute!=sessionRoute){
+                input.setText(sessionRoute==AudioRouteController.Route.PHONE
+                    ?"⚠ Headset detected, but this session is on your phone microphone. Disconnect it before the next take."
+                    :"⚠ No headset detected, but this session is on a headset microphone. Reconnect it before the next take.");
+            }else input.setText("Input: "+(liveRoute==AudioRouteController.Route.HEADSET?"Headset connected":"Phone microphone")+(sessionRoute==AudioRouteController.Route.UNCONFIRMED?"":" (locked for this session)"));
+        }
     }
     private final Runnable ownerHeartbeat=new Runnable(){public void run(){
         if(!ownerTrainingActive)return;
@@ -3129,6 +3179,23 @@ public class MainActivity extends Activity {
         ownerRejectedTakes++;
         String guide=phrasePreview.checking()?" You can try once more or choose a different phrase. This check has not changed your voice profile.":ownerRejectedTakes>=3?" Three takes were rejected. Please stop repeating: open Voice tools → Diagnostics to check the input and both transcripts. Your saved profile is unchanged.":" Your saved profile is unchanged. You can review diagnostics or try a new take.";
         showOwnerStage(OwnerTrainingStage.Kind.RETRY,reason+guide,0);
+    }
+    /** Drops the least mutually-consistent entries from a voice-embedding group, by VALUE (never
+     *  by position), until it holds exactly `target` samples. Uses the same "agrees with the
+     *  fewest others" idea WakePolicy.enrollment() already uses internally to keep a working
+     *  centroid despite one inconsistent take, so a spare sound-pattern take (which needed a
+     *  matching spare voice sample recorded alongside it) doesn't leave the voice groups larger
+     *  than the profile format expects. No-op if already at or below target. */
+    private static void trimToSize(List<float[]> group,int target){
+        while(group.size()>target){
+            int worstAt=0;double worstAgreement=Double.POSITIVE_INFINITY;
+            for(int i=0;i<group.size();i++){
+                double agreement=0;
+                for(int j=0;j<group.size();j++){if(i==j)continue;agreement+=WakePolicy.cosine(group.get(i),group.get(j));}
+                if(agreement<worstAgreement){worstAgreement=agreement;worstAt=i;}
+            }
+            group.remove(worstAt);
+        }
     }
     private void captureNextWakeSample() {
         if(previewBusy()||!ownerTrainingActive||isFinishing()||isDestroyed())return;
@@ -3150,9 +3217,17 @@ public class MainActivity extends Activity {
         final VoskEngine engine=ownerTrainingEngine;
         if(!engine.isReady()||(!phrasePreview.checking()&&!engine.isSpeakerReady())){failOwnerTraining("Offline models are not ready. Open offline model status in Settings.");return;}
         final int index=wakeSampleIndex;
-        final boolean identityTake=index<OwnerTrainingPlan.ENROLLMENT;
-        String prompt=phrasePreview.checking()?"Let’s check the phrase before training your voice. Tap Record, wait for Listening, then say it once.":(OwnerTrainingPlan.verification(index)?"A fresh verification take. ":"")
-            +(OwnerTrainingPlan.quiet(index)?"Use a soft, clear voice; no need to whisper. ":"Use your normal speaking voice. ")
+        // Spare enrollment takes (index 10, 11 when a batch needed 1-2 extra samples to
+        // calibrate — see the ENROLLMENT boundary check below) are still identity takes, not
+        // verification takes: OwnerTrainingPlan's quiet()/verification() assume the fixed
+        // 0-9=enrollment,10-13=verification layout and would misclassify anything past 9 as
+        // verification. Route each spare to whichever of normal/quiet currently has fewer
+        // samples, so a spare can't accidentally overload only one group.
+        final boolean spareTake=index>=OwnerTrainingPlan.ENROLLMENT&&index<OwnerTrainingPlan.ENROLLMENT+enrollmentOverflow;
+        final boolean identityTake=index<OwnerTrainingPlan.ENROLLMENT||spareTake;
+        final boolean quietTake=spareTake?ownerQuietSamples.size()<=ownerNormalSamples.size():OwnerTrainingPlan.quiet(index);
+        String prompt=phrasePreview.checking()?"Let’s check the phrase before training your voice. Tap Record, wait for Listening, then say it once.":(spareTake?"An extra take to replace one that didn't fit closely enough. ":OwnerTrainingPlan.verification(index)?"A fresh verification take. ":"")
+            +(quietTake?"Use a soft, clear voice; no need to whisper. ":"Use your normal speaking voice. ")
             +(identityTake?"Say your chosen wake sound once, then pause. Use the same sound each time; its spelling does not matter.":"Say the same wake sound once. This independently checks its sound pattern and your voice." );
         showOwnerStage(OwnerTrainingStage.Kind.READY,prompt,0);
         pendingOwnerCapture=()->{
@@ -3213,65 +3288,98 @@ public class MainActivity extends Activity {
                             if(!ownerTrainingActive||generation!=ownerTrainingGeneration||wakeSampleIndex!=index||ownerStage.kind()!=OwnerTrainingStage.Kind.ANALYSIS)return;
                             if(!rejection.isEmpty()){retryOwnerTake(rejection);return;}
                             if(phrasePreview.checking()){if(!phrasePreview.recognize(expectedPhrase,ownerLastHeard)){retryOwnerTake("The complete phrase was not verified.");return;}showOwnerStage(OwnerTrainingStage.Kind.PHRASE_READY,"The full phrase was recognized. This checks the words only. Continue to teach IRIS your normal and soft voice, then verify it.",0);return;}
-                            if(index>=OwnerTrainingPlan.ENROLLMENT && !WakePolicy.owner(embedding,OwnerTrainingPlan.quiet(index)?candidateQuiet:candidateNormal,new AppSettings(MainActivity.this).ownerThreshold())){
+                            if(index>=OwnerTrainingPlan.ENROLLMENT && !spareTake && !WakePolicy.owner(embedding,OwnerTrainingPlan.quiet(index)?candidateQuiet:candidateNormal,new AppSettings(MainActivity.this).ownerThreshold())){
                                 retryOwnerTake("OWNER_MISMATCH: verification did not match this profile. Strictness has not changed.");return;
                             }
                             if((ownerImport!=null&&!ownerImport.accepts(embedding,new AppSettings(MainActivity.this).ownerThreshold()))||(ownerRefinement!=null&&!ownerRefinement.accepts(embedding,new AppSettings(MainActivity.this).ownerThreshold()))){retryOwnerTake("This sample does not match your existing owner profile. Record it again in your own voice.");return;}
-                            try{enrollment.add(index,embedding);}catch(Exception error){retryOwnerTake(error.getMessage());return;}
+                            try{if(spareTake)enrollment.addSpare(quietTake,embedding);else enrollment.add(index,embedding);}catch(Exception error){retryOwnerTake(error.getMessage());return;}
                             if(identityTake)soundSamples.add(capturedSound[0]);else soundValidation.add(capturedSound[0]);
                             wakeSampleIndex++;
-                            if(wakeSampleIndex==OwnerTrainingPlan.ENROLLMENT){
+                            if(wakeSampleIndex==OwnerTrainingPlan.ENROLLMENT+enrollmentOverflow){
                                 // A failure here must not discard all 10 enrollment takes and send
                                 // the user back to take 1 — this is exactly the "auto-cancels
                                 // after take 9/10, asks to do it again" report. calibrate() only
                                 // reports pass/fail; it does NOT mean the just-recorded take is
                                 // the problem — any one of the 10 could be the actual outlier
-                                // (retrying only the last slot forever cannot fix an outlier that
-                                // is really take 3, for example). worstOutlier() runs the same
-                                // leave-one-out comparison calibrate() does internally and reports
-                                // WHICH take disagreed with the others the most, so exactly that
-                                // one gets undone and re-requested — not always the newest one.
-                                String batchFailure=null;int outlierIndex=-1;
-                                try{soundThreshold=SoundPattern.calibrate(soundSamples);}
-                                catch(Exception error){batchFailure=error.getMessage();outlierIndex=SoundPattern.worstOutlier(soundSamples);}
+                                // (blaming and redoing a single slot in place previously corrupted
+                                // enrollment data across repeated failures: re-recording a slot
+                                // always APPENDS to the split normal/quiet lists rather than
+                                // reinserting at the same position, which silently desynchronized
+                                // soundSamples' order from the normal/quiet split on any second
+                                // failure and could delete the wrong sample from the wrong group.
+                                // Instead of ever mutating by position, ask for ONE extra spare
+                                // take appended normally like every other take, then keep only the
+                                // best-agreeing 10 of the resulting 11 (removing by IDENTITY, not
+                                // position, from every list — order-independent and cannot
+                                // desynchronize). SoundWakeProfile already accepts 10-12 examples,
+                                // so this needs no schema change. Capped at 2 spares (12 total)
+                                // so a genuinely bad microphone/environment fails loudly with a
+                                // clear message instead of asking for takes forever.
+                                String batchFailure=null;
+                                try{soundThreshold=SoundPattern.calibrate(soundSamples);}catch(Exception error){batchFailure=error.getMessage();}
                                 if(batchFailure==null){
                                     candidateNormal=WakePolicy.enrollment(ownerNormalSamples);candidateQuiet=WakePolicy.enrollment(ownerQuietSamples);
-                                    if(candidateNormal==null||candidateQuiet==null||WakePolicy.cosine(candidateNormal,candidateQuiet)<.65){
+                                    if(candidateNormal==null||candidateQuiet==null||WakePolicy.cosine(candidateNormal,candidateQuiet)<.65)
                                         batchFailure="Your normal and quiet takes did not agree closely enough with each other.";
-                                        // The voice (not sound-pattern) consistency check has no
-                                        // per-sample outlier detector of its own; falling back to
-                                        // "redo the most recent take" here is a reasonable default
-                                        // since this check has no cheap way to identify which of
-                                        // the 10 voice samples is the actual outlier.
-                                        outlierIndex=index;
+                                }
+                                if(batchFailure!=null&&enrollmentOverflow<2&&soundSamples.size()>OwnerTrainingPlan.NORMAL+OwnerTrainingPlan.QUIET-1){
+                                    // Only sound-pattern disagreement (not the separate voice-
+                                    // consistency check above) can be recovered by dropping one
+                                    // outlier and asking for a spare — a voice mismatch needs a
+                                    // real redo, not substitution, since WakePolicy.enrollment()
+                                    // is already outlier-tolerant on its own.
+                                    int[] worst=SoundPattern.rankByConsistency(soundSamples);
+                                    boolean recoverable=worst.length>0;
+                                    if(recoverable){
+                                        enrollmentOverflow++;
+                                        retryOwnerTake(batchFailure+" One of your "+soundSamples.size()+" takes did not fit closely enough with the others. Record one more take in a quiet place, at a comfortable volume — IRIS will keep the best "+OwnerTrainingPlan.ENROLLMENT+" of the "+(soundSamples.size()+1)+".");
+                                        return;
                                     }
                                 }
                                 if(batchFailure!=null){
-                                    final int removeAt=outlierIndex<0?index:outlierIndex;
-                                    // soundSamples is appended in strict recording order (index 0..9
-                                    // during enrollment), so soundSamples.get(removeAt) corresponds
-                                    // exactly to the take that was originally recorded at
-                                    // wakeSampleIndex==removeAt. Map that back into whichever split
-                                    // list (normal or quiet) actually holds it, by counting how many
-                                    // of the takes before it were quiet vs normal — the two lists are
-                                    // filled in lockstep with soundSamples, one entry per enrollment
-                                    // take, so this position always exists.
-                                    boolean removedIsQuiet=OwnerTrainingPlan.quiet(removeAt);
-                                    int positionInGroup=0;for(int i=0;i<removeAt;i++)if(OwnerTrainingPlan.quiet(i)==removedIsQuiet)positionInGroup++;
-                                    if(removeAt<soundSamples.size())soundSamples.remove(removeAt);
-                                    List<float[]> group=removedIsQuiet?ownerQuietSamples:ownerNormalSamples;
-                                    if(positionInGroup<group.size())group.remove(positionInGroup);
-                                    // wakeSampleIndex must point at the exact gap the removal
-                                    // left, not just "one less than before" — those are only the
-                                    // same slot when the outlier happened to be the take just
-                                    // recorded. If an earlier take (e.g. take 3) was the real
-                                    // outlier, the next recording needs to re-fill THAT slot, not
-                                    // silently re-record slot 9 while leaving the bad take 3 in
-                                    // place forever.
-                                    wakeSampleIndex=removeAt;
-                                    String takeLabel=OwnerTrainingPlan.label(removeAt);
-                                    retryOwnerTake(batchFailure+" "+(removeAt==index?"This take":"Take \""+takeLabel+"\"")+" did not fit with your other "+(OwnerTrainingPlan.ENROLLMENT-1)+" — please redo it, in a quiet place, at a comfortable volume.");
+                                    // Either the voice-consistency check failed (not recoverable
+                                    // by substitution) or the spare-take allowance is used up and
+                                    // the batch still doesn't calibrate — this is a real circuit
+                                    // breaker: after 2 spares, keep failing rather than looping
+                                    // forever, and say so plainly instead of blaming one slot.
+                                    boolean exhausted=enrollmentOverflow>=2;
+                                    String message=exhausted
+                                        ?"Your recordings are consistently varying more than IRIS can calibrate for, even after two extra takes. This usually means background noise, a moving microphone, or inconsistent volume between takes — not a fixed number of retries. Your recorded takes were kept; open Voice tools -> Diagnostics to review them, or Cancel training and try again somewhere quieter."
+                                        :batchFailure;
+                                    ownerRejectedTakes+=3; // Surface diagnostics guidance immediately rather than after 3 more retries.
+                                    retryOwnerTake(message);
                                     return;
+                                }
+                                // Calibration passed: if a spare take was needed, trim the batch
+                                // back down to exactly 10 by IDENTITY (never by position), keeping
+                                // whichever 10 of the (10+enrollmentOverflow) sound patterns are
+                                // most mutually consistent. The same objects are removed from
+                                // ownerNormalSamples/ownerQuietSamples (aliased to enrollment's own
+                                // lists) so every list stays in lockstep without any index math.
+                                if(soundSamples.size()>OwnerTrainingPlan.ENROLLMENT){
+                                    int[] keepIdx=SoundPattern.bestSubset(soundSamples,OwnerTrainingPlan.ENROLLMENT);
+                                    java.util.Set<float[][]> keep=new java.util.HashSet<>();
+                                    for(int i:keepIdx)keep.add(soundSamples.get(i));
+                                    java.util.List<float[][]> dropped=new java.util.ArrayList<>();
+                                    for(float[][] s:soundSamples)if(!keep.contains(s))dropped.add(s);
+                                    soundSamples.removeAll(dropped);
+                                    soundThreshold=SoundPattern.calibrate(soundSamples);
+                                    // dropped sound patterns don't directly identify which voice
+                                    // embedding to drop (they're different arrays), so trim the
+                                    // split voice lists down to size by the SAME rule WakePolicy.
+                                    // enrollment() already uses internally: drop whichever
+                                    // remaining sample agrees least with the rest of its own
+                                    // group, one at a time, until each group is back to its
+                                    // required size. This reuses existing, already-tested
+                                    // agreement logic rather than adding a new heuristic.
+                                    trimToSize(ownerNormalSamples,OwnerTrainingPlan.NORMAL);
+                                    trimToSize(ownerQuietSamples,OwnerTrainingPlan.QUIET);
+                                    candidateNormal=WakePolicy.enrollment(ownerNormalSamples);candidateQuiet=WakePolicy.enrollment(ownerQuietSamples);
+                                    // Verification takes (OwnerTrainingPlan.verification/quiet/
+                                    // label) assume the fixed 10-13 layout; rewind past the spare
+                                    // slots now that the batch is back to exactly 10, so index 10
+                                    // is where the FIRST verification take is actually recorded.
+                                    wakeSampleIndex=OwnerTrainingPlan.ENROLLMENT;
                                 }
                             }
                             if(wakeSampleIndex==OwnerTrainingPlan.TOTAL){showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All required takes passed. Review and authenticate to replace the owner profile.",0);finishWakeTraining();return;}
@@ -3782,7 +3890,7 @@ public class MainActivity extends Activity {
     private void cancelWakeTraining() {
         phrasePreview.clear();
         ownerImport=null;ownerRefinement=null;
-        headsetTrainingActive=false;headsetSampleIndex=0;
+        headsetTrainingActive=false;headsetSampleIndex=0;enrollmentOverflow=0;ownerTrainingPausedForBackground=false;
         releaseOwnerTraining();
         stopWakeTrainingEngine();
         if (timedRecorder != null) { timedRecorder.stop(); timedRecorder = null; }
