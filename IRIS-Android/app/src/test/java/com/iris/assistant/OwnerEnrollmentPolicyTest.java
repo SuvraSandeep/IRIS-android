@@ -11,9 +11,9 @@ public class OwnerEnrollmentPolicyTest {
     private float[] voice(){float[] v=new float[WakePolicy.EMBED_DIM];v[0]=1;return v;}
     @Test public void sentencesCollectIdentityButDoNotBypassFinalPhraseChecks(){
         assertTrue(OwnerEnrollmentPolicy.identityTake(false,0));
-        assertTrue(OwnerEnrollmentPolicy.identityTake(false,9));
+        assertTrue(OwnerEnrollmentPolicy.identityTake(false,OwnerTrainingPlan.ENROLLMENT-1));
         assertFalse(OwnerEnrollmentPolicy.identityTake(true,0));
-        assertFalse(OwnerEnrollmentPolicy.identityTake(false,10));
+        assertFalse(OwnerEnrollmentPolicy.identityTake(false,OwnerTrainingPlan.ENROLLMENT));
         assertFalse(OwnerEnrollmentPolicy.identityTake(false,-1));
         assertEquals("",OwnerEnrollmentPolicy.rejectIdentity(speech(),voice()));
         assertFalse(PhraseEvidence.complete("Hello Iris","let alone find it is"));

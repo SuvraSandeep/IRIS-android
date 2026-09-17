@@ -10,8 +10,8 @@ android {
         applicationId 'com.iris.assistant'
         minSdk 26
         targetSdk 35
-        versionCode 332
-        versionName '9.3.1'
+        versionCode 333
+        versionName '10.0.0'
     }
 
     signingConfigs {
@@ -51,6 +51,12 @@ android {
 
 dependencies {
     implementation 'com.alphacephei:vosk-android:0.3.75'
+    // ONNX Runtime Mobile: runs the dedicated ECAPA-TDNN speaker-embedding model and the
+    // Silero VAD voice-activity model (see WAKE-TRAINING-REDESIGN.md). One native dependency
+    // serves both models -- neither requires a network call at inference time, both run fully
+    // offline after their one-time model download/bundle, matching this project's Vosk model
+    // precedent (see VoskEngine's MODEL_URL/SPK_URL download-on-first-use pattern).
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.2'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.14.1'
     testImplementation 'org.json:json:20240303'

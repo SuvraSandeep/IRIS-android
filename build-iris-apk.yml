@@ -139,6 +139,49 @@ jobs:
           curl -fSL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip -o "$PROJECT_DIR/app/src/main/assets/model-en-us.zip"
           unzip -t "$PROJECT_DIR/app/src/main/assets/model-en-us.zip" >/dev/null
 
+      - name: Download and bundle Silero VAD model (optional, non-fatal)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # Voice-activity trimming for the redesigned wake-training pipeline (see
+          # WAKE-TRAINING-REDESIGN.md). App downloads it at runtime if this is skipped
+          # (SileroVad.java's own load() has the same bundled-first/download-fallback logic
+          # as VoskEngine), so this must NEVER fail the build. Single file, not a zip.
+          ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
+          VAD_FILE="$ASSETS_DIR/silero_vad.onnx"
+          if [[ -f "$VAD_FILE" ]]; then
+            echo "Silero VAD model already present, skipping."
+          else
+            mkdir -p "$ASSETS_DIR"
+            if curl -fSL --retry 2 --max-time 60 -o "$VAD_FILE" \
+                 https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.onnx; then
+              echo "Silero VAD model bundled."
+            else
+              rm -f "$VAD_FILE" || true
+              echo "::warning::Silero VAD download failed — app downloads it at runtime."
+            fi
+          fi
+
+      - name: Check for dedicated ECAPA-TDNN model (known gap, informational only)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # KNOWN BLOCKER (see EcapaEmbedding.java's class doc and
+          # WAKE-TRAINING-REDESIGN.md's "Model integration plan"): unlike Silero VAD, there is
+          # no publicly hosted ONNX export of SpeechBrain's ECAPA-TDNN speaker-embedding model
+          # -- it must be produced once via tools/export_ecapa_to_onnx.py on a machine with
+          # Python/PyTorch/SpeechBrain, then hosted somewhere (e.g. a GitHub release) with
+          # EcapaEmbedding.MODEL_URL updated to point at it. This step is purely informational;
+          # it never fails the build. The app gracefully degrades to Vosk-only speaker
+          # verification (via WakePolicy.finalScore()'s single-signal fallback) until that
+          # export is done and wired up.
+          ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
+          if [[ -f "$ASSETS_DIR/ecapa_tdnn_voxceleb.onnx" ]]; then
+            echo "Dedicated ECAPA-TDNN model is bundled."
+          else
+            echo "::notice::Dedicated ECAPA-TDNN model not bundled and EcapaEmbedding.MODEL_URL is still a placeholder. Run tools/export_ecapa_to_onnx.py once (see that script's docstring) to enable the primary speaker-embedding signal. The app runs fine without it (Vosk-only fallback), just less robustly."
+          fi
+
       - name: Regression tests (all suites)
         working-directory: ${{ env.PROJECT_DIR }}
         run: bash scripts/test-speech.sh

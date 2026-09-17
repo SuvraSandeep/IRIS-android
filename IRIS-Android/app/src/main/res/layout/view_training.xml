@@ -36,7 +36,7 @@
                 <TextView android:id="@+id/ownerJourney" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="Step 1 · Teach your voice" android:textColor="#8DEBDB" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:letterSpacing="0" />
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:gravity="center_vertical" android:orientation="vertical">
                     <TextView android:id="@+id/wakeWizardStep" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Preparing training" android:textColor="@color/text_primary" android:textSize="16sp" android:textStyle="bold" android:layout_marginTop="8dp" />
-                    <TextView android:id="@+id/wakeWizardDots" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="0 / 14" android:textColor="@color/cyan" android:textSize="18sp" android:layout_marginTop="8dp" />
+                    <TextView android:id="@+id/wakeWizardDots" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="0 / 6" android:textColor="@color/cyan" android:textSize="18sp" android:layout_marginTop="8dp" />
                     <com.iris.assistant.TrainingStepDots android:id="@+id/ownerStepDots" android:layout_width="match_parent" android:layout_height="20dp" android:layout_marginTop="6dp" android:contentDescription="@null" />
                 </LinearLayout>
 

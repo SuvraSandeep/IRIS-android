@@ -38,6 +38,77 @@ public final class WakePolicy {
      *  already reject any length that doesn't match) instead of silently degrading — there was
      *  previously no single named constant tying the two classes' hardcoded "128" together. */
     public static final int EMBED_DIM = 128;
+    /** Expected dimension of the dedicated ECAPA-TDNN speaker embedding (EcapaEmbedding.java —
+     *  SpeechBrain's spkrec-ecapa-voxceleb produces 192-dim embeddings). Deliberately a SEPARATE
+     *  constant from EMBED_DIM, not a shared one: the two embedding spaces (Vosk's x-vector and
+     *  the dedicated ECAPA-TDNN model) are intentionally independent and are never compared
+     *  against each other, only ever against their own respective centroid — see finalScore()
+     *  below, which is a weighted SUM of two independently-computed cosine scores, not a shared
+     *  vector-space comparison. See WAKE-TRAINING-REDESIGN.md's Ensemble section. */
+    public static final int ECAPA_EMBED_DIM = 192;
+    /** Generic owner-match check parameterized by expected embedding dimension, so the same
+     *  validation logic (finite threshold in [0,1], correct non-null length, cosine similarity
+     *  above the bar) works for both Vosk's 128-dim x-vector and the dedicated ECAPA-TDNN
+     *  model's 192-dim embedding without duplicating the check twice. owner() above is kept as
+     *  a thin wrapper over this for EMBED_DIM (128), unchanged for any existing caller. */
+    public static boolean ownerDim(float[] sample, float[] enrolled, double threshold, int dim) {
+        return Double.isFinite(threshold) && threshold >= 0 && threshold <= 1
+                && sample != null && sample.length == dim && enrolled != null && enrolled.length == dim
+                && cosine(sample, enrolled) >= threshold;
+    }
+    /**
+     * Ensemble score combining the dedicated ECAPA-TDNN embedding (primary, weighted 0.8) with
+     * Vosk's own bundled x-vector (secondary/confirmatory, weighted 0.2) — see
+     * WAKE-TRAINING-REDESIGN.md's "Ensemble embedding scoring" section for the full rationale.
+     * This is a WEIGHTED AVERAGE of two independently-computed cosine similarities, never an
+     * "either accepts" OR gate: the old dual-signal design (DTW sound pattern OR speaker
+     * embedding, either sufficient to admit) only ever made false acceptance MORE likely, since
+     * either signal alone was sufficient. A weighted-average fusion is the opposite risk
+     * direction — both models must broadly agree, and either model's individual blind spot is
+     * smoothed by the other rather than being a second independent way to get in.
+     *
+     * Returns a value in [-1, 1] (the same range as cosine()) — NOT a boolean — because the
+     * ensemble is meant to be compared against threshold(sensitivity) exactly like a single
+     * cosine score would be, keeping the sensitivity-scaling logic in one place regardless of
+     * how many models feed into the score.
+     *
+     * Either embedding may be null/invalid (e.g. the ECAPA-TDNN model failed to load, or Vosk's
+     * speaker model isn't ready) — in that case only the available signal is scored, scaled up
+     * to compensate for the missing weight, rather than the whole ensemble failing outright.
+     * This mirrors this project's standing "graceful degrade over hard failure for a single
+     * missing signal" pattern (e.g. SileroVad.trim()'s untrimmed-fallback), while still
+     * requiring AT LEAST ONE valid signal — if both are unavailable, returns -1 (never matches),
+     * consistent with AGENTS.md's "missing identity/model... must reject wake" contract.
+     */
+    public static double finalScore(float[] ecapaSample, float[] ecapaCentroid,
+                                     float[] voskSample, float[] voskCentroid) {
+        boolean ecapaValid = ecapaSample != null && ecapaSample.length == ECAPA_EMBED_DIM
+                && ecapaCentroid != null && ecapaCentroid.length == ECAPA_EMBED_DIM;
+        boolean voskValid = voskSample != null && voskSample.length == EMBED_DIM
+                && voskCentroid != null && voskCentroid.length == EMBED_DIM;
+        double ecapaScore = ecapaValid ? cosine(ecapaSample, ecapaCentroid) : Double.NaN;
+        double voskScore = voskValid ? cosine(voskSample, voskCentroid) : Double.NaN;
+        if (ecapaValid && !Double.isFinite(ecapaScore)) ecapaValid = false;
+        if (voskValid && !Double.isFinite(voskScore)) voskValid = false;
+        if (!ecapaValid && !voskValid) return -1;
+        if (ecapaValid && voskValid) return ECAPA_WEIGHT * ecapaScore + VOSK_WEIGHT * voskScore;
+        // Only one signal available: use it directly rather than a partial weighted sum (which
+        // would always undershoot a real match by the missing weight's share).
+        return ecapaValid ? ecapaScore : voskScore;
+    }
+    /** Weight given to the dedicated ECAPA-TDNN model in finalScore() — see that method's doc
+     *  and WAKE-TRAINING-REDESIGN.md's Ensemble section for why 0.8/0.2 favoring the stronger
+     *  dedicated model was chosen as the starting split. */
+    public static final double ECAPA_WEIGHT = 0.8;
+    public static final double VOSK_WEIGHT = 0.2;
+    /** Ensemble owner-match check: finalScore() combined with the same threshold(sensitivity)
+     *  bar a single-model owner() check would use. This is the primary accept/reject decision
+     *  for the redesigned wake pipeline — see WAKE-TRAINING-REDESIGN.md. */
+    public static boolean ownerEnsemble(float[] ecapaSample, float[] ecapaCentroid,
+                                         float[] voskSample, float[] voskCentroid, double threshold) {
+        return Double.isFinite(threshold) && threshold >= 0 && threshold <= 1
+                && finalScore(ecapaSample, ecapaCentroid, voskSample, voskCentroid) >= threshold;
+    }
     /**
      * Minimum cosine-similarity a captured embedding must reach against the enrolled voiceprint
      * to be accepted as the owner's voice, scaled by the same voiceSensitivity() setting (0..1)
@@ -69,9 +140,18 @@ public final class WakePolicy {
      * enrollment only fails if fewer than 3 usable samples remain.
      */
     public static float[] enrollment(List<float[]> samples) {
+        return enrollment(samples, EMBED_DIM);
+    }
+    /** Same algorithm as enrollment(List), parameterized by expected embedding dimension so it
+     *  also serves the dedicated ECAPA-TDNN model's 192-dim embeddings (ECAPA_EMBED_DIM) without
+     *  duplicating this method. Used by MainActivity's enrollment-boundary pipeline to build
+     *  BOTH centroids (ecapaCentroid via enrollment(ecapaTakes, ECAPA_EMBED_DIM) and
+     *  voskCentroid via enrollment(voskTakes, EMBED_DIM)) with the same outlier-tolerant logic —
+     *  see WAKE-TRAINING-REDESIGN.md's Calibration section. */
+    public static float[] enrollment(List<float[]> samples, int dim) {
         if (samples == null) return null;
         List<float[]> valid = new java.util.ArrayList<>();
-        for (float[] a : samples) if (a != null && a.length == EMBED_DIM && cosine(a, a) >= .99) valid.add(a);
+        for (float[] a : samples) if (a != null && a.length == dim && cosine(a, a) >= .99) valid.add(a);
         if (valid.size() < 3) return null;
         // Keep only samples that agree (cosine >= .65) with at least half of the OTHERS —
         // this tolerates one or two inconsistent takes instead of failing on any single one.
@@ -95,11 +175,11 @@ public final class WakePolicy {
             if (agree >= required) kept.add(a);
         }
         if (kept.size() < 3) return null;
-        float[] mean = new float[EMBED_DIM];
+        float[] mean = new float[dim];
         for (float[] a : kept) {
             double norm = 0; for (float v : a) norm += v * (double)v;
             if (norm <= 0) continue;
-            for (int i = 0; i < EMBED_DIM; i++) mean[i] += a[i] / Math.sqrt(norm);
+            for (int i = 0; i < dim; i++) mean[i] += a[i] / Math.sqrt(norm);
         }
         double norm = 0; for (float v : mean) norm += v * (double)v;
         if (norm <= 0) return null;

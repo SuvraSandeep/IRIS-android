@@ -431,6 +431,11 @@ public class IrisListeningService extends Service implements RecognitionListener
     private String lastMemoryId;
 
     private VoskEngine voskEngine;
+    /** Dedicated ECAPA-TDNN speaker embedding + Silero VAD trimming models — see
+     *  WAKE-TRAINING-REDESIGN.md's Ensemble section. Loaded once at service start, attached to
+     *  voskEngine via attachEnsembleModels() as soon as either finishes loading. */
+    private EcapaEmbedding ecapaEngine;
+    private SileroVad vadEngine;
     private MediaMemoRecorder memoRecorder;
     private boolean voskReady;
     private volatile boolean androidWakeActive;
@@ -475,6 +480,22 @@ public class IrisListeningService extends Service implements RecognitionListener
         });
 
         voskEngine = new VoskEngine();
+        // Attach the dedicated ECAPA-TDNN speaker embedding model + Silero VAD trimming model
+        // (see WAKE-TRAINING-REDESIGN.md's Ensemble section) so live wake detection actually
+        // uses the primary identity signal, not just Vosk's own x-vector as a fallback. Loaded
+        // in the background; startWakeDetection() gracefully degrades to Vosk-only via
+        // WakePolicy.finalScore() if either model isn't ready yet or fails to load — this is
+        // never a hard dependency for wake to function, only for it to be at its most robust.
+        ecapaEngine = new EcapaEmbedding();
+        vadEngine = new SileroVad();
+        ecapaEngine.load(this, new EcapaEmbedding.InitListener() {
+            @Override public void onReady() { voskEngine.attachEnsembleModels(ecapaEngine, vadEngine); LogStore.append(IrisListeningService.this, "ECAPA-TDNN", "Speaker embedding model ready"); }
+            @Override public void onError(String message) { LogStore.append(IrisListeningService.this, "ECAPA-TDNN", "Not available: " + message); }
+        });
+        vadEngine.load(this, new SileroVad.InitListener() {
+            @Override public void onReady() { voskEngine.attachEnsembleModels(ecapaEngine, vadEngine); LogStore.append(IrisListeningService.this, "SILERO-VAD", "Voice activity model ready"); }
+            @Override public void onError(String message) { LogStore.append(IrisListeningService.this, "SILERO-VAD", "Not available: " + message); }
+        });
         voskEngine.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
                 voskReady = true;
@@ -847,16 +868,17 @@ public class IrisListeningService extends Service implements RecognitionListener
         final double policyThreshold=settings.ownerThreshold();
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
             @Override public void onRejected(String reason){if(epoch==wakeEpoch&&isRunning)WakeEventStore.add(reason,new ProfileStore(IrisListeningService.this).ownerRevision(),null,false);}
-            @Override public void onWakeDetected(float[] embedding) {
+            @Override public void onWakeDetected(float[] ecapaEmbedding, float[] voskEmbedding) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
                 boolean media = audioManager != null && audioManager.isMusicActive();
                 long now = android.os.SystemClock.elapsedRealtime();
-                double score = embedding == null ? -1
-                        : WakePolicy.cosine(embedding, new ProfileStore(IrisListeningService.this).getVoiceprint());
+                OwnerVoiceProfile scoreProfile = new ProfileStore(IrisListeningService.this).ownerEvidence();
+                double score = WakePolicy.finalScore(ecapaEmbedding, scoreProfile != null ? scoreProfile.ecapaCentroid() : null,
+                        voskEmbedding, new ProfileStore(IrisListeningService.this).getVoiceprint());
                 boolean unchanged=profileVersion==new ProfileStore(IrisListeningService.this).getWakeProfile().trainedAt
                         && policyThreshold==settings.ownerThreshold();
-                boolean accepted = unchanged && !media && now - lastWakeAt >= 3000 && isOwnerVoice(embedding);
-                WakeEventStore.addSound(accepted?"OWNER_ACCEPTED":media?"PLAYBACK_CONTEXT":!unchanged?"PROFILE_CHANGED":"OWNER_REJECTED",new ProfileStore(IrisListeningService.this).ownerRevision(),embedding,accepted,voskEngine.lastSoundEvidence());
+                boolean accepted = unchanged && !media && now - lastWakeAt >= 3000 && isOwnerVoice(ecapaEmbedding, voskEmbedding);
+                WakeEventStore.add(accepted?"OWNER_ACCEPTED":media?"PLAYBACK_CONTEXT":!unchanged?"PROFILE_CHANGED":"OWNER_REJECTED",new ProfileStore(IrisListeningService.this).ownerRevision(),ecapaEmbedding,voskEmbedding,accepted);
                 LogStore.append(IrisListeningService.this, "WAKE DECISION",
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
                         + " accepted=" + accepted);
@@ -5151,8 +5173,16 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** If speaker verification is off (default), the phrase alone is enough to wake. If it's
      *  on but the user never enrolled a voiceprint, don't lock them out forever — fall back to
-     *  phrase-only rather than rejecting every wake attempt with no way to recover by voice. */
-    private boolean isOwnerVoice(float[] embedding) {
+     *  phrase-only rather than rejecting every wake attempt with no way to recover by voice.
+     *
+     *  Redesigned per WAKE-TRAINING-REDESIGN.md: the legacy pre-versioned fallback
+     *  (getVoiceprint/getQuietVoiceprint, an "either accepts" OR gate over ONE embedding model)
+     *  is kept as-is for profiles that predate the versioned schema entirely — those never had
+     *  a dual-embedding ensemble to begin with. Any versioned profile (hasVersionedOwner()) now
+     *  requires BOTH embeddings (ecapaEmbedding may be null if the ECAPA-TDNN model isn't
+     *  loaded/ready — WakePolicy.finalScore() degrades gracefully to the single available
+     *  signal, never silently skips the check entirely). */
+    private boolean isOwnerVoice(float[] ecapaEmbedding, float[] voskEmbedding) {
         try {
             ProfileStore store=new ProfileStore(this);OwnerVoiceProfile profile=store.ownerEvidence();
             if(store.hasVersionedOwner()){
@@ -5160,10 +5190,10 @@ public class IrisListeningService extends Service implements RecognitionListener
                 // Match against whichever route is actually confirmed right now — a headset
                 // enrollment must never be checked against phone-route evidence or vice versa.
                 boolean headsetRoute=AudioRouteController.observedRoute==AudioRouteController.Route.HEADSET;
-                return headsetRoute?profile.acceptsHeadset(embedding,voiceThreshold()):profile.accepts(embedding,voiceThreshold());
+                return headsetRoute?profile.acceptsHeadset(ecapaEmbedding,voskEmbedding,voiceThreshold()):profile.accepts(ecapaEmbedding,voskEmbedding,voiceThreshold());
             }
             return voskEngine != null && voskEngine.isSpeakerReady()
-                    && WakePolicy.ownerEither(embedding, new ProfileStore(this).getVoiceprint(),new ProfileStore(this).getQuietVoiceprint(), voiceThreshold());
+                    && WakePolicy.ownerEither(voskEmbedding, new ProfileStore(this).getVoiceprint(),new ProfileStore(this).getQuietVoiceprint(), voiceThreshold());
         } catch (Throwable error) { return false; }
     }
 
@@ -5695,7 +5725,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             if (!voskReady || voskEngine == null) return;
             voskEngine.stop();
             voskEngine.startWakeDetection(STOP_WORDS, new VoskEngine.WakeListener() {
-                @Override public void onWakeDetected(float[] embedding) {
+                @Override public void onWakeDetected(float[] ecapaEmbedding, float[] voskEmbedding) {
                     handler.post(() -> {
                         LogStore.append(IrisListeningService.this, "STOP", "Heard a stop word while speaking");
                         stopSpeaking();
@@ -6146,6 +6176,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         releaseServerTts();
 
         if (voskEngine != null) { voskEngine.close(); voskEngine = null; }
+        if (ecapaEngine != null) { ecapaEngine.close(); ecapaEngine = null; }
+        if (vadEngine != null) { vadEngine.close(); vadEngine = null; }
         super.onDestroy();
     }
 

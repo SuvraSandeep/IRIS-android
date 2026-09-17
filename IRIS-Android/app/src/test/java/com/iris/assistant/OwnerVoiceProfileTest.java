@@ -4,27 +4,39 @@ import org.json.*;
 import java.util.*;
 import static org.junit.Assert.*;
 
+/** Redesigned per WAKE-TRAINING-REDESIGN.md: schema 7, dual-embedding (ECAPA-TDNN 192-dim +
+ *  Vosk 128-dim) ensemble, 4-enrollment + 2-verification plan, no sound-pattern evidence. */
 public class OwnerVoiceProfileTest {
-    static float[] v(double cosine){float[] v=new float[128];v[0]=(float)cosine;v[1]=(float)Math.sqrt(1-cosine*cosine);return v;}
+    static float[] ev(double cosine){float[] v=new float[WakePolicy.ECAPA_EMBED_DIM];v[0]=(float)cosine;v[1]=(float)Math.sqrt(1-cosine*cosine);return v;}
+    static float[] vv(double cosine){float[] v=new float[WakePolicy.EMBED_DIM];v[0]=(float)cosine;v[1]=(float)Math.sqrt(1-cosine*cosine);return v;}
     static OwnerVoiceProfile profile()throws Exception {
-        List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
-        return OwnerVoiceProfile.create("Hello Iris","a".repeat(64),takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),.65);
+        List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
+        List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
+        return OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,
+            Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)),.65);
     }
     @Test public void roundTripPreservesDecisions()throws Exception {
         OwnerVoiceProfile p=profile(),q=new OwnerVoiceProfile(new JSONObject(p.data.toString()));
-        assertEquals(p.revision(),q.revision());assertTrue(q.accepts(v(1),.65));assertFalse(q.accepts(v(0),.65));
-        assertFalse(q.accepts(new float[128],.65));assertFalse(q.accepts(new float[3],.65));
+        assertEquals(p.revision(),q.revision());assertTrue(q.accepts(ev(1),vv(1),.65));assertFalse(q.accepts(ev(0),vv(0),.65));
+        assertFalse(q.accepts(new float[WakePolicy.ECAPA_EMBED_DIM],new float[WakePolicy.EMBED_DIM],.65));assertFalse(q.accepts(new float[3],new float[3],.65));
     }
     @Test public void negativeCorrectionMustProtectValidation()throws Exception {
-        OwnerVoiceProfile p=profile();assertThrows(IllegalArgumentException.class,()->p.withNegative(v(1)));
-        OwnerVoiceProfile revised=p.withNegative(v(.70));assertTrue(revised.accepts(v(1),.65));assertFalse(revised.accepts(v(.70),.65));
-        assertTrue(p.accepts(v(.70),.65));assertNotEquals(p.revision(),revised.revision());
+        OwnerVoiceProfile p=profile();assertThrows(IllegalArgumentException.class,()->p.withNegative(ev(1),vv(1)));
+        OwnerVoiceProfile revised=p.withNegative(ev(.70),vv(.70));assertTrue(revised.accepts(ev(1),vv(1),.65));assertFalse(revised.accepts(ev(.70),vv(.70),.65));
+        assertTrue(p.accepts(ev(.70),vv(.70),.65));assertNotEquals(p.revision(),revised.revision());
     }
     @Test public void malformedPackagesCannotBeActivated()throws Exception {
         JSONObject wrong=new JSONObject(profile().data.toString()).put("modelHash","unknown");assertThrows(IllegalArgumentException.class,()->new OwnerVoiceProfile(wrong));
-        JSONObject dim=new JSONObject(profile().data.toString()).put("voiceprint",new JSONArray("[1,2]"));assertThrows(IllegalArgumentException.class,()->new OwnerVoiceProfile(dim));
+        JSONObject dim=new JSONObject(profile().data.toString()).put("ecapaCentroid",new JSONArray("[1,2]"));assertThrows(IllegalArgumentException.class,()->new OwnerVoiceProfile(dim));
         JSONObject threshold=new JSONObject(profile().data.toString()).put("ownerThreshold",1.05);assertThrows(IllegalArgumentException.class,()->new OwnerVoiceProfile(threshold));
-        JSONObject missing=new JSONObject(profile().data.toString()).put("validation",new JSONArray());assertThrows(IllegalArgumentException.class,()->new OwnerVoiceProfile(missing));
+        JSONObject missing=new JSONObject(profile().data.toString()).put("ecapaValidation",new JSONArray());assertThrows(IllegalArgumentException.class,()->new OwnerVoiceProfile(missing));
+    }
+    @Test public void oldPooledSchemaIsRejectedNotSilentlyAccepted()throws Exception {
+        // A pre-redesign schema (4-6, with voiceprint/quietVoiceprint/sound) must be correctly
+        // rejected, not silently downgraded -- per this project's standing no-silent-fallback
+        // contract (AGENTS.md).
+        JSONObject legacy=new JSONObject(profile().data.toString()).put("schema",6);
+        assertThrows(IllegalArgumentException.class,()->new OwnerVoiceProfile(legacy));
     }
     @Test public void cryptoAuthenticatesPasswordAndBytes()throws Exception {
         byte[] plain=profile().data.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);char[] pass="a long test passphrase".toCharArray();
@@ -51,58 +63,47 @@ public class OwnerVoiceProfileTest {
         // strictness even though every take passed validation — this pins that boundary.
         double maxStrictness=.65+.20*Math.max(0,Math.min(1,1.0f));
         assertTrue("test setup: expected the real double-rounding artifact above .85",maxStrictness>.85);
-        List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
-        OwnerVoiceProfile.create("Hello Iris","a".repeat(64),takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),maxStrictness);
+        List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
+        List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
+        OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)),maxStrictness);
         // A threshold genuinely outside the intended [.65,.85] range must still be rejected.
-        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),.86));
-        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),.64));
-    }
-    static float[][] soundExample(){float[][] t=new float[12][SoundPattern.BANDS];for(int f=0;f<12;f++)t[f][0]=1f;return t;}
-    static OwnerVoiceProfile profileWithSound()throws Exception {
-        List<float[][]> normal=new ArrayList<>(),quiet=new ArrayList<>(),val=new ArrayList<>();
-        for(int i=0;i<5;i++)normal.add(soundExample());for(int i=0;i<5;i++)quiet.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
-        JSONObject withSound=new JSONObject(profile().data.toString());
-        withSound.put("schema",5).put("soundWake",SoundWakeProfile.create(normal,quiet,val).data);
-        return new OwnerVoiceProfile(withSound);
+        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)),.86));
+        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)),.64));
     }
     @Test public void headsetRouteIsAbsentUntilExplicitlyAdded()throws Exception {
-        OwnerVoiceProfile phone=profileWithSound();
+        OwnerVoiceProfile phone=profile();
         assertNull(phone.headset);
-        assertFalse(phone.acceptsHeadset(v(1),.65));
-        assertFalse(phone.acceptsWakeHeadset(soundExample(),v(1),.65));
+        assertFalse(phone.acceptsHeadset(ev(1),vv(1),.65));
     }
-    @Test public void addingHeadsetRoutePreservesPhoneRouteAndBumpsSchema()throws Exception {
-        OwnerVoiceProfile phone=profileWithSound();
-        List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
-        List<float[][]> normalEx=new ArrayList<>(),quietEx=new ArrayList<>(),val=new ArrayList<>();
-        for(int i=0;i<5;i++)normalEx.add(soundExample());for(int i=0;i<5;i++)quietEx.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
-        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),normalEx,quietEx,val);
+    @Test public void addingHeadsetRoutePreservesPhoneRouteAndKeepsSchema()throws Exception {
+        OwnerVoiceProfile phone=profile();
+        List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
+        List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
+        OwnerVoiceProfile withHeadset=phone.withHeadset(ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)));
         assertNotNull(withHeadset.headset);
-        assertTrue(withHeadset.data.getInt("schema")>=6);
+        assertEquals(OwnerVoiceProfile.SCHEMA,withHeadset.data.getInt("schema"));
         // Phone-route identity and matching survive adding a headset route untouched.
-        assertNotNull(withHeadset.normal());assertNotNull(withHeadset.quiet());
-        assertTrue(withHeadset.accepts(v(1),.65));assertTrue(withHeadset.acceptsWake(soundExample(),v(1),.65));
+        assertNotNull(withHeadset.ecapaCentroid());assertNotNull(withHeadset.voskCentroid());
+        assertTrue(withHeadset.accepts(ev(1),vv(1),.65));
         // Headset-route matching works on its own vectors.
-        assertTrue(withHeadset.acceptsHeadset(v(1),.65));assertTrue(withHeadset.acceptsWakeHeadset(soundExample(),v(1),.65));
+        assertTrue(withHeadset.acceptsHeadset(ev(1),vv(1),.65));
         assertNotEquals(phone.revision(),withHeadset.revision());
     }
     @Test public void headsetRouteSurvivesJsonRoundTrip()throws Exception {
-        OwnerVoiceProfile phone=profileWithSound();
-        List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
-        List<float[][]> normalEx=new ArrayList<>(),quietEx=new ArrayList<>(),val=new ArrayList<>();
-        for(int i=0;i<5;i++)normalEx.add(soundExample());for(int i=0;i<5;i++)quietEx.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
-        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),normalEx,quietEx,val);
+        OwnerVoiceProfile phone=profile();
+        List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
+        List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
+        OwnerVoiceProfile withHeadset=phone.withHeadset(ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)));
         OwnerVoiceProfile roundTrip=new OwnerVoiceProfile(new JSONObject(withHeadset.data.toString()));
-        assertNotNull(roundTrip.headset);assertTrue(roundTrip.acceptsHeadset(v(1),.65));
+        assertNotNull(roundTrip.headset);assertTrue(roundTrip.acceptsHeadset(ev(1),vv(1),.65));
     }
     @Test public void removingHeadsetRouteLeavesPhoneRouteIntact()throws Exception {
-        OwnerVoiceProfile phone=profileWithSound();
-        List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
-        List<float[][]> normalEx=new ArrayList<>(),quietEx=new ArrayList<>(),val=new ArrayList<>();
-        for(int i=0;i<5;i++)normalEx.add(soundExample());for(int i=0;i<5;i++)quietEx.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
-        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),normalEx,quietEx,val);
+        OwnerVoiceProfile phone=profile();
+        List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
+        List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
+        OwnerVoiceProfile withHeadset=phone.withHeadset(ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)));
         OwnerVoiceProfile removed=withHeadset.withoutHeadset();
-        assertNull(removed.headset);assertNotNull(removed.normal());assertTrue(removed.accepts(v(1),.65));
+        assertNull(removed.headset);assertNotNull(removed.ecapaCentroid());assertTrue(removed.accepts(ev(1),vv(1),.65));
         assertNotEquals(withHeadset.revision(),removed.revision());
     }
 }

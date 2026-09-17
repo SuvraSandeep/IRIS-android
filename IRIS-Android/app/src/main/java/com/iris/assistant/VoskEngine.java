@@ -43,8 +43,6 @@ public final class VoskEngine {
     private static final Object OWNER_MODEL_INSTALL=new Object();
     private volatile boolean closed;
     private Context captureContext;
-    private volatile float[][] lastSoundEvidence;
-    float[][] lastSoundEvidence(){return lastSoundEvidence;}
     private Model model;
     private volatile boolean modelLoaded;
     private SpeakerModel spkModel; // Required API: checked against the packaged dependency at build time.
@@ -72,8 +70,11 @@ public final class VoskEngine {
     }
 
     public interface WakeListener {
-        /** @param voiceEmbedding Vosk speaker x-vector for the wake utterance, or null if unavailable. */
-        void onWakeDetected(float[] voiceEmbedding);
+        /** @param ecapaEmbedding Dedicated ECAPA-TDNN speaker embedding (192-dim) for the wake
+         *   utterance, or null if unavailable (model not loaded, or speaker verification off).
+         *  @param voskEmbedding Vosk speaker x-vector (128-dim) for the same utterance, or null
+         *   if unavailable. Both may be null when speaker verification is off (phrase-only wake). */
+        void onWakeDetected(float[] ecapaEmbedding, float[] voskEmbedding);
         default void onRejected(String reason) { }
         void onError(String message);
     }
@@ -446,7 +447,6 @@ public final class VoskEngine {
         synchronized (stateLock) {
         stop();
         final long generation = wakeGeneration;
-        lastSoundEvidence=null;
         final java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
         try {
             final java.util.List<String> norm = new java.util.ArrayList<>();
@@ -477,34 +477,14 @@ public final class VoskEngine {
             }
             OwnerVoiceProfile activeProfile=new ProfileStore(captureContext).ownerEvidence();
             if(new ProfileStore(captureContext).hasVersionedOwner()&&activeProfile==null){rec.close();throw new IllegalStateException("Saved owner evidence is invalid; restore or retrain");}
-            if(activeProfile!=null&&activeProfile.sound!=null){
-                if(!spkAttached||!activeProfile.hash().equals(speakerFingerprint())){rec.close();throw new IllegalStateException("Compatible owner model is required for sound wake");}
-                lastSoundEvidence=null;
-                newService.setClipListener(pcm->{
-                    if(generation!=wakeGeneration||fired.get())return;
-                    float[][] pattern=SoundPattern.extract(pcm);
-                    // A phone-mic and a headset-mic enrollment do not reliably match each other's
-                    // audio (different capsule distance/angle, sidetone, noise cancelling), so an
-                    // owner with both routes trained must be checked against the route actually in
-                    // use right now — never silently fall back to the other route's data. If this
-                    // route has no trained profile at all, treat it the same as "sound didn't
-                    // match" rather than surfacing a route-specific error mid-detection; the
-                    // listening-notification text (configureAudioRoute/isOwnerVoice callers)
-                    // already tells the user which mic is active and whether it's trained.
-                    boolean headsetRoute=AudioRouteController.observedRoute==AudioRouteController.Route.HEADSET;
-                    boolean soundMatch=headsetRoute?(activeProfile.headset!=null&&activeProfile.headset.sound.accepts(pattern)):activeProfile.sound.accepts(pattern);
-                    if(!soundMatch)return;
-                    float[] voice=embed(QuietAudioProcessor.prepare(pcm));
-                    double policy=new AppSettings(captureContext).ownerThreshold();
-                    boolean accepted=headsetRoute?activeProfile.acceptsWakeHeadset(pattern,voice,policy):activeProfile.acceptsWake(pattern,voice,policy);
-                    if(!accepted)return;
-                    main.post(()->{
-                        if(generation!=wakeGeneration||fired.get())return;
-                        if(!activeProfile.revision().equals(new ProfileStore(captureContext).ownerRevision())){if(fired.compareAndSet(false,true))listener.onError("Owner profile changed; restart listening");return;}
-                        if(fired.compareAndSet(false,true)){lastSoundEvidence=pattern;listener.onWakeDetected(voice);}
-                    });
-                });
-            }
+            // Redesigned per WAKE-TRAINING-REDESIGN.md: the old DTW sound-pattern path (a
+            // SEPARATE ClipListener callback that bypassed the ASR decoder/pronunciation gate
+            // entirely) is deleted. There is now ONE detection path: the ASR recognizer below
+            // still gates on phrase match + word confidence + spk_frames exactly as before, and
+            // — once those pass — extracts BOTH the dedicated ECAPA-TDNN embedding and Vosk's
+            // own x-vector from the SAME clip (ManagedSpeechService.lastResultClip(), trimmed by
+            // SileroVad first) for the ensemble decision, instead of running a second unguarded
+            // audio-read loop with its own device-route/reset handling.
             speechService = newService;
             speechService.startListening(new RecognitionListener() {
                 private void result(String json) {
@@ -523,7 +503,15 @@ public final class VoskEngine {
                         // The spk_frames field only appears when a speaker model is attached to
                         // the recognizer — gate on it only when we actually attached one.
                         if (spkAttached && result.optInt("spk_frames", 0) < 50) {listener.onRejected("SPEAKER_EVIDENCE");return;}
-                        if (fired.compareAndSet(false, true)) listener.onWakeDetected(spkAttached ? extractSpk(json) : null);
+                        if (!spkAttached) { if (fired.compareAndSet(false, true)) listener.onWakeDetected(null, null); return; }
+                        float[] voskVector = extractSpk(json);
+                        short[] clip = newService.lastResultClip();
+                        float[] ecapaVector = null;
+                        if (clip != null && ecapaEngine != null && ecapaEngine.isReady()) {
+                            short[] trimmed = vadEngine != null && vadEngine.isReady() ? vadEngine.trim(clip) : clip;
+                            ecapaVector = ecapaEngine.extract(QuietAudioProcessor.prepare(trimmed));
+                        }
+                        if (fired.compareAndSet(false, true)) listener.onWakeDetected(ecapaVector, voskVector);
                     } catch (Exception ignored) { /* malformed results cannot wake */ }
                 }
                 @Override public void onPartialResult(String h) { }
@@ -537,6 +525,14 @@ public final class VoskEngine {
         } catch (Exception error) { listener.onError(error.getMessage()); }
         }
     }
+    /** Dedicated ECAPA-TDNN speaker-embedding model — the PRIMARY identity signal (see
+     *  WakePolicy.finalScore()). Lazily attached by the caller (IrisListeningService), which
+     *  owns the model's lifecycle; may be null (e.g. not yet loaded, or the ONNX model file
+     *  isn't sourced yet — see EcapaEmbedding's known blocker doc) in which case wake detection
+     *  gracefully degrades to Vosk's x-vector alone rather than failing outright. */
+    private EcapaEmbedding ecapaEngine;
+    private SileroVad vadEngine;
+    public void attachEnsembleModels(EcapaEmbedding ecapa, SileroVad vad) { this.ecapaEngine = ecapa; this.vadEngine = vad; }
 
     /**
      * Start continuous speech-to-text for command recognition.
