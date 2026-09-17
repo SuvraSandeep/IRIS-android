@@ -2,9 +2,9 @@ package com.iris.assistant;
 
 /** Adds a second route to an already-verified phone-route identity, so it does not need to
  *  re-establish "who the owner is" from scratch — only that this route's audio reliably matches
- *  the wake sound and the same owner. Enrollment count matches SoundWakeProfile's hard floor of
- *  10 examples exactly (its constructor requires between 10 and 12); verification count matches
- *  the phone-route plan's 4 held-out takes for the same held-out-validation guarantee. */
+ *  the wake sound and the same owner. Enrollment count matches SoundWakeProfile's per-group
+ *  floor of 5 normal + 5 quiet examples exactly; verification count matches the phone-route
+ *  plan's 4 held-out takes for the same held-out-validation guarantee. */
 final class HeadsetTrainingPlan {
     static final int NORMAL=5, QUIET=5, VERIFY_NORMAL=2, VERIFY_QUIET=2;
     static final int ENROLLMENT=NORMAL+QUIET, TOTAL=ENROLLMENT+VERIFY_NORMAL+VERIFY_QUIET;

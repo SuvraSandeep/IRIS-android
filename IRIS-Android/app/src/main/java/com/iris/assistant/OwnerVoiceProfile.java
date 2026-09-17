@@ -75,9 +75,9 @@ final class OwnerVoiceProfile {
      *  evidence above. Held-out headset validation takes must pass before this returns — same
      *  four-take, held-out-verification contract as the phone route uses, just scoped to this
      *  route's own vectors so a poor headset take can never be masked by the phone route's data. */
-    OwnerVoiceProfile withHeadset(List<float[]> normal,List<float[]> quiet,List<float[]> validation,List<float[][]> soundExamples,List<float[][]> soundValidation)throws Exception {
+    OwnerVoiceProfile withHeadset(List<float[]> normal,List<float[]> quiet,List<float[]> validation,List<float[][]> soundNormalExamples,List<float[][]> soundQuietExamples,List<float[][]> soundValidation)throws Exception {
         JSONObject h=new JSONObject().put("voiceprint",array(WakePolicy.enrollment(normal))).put("quietVoiceprint",array(WakePolicy.enrollment(quiet)))
-            .put("soundWake",SoundWakeProfile.create(soundExamples,soundValidation).data);
+            .put("soundWake",SoundWakeProfile.create(soundNormalExamples,soundQuietExamples,soundValidation).data);
         JSONObject j=new JSONObject(data.toString());j.put("schema",Math.max(6,j.getInt("schema"))).put("headset",h).put("headsetValidation",array(validation))
             .put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
         return new OwnerVoiceProfile(j);

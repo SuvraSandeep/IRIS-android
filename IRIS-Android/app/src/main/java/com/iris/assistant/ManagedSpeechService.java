@@ -13,11 +13,18 @@ final class ManagedSpeechService {
     void setClipListener(ClipListener listener){clipListener=listener;}
     private final Context context;
     private final Recognizer recognizer;
+    private final boolean allowBluetooth;
     private volatile boolean running;
     private volatile AudioRecord mic;
     private Thread worker;
     private final Handler main=new Handler(Looper.getMainLooper());
-    ManagedSpeechService(Context context,Recognizer recognizer,float rate){this.context=context;this.recognizer=recognizer;}
+    ManagedSpeechService(Context context,Recognizer recognizer,float rate){this(context,recognizer,rate,true);}
+    /** @param allowBluetooth false for always-on wake listening — forcing MODE_IN_COMMUNICATION/
+     *  Bluetooth SCO the instant this starts drops a connected headset's music from full A2DP
+     *  quality to call-quality narrowband, which is exactly what "music sounds bad while IRIS is
+     *  awake" reports were. See AudioRouteController.request()'s matching parameter for the full
+     *  explanation — this constructor just threads the same decision through to it. */
+    ManagedSpeechService(Context context,Recognizer recognizer,float rate,boolean allowBluetooth){this.context=context;this.recognizer=recognizer;this.allowBluetooth=allowBluetooth;}
     void startListening(RecognitionListener listener){
         running=true;
         worker=new Thread(()->{
@@ -28,7 +35,7 @@ final class ManagedSpeechService {
                 int buffer=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
                 mic=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(4096,buffer*2));
                 if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
-                route.request(context,mic);mic.startRecording();AudioRouteController.observe(mic);
+                route.request(context,mic,allowBluetooth);mic.startRecording();AudioRouteController.observe(mic);
                 short[] frame=new short[320],raw=new short[128000];int rawCount=0,rawOffset=0;int frames=0,lastRoute=-1;
                 SpeechEndpoint endpoint=new SpeechEndpoint();
                 QuietAudioProcessor gain=new QuietAudioProcessor();

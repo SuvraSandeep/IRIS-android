@@ -28,33 +28,38 @@ public class SoundPatternTest {
         // than surgically removing one slot in place (which previously corrupted enrollment data
         // across repeated retries — see MainActivity), the recovery model is: record one spare
         // take, then keep only the best-agreeing subset of the resulting slightly-larger batch.
-        // Plant a genuinely different sound at a non-final position and confirm the ranking
-        // finds exactly that position, not just the last index.
+        // Two genuinely different sounds are planted (not one) — the percentile-based
+        // calibrate() now deliberately drops the SINGLE worst leave-one-out score before taking
+        // the max of what remains (so one outlier alone no longer always breaks calibration —
+        // that's the intended, majority-tolerant behavior), so proving a batch still fails
+        // needs at least two real outliers to survive that one-drop tolerance.
         List<float[][]> withMiddleOutlier=new ArrayList<>();
         for(int i=0;i<3;i++)withMiddleOutlier.add(SoundPattern.extract(clip(3000+i*100,22400+i*320,false)));
         withMiddleOutlier.add(SoundPattern.extract(clip(4000,24000,true))); // reversed = genuinely different, at index 3
-        for(int i=4;i<10;i++)withMiddleOutlier.add(SoundPattern.extract(clip(3000+i*100,22400+i*320,false)));
+        withMiddleOutlier.add(SoundPattern.extract(clip(4000,24000,true))); // a second genuinely different sample, at index 4
+        for(int i=5;i<10;i++)withMiddleOutlier.add(SoundPattern.extract(clip(3000+i*100,22400+i*320,false)));
         boolean calibrateFailed=false;try{SoundPattern.calibrate(withMiddleOutlier);}catch(Exception e){calibrateFailed=true;}
-        check(calibrateFailed,"a genuinely different sample must break calibration (test setup)");
+        check(calibrateFailed,"two genuinely different samples must still break calibration even with one-drop percentile tolerance (test setup)");
         int[] ranked=SoundPattern.rankByConsistency(withMiddleOutlier);
         check(ranked.length==withMiddleOutlier.size(),"rankByConsistency must return one entry per template");
-        check(ranked[0]==3,"rankByConsistency must rank the sample planted in the middle worst, not just the last index: got "+ranked[0]);
-        List<float[][]> repaired=new ArrayList<>(withMiddleOutlier);repaired.remove(ranked[0]);
+        check((ranked[0]==3||ranked[0]==4)&&(ranked[1]==3||ranked[1]==4),"rankByConsistency must rank both planted outliers worst, not just the last index: got "+Arrays.toString(ranked));
+        List<float[][]> repaired=new ArrayList<>(withMiddleOutlier);repaired.remove(Math.max(ranked[0],ranked[1]));repaired.remove(Math.min(ranked[0],ranked[1]));
         boolean stillFails=false;try{SoundPattern.calibrate(repaired);}catch(Exception e){stillFails=true;}
-        check(!stillFails,"removing the correctly-ranked worst outlier must let calibration succeed");
+        check(!stillFails,"removing both correctly-ranked worst outliers must let calibration succeed");
         check(SoundPattern.rankByConsistency(null).length==0,"rankByConsistency must not throw on null");
         check(SoundPattern.rankByConsistency(Collections.singletonList(reference)).length==0,"rankByConsistency needs at least 2 templates to compare");
-        // bestSubset(): given 11 templates (10 required + 1 spare), must keep the 10 most
-        // mutually consistent and drop exactly the planted outlier — this is what lets a spare
-        // take replace a bad one WITHOUT ever mutating any list by position (see MainActivity's
-        // ENROLLMENT-boundary spare-take recovery, which relies on this to avoid the index-
-        // corruption bug an earlier surgical-removal design had).
+        // bestSubset(): given 12 templates (10 required + 2 spares replacing the 2 outliers),
+        // must keep the 10 most mutually consistent and drop exactly the 2 planted outliers —
+        // this is what lets spare takes replace bad ones WITHOUT ever mutating any list by
+        // position (see MainActivity's ENROLLMENT-boundary spare-take recovery, which relies on
+        // this to avoid the index-corruption bug an earlier surgical-removal design had).
         List<float[][]> withSpare=new ArrayList<>(withMiddleOutlier);
-        withSpare.add(SoundPattern.extract(clip(3450,22720,false))); // the spare replacement take
+        withSpare.add(SoundPattern.extract(clip(3450,22720,false))); // first spare replacement take
+        withSpare.add(SoundPattern.extract(clip(3550,22560,false))); // second spare replacement take
         int[] kept=SoundPattern.bestSubset(withSpare,10);
         check(kept.length==10,"bestSubset must return exactly `keep` indices when enough templates exist");
-        boolean outlierKept=false;for(int i:kept)if(i==3)outlierKept=true;
-        check(!outlierKept,"bestSubset must drop the planted outlier, not keep it");
+        boolean outlierKept=false;for(int i:kept)if(i==3||i==4)outlierKept=true;
+        check(!outlierKept,"bestSubset must drop both planted outliers, not keep either");
         List<float[][]> subset=new ArrayList<>();for(int i:kept)subset.add(withSpare.get(i));
         boolean subsetFails=false;try{SoundPattern.calibrate(subset);}catch(Exception e){subsetFails=true;}
         check(!subsetFails,"the best-10 subset chosen by bestSubset must actually calibrate");
@@ -89,6 +94,26 @@ public class SoundPatternTest {
         boolean naturalBatchFails=false;String naturalFailure=null;
         try{SoundPattern.calibrate(naturalBatch);}catch(Exception e){naturalBatchFails=true;naturalFailure=e.getMessage();}
         check(!naturalBatchFails,"an entirely legitimate batch with only natural human take-to-take variance must calibrate successfully, not endlessly reject: "+naturalFailure);
+        // Percentile-based threshold: a single noisy leave-one-out score (one take that's
+        // slightly more different from the rest, but not wrong) must not single-handedly set
+        // the ceiling for the whole batch — dropping the single worst score before taking the
+        // max of what remains should let 9 very consistent takes pass even if the 10th is
+        // moderately noisier, as long as it's not the ONLY thing calibrate() looks at.
+        List<float[][]> nineConsistentPlusOneNoisy=new ArrayList<>();
+        for(int i=0;i<9;i++)nineConsistentPlusOneNoisy.add(SoundPattern.extract(clip(3000+i*20,22400+i*40,false)));
+        nineConsistentPlusOneNoisy.add(SoundPattern.extract(clip(3600,23200,false))); // moderately different pace/gain, not wrong
+        boolean percentileBatchFails=false;
+        try{SoundPattern.calibrate(nineConsistentPlusOneNoisy);}catch(Exception e){percentileBatchFails=true;}
+        check(!percentileBatchFails,"9 very consistent takes plus 1 moderately noisier (not wrong) take should calibrate under the percentile-based threshold");
+        // Loosened duration gate: two recordings of the same sound at very different paces
+        // (well past the old .65-1.55 ratio) must not be an automatic Double.POSITIVE_INFINITY
+        // rejection anymore — DTW's own banded alignment should be given the chance to compare
+        // them, even though the actual distance may still end up large if they genuinely don't
+        // align well.
+        float[][] fast=SoundPattern.extract(clip(4000,13000,false)),slow=SoundPattern.extract(clip(4000,25000,false));
+        double fastSlowRatio=(double)fast.length/slow.length;
+        check(fastSlowRatio>=.45&&fastSlowRatio<.65,"test setup must produce a ratio between the new and old gates to prove the old one would have rejected this pair: "+fastSlowRatio);
+        check(Double.isFinite(SoundPattern.distance(fast,slow)),"a duration difference beyond the OLD .65-1.55 gate but within the new .45-2.2 gate must be scored by DTW, not auto-rejected as infinite: ratio="+fastSlowRatio);
         System.out.println("Passed recorded-sound feature, pace/gain, order, duration and invalid-input checks (synthetic audio only)");
     }
 }

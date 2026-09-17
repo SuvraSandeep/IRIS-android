@@ -897,7 +897,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this, "WAKE UNAVAILABLE", message);
                 scheduleWakeRetry(3000);
             }
-        }, settings.speakerVerification());
+        }, settings.speakerVerification(), btMicAllowed && !(audioManager != null && audioManager.isMusicActive()));
     }
 
     private long lastRejectCueAt = 0;

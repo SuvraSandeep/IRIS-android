@@ -36,7 +36,18 @@ final class SoundPattern {
     }
     static double distance(float[][] a,float[][] b){
         if(!valid(a)||!valid(b))return Double.POSITIVE_INFINITY;
-        double ratio=a.length/(double)b.length;if(ratio<.65||ratio>1.55)return Double.POSITIVE_INFINITY;
+        // Loosened from .65-1.55 to .45-2.2 (explicit user request, after real recordings kept
+        // failing calibration): DTW's whole purpose is to absorb timing differences between two
+        // recordings of the same sound — a hard binary length-ratio cutoff layered on top of it
+        // defeats that, rejecting outright (no partial credit at all) pairs that DTW's own
+        // alignment could otherwise have scored as a good match, purely because one take was
+        // said faster or slower than another. A real person saying the same short phrase can
+        // easily vary well past 1.55x between a rushed take and a relaxed one. The band search
+        // below still bounds the actual alignment cost by how much the lengths differ, so an
+        // absurdly mismatched pair (e.g. one syllable vs. a full sentence) still costs enough in
+        // real DTW distance to fail on its own merits — this only removes the separate, cruder
+        // gate that failed such pairs unconditionally before DTW even got a chance to compare them.
+        double ratio=a.length/(double)b.length;if(ratio<.45||ratio>2.2)return Double.POSITIVE_INFINITY;
         double[] previous=new double[b.length+1];Arrays.fill(previous,Double.POSITIVE_INFINITY);previous[0]=0;
         int band=Math.max(Math.abs(a.length-b.length)+2,(int)Math.ceil(Math.max(a.length,b.length)*.25));
         for(int i=1;i<=a.length;i++){double[] current=new double[b.length+1];Arrays.fill(current,Double.POSITIVE_INFINITY);
@@ -53,8 +64,21 @@ final class SoundPattern {
     }
     static double calibrate(List<float[][]> templates){
         if(templates==null||templates.size()<5)throw new IllegalArgumentException("More consistent sound examples are needed");
-        double worst=0;
-        for(int i=0;i<templates.size();i++){List<float[][]> others=new ArrayList<>(templates);others.remove(i);worst=Math.max(worst,score(templates.get(i),others));}
+        // Percentile-based instead of absolute-worst-case (explicit user request, after real
+        // recordings kept failing calibration even with genuinely good takes): the previous
+        // design took the SINGLE highest leave-one-out score across the whole batch — one
+        // slightly noisier take (a car outside, a half-second of extra breath) set the threshold
+        // for the entire enrollment, no matter how consistent every other take was. Instead,
+        // gather every leave-one-out score and drop the single worst one before taking the max
+        // of what's left (equivalent to a ~90th percentile at N=10) — the same "one outlier
+        // cannot dominate" principle already used elsewhere in this file (score()'s own best-3-
+        // of-N averaging) and in WakePolicy.enrollment()'s majority-agreement voiceprint
+        // averaging, just applied to the calibration statistic itself instead of only to
+        // individual-sample scoring.
+        double[] leaveOneOut=new double[templates.size()];
+        for(int i=0;i<templates.size();i++){List<float[][]> others=new ArrayList<>(templates);others.remove(i);leaveOneOut[i]=score(templates.get(i),others);}
+        Arrays.sort(leaveOneOut);
+        double worst=leaveOneOut.length>=6?leaveOneOut[leaveOneOut.length-2]:leaveOneOut[leaveOneOut.length-1];
         double threshold=Math.max(.025,worst*1.2+.01);
         // Ceiling raised from .22 to .32 (explicit user request, after real recordings kept
         // failing even after the spare-take recovery mechanism): empirical testing across

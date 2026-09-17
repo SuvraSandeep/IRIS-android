@@ -20,7 +20,19 @@ final class AudioRouteController implements AutoCloseable {
         manager=context==null?null:(AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
         previousMode=manager==null?AudioManager.MODE_NORMAL:manager.getMode();
     }
-    void request(Context context,AudioRecord recorder){
+    void request(Context context,AudioRecord recorder){request(context,recorder,true);}
+    /** @param allowBluetooth false during always-on wake listening: forcing MODE_IN_COMMUNICATION
+     *  and Bluetooth SCO turns a connected headset's music stream from full-quality A2DP into
+     *  call-quality narrowband audio the instant this runs — which is what made music sound bad
+     *  while IRIS was merely awaiting the wake phrase, not actually in a command. This mirrors
+     *  IrisListeningService.chooseDevice()'s own allowBluetoothInAuto gate (btMicAllowed &&
+     *  !musicPlaying) — that gate already existed and was already documented as the fix for
+     *  exactly this symptom, but this class is a SEPARATE device-selection path used by
+     *  ManagedSpeechService for live listening, and it never inherited the same gate, silently
+     *  reintroducing the same quality regression through a second, parallel route. Training
+     *  (TimedRecorder) always passes true here — an explicit, short, user-initiated recording is
+     *  never "merely awake" and should always honor the user's actual microphone preference. */
+    void request(Context context,AudioRecord recorder,boolean allowBluetooth){
         observed="Microphone route unconfirmed";
         if(manager==null)return;
         if(previousMode==AudioManager.MODE_IN_CALL||previousMode==AudioManager.MODE_IN_COMMUNICATION)return;
@@ -31,12 +43,13 @@ final class AudioRouteController implements AutoCloseable {
                 boolean bt=d.getType()==AudioDeviceInfo.TYPE_BLUETOOTH_SCO||(Build.VERSION.SDK_INT>=31&&d.getType()==AudioDeviceInfo.TYPE_BLE_HEADSET);
                 boolean phone=d.getType()==AudioDeviceInfo.TYPE_BUILTIN_MIC;
                 boolean wired=d.getType()==AudioDeviceInfo.TYPE_WIRED_HEADSET||d.getType()==AudioDeviceInfo.TYPE_USB_HEADSET||d.getType()==AudioDeviceInfo.TYPE_USB_DEVICE;
+                if(bt&&!allowBluetooth)continue; // never even consider Bluetooth while wake-only listening
                 if((preference.equals("Phone")&&phone)||(preference.equals("Bluetooth")&&bt)||(preference.equals("Wired / USB")&&wired)){chosen=d;break;}
                 if(preference.equals("Automatic") && (chosen==null||wired||bt))chosen=d;
             }
             if(chosen!=null){
                 boolean bt=chosen.getType()==AudioDeviceInfo.TYPE_BLUETOOTH_SCO||(Build.VERSION.SDK_INT>=31&&chosen.getType()==AudioDeviceInfo.TYPE_BLE_HEADSET);
-                if(bt){
+                if(bt&&allowBluetooth){
                     manager.setMode(AudioManager.MODE_IN_COMMUNICATION);changed=true;
                     observed="Bluetooth requested; input unconfirmed";
                     if(Build.VERSION.SDK_INT>=31){

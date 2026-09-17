@@ -59,10 +59,10 @@ public class OwnerVoiceProfileTest {
     }
     static float[][] soundExample(){float[][] t=new float[12][SoundPattern.BANDS];for(int f=0;f<12;f++)t[f][0]=1f;return t;}
     static OwnerVoiceProfile profileWithSound()throws Exception {
-        List<float[][]> ex=new ArrayList<>(),val=new ArrayList<>();
-        for(int i=0;i<10;i++)ex.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
+        List<float[][]> normal=new ArrayList<>(),quiet=new ArrayList<>(),val=new ArrayList<>();
+        for(int i=0;i<5;i++)normal.add(soundExample());for(int i=0;i<5;i++)quiet.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
         JSONObject withSound=new JSONObject(profile().data.toString());
-        withSound.put("schema",5).put("soundWake",SoundWakeProfile.create(ex,val).data);
+        withSound.put("schema",5).put("soundWake",SoundWakeProfile.create(normal,quiet,val).data);
         return new OwnerVoiceProfile(withSound);
     }
     @Test public void headsetRouteIsAbsentUntilExplicitlyAdded()throws Exception {
@@ -74,9 +74,9 @@ public class OwnerVoiceProfileTest {
     @Test public void addingHeadsetRoutePreservesPhoneRouteAndBumpsSchema()throws Exception {
         OwnerVoiceProfile phone=profileWithSound();
         List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
-        List<float[][]> ex=new ArrayList<>(),val=new ArrayList<>();
-        for(int i=0;i<10;i++)ex.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
-        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),ex,val);
+        List<float[][]> normalEx=new ArrayList<>(),quietEx=new ArrayList<>(),val=new ArrayList<>();
+        for(int i=0;i<5;i++)normalEx.add(soundExample());for(int i=0;i<5;i++)quietEx.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
+        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),normalEx,quietEx,val);
         assertNotNull(withHeadset.headset);
         assertTrue(withHeadset.data.getInt("schema")>=6);
         // Phone-route identity and matching survive adding a headset route untouched.
@@ -89,18 +89,18 @@ public class OwnerVoiceProfileTest {
     @Test public void headsetRouteSurvivesJsonRoundTrip()throws Exception {
         OwnerVoiceProfile phone=profileWithSound();
         List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
-        List<float[][]> ex=new ArrayList<>(),val=new ArrayList<>();
-        for(int i=0;i<10;i++)ex.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
-        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),ex,val);
+        List<float[][]> normalEx=new ArrayList<>(),quietEx=new ArrayList<>(),val=new ArrayList<>();
+        for(int i=0;i<5;i++)normalEx.add(soundExample());for(int i=0;i<5;i++)quietEx.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
+        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),normalEx,quietEx,val);
         OwnerVoiceProfile roundTrip=new OwnerVoiceProfile(new JSONObject(withHeadset.data.toString()));
         assertNotNull(roundTrip.headset);assertTrue(roundTrip.acceptsHeadset(v(1),.65));
     }
     @Test public void removingHeadsetRouteLeavesPhoneRouteIntact()throws Exception {
         OwnerVoiceProfile phone=profileWithSound();
         List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
-        List<float[][]> ex=new ArrayList<>(),val=new ArrayList<>();
-        for(int i=0;i<10;i++)ex.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
-        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),ex,val);
+        List<float[][]> normalEx=new ArrayList<>(),quietEx=new ArrayList<>(),val=new ArrayList<>();
+        for(int i=0;i<5;i++)normalEx.add(soundExample());for(int i=0;i<5;i++)quietEx.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
+        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),normalEx,quietEx,val);
         OwnerVoiceProfile removed=withHeadset.withoutHeadset();
         assertNull(removed.headset);assertNotNull(removed.normal());assertTrue(removed.accepts(v(1),.65));
         assertNotEquals(withHeadset.revision(),removed.revision());

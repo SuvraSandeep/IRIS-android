@@ -429,6 +429,17 @@ public final class VoskEngine {
      *   own settings) never asked for voice verification at all.
      */
     public void startWakeDetection(java.util.List<String> phrases, WakeListener listener, boolean requireSpeakerModel) {
+        startWakeDetection(phrases, listener, requireSpeakerModel, true);
+    }
+    /**
+     * @param allowBluetooth false for always-on wake listening — forcing Bluetooth SCO the
+     *   instant this starts drops a connected headset's music from full A2DP quality to
+     *   call-quality narrowband the whole time IRIS is merely awaiting the wake phrase, which is
+     *   the actual mechanism behind "music sounds bad while IRIS is awake" reports. True for a
+     *   short, explicit session (a manual "test my voice" check, training) where honoring the
+     *   user's actual microphone preference is expected and there's no ongoing playback concern.
+     */
+    public void startWakeDetection(java.util.List<String> phrases, WakeListener listener, boolean requireSpeakerModel, boolean allowBluetooth) {
         if (!isReady()) { listener.onError("Voice model not ready"); return; }
         boolean attachSpeaker = requireSpeakerModel && isSpeakerReady();
         if (requireSpeakerModel && !isSpeakerReady()) { listener.onError("Owner verification model not ready"); return; }
@@ -456,7 +467,7 @@ public final class VoskEngine {
             final boolean spkAttached = attachSpeaker;
             ManagedSpeechService newService;
             try {
-                newService = new ManagedSpeechService(captureContext,rec, SAMPLE_RATE);
+                newService = new ManagedSpeechService(captureContext,rec, SAMPLE_RATE, allowBluetooth);
             } catch (Throwable error) {
                 // The Recognizer's native handle must be released here too — previously only the
                 // setSpeakerModel failure path above closed rec; a ManagedSpeechService constructor failure
