@@ -74,8 +74,7 @@ public class OwnerVoiceProfileTest {
         OwnerVoiceProfile phone=profile();
         assertNull(phone.headset);
         assertFalse(phone.acceptsHeadset(ev(1),vv(1),.65));
-    }
-    @Test public void addingHeadsetRoutePreservesPhoneRouteAndKeepsSchema()throws Exception {
+    }    @Test public void addingHeadsetRoutePreservesPhoneRouteAndKeepsSchema()throws Exception {
         OwnerVoiceProfile phone=profile();
         List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
         List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
@@ -105,5 +104,72 @@ public class OwnerVoiceProfileTest {
         OwnerVoiceProfile removed=withHeadset.withoutHeadset();
         assertNull(removed.headset);assertNotNull(removed.ecapaCentroid());assertTrue(removed.accepts(ev(1),vv(1),.65));
         assertNotEquals(withHeadset.revision(),removed.revision());
+    }
+    // --- ECAPA-TDNN absent (Vosk-only) coverage -----------------------------------------
+    // Real on-device bug this pins: EcapaEmbedding.MODEL_URL is still a placeholder (no
+    // hosted ONNX file yet — see EcapaEmbedding.java's doc), so ecapaEngine.extract() always
+    // returns null during training. WakePolicy.finalScore()/ownerEnsemble() were always
+    // designed to gracefully degrade to Vosk-only in this case, but OwnerEnrollmentController
+    // and OwnerVoiceProfile originally hard-required a valid ECAPA vector at every layer,
+    // making training completely unusable (every take showed "ECAPA components: 0" and was
+    // rejected outright) until WakePolicy.isAbsent()'s sentinel was threaded through storage.
+    static OwnerVoiceProfile profileVoskOnly()throws Exception {
+        List<float[]> ecapaTakes=Arrays.asList(new float[0],new float[0],new float[0],new float[0]);
+        List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
+        return OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,
+            Arrays.asList(new float[0],new float[0]),Arrays.asList(vv(1),vv(.999)),.65);
+    }
+    @Test public void profileCanBeBuiltAndSavedWithEcapaEntirelyAbsent()throws Exception {
+        OwnerVoiceProfile p=profileVoskOnly();
+        assertTrue(WakePolicy.isAbsent(p.ecapaCentroid()));
+        assertNotNull(p.voskCentroid());
+        // Vosk-only match still works via finalScore()'s single-signal degrade.
+        assertTrue(p.accepts(new float[0],vv(1),.65));
+        assertTrue(p.accepts(null,vv(1),.65));
+        assertFalse(p.accepts(new float[0],vv(0),.65));
+    }
+    @Test public void voskOnlyProfileSurvivesJsonRoundTrip()throws Exception {
+        OwnerVoiceProfile p=profileVoskOnly();
+        OwnerVoiceProfile q=new OwnerVoiceProfile(new JSONObject(p.data.toString()));
+        assertTrue(WakePolicy.isAbsent(q.ecapaCentroid()));assertNotNull(q.voskCentroid());
+        assertTrue(q.accepts(new float[0],vv(1),.65));
+    }
+    @Test public void bothSignalsAbsentIsStillRejected()throws Exception {
+        // Vosk must always be present in this test project's build (bundled model) — this
+        // pins that a profile can never accept when BOTH signals are missing/invalid,
+        // consistent with AGENTS.md's "missing identity/model... must reject wake" contract.
+        OwnerVoiceProfile p=profileVoskOnly();
+        assertFalse(p.accepts(new float[0],new float[0],.65));
+        assertFalse(p.accepts(null,null,.65));
+    }
+    @Test public void enrollmentRejectsMissingVoskEvenWithEcapaPresent()throws Exception {
+        // Vosk is always bundled/available in this app; a missing Vosk vector on a real take
+        // means something genuinely went wrong with that take and must still be rejected
+        // outright -- absence-tolerance is ONE-DIRECTIONAL (ECAPA may be absent, Vosk may not).
+        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),
+            Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(new float[0],new float[0],new float[0],new float[0]),
+            Arrays.asList(ev(1),ev(.999)),Arrays.asList(new float[0],new float[0]),.65));
+    }
+    @Test public void withNegativeRejectsAbsentEcapaSample()throws Exception {
+        // An absent-ECAPA "negative" would always score cosine==-1 against any real sample and
+        // could never actually correct anything -- must be rejected explicitly, not silently
+        // accepted and wasted via ecapaArray()/ecapaVector()'s now-tolerant round-trip.
+        OwnerVoiceProfile p=profile();
+        assertThrows(IllegalArgumentException.class,()->p.withNegative(new float[0],vv(.70)));
+        assertThrows(IllegalArgumentException.class,()->p.withNegative(null,vv(.70)));
+    }
+    @Test public void enrollmentControllerAcceptsAbsentEcapaButRequiresVosk(){
+        OwnerEnrollmentController controller=new OwnerEnrollmentController();
+        // ECAPA absent (null), Vosk valid — must be accepted and stored as the absent sentinel.
+        controller.add(0,null,vv(1));
+        assertEquals(1,controller.ecapaSamples.size());
+        assertEquals(0,controller.ecapaSamples.get(0).length);
+        assertEquals(1,controller.voskSamples.size());
+        // Vosk absent — must still throw regardless of ECAPA.
+        assertThrows(IllegalArgumentException.class,()->controller.add(1,ev(1),null));
+        assertThrows(IllegalArgumentException.class,()->controller.add(1,null,null));
+        // A genuinely corrupt (wrong-length) ECAPA vector is still rejected, not silently
+        // treated as absent.
+        assertThrows(IllegalArgumentException.class,()->controller.add(1,new float[5],vv(.999)));
     }
 }

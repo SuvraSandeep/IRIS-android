@@ -110,6 +110,29 @@ public final class WakePolicy {
                 && finalScore(ecapaSample, ecapaCentroid, voskSample, voskCentroid) >= threshold;
     }
     /**
+     * True if the given vector represents a legitimately ABSENT signal (e.g. the ECAPA-TDNN
+     * model failed to load/isn't hosted yet, or a live wake detection ran before the model
+     * attached) rather than a corrupt/wrong-length one. A null reference and a zero-length
+     * array are both treated as "absent" — callers should normalize null to float[0] at the
+     * boundary (see OwnerEnrollmentController.absent()) so storage/JSON always sees a
+     * consistent, round-trippable empty array instead of sometimes a JSON null.
+     *
+     * This exists because ownerDim()/enrollment() intentionally return false/null for ANY
+     * length mismatch, which is correct for a genuinely corrupt vector but was, before this
+     * check existed, indistinguishable from "this signal was never available" — every layer
+     * upstream (OwnerEnrollmentController.add(), OwnerVoiceProfile's constructor/create())
+     * used to hard-require a valid ECAPA vector on every take, which made training completely
+     * unusable while EcapaEmbedding.MODEL_URL is still a placeholder (a real, confirmed
+     * on-device failure: every take showed "ECAPA components: 0" and was rejected outright,
+     * even though finalScore()/ownerEnsemble() were always designed to gracefully degrade to
+     * Vosk-only). Vosk must still always be valid — see WakePolicy.owner()/ownerDim() for that
+     * check, which is unaffected by this helper.
+     */
+    public static boolean isAbsent(float[] v) {
+        return v == null || v.length == 0;
+    }
+
+    /**
      * Minimum cosine-similarity a captured embedding must reach against the enrolled voiceprint
      * to be accepted as the owner's voice, scaled by the same voiceSensitivity() setting (0..1)
      * as VoskEngine.minWordConfidence — but with an INDEPENDENT, differently-scaled formula:

@@ -146,6 +146,14 @@ final class OwnerVoiceProfile {
         return new OwnerVoiceProfile(j);
     }
     OwnerVoiceProfile withNegative(float[] ecapaSample, float[] voskSample) throws Exception {
+        // A negative example is an ECAPA-space correction (see accepts()'s per-negative cosine
+        // check) — unlike samples/centroids, an absent ECAPA vector here is not a legitimate
+        // degrade case, since a float[0] "negative" would always score cosine==-1 against any
+        // real sample and could never actually correct anything, just silently consume one of
+        // the 12 negative-example slots for nothing. Require a real vector explicitly rather
+        // than letting ecapaArray()/ecapaVector()'s now-tolerant absent-sentinel round-trip
+        // mask this as if it worked.
+        if (WakePolicy.isAbsent(ecapaSample)) throw new IllegalArgumentException("No ECAPA-TDNN evidence available for this event; cannot record a correction");
         ecapaVector(ecapaArray(ecapaSample));
         if (!accepts(ecapaSample, voskSample, threshold())) throw new IllegalArgumentException("This profile already rejects this event; no identity change needed");
         JSONObject j = new JSONObject(data.toString());
@@ -172,6 +180,10 @@ final class OwnerVoiceProfile {
         return out;
     }
     static float[] ecapaVector(JSONArray a) throws Exception {
+        // A zero-length array is the documented "ECAPA-TDNN absent" sentinel (see
+        // WakePolicy.isAbsent()'s doc) — e.g. the dedicated model wasn't hosted/loaded when
+        // this take/centroid was recorded. Any OTHER length is still a real corruption error.
+        if (a.length() == 0) return new float[0];
         if (a.length() != WakePolicy.ECAPA_EMBED_DIM) throw new IllegalArgumentException("Wrong ECAPA-TDNN embedding dimension");
         float[] v = new float[a.length()];
         for (int i = 0; i < v.length; i++) v[i] = (float) a.getDouble(i);
@@ -186,8 +198,14 @@ final class OwnerVoiceProfile {
         return v;
     }
     static JSONArray ecapaArray(float[] v) throws Exception {
-        if (v == null || v.length != WakePolicy.ECAPA_EMBED_DIM) throw new IllegalArgumentException("Inconsistent ECAPA-TDNN samples");
-        JSONArray a = new JSONArray(); for (float f : v) { if (!Float.isFinite(f)) throw new IllegalArgumentException("Invalid ECAPA-TDNN vector"); a.put((double) f); } return a;
+        // null or zero-length both serialize to an empty JSON array — the "ECAPA-TDNN absent"
+        // sentinel round-trips through storage exactly like any other stored vector, rather
+        // than needing special-case null-handling at every call site (see WakePolicy.isAbsent()).
+        JSONArray a = new JSONArray();
+        if (WakePolicy.isAbsent(v)) return a;
+        if (v.length != WakePolicy.ECAPA_EMBED_DIM) throw new IllegalArgumentException("Inconsistent ECAPA-TDNN samples");
+        for (float f : v) { if (!Float.isFinite(f)) throw new IllegalArgumentException("Invalid ECAPA-TDNN vector"); a.put((double) f); }
+        return a;
     }
     static JSONArray voskArray(float[] v) throws Exception {
         if (v == null || v.length != WakePolicy.EMBED_DIM) throw new IllegalArgumentException("Inconsistent Vosk samples");
