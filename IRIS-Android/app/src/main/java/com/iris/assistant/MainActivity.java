@@ -2422,7 +2422,7 @@ public class MainActivity extends Activity {
         }
         TextView voiceprintStatus = view.findViewById(R.id.voiceprintStatus);
         if (voiceprintStatus != null) {
-            boolean enrolled = new ProfileStore(this).getVoiceprint() != null;
+            boolean enrolled = new ProfileStore(this).hasVersionedOwner() || new ProfileStore(this).getVoiceprint() != null;
             voiceprintStatus.setText(enrolled
                     ? "Voiceprint enrolled. Owner wake requires the offline model; media playback pauses wake."
                     : "Voiceprint: not enrolled — train your wake phrase to enroll.");
@@ -2642,7 +2642,7 @@ public class MainActivity extends Activity {
         speakerVerification.setText("Owner-only wake is required");
         speakerVerification.setEnabled(false);
         speakerVerification.setOnCheckedChangeListener((b, checked) -> {
-            if (checked && new ProfileStore(this).getVoiceprint() == null) {
+            if (checked && !new ProfileStore(this).hasVersionedOwner() && new ProfileStore(this).getVoiceprint() == null) {
                 speakerVerification.setChecked(false);
                 toast("Enroll your voice below first, then turn this on.");
                 return;
@@ -3380,7 +3380,7 @@ public class MainActivity extends Activity {
                             if(phrasePreview.checking()){if(!phrasePreview.recognize(expectedPhrase,ownerLastHeard)){retryOwnerTake("The complete phrase was not verified.");return;}showOwnerStage(OwnerTrainingStage.Kind.PHRASE_READY,"The full phrase was recognized. This checks the words only. Continue to teach IRIS your voice, then verify it.",0);return;}
                             if((ownerImport!=null&&!ownerImport.accepts(ecapaEmbedding,voskEmbedding,new AppSettings(MainActivity.this).ownerThreshold()))||(ownerRefinement!=null&&!ownerRefinement.accepts(ecapaEmbedding,voskEmbedding,new AppSettings(MainActivity.this).ownerThreshold()))){retryOwnerTake("This sample does not match your existing owner profile. Record it again in your own voice.");return;}
                             try{enrollment.add(index,ecapaEmbedding,voskEmbedding);}catch(Exception error){retryOwnerTake(error.getMessage());return;}
-                            TrainingProgress.save(this,wakePhraseBeingTrained,index+1,sessionRoute.name(),enrollment.ecapaSamples,enrollment.voskSamples,enrollment.ecapaValidation,enrollment.voskValidation);
+                            TrainingProgress.save(MainActivity.this,wakePhraseBeingTrained,index+1,sessionRoute.name(),enrollment.ecapaSamples,enrollment.voskSamples,enrollment.ecapaValidation,enrollment.voskValidation);
                             wakeSampleIndex++;
                             if(wakeSampleIndex==OwnerTrainingPlan.ENROLLMENT){
                                 // Calibration is now ONE statistic (WakePolicy.enrollment()'s

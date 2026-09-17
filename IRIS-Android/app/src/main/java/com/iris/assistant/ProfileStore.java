@@ -256,7 +256,19 @@ public final class ProfileStore {
         WakeChangeApproval.require();
         try{JSONObject current=root(),previous=current.optJSONObject("previousOwner");if(previous==null)return false;
             if(previous.optInt("schema")>=4)new OwnerVoiceProfile(previous);
-            else if(!WakePolicy.owner(OwnerVoiceProfile.vector(previous.getJSONArray("voiceprint")),OwnerVoiceProfile.vector(previous.getJSONArray("voiceprint")),.99))return false;
+            else {
+                // Pre-schema-4 profile (predates the versioned schema entirely, out of scope for
+                // the dual-embedding redesign — OwnerVoiceProfile.vector() was deleted along
+                // with the single-embedding-space schema it belonged to). This is just a
+                // structural sanity check that the stored voiceprint array is well-formed
+                // before restoring it, not a real identity comparison (comparing a vector to
+                // itself via WakePolicy.owner() is always true for any valid, non-degenerate
+                // vector) — so a plain length/finite check serves the same purpose without
+                // resurrecting a deleted method.
+                JSONArray legacy=previous.getJSONArray("voiceprint");
+                if(legacy.length()!=WakePolicy.EMBED_DIM)return false;
+                for(int i=0;i<legacy.length();i++) if(!Double.isFinite(legacy.getDouble(i)))return false;
+            }
             JSONObject restored=new JSONObject(previous.toString());restored.put("trainedAt",System.currentTimeMillis());
             if(restored.optInt("schema")>=4)restored.put("revision",java.util.UUID.randomUUID().toString());
             current.put("wakeWord",restored);current.remove("previousOwner");persist(current);return true;

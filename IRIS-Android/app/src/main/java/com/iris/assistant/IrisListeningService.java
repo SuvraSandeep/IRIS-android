@@ -867,14 +867,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         final long profileVersion=wake.trainedAt;
         final double policyThreshold=settings.ownerThreshold();
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
-            @Override public void onRejected(String reason){if(epoch==wakeEpoch&&isRunning)WakeEventStore.add(reason,new ProfileStore(IrisListeningService.this).ownerRevision(),null,false);}
+            @Override public void onRejected(String reason){if(epoch==wakeEpoch&&isRunning)WakeEventStore.add(reason,new ProfileStore(IrisListeningService.this).ownerRevision(),null,null,false);}
             @Override public void onWakeDetected(float[] ecapaEmbedding, float[] voskEmbedding) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
                 boolean media = audioManager != null && audioManager.isMusicActive();
                 long now = android.os.SystemClock.elapsedRealtime();
                 OwnerVoiceProfile scoreProfile = new ProfileStore(IrisListeningService.this).ownerEvidence();
                 double score = WakePolicy.finalScore(ecapaEmbedding, scoreProfile != null ? scoreProfile.ecapaCentroid() : null,
-                        voskEmbedding, new ProfileStore(IrisListeningService.this).getVoiceprint());
+                        voskEmbedding, scoreProfile != null ? scoreProfile.voskCentroid() : null);
                 boolean unchanged=profileVersion==new ProfileStore(IrisListeningService.this).getWakeProfile().trainedAt
                         && policyThreshold==settings.ownerThreshold();
                 boolean accepted = unchanged && !media && now - lastWakeAt >= 3000 && isOwnerVoice(ecapaEmbedding, voskEmbedding);
