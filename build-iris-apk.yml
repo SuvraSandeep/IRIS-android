@@ -143,7 +143,7 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: bash scripts/test-speech.sh
 
-      - name: Verify voice enrollment, playback isolation and responsive training layout
+      - name: Verify learned sound, owner identity, feedback and training layout
         working-directory: ${{ env.PROJECT_DIR }}
         run: bash gradlew :app:testDebugUnitTest --stacktrace
 

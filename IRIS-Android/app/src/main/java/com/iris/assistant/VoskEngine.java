@@ -43,6 +43,8 @@ public final class VoskEngine {
     private static final Object OWNER_MODEL_INSTALL=new Object();
     private volatile boolean closed;
     private Context captureContext;
+    private volatile float[][] lastSoundEvidence;
+    float[][] lastSoundEvidence(){return lastSoundEvidence;}
     private Model model;
     private volatile boolean modelLoaded;
     private SpeakerModel spkModel; // Required API: checked against the packaged dependency at build time.
@@ -433,6 +435,7 @@ public final class VoskEngine {
         synchronized (stateLock) {
         stop();
         final long generation = wakeGeneration;
+        lastSoundEvidence=null;
         final java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
         try {
             final java.util.List<String> norm = new java.util.ArrayList<>();
@@ -460,6 +463,24 @@ public final class VoskEngine {
                 // (e.g. AudioRecord init failure) left it leaked with no cleanup.
                 rec.close();
                 throw error;
+            }
+            OwnerVoiceProfile activeProfile=new ProfileStore(captureContext).ownerEvidence();
+            if(new ProfileStore(captureContext).hasVersionedOwner()&&activeProfile==null){rec.close();throw new IllegalStateException("Saved owner evidence is invalid; restore or retrain");}
+            if(activeProfile!=null&&activeProfile.sound!=null){
+                if(!spkAttached||!activeProfile.hash().equals(speakerFingerprint())){rec.close();throw new IllegalStateException("Compatible owner model is required for sound wake");}
+                lastSoundEvidence=null;
+                newService.setClipListener(pcm->{
+                    if(generation!=wakeGeneration||fired.get())return;
+                    float[][] pattern=SoundPattern.extract(pcm);
+                    if(!activeProfile.sound.accepts(pattern))return;
+                    float[] voice=embed(QuietAudioProcessor.prepare(pcm));
+                    if(!activeProfile.acceptsWake(pattern,voice,new AppSettings(captureContext).ownerThreshold()))return;
+                    main.post(()->{
+                        if(generation!=wakeGeneration||fired.get())return;
+                        if(!activeProfile.revision().equals(new ProfileStore(captureContext).ownerRevision())){if(fired.compareAndSet(false,true))listener.onError("Owner profile changed; restart listening");return;}
+                        if(fired.compareAndSet(false,true)){lastSoundEvidence=pattern;listener.onWakeDetected(voice);}
+                    });
+                });
             }
             speechService = newService;
             speechService.startListening(new RecognitionListener() {

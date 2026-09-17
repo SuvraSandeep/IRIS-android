@@ -856,7 +856,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 boolean unchanged=profileVersion==new ProfileStore(IrisListeningService.this).getWakeProfile().trainedAt
                         && policyThreshold==settings.ownerThreshold();
                 boolean accepted = unchanged && !media && now - lastWakeAt >= 3000 && isOwnerVoice(embedding);
-                WakeEventStore.add(accepted?"OWNER_ACCEPTED":media?"PLAYBACK_CONTEXT":!unchanged?"PROFILE_CHANGED":"OWNER_REJECTED",new ProfileStore(IrisListeningService.this).ownerRevision(),embedding,accepted);
+                WakeEventStore.addSound(accepted?"OWNER_ACCEPTED":media?"PLAYBACK_CONTEXT":!unchanged?"PROFILE_CHANGED":"OWNER_REJECTED",new ProfileStore(IrisListeningService.this).ownerRevision(),embedding,accepted,voskEngine.lastSoundEvidence());
                 LogStore.append(IrisListeningService.this, "WAKE DECISION",
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
                         + " accepted=" + accepted);

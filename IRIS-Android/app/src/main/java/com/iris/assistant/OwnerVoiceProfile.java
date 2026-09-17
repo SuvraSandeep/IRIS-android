@@ -7,9 +7,12 @@ import java.util.*;
 final class OwnerVoiceProfile {
     static final String PREPROCESSING="quiet-v1-pcm16-16000", MODEL="vosk-model-spk-0.4";
     final JSONObject data;
+    final SoundWakeProfile sound;
     OwnerVoiceProfile(JSONObject object)throws Exception {
         data=new JSONObject(object.toString());
-        if(data.getInt("schema")!=4||!MODEL.equals(data.getString("speakerModel"))||!PREPROCESSING.equals(data.getString("preprocessing")))throw new IllegalArgumentException("Incompatible owner model/profile");
+        sound=data.has("soundWake")?new SoundWakeProfile(data.getJSONObject("soundWake")):null;
+        if((data.getInt("schema")!=4&&data.getInt("schema")!=5)||!MODEL.equals(data.getString("speakerModel"))||!PREPROCESSING.equals(data.getString("preprocessing")))throw new IllegalArgumentException("Incompatible owner model/profile");
+        if((data.getInt("schema")==5)!=(sound!=null))throw new IllegalArgumentException("Sound profile schema mismatch");
         String phrase=WakePolicy.normalize(data.getString("phrase"));
         if(phrase.isEmpty()||phrase.length()>120)throw new IllegalArgumentException("Invalid phrase");
         if(!data.getString("modelHash").matches("[a-f0-9]{64}"))throw new IllegalArgumentException("Missing model fingerprint; retrain to export");
@@ -35,6 +38,7 @@ final class OwnerVoiceProfile {
         if(!WakePolicy.ownerEither(sample,normal(),quiet(),Math.max(policy,threshold())))return false;
         try{for(float[] negative:list("negatives",0,12))if(WakePolicy.cosine(sample,negative)>=.80)return false;return true;}catch(Exception e){return false;}
     }
+    boolean acceptsWake(float[][] pattern,float[] voice,double policy){return sound!=null&&sound.accepts(pattern)&&accepts(voice,policy);}
     boolean validates(){try{for(float[] v:list("validation",4,12))if(!accepts(v,threshold()))return false;return true;}catch(Exception e){return false;}}
     OwnerVoiceProfile withNegative(float[] sample)throws Exception {
         vector(array(sample));

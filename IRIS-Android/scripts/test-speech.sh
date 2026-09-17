@@ -73,3 +73,6 @@ javac -encoding UTF-8 -d "$test_dir/voice" \
   app/src/main/java/com/iris/assistant/VoiceProfileCrypto.java \
   tests/VoiceCoreTest.java
 java -cp "$test_dir/voice" com.iris.assistant.VoiceCoreTest
+mkdir -p "$test_dir/sound"
+javac -encoding UTF-8 -d "$test_dir/sound" app/src/main/java/com/iris/assistant/WakePolicy.java app/src/main/java/com/iris/assistant/SoundPattern.java tests/SoundPatternTest.java
+java -cp "$test_dir/sound" com.iris.assistant.SoundPatternTest

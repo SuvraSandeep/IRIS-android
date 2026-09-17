@@ -1,5 +1,7 @@
 # Training rebuild: implemented scope and remaining evidence
 
+Historical v8.29 notes. For the current recorded-sound approach see RECORDED-SOUND-WAKE-8.30.0.md.
+
 Base: main 0261ebb2d5e908714a9dd05c03f0b98ef3e89d80. Version 8.29.0 / 324.
 
 ## Implemented

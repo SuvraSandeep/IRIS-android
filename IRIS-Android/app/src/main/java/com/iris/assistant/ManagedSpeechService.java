@@ -8,6 +8,9 @@ import org.vosk.android.RecognitionListener;
 
 /** Application-owned PCM capture makes the Vosk input route observable. */
 final class ManagedSpeechService {
+    interface ClipListener { void onClip(short[] pcm); }
+    private ClipListener clipListener;
+    void setClipListener(ClipListener listener){clipListener=listener;}
     private final Context context;
     private final Recognizer recognizer;
     private volatile boolean running;
@@ -26,7 +29,8 @@ final class ManagedSpeechService {
                 mic=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(4096,buffer*2));
                 if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
                 route.request(context,mic);mic.startRecording();AudioRouteController.observe(mic);
-                short[] frame=new short[320],raw=new short[80000];int rawCount=0,rawOffset=0;int frames=0,lastRoute=-1;
+                short[] frame=new short[320],raw=new short[128000];int rawCount=0,rawOffset=0;int frames=0,lastRoute=-1;
+                SpeechEndpoint endpoint=new SpeechEndpoint();
                 QuietAudioProcessor gain=new QuietAudioProcessor();
                 while(running){
                     int n=mic.read(frame,0,frame.length);
@@ -34,10 +38,20 @@ final class ManagedSpeechService {
                     if(n==0)continue;
                     if(++frames%25==0){
                         AudioDeviceInfo actual=mic.getRoutedDevice();int id=actual==null?-1:actual.getId();
-                        if(lastRoute!=-1&&id!=lastRoute){recognizer.reset();rawCount=rawOffset=0;gain=new QuietAudioProcessor();}lastRoute=id;
+                        if(lastRoute!=-1&&id!=lastRoute){recognizer.reset();rawCount=rawOffset=0;endpoint=new SpeechEndpoint();gain=new QuietAudioProcessor();}lastRoute=id;
                         AudioRouteController.observe(mic);
                     }
                     for(int i=0;i<n;i++){raw[rawOffset]=frame[i];rawOffset=(rawOffset+1)%raw.length;rawCount=Math.min(raw.length,rawCount+1);}
+                    if(clipListener!=null){
+                        boolean ended=endpoint.add(frame,n);
+                        if(ended||rawCount==raw.length){
+                            short[] clip=new short[rawCount];int begin=(rawOffset-rawCount+raw.length)%raw.length;
+                            for(int i=0;i<rawCount;i++)clip[i]=raw[(begin+i)%raw.length];
+                            rawCount=rawOffset=0;endpoint=new SpeechEndpoint();
+                            try{if(running&&WakePolicy.usableAudio(clip))clipListener.onClip(clip);}finally{java.util.Arrays.fill(clip,(short)0);}
+                        }
+                        continue; // No text decoder or pronunciation gate in learned-sound mode.
+                    }
                     gain.process(frame,n);
                     boolean complete=recognizer.acceptWaveForm(frame,n);
                     String output=complete?recognizer.getResult():recognizer.getPartialResult();
