@@ -28,4 +28,19 @@ public class OwnerEnrollmentPolicyTest {
         assertFalse(TrainingAudioQuality.measure(clipped).enrollmentUsable());
         assertFalse(TrainingAudioQuality.measure(null).enrollmentUsable());
     }
+    @Test public void shortTwoWordWakePhraseIsNotRejectedForBeingBrief(){
+        // Real on-device bug this pins: enrollmentUsable() used to require 1.2s of voiced
+        // signal (60 frames), copied from an earlier full-sentence enrollment design and never
+        // re-validated for a short wake phrase. A genuine, clearly-spoken two-word phrase like
+        // "Hello Iris" typically produces well under a second of real voiced signal once
+        // leading/trailing pause is excluded -- this rejected every take outright ("Not enough
+        // usable sound") even for perfectly fine recordings. Model ~0.6s of real speech (30
+        // frames @ 20ms) inside a longer capture with silence before/after, matching how the
+        // recorder actually captures a take.
+        short[] pcm=new short[16000*3]; // 3s capture, matching a real TimedRecorder take
+        int speechStart=16000, speechSamples=9600; // 0.6s of speech starting at the 1s mark
+        for(int i=speechStart;i<speechStart+speechSamples;i++)pcm[i]=(short)(3000*Math.sin(i*.13));
+        TrainingAudioQuality quality=TrainingAudioQuality.measure(pcm);
+        assertTrue("a genuine ~0.6s short phrase must be usable, not rejected as too brief",quality.enrollmentUsable());
+    }
 }

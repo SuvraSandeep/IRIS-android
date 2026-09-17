@@ -13,6 +13,17 @@ final class TrainingAudioQuality {
         for(double value:frames)if(value>=Math.max(150,floor*3))voiced++;
         return new TrainingAudioQuality(pcm.length,voiced,clips,Math.sqrt(energy/(frames.length*320)));
     }
-    boolean enrollmentUsable(){return samples>=32000&&voicedFrames>=60&&clipped<samples/100;}
+    /** Previously required voicedFrames>=60 (1.2s of voice above the noise floor) — copied
+     *  from an earlier full-sentence enrollment design and never re-validated for a short
+     *  wake phrase. A real two-word phrase like "Hello Iris" typically produces well under a
+     *  second of actual voiced signal once trailing pause/silence is excluded, so this
+     *  rejected genuinely fine recordings outright ("Not enough usable sound") on nearly
+     *  every take — a real, confirmed on-device failure, not a hypothetical. WakePolicy.
+     *  usableAudio() (the equivalent check used for live wake-phrase recognition, not
+     *  training) requires only 12 voiced frames (240ms) for exactly this reason — its own doc
+     *  explains it was deliberately lowered once already because whispered/short speech has
+     *  much less sustained energy than a full sentence. Training's bar should be close to
+     *  that, not five times stricter than the bar live detection uses for the same phrase. */
+    boolean enrollmentUsable(){return samples>=16000&&voicedFrames>=15&&clipped<samples/100;}
     String summary(){return String.format(java.util.Locale.ROOT,"PCM: 16 kHz mono; %.1f s captured; %.1f s above estimated noise; RMS %.0f; clipping %.2f%%",samples/16000.0,voicedFrames*.02,rms,samples==0?0:100.0*clipped/samples);}
 }
