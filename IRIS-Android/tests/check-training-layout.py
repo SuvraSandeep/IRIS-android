@@ -28,3 +28,11 @@ assert by_id['@+id/ownerHeardPanel'].get(a+'visibility')=='gone'
 assert by_id['@+id/ownerHeardText'].get(a+'accessibilityLiveRegion')=='polite'
 assert by_id['@+id/trainWakeButton'].get(a+'layout_height')=='wrap_content', 'Primary action must accommodate larger text'
 print('Passed phrase-preview comparison, continuation and larger-text layout checks')
+
+for node in root.iter('Button'):
+ assert node.get(a+'layout_height')=='wrap_content', 'Buttons must grow with text'
+for node in root.iter('LinearLayout'):
+ assert node.get(a+'orientation')!='horizontal', 'Training controls must stack on narrow screens'
+for control in ['ownerHearPhrase','ownerHearPrompt','ownerPlayRecording','ownerStopPlayback','ownerBeginVoice','ownerProfileSummary']:
+ assert '@+id/'+control in by_id
+print('Passed stacked training actions and playback controls checks')

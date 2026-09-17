@@ -11,7 +11,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 /** Portable, authenticated package. No device-bound keys or configurable work factors in untrusted input. */
 final class VoiceProfileCrypto {
-    static final int LIMIT=1024*1024;
+    static final int LIMIT=4*1024*1024;
     private static final int MAGIC=0x49525631, ITERATIONS=210000;
     static byte[] seal(byte[] plain,char[] password)throws Exception {
         if(plain.length>LIMIT)throw new IllegalArgumentException("Profile too large");

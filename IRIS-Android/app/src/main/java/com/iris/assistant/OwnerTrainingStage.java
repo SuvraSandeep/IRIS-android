@@ -18,7 +18,7 @@ final class OwnerTrainingStage {
         case READY:return "Get ready";
         case MICROPHONE:return "Opening microphone";
         case RECORDING:return "Recording";
-        case ANALYSIS:return "Checking your phrase and voice";
+        case ANALYSIS:return "Checking your recording";
         case RETRY:return "Take not accepted";
         case PHRASE_READY:return "Phrase check passed";
         case REVIEW:return "Ready to save";
