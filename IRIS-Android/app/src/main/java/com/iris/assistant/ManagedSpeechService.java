@@ -32,10 +32,12 @@ final class ManagedSpeechService {
                 short[] frame=new short[320],raw=new short[128000];int rawCount=0,rawOffset=0;int frames=0,lastRoute=-1;
                 SpeechEndpoint endpoint=new SpeechEndpoint();
                 QuietAudioProcessor gain=new QuietAudioProcessor();
+                long lastPcm=SystemClock.elapsedRealtime();
                 while(running){
-                    int n=mic.read(frame,0,frame.length);
+                    int n=clipListener==null?mic.read(frame,0,frame.length):mic.read(frame,0,frame.length,AudioRecord.READ_NON_BLOCKING);
                     if(n<0)throw new IllegalStateException("Microphone read failed: "+n);
-                    if(n==0)continue;
+                    if(n==0){if(SystemClock.elapsedRealtime()-lastPcm>=3000)throw new IllegalStateException("Microphone stopped supplying audio");Thread.sleep(10);continue;}
+                    lastPcm=SystemClock.elapsedRealtime();
                     if(++frames%25==0){
                         AudioDeviceInfo actual=mic.getRoutedDevice();int id=actual==null?-1:actual.getId();
                         if(lastRoute!=-1&&id!=lastRoute){recognizer.reset();rawCount=rawOffset=0;endpoint=new SpeechEndpoint();gain=new QuietAudioProcessor();}lastRoute=id;

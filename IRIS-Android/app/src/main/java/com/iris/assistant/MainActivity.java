@@ -2979,6 +2979,7 @@ public class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle("Review sound correction")
                 .setMessage("Reject sounds closer to this example. All stored sound and owner verification takes still pass. Speaker strictness will not change. You can undo this update.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Authenticate and apply",(d,w)->authenticateOwner("Apply sound correction",()->WakeChangeApproval.runApproved(()->{
+                    if(android.os.SystemClock.elapsedRealtime()-event.at>=120000){toast("Event expired while awaiting approval. No change applied.");return;}
                     boolean saved=new ProfileStore(this).commitOwnerEvidence(candidate,event.revision);toast(saved?"Sound correction saved. Previous profile kept for rollback.":"Profile changed or saving failed. Correction not applied.");
                 }))).show();
         }catch(Exception error){toast("Correction would conflict with your verified sound or is invalid. Record fresh owner examples instead.");}
@@ -2992,6 +2993,7 @@ public class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle("Review voice correction")
                 .setMessage("This event will be a negative voice example. All saved owner validation takes still pass. Strictness is unchanged. This small test does not guarantee rejection of every other voice. You can undo the update.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Authenticate and apply",(d,w)->authenticateOwner("Apply voice correction",()->WakeChangeApproval.runApproved(()->{
+                    if(android.os.SystemClock.elapsedRealtime()-event.at>=120000){toast("Event expired while awaiting approval. No change applied.");return;}
                     boolean ok=new ProfileStore(this).commitOwnerEvidence(candidate,event.revision);toast(ok?"Voice correction applied. Previous profile retained for rollback.":"Profile changed or save failed; correction not applied.");
                 }))).show();
         }catch(Exception e){toast("Correction not applied: "+e.getMessage()+". Collect fresh owner samples instead.");}
