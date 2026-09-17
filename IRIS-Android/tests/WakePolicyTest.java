@@ -31,6 +31,22 @@ public final class WakePolicyTest {
         float[] slightlyOff = owner.clone(); slightlyOff[0] = 0.85f; slightlyOff[5] = 0.3f;
         check(WakePolicy.owner(WakePolicy.enrollment(List.of(owner, owner, slightlyOff, owner, other)), owner, .9),
                 "outlier tolerance: majority still enrolls");
+        // Real on-device bug: with exactly 4 takes (OwnerTrainingPlan.ENROLLMENT's actual
+        // size), the OLD "agree with at least half of the other 3" vote had zero slack for
+        // natural human variation -- a real person saying a short phrase 4 times never
+        // produces 4 near-identical embeddings, and one moderately-different-sounding take
+        // could cascade into failing the whole batch. Model 4 DISTINCT, non-identical but
+        // genuinely-the-same-speaker takes (no two identical, unlike the tests above) and
+        // confirm enrollment still succeeds -- this is the exact scenario that kept failing
+        // with "Your 4 recordings didn't agree closely enough with each other" on real
+        // devices even when every take was a clear, correct recording.
+        float[] take1 = new float[128]; take1[0] = 1f;
+        float[] take2 = new float[128]; take2[0] = 0.93f; take2[7] = 0.36f;
+        float[] take3 = new float[128]; take3[0] = 0.90f; take3[3] = 0.44f;
+        float[] take4 = new float[128]; take4[0] = 0.88f; take4[11] = 0.47f;
+        float[] centroid4 = WakePolicy.enrollment(List.of(take1, take2, take3, take4));
+        check(centroid4 != null, "4 naturally-varying same-speaker takes must enroll, not fail the whole batch");
+        if (centroid4 != null) check(WakePolicy.owner(take1, centroid4, .75), "resulting centroid still matches the original takes");
         check(!WakePolicy.usableAudio(new short[48000]), "silence");
         short[] clipped = new short[48000]; Arrays.fill(clipped, Short.MAX_VALUE);
         check(!WakePolicy.usableAudio(clipped), "clipping");

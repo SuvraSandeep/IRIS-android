@@ -3038,8 +3038,8 @@ public class MainActivity extends Activity {
         java.util.Arrays.sort(order,(a,b)->Double.compare(agreement[a],agreement[b])); // worst (lowest agreement) first
         for(int rank=0;rank<order.length;rank++){int i=order[rank];sb.append(rank==0?"Worst":rank==order.length-1?"Best":"·").append(" take #").append(i+1).append(": average agreement ").append(String.format(java.util.Locale.US,"%.4f",agreement[i])).append('\n');}
         float[] centroid=WakePolicy.enrollment(group,dim);
-        if(centroid!=null)sb.append("Calibrates — centroid built from the majority-agreeing takes.\n");
-        else sb.append("FAILS — fewer than 3 of these takes agree closely enough with each other.\n");
+        if(centroid!=null)sb.append("Calibrates — centroid built after dropping at most one outlier take, if any.\n");
+        else sb.append("FAILS — fewer than 3 takes remain after dropping outliers; this recording session was too inconsistent.\n");
     }
     private void startOwnerRefinement(){
         if(ownerSessionBusy()){toast("Finish or cancel the current voice session first.");return;}

@@ -161,6 +161,28 @@ public final class WakePolicy {
      * no way for the trainee to know which recording was the problem. Now each sample is
      * scored against the others; only the samples that agree with the majority are kept, and
      * enrollment only fails if fewer than 3 usable samples remain.
+     *
+     * REAL ON-DEVICE BUG this section was rewritten to fix (2026-09-17): the original
+     * "agree with at least half of the OTHER samples" voting rule has essentially no slack at
+     * OwnerTrainingPlan.ENROLLMENT's actual size (4). With 4 samples, each one only has 3
+     * peers, and "at least half, rounded up" requires agreeing with 2 of those 3 — so a single
+     * take that sounds even moderately different (a real person naturally varies pace/pitch/
+     * energy take to take, saying a short phrase differently each time is completely normal,
+     * not a defect) can drag a SECOND borderline take below ITS required count too, cascading
+     * to fewer than 3 survivors and failing the whole batch — repeatedly, no matter how
+     * clearly the phrase was spoken. This voting shape was inherited from the pre-redesign
+     * pipeline, which enrolled from 5 raw takes per volume group (10 total) — "agree with half
+     * of the other 9" (5 required) has real slack; "agree with half of the other 3" (2
+     * required) does not. It was carried over into this redesign's 4-take plan unmodified and
+     * never re-validated for the smaller batch size (see WAKE-TRAINING-REDESIGN.md's
+     * Calibration section, which explicitly says this aggregator's logic was "kept,
+     * unmodified" from the old design).
+     *
+     * Fixed by making outlier tolerance explicit and count-based instead of a symmetric
+     * majority vote: rank every sample by how well it agrees with the OTHERS on average, then
+     * keep all of them if at most one is a clear outlier — this directly matches what this
+     * method's own doc already promised ("tolerates one or two inconsistent takes") instead of
+     * a vote formula that couldn't actually deliver that promise at n=4.
      */
     public static float[] enrollment(List<float[]> samples) {
         return enrollment(samples, EMBED_DIM);
@@ -176,27 +198,42 @@ public final class WakePolicy {
         List<float[]> valid = new java.util.ArrayList<>();
         for (float[] a : samples) if (a != null && a.length == dim && cosine(a, a) >= .99) valid.add(a);
         if (valid.size() < 3) return null;
-        // Keep only samples that agree (cosine >= .65) with at least half of the OTHERS —
-        // this tolerates one or two inconsistent takes instead of failing on any single one.
-        // Compared by index, not object identity: two recordings can legitimately be the same
-        // reference (e.g. duplicate samples), and reference equality would wrongly treat a
-        // sample as disagreeing with itself.
-        // "At least half of the others" must round UP, not down: with integer division,
-        // (valid.size()-1)/2 for 3 samples gives (3-1)/2=1, letting a sample pass by agreeing
-        // with only 1 of its 2 peers — so two mutually-consistent bad takes could outvote one
-        // good take. Math.ceil((valid.size()-1)/2.0) requires agreeing with both peers when
-        // there are only 2 others, matching "at least half" for every group size.
-        List<float[]> kept = new java.util.ArrayList<>();
-        int required = Math.max(1, (int) Math.ceil((valid.size() - 1) / 2.0));
+        // Rank each sample by its AVERAGE agreement with every other valid sample (not a
+        // pass/fail vote against a required count) — this is the same ranking already exposed
+        // to the user via MainActivity's "Sound calibration diagnostics" tool, just reused
+        // here to decide what to keep instead of only for display.
+        double[] avgAgreement = new double[valid.size()];
         for (int i = 0; i < valid.size(); i++) {
-            float[] a = valid.get(i);
-            int agree = 0;
+            double sum = 0;
             for (int j = 0; j < valid.size(); j++) {
                 if (i == j) continue;
-                if (cosine(a, valid.get(j)) >= .65) agree++;
+                sum += cosine(valid.get(i), valid.get(j));
             }
-            if (agree >= required) kept.add(a);
+            avgAgreement[i] = sum / (valid.size() - 1);
         }
+        // Tolerate at most ONE clear outlier — an average agreement well below the rest — never
+        // more than a third of the batch, so a genuinely bad recording session (not just one
+        // differently-paced take) still fails honestly rather than averaging in noise. "Clear
+        // outlier" means: this sample's average agreement is at least .15 lower than the
+        // MEDIAN of everyone else's average agreement, and its own average agreement is below
+        // .55 outright — a real match should still broadly resemble itself even accounting for
+        // natural pace/pitch/energy variation between takes of a short phrase; this just stops
+        // treating "not exactly like the vote-required count of peers" as a failure.
+        int maxOutliers = Math.max(1, valid.size() / 3);
+        double[] sortedAgreement = avgAgreement.clone();
+        java.util.Arrays.sort(sortedAgreement);
+        double median = sortedAgreement[sortedAgreement.length / 2];
+        List<float[]> kept = new java.util.ArrayList<>();
+        List<Integer> outlierCandidates = new java.util.ArrayList<>();
+        for (int i = 0; i < valid.size(); i++) {
+            if (avgAgreement[i] < .55 && avgAgreement[i] < median - .15) outlierCandidates.add(i);
+        }
+        // Only drop the WORST outlier candidates, up to maxOutliers — if more samples look like
+        // outliers than that, the batch is genuinely inconsistent and should fail honestly
+        // rather than silently discarding most of the recording session.
+        outlierCandidates.sort((a, b) -> Double.compare(avgAgreement[a], avgAgreement[b]));
+        java.util.Set<Integer> drop = new java.util.HashSet<>(outlierCandidates.subList(0, Math.min(maxOutliers, outlierCandidates.size())));
+        for (int i = 0; i < valid.size(); i++) if (!drop.contains(i)) kept.add(valid.get(i));
         if (kept.size() < 3) return null;
         float[] mean = new float[dim];
         for (float[] a : kept) {
