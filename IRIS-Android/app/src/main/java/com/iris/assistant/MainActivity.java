@@ -115,8 +115,19 @@ public class MainActivity extends Activity {
      *  didn't calibrate and a spare replacement was needed instead of surgically patching one
      *  slot in place (see the ENROLLMENT boundary check in captureNextWakeSample). Capped at 2 —
      *  SoundWakeProfile accepts at most 12 examples. Reset whenever a fresh enrollment session
-     *  starts. */
+     *  starts, AND immediately after a successful recovery (see the boundary check) — leaving
+     *  it set after success previously let the very next take (a real verification take)
+     *  satisfy captureNextWakeSample()'s spareTake condition and get silently misrouted back
+     *  into enrollment instead of verification (a real, confirmed bug from independent review). */
     private int enrollmentOverflow;
+    /** WHICH group (true=quiet, false=normal) a pending spare take is actually meant to replace
+     *  — set explicitly when a spare is requested (see the ENROLLMENT boundary check), not
+     *  inferred from group sizes. Inferring it from "whichever group currently has fewer
+     *  samples" was a real, confirmed bug: if both groups happened to be the same size when one
+     *  of them failed to calibrate, size comparison could route the spare into the group that
+     *  DIDN'T fail, leaving the actually-failing group stuck at 5 takes forever while an
+     *  unrelated group grew past 5 and had to be trimmed back down for no reason. */
+    private boolean spareTakeIsQuiet;
     private String wakePhraseBeingTrained;
     private boolean resumeAfterWakeTraining;
 
@@ -2843,7 +2854,7 @@ public class MainActivity extends Activity {
         releaseOwnerTraining();
         ownerRejectedTakes=0;pendingOwnerCapture=null;ownerLastHeard="";
         ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(wakePhraseInput.getWindowToken(),0);wakePhraseInput.clearFocus();
-        ownerTrainingActive=true;enrollment.clear();soundNormalSamples.clear();soundQuietSamples.clear();soundValidation.clear();soundNormalThreshold=0;soundQuietThreshold=0;candidateNormal=null;candidateQuiet=null;sessionRoute=AudioRouteController.Route.UNCONFIRMED;enrollmentOverflow=0;
+        ownerTrainingActive=true;enrollment.clear();soundNormalSamples.clear();soundQuietSamples.clear();soundValidation.clear();soundNormalThreshold=0;soundQuietThreshold=0;candidateNormal=null;candidateQuiet=null;sessionRoute=AudioRouteController.Route.UNCONFIRMED;enrollmentOverflow=0;spareTakeIsQuiet=false;
         ownerBaseRevision=new ProfileStore(this).ownerRevision();
         wakePhraseBeingTrained = phrase;
         TrainingProgress.clear(this);   // fresh start — drop any old partial
@@ -3276,7 +3287,7 @@ public class MainActivity extends Activity {
         // samples, so a spare can't accidentally overload only one group.
         final boolean spareTake=index>=OwnerTrainingPlan.ENROLLMENT&&index<OwnerTrainingPlan.ENROLLMENT+enrollmentOverflow;
         final boolean identityTake=index<OwnerTrainingPlan.ENROLLMENT||spareTake;
-        final boolean quietTake=spareTake?ownerQuietSamples.size()<=ownerNormalSamples.size():OwnerTrainingPlan.quiet(index);
+        final boolean quietTake=spareTake?spareTakeIsQuiet:OwnerTrainingPlan.quiet(index);
         String prompt=phrasePreview.checking()?"Let’s check the phrase before training your voice. Tap Record, wait for Listening, then say it once.":(spareTake?"An extra take to replace one that didn't fit closely enough. ":OwnerTrainingPlan.verification(index)?"A fresh verification take. ":"")
             +(quietTake?"Use a soft, clear voice; no need to whisper. ":"Use your normal speaking voice. ")
             +(identityTake?"Say your chosen wake sound once, then pause. Use the same sound each time; its spelling does not matter.":"Say the same wake sound once. This independently checks its sound pattern and your voice." );
@@ -3378,6 +3389,7 @@ public class MainActivity extends Activity {
                                     List<float[][]> failingGroup=spareInQuiet?soundQuietSamples:soundNormalSamples;
                                     if(failingGroup.size()>OwnerTrainingPlan.NORMAL-1){
                                         enrollmentOverflow++;
+                                        spareTakeIsQuiet=spareInQuiet; // explicit, not inferred from group sizes — see field doc
                                         retryOwnerTake(batchFailure+" One of your "+(spareInQuiet?"quiet":"normal")+"-voice takes did not fit closely enough with the others. Record one more "+(spareInQuiet?"quiet":"normal")+" take, at a comfortable volume — IRIS will keep the best "+OwnerTrainingPlan.NORMAL+" of the resulting "+(failingGroup.size()+1)+".");
                                         return;
                                     }
@@ -3424,6 +3436,24 @@ public class MainActivity extends Activity {
                                 // assume the fixed 10-13 layout; rewind past the spare slots now
                                 // that both groups are back to exactly 5 each, so index 10 is
                                 // where the FIRST verification take is actually recorded.
+                                //
+                                // enrollmentOverflow itself MUST be reset to 0 here, not just
+                                // wakeSampleIndex — a REAL bug (confirmed via independent code
+                                // review, not just this session's assumption): spareTake is
+                                // computed as index>=ENROLLMENT && index<ENROLLMENT+
+                                // enrollmentOverflow. If a spare was needed this pass
+                                // (enrollmentOverflow left at 1 or 2) and this field were left
+                                // untouched, the very next take recorded — verification take #1
+                                // at index==ENROLLMENT(10) — would satisfy that same condition
+                                // and be silently misrouted as ANOTHER spare enrollment take:
+                                // added to soundNormalSamples/soundQuietSamples and via
+                                // enrollment.addSpare() instead of soundValidation/enrollment.
+                                // add(), and the boundary check below would misfire a second
+                                // time on what should have been an ordinary verification take —
+                                // corrupting candidateNormal/candidateQuiet with a verification
+                                // sample folded back into the enrollment centroid, and stalling
+                                // real progress through the 4 verification takes indefinitely.
+                                enrollmentOverflow=0;
                                 wakeSampleIndex=OwnerTrainingPlan.ENROLLMENT;
                             }
                             if(wakeSampleIndex==OwnerTrainingPlan.TOTAL){showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All required takes passed. Review and authenticate to replace the owner profile.",0);finishWakeTraining();return;}
@@ -3946,7 +3976,7 @@ public class MainActivity extends Activity {
     private void cancelWakeTraining() {
         phrasePreview.clear();
         ownerImport=null;ownerRefinement=null;
-        headsetTrainingActive=false;headsetSampleIndex=0;enrollmentOverflow=0;ownerTrainingPausedForBackground=false;
+        headsetTrainingActive=false;headsetSampleIndex=0;enrollmentOverflow=0;spareTakeIsQuiet=false;ownerTrainingPausedForBackground=false;
         releaseOwnerTraining();
         stopWakeTrainingEngine();
         if (timedRecorder != null) { timedRecorder.stop(); timedRecorder = null; }
