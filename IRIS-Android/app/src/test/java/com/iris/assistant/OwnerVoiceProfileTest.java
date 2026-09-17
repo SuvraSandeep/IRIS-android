@@ -161,15 +161,15 @@ public class OwnerVoiceProfileTest {
     @Test public void enrollmentControllerAcceptsAbsentEcapaButRequiresVosk(){
         OwnerEnrollmentController controller=new OwnerEnrollmentController();
         // ECAPA absent (null), Vosk valid — must be accepted and stored as the absent sentinel.
-        controller.add(0,null,vv(1));
+        controller.add(0,null,vv(1),false);
         assertEquals(1,controller.ecapaSamples.size());
         assertEquals(0,controller.ecapaSamples.get(0).length);
         assertEquals(1,controller.voskSamples.size());
         // Vosk absent — must still throw regardless of ECAPA.
-        assertThrows(IllegalArgumentException.class,()->controller.add(1,ev(1),null));
-        assertThrows(IllegalArgumentException.class,()->controller.add(1,null,null));
+        assertThrows(IllegalArgumentException.class,()->controller.add(1,ev(1),null,false));
+        assertThrows(IllegalArgumentException.class,()->controller.add(1,null,null,false));
         // A genuinely corrupt (wrong-length) ECAPA vector is still rejected, not silently
         // treated as absent.
-        assertThrows(IllegalArgumentException.class,()->controller.add(1,new float[5],vv(.999)));
+        assertThrows(IllegalArgumentException.class,()->controller.add(1,new float[5],vv(.999),false));
     }
 }

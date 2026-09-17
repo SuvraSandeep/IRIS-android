@@ -824,7 +824,19 @@ public class IrisListeningService extends Service implements RecognitionListener
         broadcastState(true, phase);
         reassertMediaSessionPriority();  // give the headset trigger a fresh shot at priority
         androidWakeActive = false;
-        if(!wake.isReady() || !WakePolicy.owner(wake.voiceprint,wake.voiceprint,.99)){
+        // REAL, SEVERE ON-DEVICE BUG fixed here: this used to check
+        // WakePolicy.owner(wake.voiceprint,wake.voiceprint,.99) directly -- wake.voiceprint is
+        // the legacy pre-schema-4 field, which a schema-7 profile (this redesign's dual
+        // ECAPA-TDNN/Vosk ensemble) never populates at all. For EVERY schema-7 profile, this
+        // check failed unconditionally and PERMANENTLY -- wake listening never even started,
+        // no matter how many times the profile was retrained, since this gate runs before any
+        // audio is ever captured or scored. This is almost certainly why voice wake appeared
+        // completely non-functional after multiple successful training sessions. Same bug
+        // class as isVoiceEnrolled()/isVoiceRecordButton status checks fixed earlier this
+        // pass -- see WakeProfile.versionedOwnerEnrolled's doc for the full history. Now uses
+        // wake.isVoiceEnrolled(), which recognizes BOTH the legacy voiceprint field and any
+        // versioned (schema>=4) profile.
+        if(!wake.isReady() || !wake.isVoiceEnrolled()){
             wakeReadiness="Owner enrollment required";
             updateListeningNotification("Train your exact phrase and owner voice in Training");
             scheduleWakeRetry(3000);return;

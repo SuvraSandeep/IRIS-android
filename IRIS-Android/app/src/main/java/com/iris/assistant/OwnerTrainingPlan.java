@@ -20,9 +20,16 @@ final class OwnerTrainingPlan {
     /** True once past the 4 enrollment takes — a verification take never touches either
      *  centroid (WakePolicy.enrollment() is only ever run over the first ENROLLMENT takes). */
     static boolean verification(int index) { return index >= ENROLLMENT; }
+    /** Real UX bug fixed here: this used to show a PHASE-LOCAL fraction ("Voice sample 1 of
+     *  4" during enrollment, "Verification 1 of 2" during verification) while the on-screen
+     *  step-dots/counter next to it always shows the OVERALL fraction out of TOTAL (6) — e.g.
+     *  "Voice sample 1 of 4" next to "0 / 6" on the very same screen, both individually
+     *  correct but reading as an outright inconsistency/bug to anyone looking at the two
+     *  numbers together (confirmed via screenshot). Now shows the overall take number
+     *  everywhere, with the phase name kept as a plain label rather than a second fraction. */
     static String label(int index) {
         if (index >= TOTAL) return "All " + TOTAL + " takes verified";
-        if (index < ENROLLMENT) return "Voice sample " + (index + 1) + " of " + ENROLLMENT;
-        return "Verification " + (index - ENROLLMENT + 1) + " of " + VERIFY;
+        String phase = index < ENROLLMENT ? "Voice sample" : "Verification";
+        return phase + " " + (index + 1) + " of " + TOTAL;
     }
 }

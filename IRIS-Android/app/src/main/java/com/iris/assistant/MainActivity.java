@@ -3379,7 +3379,7 @@ public class MainActivity extends Activity {
                             if(!rejection.isEmpty()){retryOwnerTake(rejection);return;}
                             if(phrasePreview.checking()){if(!phrasePreview.recognize(expectedPhrase,ownerLastHeard)){retryOwnerTake("The complete phrase was not verified.");return;}showOwnerStage(OwnerTrainingStage.Kind.PHRASE_READY,"The full phrase was recognized. This checks the words only. Continue to teach IRIS your voice, then verify it.",0);return;}
                             if((ownerImport!=null&&!ownerImport.accepts(ecapaEmbedding,voskEmbedding,new AppSettings(MainActivity.this).ownerThreshold()))||(ownerRefinement!=null&&!ownerRefinement.accepts(ecapaEmbedding,voskEmbedding,new AppSettings(MainActivity.this).ownerThreshold()))){retryOwnerTake("This sample does not match your existing owner profile. Record it again in your own voice.");return;}
-                            try{enrollment.add(index,ecapaEmbedding,voskEmbedding);}catch(Exception error){retryOwnerTake(error.getMessage());return;}
+                            try{enrollment.add(index,ecapaEmbedding,voskEmbedding,OwnerTrainingPlan.verification(index));}catch(Exception error){retryOwnerTake(error.getMessage());return;}
                             TrainingProgress.save(MainActivity.this,wakePhraseBeingTrained,index+1,sessionRoute.name(),enrollment.ecapaSamples,enrollment.voskSamples,enrollment.ecapaValidation,enrollment.voskValidation);
                             wakeSampleIndex++;
                             if(wakeSampleIndex==OwnerTrainingPlan.ENROLLMENT){
@@ -3529,7 +3529,7 @@ public class MainActivity extends Activity {
                         ownerTrainingHandler.post(()->{
                             if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration||headsetSampleIndex!=index||ownerStage.kind()!=OwnerTrainingStage.Kind.ANALYSIS)return;
                             if(!rejection.isEmpty()){retryOwnerTake(rejection);return;}
-                            try{headsetEnrollment.add(index,ecapaEmbedding,voskEmbedding);}catch(Exception error){retryOwnerTake(error.getMessage());return;}
+                            try{headsetEnrollment.add(index,ecapaEmbedding,voskEmbedding,HeadsetTrainingPlan.verification(index));}catch(Exception error){retryOwnerTake(error.getMessage());return;}
                             headsetSampleIndex++;
                             if(headsetSampleIndex==HeadsetTrainingPlan.ENROLLMENT){
                                 float[] ecapaCentroid=WakePolicy.enrollment(headsetEnrollment.ecapaSamples,WakePolicy.ECAPA_EMBED_DIM);

@@ -10,9 +10,13 @@ final class HeadsetTrainingPlan {
     static final int VERIFY = 2;
     static final int TOTAL = ENROLLMENT + VERIFY;
     static boolean verification(int index) { return index >= ENROLLMENT; }
+    /** Same overall-fraction fix as OwnerTrainingPlan.label() — see that method's doc for the
+     *  real UX bug this addresses (a phase-local fraction next to an overall-fraction counter
+     *  on the same screen read as an inconsistency, even though both were individually
+     *  correct). */
     static String label(int index) {
         if (index >= TOTAL) return "All " + TOTAL + " headset takes verified";
-        if (index < ENROLLMENT) return "Headset voice sample " + (index + 1) + " of " + ENROLLMENT;
-        return "Headset verification " + (index - ENROLLMENT + 1) + " of " + VERIFY;
+        String phase = index < ENROLLMENT ? "Headset voice sample" : "Headset verification";
+        return phase + " " + (index + 1) + " of " + TOTAL;
     }
 }

@@ -22,28 +22,38 @@ final class OwnerEnrollmentController {
         ecapaSamples.clear(); voskSamples.clear();
         ecapaValidation.clear(); voskValidation.clear();
     }
-    /** Adds one take's pair of embeddings to the correct phase (enrollment vs. verification)
-     *  based on index, mirroring OwnerTrainingPlan.verification(index). The Vosk vector must
-     *  always be valid or this throws — Vosk's speaker model is bundled and always available,
-     *  so a null/invalid Vosk vector really does mean something went wrong with this specific
-     *  take. The ECAPA-TDNN vector may legitimately be ABSENT (null, or WakePolicy.isAbsent())
-     *  — e.g. the dedicated model hasn't been hosted/loaded yet — and is normalized to a
-     *  zero-length sentinel rather than rejected outright; WakePolicy.finalScore()'s ensemble
-     *  scoring and WakePolicy.enrollment()'s centroid builder both already treat an absent
-     *  ECAPA signal as "use Vosk alone", so storage must tolerate it too, all the way through
-     *  to OwnerVoiceProfile's schema (see WakePolicy.isAbsent()'s doc for the full history of
-     *  why this matters: without this, training was completely unusable while the ECAPA model
-     *  is unavailable, even though the ensemble design always intended graceful degrade). A
-     *  caller with a genuinely CORRUPT (wrong-length/non-finite) ECAPA vector should still not
-     *  silently record a partial take — only a clean absent/null vector is tolerated. */
-    void add(int index, float[] ecapaVector, float[] voskVector) {
+    /** Adds one take's pair of embeddings to the correct phase (enrollment vs. verification).
+     *  Real bug fixed here: this used to infer the phase internally via
+     *  OwnerTrainingPlan.verification(index), silently hardcoding ONE specific training plan
+     *  even though this same controller instance is also reused for headset-route training
+     *  (see MainActivity's headsetEnrollment field), which has its own HeadsetTrainingPlan.
+     *  It only ever routed correctly for the headset route by coincidence, because both plans
+     *  currently define identical ENROLLMENT/VERIFY constants — a landmine that would silently
+     *  misroute every headset take the moment either plan's constants diverged. The caller now
+     *  passes the phase explicitly (already computed as `identityTake`/`verify` in
+     *  MainActivity's per-route capture methods via that route's own plan class), so this
+     *  class has no implicit dependency on which plan is in use.
+     *
+     *  The Vosk vector must always be valid or this throws — Vosk's speaker model is bundled
+     *  and always available, so a null/invalid Vosk vector really does mean something went
+     *  wrong with this specific take. The ECAPA-TDNN vector may legitimately be ABSENT (null,
+     *  or WakePolicy.isAbsent()) — e.g. the dedicated model hasn't been hosted/loaded yet —
+     *  and is normalized to a zero-length sentinel rather than rejected outright;
+     *  WakePolicy.finalScore()'s ensemble scoring and WakePolicy.enrollment()'s centroid
+     *  builder both already treat an absent ECAPA signal as "use Vosk alone", so storage must
+     *  tolerate it too, all the way through to OwnerVoiceProfile's schema (see
+     *  WakePolicy.isAbsent()'s doc for the full history of why this matters: without this,
+     *  training was completely unusable while the ECAPA model is unavailable, even though the
+     *  ensemble design always intended graceful degrade). A caller with a genuinely CORRUPT
+     *  (wrong-length/non-finite) ECAPA vector should still not silently record a partial take
+     *  — only a clean absent/null vector is tolerated. */
+    void add(int index, float[] ecapaVector, float[] voskVector, boolean verify) {
         if (!WakePolicy.owner(voskVector, voskVector, .99))
             throw new IllegalArgumentException("Invalid Vosk speaker evidence");
         if (ecapaVector != null && ecapaVector.length != 0
                 && !WakePolicy.ownerDim(ecapaVector, ecapaVector, .99, WakePolicy.ECAPA_EMBED_DIM))
             throw new IllegalArgumentException("Invalid ECAPA-TDNN speaker evidence");
         float[] ecapaStored = WakePolicy.isAbsent(ecapaVector) ? new float[0] : ecapaVector;
-        boolean verify = OwnerTrainingPlan.verification(index);
         List<float[]> ecapaTarget = verify ? ecapaValidation : ecapaSamples;
         List<float[]> voskTarget = verify ? voskValidation : voskSamples;
         // Reject near-identical replayed data within each phase; the other phase stays
