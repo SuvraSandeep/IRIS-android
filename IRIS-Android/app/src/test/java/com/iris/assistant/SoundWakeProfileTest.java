@@ -17,7 +17,8 @@ public class SoundWakeProfileTest {
     @Test public void correctionCannotInvalidateOwnerSoundOrExpandThreshold()throws Exception{
         SoundWakeProfile p=profile();assertThrows(IllegalArgumentException.class,()->p.withNegative(sound(.03)));
         SoundWakeProfile corrected=p.withNegative(sound(.23));assertFalse(corrected.accepts(sound(.23)));assertTrue(corrected.accepts(sound(.03)));assertEquals(p.threshold,corrected.threshold,0);
-        JSONObject relaxed=new JSONObject(p.data.toString()).put("threshold",.22);assertThrows(IllegalArgumentException.class,()->new SoundWakeProfile(relaxed));
+        JSONObject relaxed=new JSONObject(p.data.toString()).put("threshold",.30);assertThrows(IllegalArgumentException.class,()->new SoundWakeProfile(relaxed));
+        JSONObject overCeiling=new JSONObject(p.data.toString()).put("threshold",.33);assertThrows(IllegalArgumentException.class,()->new SoundWakeProfile(overCeiling));
         JSONObject unknown=new JSONObject(p.data.toString()).put("version","unrecognized");assertThrows(IllegalArgumentException.class,()->new SoundWakeProfile(unknown));
     }
     @Test public void schemaCannotSilentlyDowngradeSoundWake()throws Exception{

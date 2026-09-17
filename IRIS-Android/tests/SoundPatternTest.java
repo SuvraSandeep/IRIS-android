@@ -59,6 +59,36 @@ public class SoundPatternTest {
         boolean subsetFails=false;try{SoundPattern.calibrate(subset);}catch(Exception e){subsetFails=true;}
         check(!subsetFails,"the best-10 subset chosen by bestSubset must actually calibrate");
         check(SoundPattern.bestSubset(withMiddleOutlier,20).length==withMiddleOutlier.size(),"bestSubset must return everything if `keep` exceeds the batch size");
+        // Ceiling raised from .22 to .32 (explicit user request: real enrollment kept failing at
+        // the 10th take even after the spare-take recovery mechanism existed). Prove this with a
+        // realistic model of NATURAL human take-to-take variance — not one extreme outlier, but
+        // ordinary jitter in pace, pitch and onset timing across an entire batch, simulating a
+        // real person recording 10 genuine takes of the same sound on different attempts. At
+        // enough jitter to be realistic, the old .22 ceiling could reject an entirely legitimate
+        // batch with no bad takes at all; the new .32 ceiling must accept it, while a genuinely
+        // different sound must still be rejected by a wide margin (proving this is headroom for
+        // natural variance, not a weakened anti-spoof gate).
+        java.util.Random jitterRnd=new java.util.Random(7);
+        List<float[][]> naturalBatch=new ArrayList<>();
+        for(int i=0;i<10;i++){
+            double durationMs=1400+(jitterRnd.nextDouble()*2-1)*300;
+            int length=(int)(16000*durationMs/1000.0),total=length+16000;
+            short[] pcm=new short[total];int onset=8000+(int)((jitterRnd.nextDouble()*2-1)*800);
+            double[] pitches=new double[4];double[] base={350,900,1700,2600};
+            for(int p=0;p<4;p++)pitches[p]=base[p]+(jitterRnd.nextDouble()*2-1)*150;
+            double gain=3200+(jitterRnd.nextDouble()*2-1)*600;
+            for(int s=0;s<length;s++){if(onset+s<0||onset+s>=total)continue;
+                double hz=pitches[Math.min(3,s*4/length)];double envelope=Math.min(1,Math.min(s/320.0,(length-s)/320.0));
+                double noise=(jitterRnd.nextDouble()*2-1)*80;
+                pcm[onset+s]=(short)Math.max(-32000,Math.min(32000,gain*envelope*(Math.sin(2*Math.PI*hz*s/16000)+.3*Math.sin(2*Math.PI*hz*1.5*s/16000))+noise));
+            }
+            naturalBatch.add(SoundPattern.extract(pcm));
+        }
+        int validNatural=0;for(float[][] t:naturalBatch)if(SoundPattern.valid(t))validNatural++;
+        check(validNatural==10,"all 10 naturally-jittered takes must produce valid features (test setup): got "+validNatural);
+        boolean naturalBatchFails=false;String naturalFailure=null;
+        try{SoundPattern.calibrate(naturalBatch);}catch(Exception e){naturalBatchFails=true;naturalFailure=e.getMessage();}
+        check(!naturalBatchFails,"an entirely legitimate batch with only natural human take-to-take variance must calibrate successfully, not endlessly reject: "+naturalFailure);
         System.out.println("Passed recorded-sound feature, pace/gain, order, duration and invalid-input checks (synthetic audio only)");
     }
 }

@@ -8,7 +8,7 @@ final class SoundWakeProfile {
     SoundWakeProfile(JSONObject json)throws Exception{
         data=new JSONObject(json.toString());if(!SoundPattern.VERSION.equals(data.getString("version")))throw new IllegalArgumentException("Incompatible sound profile");
         examples=read(data.getJSONArray("examples"),10,12);validation=read(data.getJSONArray("validation"),4,12);negatives=read(data.getJSONArray("negatives"),0,12);
-        threshold=data.getDouble("threshold");if(!Double.isFinite(threshold)||threshold<.025||threshold>.22)throw new IllegalArgumentException("Invalid sound policy");
+        threshold=data.getDouble("threshold");if(!Double.isFinite(threshold)||threshold<.025||threshold>.32)throw new IllegalArgumentException("Invalid sound policy");
         // Stored thresholds cannot exceed the policy derived only from enrollment examples.
         if(threshold>SoundPattern.calibrate(examples)+1e-8)throw new IllegalArgumentException("Unvalidated sound threshold");
         for(float[][] held:validation)if(!accepts(held))throw new IllegalArgumentException("Fresh sound verification did not match; no profile saved");
