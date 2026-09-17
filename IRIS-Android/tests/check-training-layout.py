@@ -19,14 +19,14 @@ assert by_id['@+id/wakeWizardCancel'].get(a+'text')=='Cancel training'
 print('Passed training layout visibility and initial-state checks')
 assert '@+id/ownerRecordButton' in by_id, 'Recording must have an explicit start action'
 assert by_id['@+id/otherTrainingPanel'].get(a+'visibility')=='gone', 'Secondary controls must start collapsed'
-assert '@+id/ownerVoiceMeter' in by_id and '@+id/ownerTakeProgress' in by_id
+assert '@+id/ownerVoiceMeter' in by_id and '@+id/ownerStepDots' in by_id
 assert by_id['@+id/altWakeList'].get(a+'visibility')=='gone', 'Disabled alternate phrases should not look usable'
 print('Passed guided voice studio controls and disclosure checks')
 assert '@+id/ownerPhraseSuggestions' in by_id
 assert by_id['@+id/ownerContinueButton'].get(a+'visibility')=='gone', 'Enrollment continuation starts unavailable'
 assert by_id['@+id/ownerHeardPanel'].get(a+'visibility')=='gone'
 assert by_id['@+id/ownerHeardText'].get(a+'accessibilityLiveRegion')=='polite'
-assert by_id['@+id/trainWakeButton'].get(a+'layout_height')=='wrap_content', 'Primary action must accommodate larger text'
+assert by_id['@+id/ownerBeginVoice'].get(a+'layout_height')=='wrap_content', 'Primary action must accommodate larger text'
 print('Passed phrase-preview comparison, continuation and larger-text layout checks')
 
 for node in root.iter('Button'):

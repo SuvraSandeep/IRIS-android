@@ -86,7 +86,6 @@ public class MainActivity extends Activity {
 
     private EditText wakePhraseInput;
     private TextView wakeTrainingStatus;
-    private Button trainWakeButton;
     private Button testWakeButton;
     private View wakeNormalState;
     private View wakeWizardState;
@@ -1061,7 +1060,6 @@ public class MainActivity extends Activity {
         // Wake phrase section
         wakePhraseInput = view.findViewById(R.id.wakePhraseInput);
         wakeTrainingStatus = view.findViewById(R.id.wakeTrainingStatus);
-        trainWakeButton = view.findViewById(R.id.trainWakeButton);
         testWakeButton = view.findViewById(R.id.testWakeButton);
         Button addHeadsetButton=view.findViewById(R.id.ownerAddHeadsetButton);
         addHeadsetButton.setOnClickListener(v->authenticateThen("Add earphone profile",this::beginHeadsetTraining));
@@ -1174,7 +1172,6 @@ public class MainActivity extends Activity {
         }
 
         // Wire up buttons
-        configureWakeButton();
         TextView micLabelTraining = view.findViewById(R.id.micLabelTraining);
         if (micLabelTraining != null) micLabelTraining.setText("Input is confirmed when recording starts. Connected headphones may use a different microphone.");
         testWakeButton.setOnClickListener(v -> testWakePhrase());
@@ -2791,13 +2788,10 @@ public class MainActivity extends Activity {
         else tv.setText("Extra: " + android.text.TextUtils.join(", ", alts) + "  (tap to clear)");
     }
 
-    /** Set the wake button to Resume (if a partial exists) or Set Up/Retrain. */
-    private void configureWakeButton() {
-        if(trainWakeButton==null)return;
-        trainWakeButton.setText("Record my wake sound");trainWakeButton.setVisibility(View.GONE);
-        trainWakeButton.setEnabled(true);
-        trainWakeButton.setOnClickListener(v->authenticateThen("Check wake phrase",()->{phrasePreview.clear();beginWakeTraining();}));
-    }
+    // configureWakeButton() removed — it only ever configured trainWakeButton, a button that
+    // was permanently hidden (setVisibility(View.GONE) unconditionally) and duplicated
+    // ownerBeginVoice's exact action. Dead code/dead UI from an earlier iteration; removed as
+    // part of the training-screen cleanup rather than kept invisible-but-present.
 
     private void beginWakeTraining() {
         if (previewBusy() || ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
@@ -2819,7 +2813,7 @@ public class MainActivity extends Activity {
         releaseOwnerTraining();
         ownerRejectedTakes=0;pendingOwnerCapture=null;ownerLastHeard="";
         ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(wakePhraseInput.getWindowToken(),0);wakePhraseInput.clearFocus();
-        ownerTrainingActive=true;enrollment.clear();soundSamples.clear();soundValidation.clear();soundThreshold=0;candidateNormal=null;candidateQuiet=null;
+        ownerTrainingActive=true;enrollment.clear();soundSamples.clear();soundValidation.clear();soundThreshold=0;candidateNormal=null;candidateQuiet=null;sessionRoute=AudioRouteController.Route.UNCONFIRMED;
         ownerBaseRevision=new ProfileStore(this).ownerRevision();
         wakePhraseBeingTrained = phrase;
         TrainingProgress.clear(this);   // fresh start — drop any old partial
@@ -2830,7 +2824,6 @@ public class MainActivity extends Activity {
             if(ownerImport.sound==null){failOwnerTraining("This older profile has no learned sound. Record a fresh wake sound; your active profile is unchanged.");return;}
             wakeSampleIndex=OwnerTrainingPlan.ENROLLMENT;candidateNormal=ownerImport.normal();candidateQuiet=ownerImport.quiet();soundSamples.addAll(ownerImport.sound.examples);soundThreshold=ownerImport.sound.threshold;
         }
-        if (trainWakeButton != null) trainWakeButton.setEnabled(false);
         if (testWakeButton != null) testWakeButton.setEnabled(false);
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.GONE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.VISIBLE);
@@ -3024,6 +3017,14 @@ public class MainActivity extends Activity {
     }
 
     private final List<float[][]> soundSamples=new ArrayList<>(),soundValidation=new ArrayList<>();
+    // Locks the phone-route session to whichever route actually recorded take 1 (checked via
+    // AudioRouteController's per-take confirmed device, not any user-set preference). A phone
+    // and a headset mic pick up different-sounding audio: if a Bluetooth headset auto-connects
+    // mid-session (a routine Android event, not a user action) some takes silently come from the
+    // headset instead of the phone, making the whole 10-sample batch look "inconsistent" at the
+    // enrollment boundary — which is exactly the take-10 auto-cancel this fixes. Reset alongside
+    // enrollment/soundSamples/soundValidation at the start of every fresh session.
+    private volatile AudioRouteController.Route sessionRoute=AudioRouteController.Route.UNCONFIRMED;
     private double soundThreshold;
     private final OwnerEnrollmentController enrollment=new OwnerEnrollmentController();
     private OwnerVoiceProfile ownerImport,ownerRefinement;
@@ -3076,7 +3077,6 @@ public class MainActivity extends Activity {
         int shownIndex=headsetTrainingActive?headsetSampleIndex:ownerImport!=null?Math.max(0,wakeSampleIndex-OwnerTrainingPlan.ENROLLMENT):wakeSampleIndex;
         int shownTotal=headsetTrainingActive?HeadsetTrainingPlan.TOTAL:ownerImport!=null?4:OwnerTrainingPlan.TOTAL;
         if(wakeWizardDots!=null)wakeWizardDots.setText(phrasePreview.checking()?"One take":shownIndex+" / "+shownTotal);
-        android.widget.ProgressBar progress=findViewById(R.id.ownerTakeProgress);if(progress!=null){progress.setVisibility(phrasePreview.checking()?View.GONE:View.VISIBLE);progress.setMax(shownTotal);progress.setProgress(shownIndex);}
         TrainingStepDots stepDots=findViewById(R.id.ownerStepDots);if(stepDots!=null){stepDots.setVisibility(phrasePreview.checking()?View.GONE:View.VISIBLE);stepDots.update(shownIndex,shownTotal,ownerStage.kind()==OwnerTrainingStage.Kind.RETRY);}
         TextView journey=findViewById(R.id.ownerJourney);if(journey!=null)journey.setText(phrasePreview.checking()?"Optional · Check phrase recognition":headsetTrainingActive?(headsetSampleIndex<HeadsetTrainingPlan.ENROLLMENT?"Adding headset route · Learn your sound and voice":"Adding headset route · Verify with fresh takes"):wakeSampleIndex<OwnerTrainingPlan.ENROLLMENT?"Step 1 · Learn your sound and voice":"Step 2 · Verify both with fresh takes");
         TextView heard=findViewById(R.id.ownerHeardText);if(heard!=null)heard.setText(ownerLastHeard.isEmpty()?"No usable sound captured yet":ownerLastHeard);
@@ -3174,13 +3174,29 @@ public class MainActivity extends Activity {
                         diagnosticExpiry.postDelayed(()->{java.util.Arrays.fill(retained,(short)0);if(diagnosticPcm==retained)diagnosticPcm=null;},120000);}
                     final String expectedPhrase=wakePhraseBeingTrained;
                     final String recordedRoute=timedRecorder.capturedRoute();
+                    final AudioRouteController.Route takeRoute=AudioRouteController.observedRoute;
                     new Thread(()->{
                         String transcript="",failure="";float[] vector=null;final float[][][] capturedSound=new float[1][][];
                         try{synchronized(engine){
                             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
-                            TrainingAudioQuality quality=TrainingAudioQuality.measure(pcm);
-                            float[][] pattern=SoundPattern.extract(pcm);
-                            if(!SoundPattern.valid(pattern))failure="Not enough usable sound. Say the complete sound once, then pause. Check the microphone or replay a diagnostic take.";
+                            // Lock the whole session to whichever route recorded the first take
+                            // that had a confirmed route at all. A Bluetooth headset auto-
+                            // connecting mid-session (routine Android behavior, not something the
+                            // user did) would otherwise mix phone-mic and headset-mic samples into
+                            // one batch that looks "inconsistent" only because two different
+                            // microphones produced it — surfacing as an auto-cancel right at the
+                            // enrollment/verification boundary (take 10) with no indication why.
+                            if(sessionRoute==AudioRouteController.Route.UNCONFIRMED&&takeRoute!=AudioRouteController.Route.UNCONFIRMED){
+                                sessionRoute=takeRoute;
+                            } else if(sessionRoute!=AudioRouteController.Route.UNCONFIRMED&&takeRoute!=AudioRouteController.Route.UNCONFIRMED&&takeRoute!=sessionRoute){
+                                failure=sessionRoute==AudioRouteController.Route.PHONE
+                                    ?"This take was recorded on a headset, but this session started on your phone microphone. Disconnect your headset (or turn off its mic) and record this take again."
+                                    :"This take was recorded on your phone microphone, but this session started on a headset. Reconnect your headset and record this take again.";
+                            }
+                            TrainingAudioQuality quality=failure.isEmpty()?TrainingAudioQuality.measure(pcm):null;
+                            float[][] pattern=failure.isEmpty()?SoundPattern.extract(pcm):null;
+                            if(!failure.isEmpty()){/* route mismatch already set failure above */}
+                            else if(!SoundPattern.valid(pattern))failure="Not enough usable sound. Say the complete sound once, then pause. Check the microphone or replay a diagnostic take.";
                             else {
                                 vector=engine.embed(QuietAudioProcessor.prepare(pcm));
                                 if(!WakePolicy.owner(vector,vector,.99))failure="Sound captured, but voice characteristics were insufficient. Try a comfortable volume.";
@@ -3188,7 +3204,7 @@ public class MainActivity extends Activity {
                             }
                             capturedSound[0]=pattern;
                             transcript=failure.isEmpty()?"Sound captured · voice characteristics extracted":"Sound/voice evidence needs another take";
-                            lastOwnerDiagnostic=quality.summary()+"; input: "+recordedRoute+"; sound frames: "+pattern.length+"; speaker components: "+(vector==null?0:vector.length)+"; "+failure;
+                            lastOwnerDiagnostic=(quality==null?"Route mismatch, no audio analysis performed":quality.summary())+"; input: "+recordedRoute+"; sound frames: "+(pattern==null?0:pattern.length)+"; speaker components: "+(vector==null?0:vector.length)+"; "+failure;
                             ownerLastHeard=transcript;
 
                         }}catch(Throwable error){failure="Voice analysis failed. Please retry this take.";}
@@ -3205,9 +3221,24 @@ public class MainActivity extends Activity {
                             if(identityTake)soundSamples.add(capturedSound[0]);else soundValidation.add(capturedSound[0]);
                             wakeSampleIndex++;
                             if(wakeSampleIndex==OwnerTrainingPlan.ENROLLMENT){
-                                try{soundThreshold=SoundPattern.calibrate(soundSamples);}catch(Exception error){failOwnerTraining(error.getMessage());return;}
-                                candidateNormal=WakePolicy.enrollment(ownerNormalSamples);candidateQuiet=WakePolicy.enrollment(ownerQuietSamples);
-                                if(candidateNormal==null||candidateQuiet==null||WakePolicy.cosine(candidateNormal,candidateQuiet)<.65){failOwnerTraining("Normal and quiet samples were inconsistent. Your saved owner profile is unchanged. Please retrain in a quiet place.");return;}
+                                // A failure here must not discard all 10 enrollment takes and send
+                                // the user back to take 1 — this is exactly the "auto-cancels
+                                // after take 9 (10th take), asks to do it again" report. Undo just
+                                // the take that pushed the batch over the line and land back on a
+                                // normal retry for that same slot, keeping the other 9 intact.
+                                String batchFailure=null;
+                                try{soundThreshold=SoundPattern.calibrate(soundSamples);}catch(Exception error){batchFailure=error.getMessage();}
+                                if(batchFailure==null){
+                                    candidateNormal=WakePolicy.enrollment(ownerNormalSamples);candidateQuiet=WakePolicy.enrollment(ownerQuietSamples);
+                                    if(candidateNormal==null||candidateQuiet==null||WakePolicy.cosine(candidateNormal,candidateQuiet)<.65)
+                                        batchFailure="Your normal and quiet takes did not agree closely enough with each other.";
+                                }
+                                if(batchFailure!=null){
+                                    wakeSampleIndex--;
+                                    if(identityTake){if(!soundSamples.isEmpty())soundSamples.remove(soundSamples.size()-1);
+                                        List<float[]> group=OwnerTrainingPlan.quiet(index)?ownerQuietSamples:ownerNormalSamples;if(!group.isEmpty())group.remove(group.size()-1);}
+                                    retryOwnerTake(batchFailure+" This take did not fit with your other "+wakeSampleIndex+" — record it again in a quiet place, in your normal speaking voice.");return;
+                                }
                             }
                             if(wakeSampleIndex==OwnerTrainingPlan.TOTAL){showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All required takes passed. Review and authenticate to replace the owner profile.",0);finishWakeTraining();return;}
                             ownerRejectedTakes=0;
@@ -3727,7 +3758,6 @@ public class MainActivity extends Activity {
         wakeSampleIndex = 0;
         if (wakeNormalState != null) wakeNormalState.setVisibility(View.VISIBLE);
         if (wakeWizardState != null) wakeWizardState.setVisibility(View.GONE);
-        configureWakeButton();
         ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
         testWakeButton.setEnabled(wake.isReady());
         showOwnerStage(OwnerTrainingStage.Kind.IDLE,"Your saved voice profile is unchanged until a new setup is verified and saved.",0);
