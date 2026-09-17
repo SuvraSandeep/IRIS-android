@@ -59,6 +59,26 @@ final class SoundPattern {
         if(!Double.isFinite(threshold)||threshold>.22)throw new IllegalArgumentException("Sound examples vary too much. Record the same complete sound naturally");
         return threshold;
     }
+    /** Same leave-one-out comparison calibrate() uses internally, but returns WHICH template
+     *  disagreed with the others the most, instead of only a pass/fail threshold. calibrate()
+     *  failing does not mean the most-recently-recorded sample is the problem — any one of the
+     *  earlier takes could be the actual outlier (different distance from the mic, background
+     *  noise that crept in, a slightly different sound) and every leave-one-out score that
+     *  includes it gets dragged up regardless of how good the other takes are. Without this,
+     *  the only recovery available was "redo the last take," which can retry forever and never
+     *  succeed if take 3 (say) is the real problem. Returns -1 if there are fewer than 2
+     *  templates (leave-one-out needs at least one other sample to compare against).
+     */
+    static int worstOutlier(List<float[][]> templates){
+        if(templates==null||templates.size()<2)return -1;
+        int worstIndex=0;double worstScore=-1;
+        for(int i=0;i<templates.size();i++){
+            List<float[][]> others=new ArrayList<>(templates);others.remove(i);
+            double s=score(templates.get(i),others);
+            if(s>worstScore){worstScore=s;worstIndex=i;}
+        }
+        return worstIndex;
+    }
     private static void fft(double[] re,double[] im){
         for(int i=1,j=0;i<512;i++){int bit=256;for(; (j&bit)!=0;bit>>=1)j^=bit;j^=bit;if(i<j){double t=re[i];re[i]=re[j];re[j]=t;}}
         for(int len=2;len<=512;len<<=1){double angle=-2*Math.PI/len;

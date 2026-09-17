@@ -3223,21 +3223,55 @@ public class MainActivity extends Activity {
                             if(wakeSampleIndex==OwnerTrainingPlan.ENROLLMENT){
                                 // A failure here must not discard all 10 enrollment takes and send
                                 // the user back to take 1 — this is exactly the "auto-cancels
-                                // after take 9 (10th take), asks to do it again" report. Undo just
-                                // the take that pushed the batch over the line and land back on a
-                                // normal retry for that same slot, keeping the other 9 intact.
-                                String batchFailure=null;
-                                try{soundThreshold=SoundPattern.calibrate(soundSamples);}catch(Exception error){batchFailure=error.getMessage();}
+                                // after take 9/10, asks to do it again" report. calibrate() only
+                                // reports pass/fail; it does NOT mean the just-recorded take is
+                                // the problem — any one of the 10 could be the actual outlier
+                                // (retrying only the last slot forever cannot fix an outlier that
+                                // is really take 3, for example). worstOutlier() runs the same
+                                // leave-one-out comparison calibrate() does internally and reports
+                                // WHICH take disagreed with the others the most, so exactly that
+                                // one gets undone and re-requested — not always the newest one.
+                                String batchFailure=null;int outlierIndex=-1;
+                                try{soundThreshold=SoundPattern.calibrate(soundSamples);}
+                                catch(Exception error){batchFailure=error.getMessage();outlierIndex=SoundPattern.worstOutlier(soundSamples);}
                                 if(batchFailure==null){
                                     candidateNormal=WakePolicy.enrollment(ownerNormalSamples);candidateQuiet=WakePolicy.enrollment(ownerQuietSamples);
-                                    if(candidateNormal==null||candidateQuiet==null||WakePolicy.cosine(candidateNormal,candidateQuiet)<.65)
+                                    if(candidateNormal==null||candidateQuiet==null||WakePolicy.cosine(candidateNormal,candidateQuiet)<.65){
                                         batchFailure="Your normal and quiet takes did not agree closely enough with each other.";
+                                        // The voice (not sound-pattern) consistency check has no
+                                        // per-sample outlier detector of its own; falling back to
+                                        // "redo the most recent take" here is a reasonable default
+                                        // since this check has no cheap way to identify which of
+                                        // the 10 voice samples is the actual outlier.
+                                        outlierIndex=index;
+                                    }
                                 }
                                 if(batchFailure!=null){
-                                    wakeSampleIndex--;
-                                    if(identityTake){if(!soundSamples.isEmpty())soundSamples.remove(soundSamples.size()-1);
-                                        List<float[]> group=OwnerTrainingPlan.quiet(index)?ownerQuietSamples:ownerNormalSamples;if(!group.isEmpty())group.remove(group.size()-1);}
-                                    retryOwnerTake(batchFailure+" This take did not fit with your other "+wakeSampleIndex+" — record it again in a quiet place, in your normal speaking voice.");return;
+                                    final int removeAt=outlierIndex<0?index:outlierIndex;
+                                    // soundSamples is appended in strict recording order (index 0..9
+                                    // during enrollment), so soundSamples.get(removeAt) corresponds
+                                    // exactly to the take that was originally recorded at
+                                    // wakeSampleIndex==removeAt. Map that back into whichever split
+                                    // list (normal or quiet) actually holds it, by counting how many
+                                    // of the takes before it were quiet vs normal — the two lists are
+                                    // filled in lockstep with soundSamples, one entry per enrollment
+                                    // take, so this position always exists.
+                                    boolean removedIsQuiet=OwnerTrainingPlan.quiet(removeAt);
+                                    int positionInGroup=0;for(int i=0;i<removeAt;i++)if(OwnerTrainingPlan.quiet(i)==removedIsQuiet)positionInGroup++;
+                                    if(removeAt<soundSamples.size())soundSamples.remove(removeAt);
+                                    List<float[]> group=removedIsQuiet?ownerQuietSamples:ownerNormalSamples;
+                                    if(positionInGroup<group.size())group.remove(positionInGroup);
+                                    // wakeSampleIndex must point at the exact gap the removal
+                                    // left, not just "one less than before" — those are only the
+                                    // same slot when the outlier happened to be the take just
+                                    // recorded. If an earlier take (e.g. take 3) was the real
+                                    // outlier, the next recording needs to re-fill THAT slot, not
+                                    // silently re-record slot 9 while leaving the bad take 3 in
+                                    // place forever.
+                                    wakeSampleIndex=removeAt;
+                                    String takeLabel=OwnerTrainingPlan.label(removeAt);
+                                    retryOwnerTake(batchFailure+" "+(removeAt==index?"This take":"Take \""+takeLabel+"\"")+" did not fit with your other "+(OwnerTrainingPlan.ENROLLMENT-1)+" — please redo it, in a quiet place, at a comfortable volume.");
+                                    return;
                                 }
                             }
                             if(wakeSampleIndex==OwnerTrainingPlan.TOTAL){showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All required takes passed. Review and authenticate to replace the owner profile.",0);finishWakeTraining();return;}

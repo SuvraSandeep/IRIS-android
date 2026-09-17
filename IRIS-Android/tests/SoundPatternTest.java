@@ -23,6 +23,23 @@ public class SoundPatternTest {
         float[][] corrupt=new float[20][24];corrupt[0][0]=Float.NaN;check(!SoundPattern.valid(corrupt),"NaN rejects");
         check(!Double.isFinite(SoundPattern.distance(reference,SoundPattern.extract(clip(4000,8000,false)))),"truncated sound rejects");
         check(!Double.isFinite(SoundPattern.score(reference,examples.subList(0,2))),"single-template bypass rejects");
+        // worstOutlier(): calibrate() failing does not mean the most-recently-recorded sample is
+        // the problem — any earlier take could be the real outlier, and only redoing the newest
+        // slot can never fix that. Plant a genuinely different sound at a non-final position and
+        // confirm worstOutlier() finds exactly that position, not just size-1.
+        List<float[][]> withMiddleOutlier=new ArrayList<>();
+        for(int i=0;i<3;i++)withMiddleOutlier.add(SoundPattern.extract(clip(3000+i*100,22400+i*320,false)));
+        withMiddleOutlier.add(SoundPattern.extract(clip(4000,24000,true))); // reversed = genuinely different, at index 3
+        for(int i=4;i<10;i++)withMiddleOutlier.add(SoundPattern.extract(clip(3000+i*100,22400+i*320,false)));
+        boolean calibrateFailed=false;try{SoundPattern.calibrate(withMiddleOutlier);}catch(Exception e){calibrateFailed=true;}
+        check(calibrateFailed,"a genuinely different sample must break calibration (test setup)");
+        int outlier=SoundPattern.worstOutlier(withMiddleOutlier);
+        check(outlier==3,"worstOutlier must find the sample planted in the middle, not just the last index: got "+outlier);
+        List<float[][]> repaired=new ArrayList<>(withMiddleOutlier);repaired.remove(outlier);
+        boolean stillFails=false;try{SoundPattern.calibrate(repaired);}catch(Exception e){stillFails=true;}
+        check(!stillFails,"removing the correctly-identified outlier must let calibration succeed");
+        check(SoundPattern.worstOutlier(null)==-1,"worstOutlier must not throw on null");
+        check(SoundPattern.worstOutlier(Collections.singletonList(reference))==-1,"worstOutlier needs at least 2 templates to compare");
         System.out.println("Passed recorded-sound feature, pace/gain, order, duration and invalid-input checks (synthetic audio only)");
     }
 }
