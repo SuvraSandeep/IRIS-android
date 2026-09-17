@@ -2,7 +2,7 @@ package com.iris.assistant;
 
 /** UI stage and bounded operation clock, independent of recognizer callbacks. */
 final class OwnerTrainingStage {
-    enum Kind {IDLE, SPEECH_MODEL, SPEAKER_MODEL, READY, MICROPHONE, RECORDING, ANALYSIS, RETRY, PHRASE_READY, REVIEW, SAVED, FAILED}
+    enum Kind {IDLE, SPEECH_MODEL, SPEAKER_MODEL, READY, MICROPHONE, RECORDING, ANALYSIS, RETRY, PHRASE_READY, REVIEW, SAVED, SAVE_FAILED, FAILED}
     private Kind kind=Kind.IDLE;
     private String message="Ready to prepare voice training";
     private long began,deadline;
@@ -23,6 +23,7 @@ final class OwnerTrainingStage {
         case PHRASE_READY:return "Phrase check passed";
         case REVIEW:return "Ready to save";
         case SAVED:return "Owner voice saved";
+        case SAVE_FAILED:return "Save failed \u2014 your takes are kept";
         case FAILED:return "Training stopped";
         default:return "Ready to train";
     }}

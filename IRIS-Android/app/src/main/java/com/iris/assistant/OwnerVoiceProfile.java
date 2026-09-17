@@ -8,18 +8,43 @@ final class OwnerVoiceProfile {
     static final String PREPROCESSING="quiet-v1-pcm16-16000", MODEL="vosk-model-spk-0.4";
     final JSONObject data;
     final SoundWakeProfile sound;
+    /** Optional second identity for a headset/earphone route (schema 6+). Phone-route evidence
+     *  above (voiceprint/quietVoiceprint/soundWake) always exists once any profile is saved;
+     *  this is trained separately, afterwards, only if the user opts in via "Add earphone
+     *  profile" — a phone mic and a headset mic pick up a noticeably different signal (distance,
+     *  angle, own noise-cancelling/sidetone), so one enrollment does not reliably match the
+     *  other route's audio. Absent (null) means: no headset route has been trained yet. */
+    final HeadsetProfile headset;
+    static final class HeadsetProfile {
+        final JSONObject data; final SoundWakeProfile sound;
+        HeadsetProfile(JSONObject object)throws Exception {
+            data=new JSONObject(object.toString());
+            sound=new SoundWakeProfile(data.getJSONObject("soundWake"));
+            vector(data.getJSONArray("voiceprint"));vector(data.getJSONArray("quietVoiceprint"));
+        }
+        float[] normal(){try{return vector(data.getJSONArray("voiceprint"));}catch(Exception e){return null;}}
+        float[] quiet(){try{return vector(data.getJSONArray("quietVoiceprint"));}catch(Exception e){return null;}}
+    }
     OwnerVoiceProfile(JSONObject object)throws Exception {
         data=new JSONObject(object.toString());
         sound=data.has("soundWake")?new SoundWakeProfile(data.getJSONObject("soundWake")):null;
-        if((data.getInt("schema")!=4&&data.getInt("schema")!=5)||!MODEL.equals(data.getString("speakerModel"))||!PREPROCESSING.equals(data.getString("preprocessing")))throw new IllegalArgumentException("Incompatible owner model/profile");
-        if((data.getInt("schema")==5)!=(sound!=null))throw new IllegalArgumentException("Sound profile schema mismatch");
+        int schema=data.getInt("schema");
+        if((schema<4||schema>6)||!MODEL.equals(data.getString("speakerModel"))||!PREPROCESSING.equals(data.getString("preprocessing")))throw new IllegalArgumentException("Incompatible owner model/profile");
+        if((schema>=5)!=(sound!=null))throw new IllegalArgumentException("Sound profile schema mismatch");
+        headset=data.has("headset")?new HeadsetProfile(data.getJSONObject("headset")):null;
         String phrase=WakePolicy.normalize(data.getString("phrase"));
         if(phrase.isEmpty()||phrase.length()>120)throw new IllegalArgumentException("Invalid phrase");
         if(!data.getString("modelHash").matches("[a-f0-9]{64}"))throw new IllegalArgumentException("Missing model fingerprint; retrain to export");
         vector(data.getJSONArray("voiceprint"));vector(data.getJSONArray("quietVoiceprint"));
         list("normalSamples",3,12);list("quietSamples",3,12);list("validation",4,12);list("negatives",0,12);
-        if(!Double.isFinite(threshold())||threshold()<.65||threshold()>.85)throw new IllegalArgumentException("Invalid owner policy");
+        // .65 + .20*strictness must accept the maximum-strictness case (strictness==1 -> 0.85
+        // exactly in real numbers). IEEE 754 double arithmetic makes that sum 0.8500000000000001,
+        // which a strict ">.85" check rejects — silently failing the final save at max strictness
+        // even though every take passed validation. Add a small epsilon so the intended boundary
+        // (0.85) is inclusive despite floating-point rounding.
+        if(!Double.isFinite(threshold())||threshold()<.65-1e-9||threshold()>.85+1e-9)throw new IllegalArgumentException("Invalid owner policy");
         if(!validates())throw new IllegalArgumentException("Saved validation samples do not pass this profile");
+        if(headset!=null)for(float[] v:list("headsetValidation",4,12))if(!acceptsHeadset(v,threshold()))throw new IllegalArgumentException("Saved headset validation samples do not pass this profile");
     }
     static OwnerVoiceProfile create(String phrase,String hash,List<float[]> normal,List<float[]> quiet,List<float[]> validation,double threshold)throws Exception {
         JSONObject j=new JSONObject().put("schema",4).put("speakerModel",MODEL).put("preprocessing",PREPROCESSING).put("modelHash",hash)
@@ -40,6 +65,29 @@ final class OwnerVoiceProfile {
     }
     boolean acceptsWake(float[][] pattern,float[] voice,double policy){return sound!=null&&sound.accepts(pattern)&&accepts(voice,policy);}
     boolean validates(){try{for(float[] v:list("validation",4,12))if(!accepts(v,threshold()))return false;return true;}catch(Exception e){return false;}}
+    boolean acceptsHeadset(float[] sample,double policy){
+        if(headset==null)return false;
+        if(!WakePolicy.ownerEither(sample,headset.normal(),headset.quiet(),Math.max(policy,threshold())))return false;
+        try{for(float[] negative:list("negatives",0,12))if(WakePolicy.cosine(sample,negative)>=.80)return false;return true;}catch(Exception e){return false;}
+    }
+    boolean acceptsWakeHeadset(float[][] pattern,float[] voice,double policy){return headset!=null&&headset.sound.accepts(pattern)&&acceptsHeadset(voice,policy);}
+    /** Adds (or replaces) the optional headset-route identity alongside the existing phone-route
+     *  evidence above. Held-out headset validation takes must pass before this returns — same
+     *  four-take, held-out-verification contract as the phone route uses, just scoped to this
+     *  route's own vectors so a poor headset take can never be masked by the phone route's data. */
+    OwnerVoiceProfile withHeadset(List<float[]> normal,List<float[]> quiet,List<float[]> validation,List<float[][]> soundExamples,List<float[][]> soundValidation)throws Exception {
+        JSONObject h=new JSONObject().put("voiceprint",array(WakePolicy.enrollment(normal))).put("quietVoiceprint",array(WakePolicy.enrollment(quiet)))
+            .put("soundWake",SoundWakeProfile.create(soundExamples,soundValidation).data);
+        JSONObject j=new JSONObject(data.toString());j.put("schema",Math.max(6,j.getInt("schema"))).put("headset",h).put("headsetValidation",array(validation))
+            .put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
+        return new OwnerVoiceProfile(j);
+    }
+    /** Drops a previously trained headset route while keeping the phone route untouched. */
+    OwnerVoiceProfile withoutHeadset()throws Exception {
+        JSONObject j=new JSONObject(data.toString());j.remove("headset");j.remove("headsetValidation");
+        j.put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
+        return new OwnerVoiceProfile(j);
+    }
     OwnerVoiceProfile withNegative(float[] sample)throws Exception {
         vector(array(sample));
         if(!accepts(sample,threshold()))throw new IllegalArgumentException("This profile already rejects this event; no identity change needed");

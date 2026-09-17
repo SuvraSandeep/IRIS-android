@@ -6,7 +6,13 @@ import android.os.Build;
 
 /** Owns a recorder route. A connected headset is not proof of the recording input. */
 final class AudioRouteController implements AutoCloseable {
+    /** Which physical route a confirmed recording actually used. Wired/USB/Bluetooth are all
+     *  grouped as HEADSET: they share the same reason a separate profile matters — the mic
+     *  capsule (and often its distance/angle from the mouth) differs from the phone's built-in
+     *  mic, not any distinction the app needs to make between headset types. */
+    enum Route {PHONE,HEADSET,UNCONFIRMED}
     static volatile String observed="Microphone idle";
+    static volatile Route observedRoute=Route.UNCONFIRMED;
     private final AudioManager manager;
     private final int previousMode;
     private boolean changed;
@@ -45,13 +51,15 @@ final class AudioRouteController implements AutoCloseable {
     static int routeId(AudioRecord recorder){try{AudioDeviceInfo d=recorder.getRoutedDevice();return d==null?-1:d.getId();}catch(Exception e){return -1;}}
     static void observe(AudioRecord recorder){
         try{AudioDeviceInfo actual=recorder.getRoutedDevice();
-            if(actual==null){observed="Recording input unconfirmed";return;}
-            observed=(actual.getType()==AudioDeviceInfo.TYPE_BUILTIN_MIC?"Phone microphone":String.valueOf(actual.getProductName()))+" — confirmed input";
+            if(actual==null){observed="Recording input unconfirmed";observedRoute=Route.UNCONFIRMED;return;}
+            boolean phone=actual.getType()==AudioDeviceInfo.TYPE_BUILTIN_MIC;
+            observed=(phone?"Phone microphone":String.valueOf(actual.getProductName()))+" — confirmed input";
+            observedRoute=phone?Route.PHONE:Route.HEADSET;
             IrisListeningService.currentMic=observed;
-        }catch(Exception ignored){observed="Recording input unconfirmed";}
+        }catch(Exception ignored){observed="Recording input unconfirmed";observedRoute=Route.UNCONFIRMED;}
     }
     public void close(){
         if(changed&&manager!=null)try{if(Build.VERSION.SDK_INT>=31)manager.clearCommunicationDevice();else{manager.stopBluetoothSco();manager.setBluetoothScoOn(false);}manager.setMode(previousMode);}catch(Exception ignored){}
-        observed="Microphone idle";
+        observed="Microphone idle";observedRoute=Route.UNCONFIRMED;
     }
 }

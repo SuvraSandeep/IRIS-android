@@ -5155,7 +5155,13 @@ public class IrisListeningService extends Service implements RecognitionListener
     private boolean isOwnerVoice(float[] embedding) {
         try {
             ProfileStore store=new ProfileStore(this);OwnerVoiceProfile profile=store.ownerEvidence();
-            if(store.hasVersionedOwner())return profile!=null&&voskEngine!=null&&profile.hash().equals(voskEngine.speakerFingerprint())&&profile.accepts(embedding,voiceThreshold());
+            if(store.hasVersionedOwner()){
+                if(profile==null||voskEngine==null||!profile.hash().equals(voskEngine.speakerFingerprint()))return false;
+                // Match against whichever route is actually confirmed right now — a headset
+                // enrollment must never be checked against phone-route evidence or vice versa.
+                boolean headsetRoute=AudioRouteController.observedRoute==AudioRouteController.Route.HEADSET;
+                return headsetRoute?profile.acceptsHeadset(embedding,voiceThreshold()):profile.accepts(embedding,voiceThreshold());
+            }
             return voskEngine != null && voskEngine.isSpeakerReady()
                     && WakePolicy.ownerEither(embedding, new ProfileStore(this).getVoiceprint(),new ProfileStore(this).getQuietVoiceprint(), voiceThreshold());
         } catch (Throwable error) { return false; }

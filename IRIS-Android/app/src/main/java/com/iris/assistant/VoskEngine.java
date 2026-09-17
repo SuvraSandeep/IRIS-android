@@ -472,9 +472,21 @@ public final class VoskEngine {
                 newService.setClipListener(pcm->{
                     if(generation!=wakeGeneration||fired.get())return;
                     float[][] pattern=SoundPattern.extract(pcm);
-                    if(!activeProfile.sound.accepts(pattern))return;
+                    // A phone-mic and a headset-mic enrollment do not reliably match each other's
+                    // audio (different capsule distance/angle, sidetone, noise cancelling), so an
+                    // owner with both routes trained must be checked against the route actually in
+                    // use right now — never silently fall back to the other route's data. If this
+                    // route has no trained profile at all, treat it the same as "sound didn't
+                    // match" rather than surfacing a route-specific error mid-detection; the
+                    // listening-notification text (configureAudioRoute/isOwnerVoice callers)
+                    // already tells the user which mic is active and whether it's trained.
+                    boolean headsetRoute=AudioRouteController.observedRoute==AudioRouteController.Route.HEADSET;
+                    boolean soundMatch=headsetRoute?(activeProfile.headset!=null&&activeProfile.headset.sound.accepts(pattern)):activeProfile.sound.accepts(pattern);
+                    if(!soundMatch)return;
                     float[] voice=embed(QuietAudioProcessor.prepare(pcm));
-                    if(!activeProfile.acceptsWake(pattern,voice,new AppSettings(captureContext).ownerThreshold()))return;
+                    double policy=new AppSettings(captureContext).ownerThreshold();
+                    boolean accepted=headsetRoute?activeProfile.acceptsWakeHeadset(pattern,voice,policy):activeProfile.acceptsWake(pattern,voice,policy);
+                    if(!accepted)return;
                     main.post(()->{
                         if(generation!=wakeGeneration||fired.get())return;
                         if(!activeProfile.revision().equals(new ProfileStore(captureContext).ownerRevision())){if(fired.compareAndSet(false,true))listener.onError("Owner profile changed; restart listening");return;}

@@ -45,4 +45,64 @@ public class OwnerVoiceProfileTest {
     }
     @Test public void leasePreventsCompetingRecorders(){Object one=AudioCaptureCoordinator.acquire();assertNotNull(one);assertNull(AudioCaptureCoordinator.acquire());AudioCaptureCoordinator.release(new Object());assertTrue(AudioCaptureCoordinator.busy());AudioCaptureCoordinator.release(one);assertFalse(AudioCaptureCoordinator.busy());}
     @Test public void incompletePhraseCannotPass(){assertFalse(PhraseEvidence.complete("Hello Iris","hello"));assertFalse(PhraseEvidence.complete("Hello Iris","hello iris please"));assertTrue(PhraseEvidence.complete("Hello Iris","Hello, Iris!"));assertTrue(PhraseEvidence.mismatch("Hello Iris","hello").startsWith("PHRASE_INCOMPLETE"));}
+    @Test public void maximumStrictnessThresholdIsNotRejectedByFloatingPointRounding()throws Exception {
+        // .65 + .20*1.0 == 0.8500000000000001 in IEEE 754 double arithmetic, not exactly 0.85.
+        // A strict ">.85" check on this value rejected every save made at maximum owner
+        // strictness even though every take passed validation — this pins that boundary.
+        double maxStrictness=.65+.20*Math.max(0,Math.min(1,1.0f));
+        assertTrue("test setup: expected the real double-rounding artifact above .85",maxStrictness>.85);
+        List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
+        OwnerVoiceProfile.create("Hello Iris","a".repeat(64),takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),maxStrictness);
+        // A threshold genuinely outside the intended [.65,.85] range must still be rejected.
+        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),.86));
+        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),.64));
+    }
+    static float[][] soundExample(){float[][] t=new float[12][SoundPattern.BANDS];for(int f=0;f<12;f++)t[f][0]=1f;return t;}
+    static OwnerVoiceProfile profileWithSound()throws Exception {
+        List<float[][]> ex=new ArrayList<>(),val=new ArrayList<>();
+        for(int i=0;i<10;i++)ex.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
+        JSONObject withSound=new JSONObject(profile().data.toString());
+        withSound.put("schema",5).put("soundWake",SoundWakeProfile.create(ex,val).data);
+        return new OwnerVoiceProfile(withSound);
+    }
+    @Test public void headsetRouteIsAbsentUntilExplicitlyAdded()throws Exception {
+        OwnerVoiceProfile phone=profileWithSound();
+        assertNull(phone.headset);
+        assertFalse(phone.acceptsHeadset(v(1),.65));
+        assertFalse(phone.acceptsWakeHeadset(soundExample(),v(1),.65));
+    }
+    @Test public void addingHeadsetRoutePreservesPhoneRouteAndBumpsSchema()throws Exception {
+        OwnerVoiceProfile phone=profileWithSound();
+        List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
+        List<float[][]> ex=new ArrayList<>(),val=new ArrayList<>();
+        for(int i=0;i<10;i++)ex.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
+        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),ex,val);
+        assertNotNull(withHeadset.headset);
+        assertTrue(withHeadset.data.getInt("schema")>=6);
+        // Phone-route identity and matching survive adding a headset route untouched.
+        assertNotNull(withHeadset.normal());assertNotNull(withHeadset.quiet());
+        assertTrue(withHeadset.accepts(v(1),.65));assertTrue(withHeadset.acceptsWake(soundExample(),v(1),.65));
+        // Headset-route matching works on its own vectors.
+        assertTrue(withHeadset.acceptsHeadset(v(1),.65));assertTrue(withHeadset.acceptsWakeHeadset(soundExample(),v(1),.65));
+        assertNotEquals(phone.revision(),withHeadset.revision());
+    }
+    @Test public void headsetRouteSurvivesJsonRoundTrip()throws Exception {
+        OwnerVoiceProfile phone=profileWithSound();
+        List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
+        List<float[][]> ex=new ArrayList<>(),val=new ArrayList<>();
+        for(int i=0;i<10;i++)ex.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
+        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),ex,val);
+        OwnerVoiceProfile roundTrip=new OwnerVoiceProfile(new JSONObject(withHeadset.data.toString()));
+        assertNotNull(roundTrip.headset);assertTrue(roundTrip.acceptsHeadset(v(1),.65));
+    }
+    @Test public void removingHeadsetRouteLeavesPhoneRouteIntact()throws Exception {
+        OwnerVoiceProfile phone=profileWithSound();
+        List<float[]> takes=Arrays.asList(v(1),v(.999),v(.998),v(.997),v(.996));
+        List<float[][]> ex=new ArrayList<>(),val=new ArrayList<>();
+        for(int i=0;i<10;i++)ex.add(soundExample());for(int i=0;i<4;i++)val.add(soundExample());
+        OwnerVoiceProfile withHeadset=phone.withHeadset(takes,takes,Arrays.asList(v(1),v(.999),v(.998),v(.997)),ex,val);
+        OwnerVoiceProfile removed=withHeadset.withoutHeadset();
+        assertNull(removed.headset);assertNotNull(removed.normal());assertTrue(removed.accepts(v(1),.65));
+        assertNotEquals(withHeadset.revision(),removed.revision());
+    }
 }
