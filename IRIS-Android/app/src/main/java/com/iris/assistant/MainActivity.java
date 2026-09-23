@@ -1117,7 +1117,7 @@ public class MainActivity extends Activity {
         ownerRetryButton=view.findViewById(R.id.ownerRetryButton);
         ownerRetryButton.setOnClickListener(v->{
             if(previewBusy()||!ownerTrainingActive)return;
-            if(ownerStage.kind()==OwnerTrainingStage.Kind.RETRY)captureNextWakeSample();
+            if(ownerStage.kind()==OwnerTrainingStage.Kind.RETRY)retryOrRepairOwnerTraining();
             else if(ownerStage.kind()==OwnerTrainingStage.Kind.SAVE_FAILED)finishWakeTraining();
         });
 
@@ -3008,10 +3008,11 @@ public class MainActivity extends Activity {
      *  session, so it's safe to open at any time. */
     private void showCalibrationDiagnostics(){
         try{
-            boolean liveSession=ownerTrainingActive&&!headsetTrainingActive&&!enrollment.ecapaSamples.isEmpty();
-            List<float[]> ecapaGroup=liveSession?enrollment.ecapaSamples:null,voskGroup=liveSession?enrollment.voskSamples:null;
+            OwnerEnrollmentController activeBank=headsetTrainingActive?headsetEnrollment:enrollment;
+            boolean liveSession=ownerTrainingActive&&!activeBank.voskSamples.isEmpty();
+            List<float[]> ecapaGroup=liveSession?activeBank.ecapaSamples:null,voskGroup=liveSession?activeBank.voskSamples:null;
             String source;
-            if(liveSession){source="in-progress training session ("+enrollment.ecapaSamples.size()+" of "+OwnerTrainingPlan.ENROLLMENT+" enrollment takes so far)";}
+            if(liveSession){source=(headsetTrainingActive?"headset":"phone")+" training session ("+activeBank.voskSamples.size()+" of "+OwnerTrainingPlan.ENROLLMENT+" enrollment takes so far)";}
             else{
                 OwnerVoiceProfile saved=new ProfileStore(this).ownerEvidence();
                 if(saved==null){toast("No saved voice profile yet, and no training session is active. Start training or record a few takes first.");return;}
@@ -3019,9 +3020,9 @@ public class MainActivity extends Activity {
                 voskGroup=saved.voskList("voskSamples",OwnerTrainingPlan.ENROLLMENT,OwnerTrainingPlan.ENROLLMENT);
                 source="saved owner profile";
             }
-            StringBuilder sb=new StringBuilder("Source: ").append(source).append("\n\n");
+            StringBuilder sb=new StringBuilder("Source: ").append(source).append("\n\nLast capture: ").append(lastOwnerDiagnostic).append("\n\n");
             appendCalibrationDiagnostic(sb,"VOSK OWNER VOICE",voskGroup,WakePolicy.EMBED_DIM);
-            List<float[][]> patterns=liveSession?enrollment.phraseSamples:new ProfileStore(this).ownerEvidence().phraseEvidence.samples;
+            List<float[][]> patterns=liveSession?activeBank.phraseSamples:new ProfileStore(this).ownerEvidence().phraseEvidence.samples;
             sb.append("\nRecorded phrase examples: ").append(patterns.size());
             if(patterns.size()==4)sb.append("\nPhrase distance threshold: ").append(SoundPattern.calibrate(patterns));
             sb.append("\nBoth the recorded phrase and owner voice must match. Typed spelling is not used for wake detection.");
@@ -3284,10 +3285,30 @@ public class MainActivity extends Activity {
         cancelWakeTraining();showOwnerStage(OwnerTrainingStage.Kind.FAILED,reason,0);
         LogStore.append(this,"OWNER TRAINING","Stopped: "+reason);
     }
+    private String lastOwnerRejection="";
+    private void retryOrRepairOwnerTraining(){
+        int index=headsetTrainingActive?headsetSampleIndex:wakeSampleIndex;
+        boolean canRepair=ownerImport==null&&ownerRefinement==null&&index>=4&&ownerRejectedTakes>=3
+            &&("PHRASE_MISMATCH".equals(lastOwnerRejection)||"OWNER_REJECTED".equals(lastOwnerRejection));
+        if(!canRepair){captureNextWakeSample();return;}
+        final long generation=ownerTrainingGeneration;
+        activeTrainingDialog=new AlertDialog.Builder(this).setTitle("Repair the training examples?")
+            .setMessage("Several fresh takes did not match the first four examples. You can replace the least consistent example and keep the other three. All four verification takes will then be recorded again. Your saved profile stays unchanged until you authenticate and save.")
+            .setNegativeButton("Retry verification",(d,w)->{if(ownerTrainingActive&&generation==ownerTrainingGeneration)captureNextWakeSample();})
+            .setPositiveButton("Replace one example",(d,w)->{
+                if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
+                OwnerEnrollmentController bank=headsetTrainingActive?headsetEnrollment:enrollment;
+                bank.replaceWeakest(lastOwnerRejection);
+                if(headsetTrainingActive){headsetSampleIndex=3;headsetCandidateVosk=null;headsetCandidateEcapa=null;}
+                else{wakeSampleIndex=3;candidateVosk=null;candidateEcapa=null;}
+                ownerRejectedTakes=0;saveTrainingProgress(headsetTrainingActive);captureNextWakeSample();
+            }).show();
+    }
     private void retryOwnerTake(String reason){
+        lastOwnerRejection=reason;
         ownerRejectedTakes++;
-        String guide=phrasePreview.checking()?" You can try once more or choose a different phrase. This check has not changed your voice profile.":ownerRejectedTakes>=3?" Three takes were rejected. Please stop repeating: open Voice tools → Diagnostics to check the input and rejection reason. Your saved profile is unchanged.":" Your saved profile is unchanged. You can review diagnostics or try a new take.";
-        showOwnerStage(OwnerTrainingStage.Kind.RETRY,reason+guide,0);
+        String guide=phrasePreview.checking()?" You can try once more or choose a different phrase. This check has not changed your voice profile.":ownerRejectedTakes>=3?" Several takes were rejected. Tap Try one more take for recovery options, or open Voice tools → Diagnostics. Your saved profile is unchanged.":" Your saved profile is unchanged. You can review diagnostics or try a new take.";
+        showOwnerStage(OwnerTrainingStage.Kind.RETRY,RecordedWakeCheck.guidance(reason)+guide,0);
     }
     // trimToSize() REMOVED per WAKE-TRAINING-REDESIGN.md: it existed only to trim a spare-take-
     // enlarged group back down to size, and there is no spare-take mechanism left to trim after.
@@ -3323,7 +3344,7 @@ public class MainActivity extends Activity {
             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
             showOwnerStage(OwnerTrainingStage.Kind.MICROPHONE,"Opening the selected microphone. Please wait before speaking.",14000);
             final long take=++ownerTakeGeneration;
-            timedRecorder=new TimedRecorder(this);
+            timedRecorder=new TimedRecorder(this,AudioRouteController.Route.PHONE);
             TimedRecorder.Listener takeListener=new TimedRecorder.Listener(){
                 public void onLevel(float level){
                     if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
@@ -3331,7 +3352,7 @@ public class MainActivity extends Activity {
                     if(ownerStage.kind()!=OwnerTrainingStage.Kind.RECORDING)return;
                     ownerMeterLevel=level;ownerMicLevel=" • microphone level "+Math.round(level*100)+"%";renderOwnerStage();
                 }
-                public void onError(String error){if(ownerTrainingActive&&generation==ownerTrainingGeneration)failOwnerTraining(error);}
+                public void onError(String error){if(ownerTrainingActive&&generation==ownerTrainingGeneration&&take==ownerTakeGeneration)retryOwnerTake(error);}
                 public void onComplete(short[] pcm){
                     if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
                     showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,identityTake?"Checking audio quality and extracting voice characteristics. No need to speak now.":"Comparing your voice against your earlier takes. No text recognition is used.",30000);
@@ -3386,7 +3407,7 @@ public class MainActivity extends Activity {
                                 }
                             }
                             transcript=failure.isEmpty()?"Voice characteristics extracted":"Voice evidence needs another take";
-                            lastOwnerDiagnostic=(quality==null?"Route mismatch, no audio analysis performed":quality.summary())+"; input: "+recordedRoute+"; recorded phrase frames: "+pattern.length+"; Vosk components: "+(voskVector==null?0:voskVector.length)+"; "+failure;
+                            lastOwnerDiagnostic=(quality==null?"Route mismatch, no audio analysis performed":quality.summary())+"; input: "+recordedRoute+"; recorded phrase frames: "+pattern.length+"; Vosk components: "+(voskVector==null?0:voskVector.length)+"; "+failure+(!identityTake?"; "+RecordedWakeCheck.diagnostic(pattern,enrollment.phraseSamples,SoundPattern.calibrate(enrollment.phraseSamples),voskVector,candidateVosk,new AppSettings(MainActivity.this).ownerThreshold()):"");
                             ownerLastHeard=phrasePreview.checking()?engine.transcribe(pcm):transcript;
                         }}catch(Throwable error){failure="Voice analysis failed. Please retry this take.";}finally{java.util.Arrays.fill(pcm,(short)0);}
                         final String rejection=failure;final float[] ecapaEmbedding=ecapaVector;final float[] voskEmbedding=voskVector;
@@ -3488,6 +3509,7 @@ public class MainActivity extends Activity {
         releaseOwnerTraining();
         ownerRejectedTakes=0;pendingOwnerCapture=null;ownerLastHeard="";
         ownerTrainingActive=true;headsetTrainingActive=true;
+        sessionRoute=AudioRouteController.Route.HEADSET;
         headsetEnrollment.clear();headsetCandidateEcapa=null;headsetCandidateVosk=null;
         ownerBaseRevision=new ProfileStore(this).ownerRevision();
         wakePhraseBeingTrained=existing.phrase();
@@ -3502,6 +3524,10 @@ public class MainActivity extends Activity {
         if(!TrainingProgress.save(this,headset,wakePhraseBeingTrained,headset?headsetSampleIndex:wakeSampleIndex,
                 headset?"HEADSET":sessionRoute.name(),ownerBaseRevision,ownerTrainingEngine.speakerFingerprint(),headset?headsetEnrollment:enrollment))
             toast("Training is kept in memory, but saving progress failed. Keep this session open.");
+    }
+    private double headsetOwnerThreshold(){
+        OwnerVoiceProfile base=new ProfileStore(this).ownerEvidence();
+        return base==null?Double.NaN:Math.max(base.threshold(),new AppSettings(this).ownerThreshold());
     }
     private void captureNextHeadsetSample() {
         if(previewBusy()||!ownerTrainingActive||!headsetTrainingActive||isFinishing()||isDestroyed())return;
@@ -3532,7 +3558,7 @@ public class MainActivity extends Activity {
             if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration)return;
             showOwnerStage(OwnerTrainingStage.Kind.MICROPHONE,"Opening the headset microphone. Please wait before speaking.",14000);
             final long take=++ownerTakeGeneration;
-            timedRecorder=new TimedRecorder(this);
+            timedRecorder=new TimedRecorder(this,AudioRouteController.Route.HEADSET);
             TimedRecorder.Listener takeListener=new TimedRecorder.Listener(){
                 public void onLevel(float level){
                     if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
@@ -3540,7 +3566,7 @@ public class MainActivity extends Activity {
                     if(ownerStage.kind()!=OwnerTrainingStage.Kind.RECORDING)return;
                     ownerMeterLevel=level;ownerMicLevel=" • microphone level "+Math.round(level*100)+"%";renderOwnerStage();
                 }
-                public void onError(String error){if(ownerTrainingActive&&headsetTrainingActive&&generation==ownerTrainingGeneration)failOwnerTraining(error);}
+                public void onError(String error){if(ownerTrainingActive&&headsetTrainingActive&&generation==ownerTrainingGeneration&&take==ownerTakeGeneration)retryOwnerTake(error);}
                 public void onComplete(short[] pcm){
                     if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
                     showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,"Checking audio quality and extracting voice characteristics. No need to speak now.",30000);
@@ -3565,10 +3591,11 @@ public class MainActivity extends Activity {
                                     if(!ecapaOk&&!voskOk)failure="Sound captured, but voice characteristics were insufficient. Try a comfortable volume.";
                                     else if(!identityTake){
                                         failure=RecordedWakeCheck.reject(pattern,headsetEnrollment.phraseSamples,SoundPattern.calibrate(headsetEnrollment.phraseSamples),
-                                            voskVector,headsetCandidateVosk,new AppSettings(MainActivity.this).ownerThreshold());
+                                            voskVector,headsetCandidateVosk,headsetOwnerThreshold());
                                     }
                                 }
-                                lastOwnerDiagnostic=quality.summary()+"; input: "+recordedRoute+"; "+failure;
+                                lastOwnerDiagnostic=quality.summary()+"; input: "+recordedRoute+"; "+failure
+                                    +(!identityTake?"; "+RecordedWakeCheck.diagnostic(pattern,headsetEnrollment.phraseSamples,SoundPattern.calibrate(headsetEnrollment.phraseSamples),voskVector,headsetCandidateVosk,headsetOwnerThreshold()):"");
                                 ownerLastHeard=failure.isEmpty()?"Voice characteristics extracted":"Voice evidence needs another take";
                             }
                         }}catch(Throwable error){failure="Voice analysis failed. Please retry this take.";}finally{java.util.Arrays.fill(pcm,(short)0);}

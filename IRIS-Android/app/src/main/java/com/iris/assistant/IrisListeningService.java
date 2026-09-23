@@ -867,7 +867,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
             @Override public void onRejected(String reason){if(epoch==wakeEpoch&&isRunning){
                 WakeEventStore.add(reason,new ProfileStore(IrisListeningService.this).ownerRevision(),null,null,false);
-                wakeReadiness="Last wake check: "+reason;
+                wakeReadiness="Listening · "+RecordedWakeCheck.guidance(reason);
+                LogStore.append(IrisListeningService.this,"WAKE REJECTED",reason+"; "+voskEngine.lastWakeDiagnostic());
                 updateListeningNotification(wakeReadiness);
             }}
             @Override public void onWakeDetected(float[] ecapaEmbedding, float[] voskEmbedding) {

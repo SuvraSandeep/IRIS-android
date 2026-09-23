@@ -58,6 +58,7 @@ javac -encoding UTF-8 -d "$test_dir/recorder" \
   app/src/main/java/com/iris/assistant/RecordingDeadline.java \
   app/src/main/java/com/iris/assistant/AudioCaptureCoordinator.java \
   app/src/main/java/com/iris/assistant/SpeechEndpoint.java \
+  app/src/main/java/com/iris/assistant/PhraseCapture.java \
   app/src/main/java/com/iris/assistant/TimedRecorder.java \
   tests/TimedRecorderFlowTest.java
 java -cp "$test_dir/recorder" com.iris.assistant.TimedRecorderFlowTest
@@ -76,3 +77,8 @@ java -cp "$test_dir/voice" com.iris.assistant.VoiceCoreTest
 mkdir -p "$test_dir/recorded"
 javac -encoding UTF-8 -d "$test_dir/recorded" app/src/main/java/com/iris/assistant/WakePolicy.java app/src/main/java/com/iris/assistant/SoundPattern.java app/src/main/java/com/iris/assistant/RecordedWakeCheck.java tests/RecordedWakeCheckTest.java
 java -cp "$test_dir/recorded" com.iris.assistant.RecordedWakeCheckTest
+
+javac -encoding UTF-8 -d "$test_dir/recorded" app/src/main/java/com/iris/assistant/WakePolicy.java app/src/main/java/com/iris/assistant/SoundPattern.java app/src/main/java/com/iris/assistant/PhraseCapture.java tests/PhraseCaptureTest.java
+java -cp "$test_dir/recorded" com.iris.assistant.PhraseCaptureTest
+javac -encoding UTF-8 -d "$test_dir/recorded" app/src/main/java/com/iris/assistant/WakeAnalysisQueue.java tests/WakeAnalysisQueueTest.java
+java -cp "$test_dir/recorded" com.iris.assistant.WakeAnalysisQueueTest

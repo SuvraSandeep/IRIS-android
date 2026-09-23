@@ -41,9 +41,9 @@ final class ManagedSpeechService {
                 int buffer=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
                 mic=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(4096,buffer*2));
                 if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
-                route.request(context,mic,allowBluetooth);mic.startRecording();AudioRouteController.observe(mic);
+                route.request(context,mic,allowBluetooth);mic.startRecording();AudioRouteController.awaitInput(mic,AudioRouteController.Route.UNCONFIRMED);AudioRouteController.observe(mic);
                 short[] frame=new short[320],raw=new short[128000];int rawCount=0,rawOffset=0;int frames=0,lastRoute=-1;
-                SpeechEndpoint endpoint=new SpeechEndpoint();
+                PhraseCapture endpoint=new PhraseCapture();
                 QuietAudioProcessor gain=new QuietAudioProcessor();
                 long lastPcm=SystemClock.elapsedRealtime();
                 while(running){
@@ -51,19 +51,17 @@ final class ManagedSpeechService {
                     if(n<0)throw new IllegalStateException("Microphone read failed: "+n);
                     if(n==0){if(SystemClock.elapsedRealtime()-lastPcm>=3000)throw new IllegalStateException("Microphone stopped supplying audio");Thread.sleep(10);continue;}
                     lastPcm=SystemClock.elapsedRealtime();
-                    if(++frames%25==0){
-                        AudioDeviceInfo actual=mic.getRoutedDevice();int id=actual==null?-1:actual.getId();
-                        if(lastRoute!=-1&&id!=lastRoute){recognizer.reset();rawCount=rawOffset=0;gain=new QuietAudioProcessor();endpoint=new SpeechEndpoint();}lastRoute=id;
-                        AudioRouteController.observe(mic);
-                    }
-                    for(int i=0;i<n;i++){raw[rawOffset]=frame[i];rawOffset=(rawOffset+1)%raw.length;rawCount=Math.min(raw.length,rawCount+1);}
+                    AudioDeviceInfo actual=mic.getRoutedDevice();int id=actual==null?-1:actual.getId();
+                    if(id!=lastRoute){
+                        recognizer.reset();rawCount=rawOffset=0;gain=new QuietAudioProcessor();endpoint.clear();
+                        lastRoute=id;AudioRouteController.observe(mic);
+                    }else if(++frames%25==0)AudioRouteController.observe(mic);
+                    if(clipListener==null)for(int i=0;i<n;i++){raw[rawOffset]=frame[i];rawOffset=(rawOffset+1)%raw.length;rawCount=Math.min(raw.length,rawCount+1);}
                     if(clipListener!=null){
-                        if(endpoint.add(frame,n)){
-                            short[] clip=new short[rawCount];int start=(rawOffset-rawCount+raw.length)%raw.length;
-                            for(int i=0;i<rawCount;i++)clip[i]=raw[(start+i)%raw.length];
+                        short[] clip=endpoint.add(frame,n);
+                        if(clip!=null){
                             AudioRouteController.observe(mic);
                             final AudioRouteController.Route capturedRoute=AudioRouteController.observedRoute;
-                            rawCount=rawOffset=0;endpoint=new SpeechEndpoint();
                             main.post(()->{if(running)clipListener.onClip(clip,capturedRoute);else java.util.Arrays.fill(clip,(short)0);});
                         }
                         continue;

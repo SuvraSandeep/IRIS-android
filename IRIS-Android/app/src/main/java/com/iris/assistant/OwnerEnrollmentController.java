@@ -71,6 +71,23 @@ final class OwnerEnrollmentController {
         if (!ecapaValidation.isEmpty()) ecapaValidation.remove(ecapaValidation.size() - 1);
         if (!voskValidation.isEmpty()) voskValidation.remove(voskValidation.size() - 1);
     }
+    /** Explicit recovery: discard one enrollment pair, never promote a rejected/held-out take.
+     * The replacement bank must pass four NEW independent checks before it can be saved. */
+    int replaceWeakest(String reason){
+        if(voskSamples.size()!=4||phraseSamples.size()!=4||ecapaSamples.size()!=4)
+            throw new IllegalStateException("Four paired enrollment examples are required");
+        int worst=SoundPattern.rankByConsistency(phraseSamples)[0];
+        if("OWNER_REJECTED".equals(reason)){
+            double lowest=Double.POSITIVE_INFINITY;
+            for(int i=0;i<4;i++){
+                double score=0;for(int j=0;j<4;j++)if(i!=j)score+=WakePolicy.cosine(voskSamples.get(i),voskSamples.get(j));
+                if(score<lowest){lowest=score;worst=i;}
+            }
+        }
+        removeEnrollmentAt(worst);
+        ecapaValidation.clear();voskValidation.clear();phraseValidation.clear();
+        return worst;
+    }
     OwnerVoiceProfile build(String phrase, String hash, double threshold) throws Exception {
         return OwnerVoiceProfile.create(phrase, hash, ecapaSamples, voskSamples, ecapaValidation, voskValidation, threshold, RecordedPhrase.create(phraseSamples,phraseValidation));
     }
