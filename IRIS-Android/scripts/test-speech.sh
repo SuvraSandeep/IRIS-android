@@ -73,6 +73,6 @@ javac -encoding UTF-8 -d "$test_dir/voice" \
   app/src/main/java/com/iris/assistant/VoiceProfileCrypto.java \
   tests/VoiceCoreTest.java
 java -cp "$test_dir/voice" com.iris.assistant.VoiceCoreTest
-# SoundPattern/SoundPatternTest REMOVED per WAKE-TRAINING-REDESIGN.md -- the DTW sound-pattern
-# matcher is deleted entirely; identity is now decided purely by the dual speaker-embedding
-# ensemble (WakePolicy.finalScore(), covered by WakePolicyTest below).
+mkdir -p "$test_dir/recorded"
+javac -encoding UTF-8 -d "$test_dir/recorded" app/src/main/java/com/iris/assistant/WakePolicy.java app/src/main/java/com/iris/assistant/SoundPattern.java app/src/main/java/com/iris/assistant/RecordedWakeCheck.java tests/RecordedWakeCheckTest.java
+java -cp "$test_dir/recorded" com.iris.assistant.RecordedWakeCheckTest

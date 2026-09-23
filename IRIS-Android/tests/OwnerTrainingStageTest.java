@@ -14,7 +14,7 @@ public final class OwnerTrainingStageTest {
    check(!OwnerTrainingPlan.label(i).isEmpty());
   }
   check(enrollmentTakes==OwnerTrainingPlan.ENROLLMENT);check(verificationTakes==OwnerTrainingPlan.VERIFY);
-  check(OwnerTrainingPlan.ENROLLMENT==4);check(OwnerTrainingPlan.VERIFY==2);check(OwnerTrainingPlan.TOTAL==6);
+  check(OwnerTrainingPlan.ENROLLMENT==4);check(OwnerTrainingPlan.VERIFY==4);check(OwnerTrainingPlan.TOTAL==8);
   System.out.println("Passed "+checks+" owner training stage/plan checks");
  }
 }

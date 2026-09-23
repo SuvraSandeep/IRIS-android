@@ -2,23 +2,15 @@ package com.iris.assistant;
 
 import java.util.*;
 
-/** Candidate samples are separate from active identity and from held-out validation.
- *
- *  Redesigned per WAKE-TRAINING-REDESIGN.md: holds TWO parallel embedding lists per phase
- *  (ecapaSamples/voskSamples for enrollment, ecapaValidation/voskValidation for held-out
- *  verification) instead of the old normal/soft volume-group split. Every take contributes to
- *  BOTH lists at the same index (the caller extracts both embeddings from the same trimmed
- *  clip in one pipeline step — see MainActivity's per-take pipeline), so ecapaSamples.get(i)
- *  and voskSamples.get(i) always correspond to the same recording. There is no addSpare() and
- *  no overflow/group-routing logic: a calibration failure simply retries the whole 4-take
- *  enrollment batch (add() is called again from index 0), which is why this class no longer
- *  needs index-based group inference at all. */
+/** Paired acoustic and speaker evidence. Held-out recordings never enter enrollment. */
 final class OwnerEnrollmentController {
     final List<float[]> ecapaSamples = new ArrayList<>();
     final List<float[]> voskSamples = new ArrayList<>();
     final List<float[]> ecapaValidation = new ArrayList<>();
     final List<float[]> voskValidation = new ArrayList<>();
+    final List<float[][]> phraseSamples=new ArrayList<>(), phraseValidation=new ArrayList<>();
     void clear() {
+        phraseSamples.clear();phraseValidation.clear();
         ecapaSamples.clear(); voskSamples.clear();
         ecapaValidation.clear(); voskValidation.clear();
     }
@@ -70,11 +62,16 @@ final class OwnerEnrollmentController {
      *  single verification take fails and must be retried (see MainActivity), since a
      *  verification take is disposable, unlike an enrollment take which is only ever discarded
      *  as part of retrying the WHOLE 4-take batch (clear() + start over), never individually. */
+    void removeLastEnrollment(){removeEnrollmentAt(voskSamples.size()-1);}
+    void removeEnrollmentAt(int index){
+        if(index>=0){voskSamples.remove(index);ecapaSamples.remove(index);phraseSamples.remove(index);}
+    }
     void removeLastVerification() {
+        if(!phraseValidation.isEmpty())phraseValidation.remove(phraseValidation.size()-1);
         if (!ecapaValidation.isEmpty()) ecapaValidation.remove(ecapaValidation.size() - 1);
         if (!voskValidation.isEmpty()) voskValidation.remove(voskValidation.size() - 1);
     }
     OwnerVoiceProfile build(String phrase, String hash, double threshold) throws Exception {
-        return OwnerVoiceProfile.create(phrase, hash, ecapaSamples, voskSamples, ecapaValidation, voskValidation, threshold);
+        return OwnerVoiceProfile.create(phrase, hash, ecapaSamples, voskSamples, ecapaValidation, voskValidation, threshold, RecordedPhrase.create(phraseSamples,phraseValidation));
     }
 }

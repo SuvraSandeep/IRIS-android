@@ -7,13 +7,33 @@ import static org.junit.Assert.*;
 /** Redesigned per WAKE-TRAINING-REDESIGN.md: schema 7, dual-embedding (ECAPA-TDNN 192-dim +
  *  Vosk 128-dim) ensemble, 4-enrollment + 2-verification plan, no sound-pattern evidence. */
 public class OwnerVoiceProfileTest {
+    static float[][] pattern(int band){float[][] p=new float[30][24];for(float[] row:p)row[band]=1;return p;}
+    static RecordedPhrase phraseEvidence()throws Exception {
+        return RecordedPhrase.create(Arrays.asList(pattern(0),pattern(0),pattern(0),pattern(0)),Arrays.asList(pattern(0),pattern(0),pattern(0),pattern(0)));
+    }
+    @Test public void missingPhraseEvidenceCannotActivate()throws Exception {
+        JSONObject j=new JSONObject(profile().data.toString());j.remove("phraseEvidence");
+        assertThrows(Exception.class,()->new OwnerVoiceProfile(j));
+    }
+    @Test public void oldSchemaSevenNeedsNewPhraseTraining()throws Exception {
+        JSONObject j=new JSONObject(profile().data.toString()).put("schema",7);
+        assertThrows(Exception.class,()->new OwnerVoiceProfile(j));
+    }
+    @Test public void heldOutWrongPhraseCannotBeSaved()throws Exception {
+        assertThrows(Exception.class,()->RecordedPhrase.create(Arrays.asList(pattern(0),pattern(0),pattern(0),pattern(0)),Arrays.asList(pattern(0),pattern(0),pattern(1),pattern(0))));
+    }
+    @Test public void missingSpeakerCannotBeRescuedByOtherSignal()throws Exception {
+        assertFalse(profile().accepts(ev(1),null,.65));
+        assertFalse(profile().accepts(null,vv(1),.65));
+    }
+
     static float[] ev(double cosine){float[] v=new float[WakePolicy.ECAPA_EMBED_DIM];v[0]=(float)cosine;v[1]=(float)Math.sqrt(1-cosine*cosine);return v;}
     static float[] vv(double cosine){float[] v=new float[WakePolicy.EMBED_DIM];v[0]=(float)cosine;v[1]=(float)Math.sqrt(1-cosine*cosine);return v;}
     static OwnerVoiceProfile profile()throws Exception {
         List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
         List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
         return OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,
-            Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)),.65);
+            Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997)),.65,phraseEvidence());
     }
     @Test public void roundTripPreservesDecisions()throws Exception {
         OwnerVoiceProfile p=profile(),q=new OwnerVoiceProfile(new JSONObject(p.data.toString()));
@@ -65,10 +85,10 @@ public class OwnerVoiceProfileTest {
         assertTrue("test setup: expected the real double-rounding artifact above .85",maxStrictness>.85);
         List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
         List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
-        OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)),maxStrictness);
+        OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997)),maxStrictness,phraseEvidence());
         // A threshold genuinely outside the intended [.65,.85] range must still be rejected.
-        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)),.86));
-        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)),.64));
+        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997)),.86,phraseEvidence()));
+        assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997)),.64,phraseEvidence()));
     }
     @Test public void headsetRouteIsAbsentUntilExplicitlyAdded()throws Exception {
         OwnerVoiceProfile phone=profile();
@@ -78,7 +98,7 @@ public class OwnerVoiceProfileTest {
         OwnerVoiceProfile phone=profile();
         List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
         List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
-        OwnerVoiceProfile withHeadset=phone.withHeadset(ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)));
+        OwnerVoiceProfile withHeadset=phone.withHeadset(ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997)),phraseEvidence());
         assertNotNull(withHeadset.headset);
         assertEquals(OwnerVoiceProfile.SCHEMA,withHeadset.data.getInt("schema"));
         // Phone-route identity and matching survive adding a headset route untouched.
@@ -92,7 +112,7 @@ public class OwnerVoiceProfileTest {
         OwnerVoiceProfile phone=profile();
         List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
         List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
-        OwnerVoiceProfile withHeadset=phone.withHeadset(ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)));
+        OwnerVoiceProfile withHeadset=phone.withHeadset(ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997)),phraseEvidence());
         OwnerVoiceProfile roundTrip=new OwnerVoiceProfile(new JSONObject(withHeadset.data.toString()));
         assertNotNull(roundTrip.headset);assertTrue(roundTrip.acceptsHeadset(ev(1),vv(1),.65));
     }
@@ -100,7 +120,7 @@ public class OwnerVoiceProfileTest {
         OwnerVoiceProfile phone=profile();
         List<float[]> ecapaTakes=Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997));
         List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
-        OwnerVoiceProfile withHeadset=phone.withHeadset(ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999)),Arrays.asList(vv(1),vv(.999)));
+        OwnerVoiceProfile withHeadset=phone.withHeadset(ecapaTakes,voskTakes,Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997)),phraseEvidence());
         OwnerVoiceProfile removed=withHeadset.withoutHeadset();
         assertNull(removed.headset);assertNotNull(removed.ecapaCentroid());assertTrue(removed.accepts(ev(1),vv(1),.65));
         assertNotEquals(withHeadset.revision(),removed.revision());
@@ -117,7 +137,7 @@ public class OwnerVoiceProfileTest {
         List<float[]> ecapaTakes=Arrays.asList(new float[0],new float[0],new float[0],new float[0]);
         List<float[]> voskTakes=Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997));
         return OwnerVoiceProfile.create("Hello Iris","a".repeat(64),ecapaTakes,voskTakes,
-            Arrays.asList(new float[0],new float[0]),Arrays.asList(vv(1),vv(.999)),.65);
+            Arrays.asList(new float[0],new float[0],new float[0],new float[0]),Arrays.asList(vv(1),vv(.999),vv(.998),vv(.997)),.65,phraseEvidence());
     }
     @Test public void profileCanBeBuiltAndSavedWithEcapaEntirelyAbsent()throws Exception {
         OwnerVoiceProfile p=profileVoskOnly();
@@ -148,15 +168,15 @@ public class OwnerVoiceProfileTest {
         // outright -- absence-tolerance is ONE-DIRECTIONAL (ECAPA may be absent, Vosk may not).
         assertThrows(IllegalArgumentException.class,()->OwnerVoiceProfile.create("Hello Iris","a".repeat(64),
             Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(new float[0],new float[0],new float[0],new float[0]),
-            Arrays.asList(ev(1),ev(.999)),Arrays.asList(new float[0],new float[0]),.65));
+            Arrays.asList(ev(1),ev(.999),ev(.998),ev(.997)),Arrays.asList(new float[0],new float[0],new float[0],new float[0]),.65,phraseEvidence()));
     }
-    @Test public void withNegativeRejectsAbsentEcapaSample()throws Exception {
-        // An absent-ECAPA "negative" would always score cosine==-1 against any real sample and
-        // could never actually correct anything -- must be rejected explicitly, not silently
-        // accepted and wasted via ecapaArray()/ecapaVector()'s now-tolerant round-trip.
-        OwnerVoiceProfile p=profile();
-        assertThrows(IllegalArgumentException.class,()->p.withNegative(new float[0],vv(.70)));
-        assertThrows(IllegalArgumentException.class,()->p.withNegative(null,vv(.70)));
+    @Test public void voskOnlyFeedbackWorksAndProtectsHeldOutOwner()throws Exception {
+        OwnerVoiceProfile p=profileVoskOnly();
+        OwnerVoiceProfile corrected=p.withNegative(null,vv(.70));
+        assertFalse(corrected.accepts(null,vv(.70),.65));
+        assertTrue(corrected.accepts(null,vv(1),.65));
+        assertThrows(Exception.class,()->p.withNegative(null,vv(1)));
+        assertThrows(Exception.class,()->p.withNegative(null,null));
     }
     @Test public void enrollmentControllerAcceptsAbsentEcapaButRequiresVosk(){
         OwnerEnrollmentController controller=new OwnerEnrollmentController();

@@ -137,17 +137,8 @@ public final class ProfileStore {
                     if (!p.isEmpty()) profile.altPhrases.add(p);
                 }
             }
-            // Real bug fixed here: WakeProfile.isVoiceEnrolled() only ever checked the legacy
-            // pre-schema-4 `voiceprint` field above, which a schema-7 profile (this redesign's
-            // dual ECAPA-TDNN/Vosk ensemble, see OwnerVoiceProfile.java) never populates at all
-            // — identity lives in `ecapaCentroid`/`voskCentroid` instead. So for every
-            // schema-7 profile, isVoiceEnrolled() always returned false regardless of a real
-            // saved profile, incorrectly blocking "Test saved voice" and mislabeling the voice
-            // status UI as "not set" even right after a successful save (confirmed on-device).
-            // Schema >= 4 (hasVersionedOwner()'s own definition) means SOME versioned identity
-            // was saved, whatever its schema; this is deliberately schema-version-agnostic so
-            // it doesn't need updating again the next time the schema bumps.
-            profile.versionedOwnerEnrolled = wake.optInt("schema") >= 4;
+            // Readiness means structurally valid, held-out-verified evidence for this version.
+            profile.versionedOwnerEnrolled = ownerEvidence() != null;
         } catch (Exception ignored) { }
         return profile;
     }
