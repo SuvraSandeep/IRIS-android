@@ -3,23 +3,10 @@ package com.iris.assistant;
 import org.json.*;
 import java.util.*;
 
-/** Versioned personal evidence, never a trained acoustic model.
- *
- *  Schema 7 (WAKE-TRAINING-REDESIGN.md ground-up redesign): drops the DTW sound-pattern
- *  evidence (`sound`/`headset.sound`, SoundWakeProfile) and the normal/quiet volume-group
- *  voiceprint split (`voiceprint`/`quietVoiceprint`) entirely. Identity is now a single
- *  dual-embedding ensemble: a dedicated ECAPA-TDNN centroid (`ecapaCentroid`, 192-dim) plus
- *  Vosk's own x-vector centroid (`voskCentroid`, 128-dim), combined via
- *  WakePolicy.finalScore()/ownerEnsemble() — never an "either accepts" OR gate. Each is built
- *  from exactly 4 enrollment takes (OwnerTrainingPlan.ENROLLMENT) via WakePolicy.enrollment(),
- *  the same outlier-tolerant majority-agreement aggregator used before, just run twice (once
- *  per embedding space) instead of once.
- *
- *  This is a deliberate breaking schema change, per this project's standing no-silent-fallback
- *  contract (AGENTS.md): a schema 4-6 profile (with `sound`/`voiceprint`/`quietVoiceprint`) is
- *  correctly REJECTED, not silently downgraded or partially read. Every user retrains once. */
+/** Schema 8 stores recorded-phrase evidence AND independently validated owner identity.
+ * Earlier profiles lack phrase evidence and require authenticated retraining. */
 final class OwnerVoiceProfile {
-    static final int SCHEMA = 7;
+    static final int SCHEMA = 8;
     static final String PREPROCESSING = "quiet-v1-pcm16-16000";
     /** Kept as the SECONDARY/ensemble model identifier (Vosk's x-vector) — the dedicated
      *  ECAPA-TDNN model has no single fixed "model name" string the same way (it's identified
@@ -33,10 +20,13 @@ final class OwnerVoiceProfile {
      *  noise-cancelling/sidetone), so one enrollment does not reliably match the other route's
      *  audio. Absent (null) means: no headset route has been trained yet. */
     final HeadsetProfile headset;
+    final RecordedPhrase phraseEvidence;
     static final class HeadsetProfile {
         final JSONObject data;
+        final RecordedPhrase phraseEvidence;
         HeadsetProfile(JSONObject object) throws Exception {
             data = new JSONObject(object.toString());
+            phraseEvidence=new RecordedPhrase(data.getJSONObject("phraseEvidence"));
             ecapaVector(data.getJSONArray("ecapaCentroid"));
             voskVector(data.getJSONArray("voskCentroid"));
         }
@@ -48,6 +38,7 @@ final class OwnerVoiceProfile {
         int schema = data.getInt("schema");
         if (schema != SCHEMA || !MODEL.equals(data.getString("speakerModel")) || !PREPROCESSING.equals(data.getString("preprocessing")))
             throw new IllegalArgumentException("Incompatible owner model/profile");
+        phraseEvidence=new RecordedPhrase(data.getJSONObject("phraseEvidence"));
         headset = data.has("headset") ? new HeadsetProfile(data.getJSONObject("headset")) : null;
         String phrase = WakePolicy.normalize(data.getString("phrase"));
         if (phrase.isEmpty() || phrase.length() > 120) throw new IllegalArgumentException("Invalid phrase");
@@ -59,6 +50,7 @@ final class OwnerVoiceProfile {
         ecapaList("ecapaValidation", OwnerTrainingPlan.VERIFY, OwnerTrainingPlan.VERIFY);
         voskList("voskValidation", OwnerTrainingPlan.VERIFY, OwnerTrainingPlan.VERIFY);
         ecapaList("negatives", 0, 12);
+        voskList("voskNegatives",0,12);
         // .65 + .20*strictness must accept the maximum-strictness case (strictness==1 -> 0.85
         // exactly in real numbers). IEEE 754 double arithmetic makes that sum 0.8500000000000001,
         // which a strict ">.85" check rejects — silently failing the final save at max strictness
@@ -86,12 +78,12 @@ final class OwnerVoiceProfile {
     static OwnerVoiceProfile create(String phrase, String hash,
                                      List<float[]> ecapaTakes, List<float[]> voskTakes,
                                      List<float[]> ecapaHeldOut, List<float[]> voskHeldOut,
-                                     double threshold) throws Exception {
-        JSONObject j = new JSONObject().put("schema", SCHEMA).put("speakerModel", MODEL).put("preprocessing", PREPROCESSING).put("modelHash", hash)
+                                     double threshold, RecordedPhrase phraseEvidence) throws Exception {
+        JSONObject j = new JSONObject().put("phraseEvidence",phraseEvidence.data).put("schema", SCHEMA).put("speakerModel", MODEL).put("preprocessing", PREPROCESSING).put("modelHash", hash)
             .put("recognizerModel", "vosk-model-small-en-us-0.15").put("phrase", phrase).put("revision", UUID.randomUUID().toString()).put("trainedAt", System.currentTimeMillis()).put("ownerThreshold", threshold)
             .put("ecapaSamples", ecapaArray(ecapaTakes)).put("voskSamples", voskArray(voskTakes))
             .put("ecapaValidation", ecapaArray(ecapaHeldOut)).put("voskValidation", voskArray(voskHeldOut))
-            .put("negatives", new JSONArray())
+            .put("negatives", new JSONArray()).put("voskNegatives",new JSONArray())
             .put("ecapaCentroid", ecapaArray(WakePolicy.enrollment(ecapaTakes, WakePolicy.ECAPA_EMBED_DIM)))
             .put("voskCentroid", voskArray(WakePolicy.enrollment(voskTakes, WakePolicy.EMBED_DIM)));
         return new OwnerVoiceProfile(j);
@@ -106,8 +98,10 @@ final class OwnerVoiceProfile {
      *  x-vector weighted 0.2, see WakePolicy.finalScore()) against this profile's threshold,
      *  with the existing negative-example correction bank still applied on top. */
     boolean accepts(float[] ecapaSample, float[] voskSample, double policy) {
+        if (!WakePolicy.owner(voskSample,voskSample,.99))return false;
+        if (!WakePolicy.isAbsent(ecapaCentroid()) && !WakePolicy.ownerDim(ecapaSample,ecapaSample,.99,WakePolicy.ECAPA_EMBED_DIM))return false;
         if (!WakePolicy.ownerEnsemble(ecapaSample, ecapaCentroid(), voskSample, voskCentroid(), Math.max(policy, threshold()))) return false;
-        try { for (float[] negative : ecapaList("negatives", 0, 12)) if (WakePolicy.cosine(ecapaSample, negative) >= .80) return false; return true; }
+        try { for(float[] negative:voskList("voskNegatives",0,12))if(WakePolicy.cosine(voskSample,negative)>=.80)return false; for (float[] negative : ecapaList("negatives", 0, 12)) if (WakePolicy.cosine(ecapaSample, negative) >= .80) return false; return true; }
         catch (Exception e) { return false; }
     }
     boolean validates() {
@@ -119,9 +113,10 @@ final class OwnerVoiceProfile {
         } catch (Exception e) { return false; }
     }
     boolean acceptsHeadset(float[] ecapaSample, float[] voskSample, double policy) {
-        if (headset == null) return false;
+        if (headset == null || !WakePolicy.owner(voskSample,voskSample,.99)) return false;
+        if (!WakePolicy.isAbsent(headset.ecapaCentroid()) && !WakePolicy.ownerDim(ecapaSample,ecapaSample,.99,WakePolicy.ECAPA_EMBED_DIM))return false;
         if (!WakePolicy.ownerEnsemble(ecapaSample, headset.ecapaCentroid(), voskSample, headset.voskCentroid(), Math.max(policy, threshold()))) return false;
-        try { for (float[] negative : ecapaList("negatives", 0, 12)) if (WakePolicy.cosine(ecapaSample, negative) >= .80) return false; return true; }
+        try { for(float[] negative:voskList("voskNegatives",0,12))if(WakePolicy.cosine(voskSample,negative)>=.80)return false; for (float[] negative : ecapaList("negatives", 0, 12)) if (WakePolicy.cosine(ecapaSample, negative) >= .80) return false; return true; }
         catch (Exception e) { return false; }
     }
     /** Adds (or replaces) the optional headset-route identity alongside the existing phone-route
@@ -129,8 +124,8 @@ final class OwnerVoiceProfile {
      *  held-out-verification contract as the phone route uses, just scoped to this route's own
      *  vectors so a poor headset take can never be masked by the phone route's data. */
     OwnerVoiceProfile withHeadset(List<float[]> ecapaTakes, List<float[]> voskTakes,
-                                  List<float[]> ecapaHeldOut, List<float[]> voskHeldOut) throws Exception {
-        JSONObject h = new JSONObject()
+                                  List<float[]> ecapaHeldOut, List<float[]> voskHeldOut, RecordedPhrase phraseEvidence) throws Exception {
+        JSONObject h = new JSONObject().put("phraseEvidence",phraseEvidence.data)
             .put("ecapaCentroid", ecapaArray(WakePolicy.enrollment(ecapaTakes, WakePolicy.ECAPA_EMBED_DIM)))
             .put("voskCentroid", voskArray(WakePolicy.enrollment(voskTakes, WakePolicy.EMBED_DIM)));
         JSONObject j = new JSONObject(data.toString());
@@ -146,23 +141,14 @@ final class OwnerVoiceProfile {
         return new OwnerVoiceProfile(j);
     }
     OwnerVoiceProfile withNegative(float[] ecapaSample, float[] voskSample) throws Exception {
-        // A negative example is an ECAPA-space correction (see accepts()'s per-negative cosine
-        // check) — unlike samples/centroids, an absent ECAPA vector here is not a legitimate
-        // degrade case, since a float[0] "negative" would always score cosine==-1 against any
-        // real sample and could never actually correct anything, just silently consume one of
-        // the 12 negative-example slots for nothing. Require a real vector explicitly rather
-        // than letting ecapaArray()/ecapaVector()'s now-tolerant absent-sentinel round-trip
-        // mask this as if it worked.
-        if (WakePolicy.isAbsent(ecapaSample)) throw new IllegalArgumentException("No ECAPA-TDNN evidence available for this event; cannot record a correction");
-        ecapaVector(ecapaArray(ecapaSample));
-        if (!accepts(ecapaSample, voskSample, threshold())) throw new IllegalArgumentException("This profile already rejects this event; no identity change needed");
-        JSONObject j = new JSONObject(data.toString());
-        JSONArray n = j.getJSONArray("negatives");
-        if (n.length() >= 12) throw new IllegalArgumentException("Negative example limit reached; review or retrain");
-        for (float[] v : ecapaList("negatives", 0, 12)) if (WakePolicy.cosine(v, ecapaSample) > .995) throw new IllegalArgumentException("Event already represented");
-        n.put(ecapaArray(ecapaSample));
-        j.put("revision", UUID.randomUUID().toString()).put("trainedAt", System.currentTimeMillis());
-        // Constructor rejects the proposal if ANY held-out owner take would now fail.
+        if(!WakePolicy.owner(voskSample,voskSample,.99))throw new IllegalArgumentException("No valid speaker evidence for correction");
+        if(!accepts(ecapaSample,voskSample,threshold())&&!acceptsHeadset(ecapaSample,voskSample,threshold()))
+            throw new IllegalArgumentException("This profile already rejects the voice");
+        JSONObject j=new JSONObject(data.toString());JSONArray negatives=j.getJSONArray("voskNegatives");
+        if(negatives.length()>=12)throw new IllegalArgumentException("Correction limit reached; review or retrain");
+        for(float[] previous:voskList("voskNegatives",0,12))if(WakePolicy.cosine(previous,voskSample)>.995)throw new IllegalArgumentException("Correction already recorded");
+        negatives.put(voskArray(voskSample));j.put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
+        // Constructor revalidates EVERY held-out owner take for both routes before activation.
         return new OwnerVoiceProfile(j);
     }
     List<float[]> ecapaList(String name, int min, int max) throws Exception {

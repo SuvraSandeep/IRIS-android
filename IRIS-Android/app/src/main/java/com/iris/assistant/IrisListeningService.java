@@ -480,22 +480,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         });
 
         voskEngine = new VoskEngine();
-        // Attach the dedicated ECAPA-TDNN speaker embedding model + Silero VAD trimming model
-        // (see WAKE-TRAINING-REDESIGN.md's Ensemble section) so live wake detection actually
-        // uses the primary identity signal, not just Vosk's own x-vector as a fallback. Loaded
-        // in the background; startWakeDetection() gracefully degrades to Vosk-only via
-        // WakePolicy.finalScore() if either model isn't ready yet or fails to load — this is
-        // never a hard dependency for wake to function, only for it to be at its most robust.
-        ecapaEngine = new EcapaEmbedding();
-        vadEngine = new SileroVad();
-        ecapaEngine.load(this, new EcapaEmbedding.InitListener() {
-            @Override public void onReady() { voskEngine.attachEnsembleModels(ecapaEngine, vadEngine); LogStore.append(IrisListeningService.this, "ECAPA-TDNN", "Speaker embedding model ready"); }
-            @Override public void onError(String message) { LogStore.append(IrisListeningService.this, "ECAPA-TDNN", "Not available: " + message); }
-        });
-        vadEngine.load(this, new SileroVad.InitListener() {
-            @Override public void onReady() { voskEngine.attachEnsembleModels(ecapaEngine, vadEngine); LogStore.append(IrisListeningService.this, "SILERO-VAD", "Voice activity model ready"); }
-            @Override public void onError(String message) { LogStore.append(IrisListeningService.this, "SILERO-VAD", "Not available: " + message); }
-        });
+        // Schema 8 uses the bundled Vosk owner model plus recorded-phrase evidence.
+        // Optional downloads never change the identity model midway through a session.
         voskEngine.init(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
                 voskReady = true;
@@ -837,7 +823,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         // wake.isVoiceEnrolled(), which recognizes BOTH the legacy voiceprint field and any
         // versioned (schema>=4) profile.
         if(!wake.isReady() || !wake.isVoiceEnrolled()){
-            wakeReadiness="Owner enrollment required";
+            wakeReadiness="Record phrase and owner voice for this version";
             updateListeningNotification("Train your exact phrase and owner voice in Training");
             scheduleWakeRetry(3000);return;
         }
@@ -859,11 +845,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         restoreRecognizerBeep();
         voskEngine.setSensitivity(settings.voiceSensitivity());
-        wakeReadiness = settings.speakerVerification() ? "Full phrase and owner checks armed" : "Phrase-only wake armed";
+        wakeReadiness = "Recorded phrase and owner checks armed";
         updateListeningNotification("Owner wake ready: “"+wake.phrase+"”. Input: "+AudioRouteController.observed);
         IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Wake listening");
-        // Always-on listening uses the phone mic and NORMAL audio mode, so Bluetooth music
-        // keeps full A2DP quality while IRIS is merely awake.
+        // Release command-session routing before the wake recorder selects the preferred input.
+        // Bluetooth is allowed when media is stopped; each captured route needs its own profile.
         if (btMicAllowed) {
             btMicAllowed = false;
             releaseAudioRoute();
@@ -879,7 +865,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         final long profileVersion=wake.trainedAt;
         final double policyThreshold=settings.ownerThreshold();
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
-            @Override public void onRejected(String reason){if(epoch==wakeEpoch&&isRunning)WakeEventStore.add(reason,new ProfileStore(IrisListeningService.this).ownerRevision(),null,null,false);}
+            @Override public void onRejected(String reason){if(epoch==wakeEpoch&&isRunning){
+                WakeEventStore.add(reason,new ProfileStore(IrisListeningService.this).ownerRevision(),null,null,false);
+                wakeReadiness="Last wake check: "+reason;
+                updateListeningNotification(wakeReadiness);
+            }}
             @Override public void onWakeDetected(float[] ecapaEmbedding, float[] voskEmbedding) {
                 if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
                 boolean media = audioManager != null && audioManager.isMusicActive();
@@ -931,7 +921,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this, "WAKE UNAVAILABLE", message);
                 scheduleWakeRetry(3000);
             }
-        }, settings.speakerVerification(), btMicAllowed && !(audioManager != null && audioManager.isMusicActive()));
+        }, true, true);
     }
 
     private long lastRejectCueAt = 0;
@@ -5201,7 +5191,9 @@ public class IrisListeningService extends Service implements RecognitionListener
                 if(profile==null||voskEngine==null||!profile.hash().equals(voskEngine.speakerFingerprint()))return false;
                 // Match against whichever route is actually confirmed right now — a headset
                 // enrollment must never be checked against phone-route evidence or vice versa.
-                boolean headsetRoute=AudioRouteController.observedRoute==AudioRouteController.Route.HEADSET;
+                AudioRouteController.Route captured=voskEngine.lastWakeRoute();
+                if(captured==AudioRouteController.Route.UNCONFIRMED)return false;
+                boolean headsetRoute=captured==AudioRouteController.Route.HEADSET;
                 return headsetRoute?profile.acceptsHeadset(ecapaEmbedding,voskEmbedding,voiceThreshold()):profile.accepts(ecapaEmbedding,voskEmbedding,voiceThreshold());
             }
             return voskEngine != null && voskEngine.isSpeakerReady()

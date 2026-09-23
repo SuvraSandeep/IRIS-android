@@ -6,18 +6,12 @@ import android.os.*;
 import org.vosk.Recognizer;
 import org.vosk.android.RecognitionListener;
 
-/** Application-owned PCM capture makes the Vosk input route observable.
- *
- *  Redesigned per WAKE-TRAINING-REDESIGN.md: the old ClipListener "learned-sound mode" (which
- *  bypassed the ASR decoder/pronunciation gate entirely, feeding raw clips only to the
- *  now-deleted DTW sound-pattern matcher via a SEPARATE, unguarded audio-read path) is removed.
- *  The unified design still needs the raw PCM clip corresponding to a completed ASR result —
- *  to run the dedicated ECAPA-TDNN embedding and Silero VAD trim on it — but that clip is now
- *  exposed via lastResultClip() at the moment a result completes, reusing the SAME single
- *  audio-read loop the ASR path already runs, rather than a second parallel read path with its
- *  own device-route/reset handling that had to be kept in sync by hand (this was the root
- *  cause of a real Bluetooth-audio-quality regression fixed earlier this project). */
+/** One microphone loop for commands and recorded wake. Wake clips carry their captured route;
+ * command recognition continues to use ASR results. No transcript gate is applied to wake. */
 final class ManagedSpeechService {
+    interface ClipListener { void onClip(short[] pcm,AudioRouteController.Route route); }
+    private ClipListener clipListener;
+    void setClipListener(ClipListener listener){clipListener=listener;}
     private volatile short[] lastResultClip;
     /** The raw PCM clip that produced the most recently completed ASR result, or null if no
      *  result has completed yet this session. Cleared to zeros by the caller once consumed —
@@ -49,6 +43,7 @@ final class ManagedSpeechService {
                 if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
                 route.request(context,mic,allowBluetooth);mic.startRecording();AudioRouteController.observe(mic);
                 short[] frame=new short[320],raw=new short[128000];int rawCount=0,rawOffset=0;int frames=0,lastRoute=-1;
+                SpeechEndpoint endpoint=new SpeechEndpoint();
                 QuietAudioProcessor gain=new QuietAudioProcessor();
                 long lastPcm=SystemClock.elapsedRealtime();
                 while(running){
@@ -58,10 +53,21 @@ final class ManagedSpeechService {
                     lastPcm=SystemClock.elapsedRealtime();
                     if(++frames%25==0){
                         AudioDeviceInfo actual=mic.getRoutedDevice();int id=actual==null?-1:actual.getId();
-                        if(lastRoute!=-1&&id!=lastRoute){recognizer.reset();rawCount=rawOffset=0;gain=new QuietAudioProcessor();}lastRoute=id;
+                        if(lastRoute!=-1&&id!=lastRoute){recognizer.reset();rawCount=rawOffset=0;gain=new QuietAudioProcessor();endpoint=new SpeechEndpoint();}lastRoute=id;
                         AudioRouteController.observe(mic);
                     }
                     for(int i=0;i<n;i++){raw[rawOffset]=frame[i];rawOffset=(rawOffset+1)%raw.length;rawCount=Math.min(raw.length,rawCount+1);}
+                    if(clipListener!=null){
+                        if(endpoint.add(frame,n)){
+                            short[] clip=new short[rawCount];int start=(rawOffset-rawCount+raw.length)%raw.length;
+                            for(int i=0;i<rawCount;i++)clip[i]=raw[(start+i)%raw.length];
+                            AudioRouteController.observe(mic);
+                            final AudioRouteController.Route capturedRoute=AudioRouteController.observedRoute;
+                            rawCount=rawOffset=0;endpoint=new SpeechEndpoint();
+                            main.post(()->{if(running)clipListener.onClip(clip,capturedRoute);else java.util.Arrays.fill(clip,(short)0);});
+                        }
+                        continue;
+                    }
                     gain.process(frame,n);
                     boolean complete=recognizer.acceptWaveForm(frame,n);
                     String output=complete?recognizer.getResult():recognizer.getPartialResult();

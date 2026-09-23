@@ -441,90 +441,63 @@ public final class VoskEngine {
      *   user's actual microphone preference is expected and there's no ongoing playback concern.
      */
     public void startWakeDetection(java.util.List<String> phrases, WakeListener listener, boolean requireSpeakerModel, boolean allowBluetooth) {
-        if (!isReady()) { listener.onError("Voice model not ready"); return; }
-        boolean attachSpeaker = requireSpeakerModel && isSpeakerReady();
-        if (requireSpeakerModel && !isSpeakerReady()) { listener.onError("Owner verification model not ready"); return; }
-        synchronized (stateLock) {
-        stop();
-        final long generation = wakeGeneration;
-        final java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
-        try {
-            final java.util.List<String> norm = new java.util.ArrayList<>();
-            JSONArray grammar = new JSONArray();
-            for (String raw : phrases) {
-                String phrase = WakePolicy.normalize(raw);
-                if (!phrase.isEmpty() && !norm.contains(phrase)) { norm.add(phrase); grammar.put(phrase); }
-            }
-            if (norm.isEmpty()) { listener.onError("No wake phrase"); return; }
-            grammar.put("[unk]");
-            Recognizer rec = new Recognizer(model, SAMPLE_RATE);
-            rec.setWords(true);
-            if (attachSpeaker) {
-                try {
-                    rec.setSpeakerModel(spkModel);
-                } catch (Throwable error) { rec.close(); throw new IllegalStateException("Speaker attachment failed", error); }
-            }
-            final boolean spkAttached = attachSpeaker;
-            ManagedSpeechService newService;
-            try {
-                newService = new ManagedSpeechService(captureContext,rec, SAMPLE_RATE, allowBluetooth);
-            } catch (Throwable error) {
-                // The Recognizer's native handle must be released here too — previously only the
-                // setSpeakerModel failure path above closed rec; a ManagedSpeechService constructor failure
-                // (e.g. AudioRecord init failure) left it leaked with no cleanup.
-                rec.close();
-                throw error;
-            }
-            OwnerVoiceProfile activeProfile=new ProfileStore(captureContext).ownerEvidence();
-            if(new ProfileStore(captureContext).hasVersionedOwner()&&activeProfile==null){rec.close();throw new IllegalStateException("Saved owner evidence is invalid; restore or retrain");}
-            // Redesigned per WAKE-TRAINING-REDESIGN.md: the old DTW sound-pattern path (a
-            // SEPARATE ClipListener callback that bypassed the ASR decoder/pronunciation gate
-            // entirely) is deleted. There is now ONE detection path: the ASR recognizer below
-            // still gates on phrase match + word confidence + spk_frames exactly as before, and
-            // — once those pass — extracts BOTH the dedicated ECAPA-TDNN embedding and Vosk's
-            // own x-vector from the SAME clip (ManagedSpeechService.lastResultClip(), trimmed by
-            // SileroVad first) for the ensemble decision, instead of running a second unguarded
-            // audio-read loop with its own device-route/reset handling.
-            speechService = newService;
-            speechService.startListening(new RecognitionListener() {
-                private void result(String json) {
-                    if (generation != wakeGeneration || fired.get()) return;
-                    try {
-                        JSONObject result = new JSONObject(json);
-                        if (!result.optBoolean("iris_audio_usable",false)) {listener.onRejected("AUDIO_QUALITY");return;}
-                        if (!WakePolicy.matches(result.optString("text"), norm)) {if(!result.optString("text").isEmpty())listener.onRejected("PHRASE_MISMATCH");return;}
-                        JSONArray words = result.optJSONArray("result");
-                        if (words == null || words.length() == 0) {listener.onRejected("NO_WORD_EVIDENCE");return;}
-                        double score = 1;
-                        for (int i = 0; i < words.length(); i++) score = Math.min(score, words.getJSONObject(i).optDouble("conf", 0));
-                        double duration = words.getJSONObject(words.length()-1).optDouble("end", 0)
-                                - words.getJSONObject(0).optDouble("start", 0);
-                        if (!Double.isFinite(score) || score < minWordConfidence || duration < .35 || duration > 5) {listener.onRejected("PHRASE_CONFIDENCE_OR_DURATION");return;}
-                        // The spk_frames field only appears when a speaker model is attached to
-                        // the recognizer — gate on it only when we actually attached one.
-                        if (spkAttached && result.optInt("spk_frames", 0) < 50) {listener.onRejected("SPEAKER_EVIDENCE");return;}
-                        if (!spkAttached) { if (fired.compareAndSet(false, true)) listener.onWakeDetected(null, null); return; }
-                        float[] voskVector = extractSpk(json);
-                        short[] clip = newService.lastResultClip();
-                        float[] ecapaVector = null;
-                        if (clip != null && ecapaEngine != null && ecapaEngine.isReady()) {
-                            short[] trimmed = vadEngine != null && vadEngine.isReady() ? vadEngine.trim(clip) : clip;
-                            ecapaVector = ecapaEngine.extract(QuietAudioProcessor.prepare(trimmed));
-                        }
-                        if (fired.compareAndSet(false, true)) listener.onWakeDetected(ecapaVector, voskVector);
-                    } catch (Exception ignored) { /* malformed results cannot wake */ }
-                }
-                @Override public void onPartialResult(String h) { }
-                @Override public void onResult(String h) { result(h); }
-                @Override public void onFinalResult(String h) { result(h); }
-                @Override public void onError(Exception e) {
-                    if (generation == wakeGeneration && fired.compareAndSet(false, true)) listener.onError(e.getMessage());
-                }
-                @Override public void onTimeout() { }
-            });
-        } catch (Exception error) { listener.onError(error.getMessage()); }
+        if(!isReady()||!isSpeakerReady()){listener.onError("Offline owner model not ready");return;}
+        synchronized(stateLock){
+            stop();
+            final long generation=wakeGeneration;
+            final OwnerVoiceProfile profile=new ProfileStore(captureContext).ownerEvidence();
+            if(profile==null){listener.onError("Record your phrase again for this version; existing profile has no compatible sound evidence");return;}
+            if(!profile.hash().equals(speakerFingerprint())){listener.onError("Owner model changed; retrain your phrase");return;}
+            final java.util.concurrent.atomic.AtomicBoolean busy=new java.util.concurrent.atomic.AtomicBoolean();
+            final java.util.concurrent.atomic.AtomicBoolean fired=new java.util.concurrent.atomic.AtomicBoolean();
+            try{
+                Recognizer rec=new Recognizer(model,SAMPLE_RATE);
+                ManagedSpeechService capture=new ManagedSpeechService(captureContext,rec,SAMPLE_RATE,allowBluetooth);
+                capture.setClipListener((pcm,route)->{
+                    if(generation!=wakeGeneration||fired.get()||!busy.compareAndSet(false,true)){java.util.Arrays.fill(pcm,(short)0);return;}
+                    new Thread(()->{
+                        String failure="";float[] vector=null;
+                        try{
+                            synchronized(VoskEngine.this){
+                                if(generation!=wakeGeneration)return;
+                                if(route==AudioRouteController.Route.UNCONFIRMED)failure="INPUT_UNCONFIRMED";
+                                else if(route==AudioRouteController.Route.HEADSET&&profile.headset==null)failure="HEADSET_PROFILE_REQUIRED";
+                                else {
+                                    float[][] pattern=SoundPattern.extract(pcm);
+                                    vector=embedRecorded(pcm);
+                                    boolean headset=route==AudioRouteController.Route.HEADSET;
+                                    RecordedPhrase phrase=headset?profile.headset.phraseEvidence:profile.phraseEvidence;
+                                    float[] centroid=headset?profile.headset.voskCentroid():profile.voskCentroid();
+                                    double policy=Math.max(profile.threshold(),new AppSettings(captureContext).ownerThreshold());
+                                    failure=RecordedWakeCheck.reject(pattern,phrase.samples,phrase.threshold,vector,centroid,policy);
+                                    if(failure.isEmpty()&&!(headset?profile.acceptsHeadset(null,vector,policy):profile.accepts(null,vector,policy)))failure="OWNER_REJECTED";
+                                }
+                            }
+                        }catch(Throwable error){failure="ANALYSIS_ERROR";}
+                        finally{java.util.Arrays.fill(pcm,(short)0);busy.set(false);}
+                        final String reason=failure;final float[] embedding=vector;
+                        main.post(()->{
+                            if(generation!=wakeGeneration||fired.get())return;
+                            if(!reason.isEmpty()){listener.onRejected(reason);return;}
+                            if(!profile.revision().equals(new ProfileStore(captureContext).ownerRevision())){listener.onError("Profile changed; restarting wake");return;}
+                            lastWakeRoute=route;
+                            if(fired.compareAndSet(false,true))listener.onWakeDetected(null,embedding);
+                        });
+                    },"IRIS-RecordedWake").start();
+                });
+                speechService=capture;
+                capture.startListening(new RecognitionListener(){
+                    public void onPartialResult(String result){} public void onResult(String result){} public void onFinalResult(String result){}
+                    public void onTimeout(){}
+                    public void onError(Exception error){if(generation==wakeGeneration)listener.onError(error.getMessage());}
+                });
+            }catch(Exception error){listener.onError(error.getMessage());}
         }
     }
+    private volatile AudioRouteController.Route lastWakeRoute=AudioRouteController.Route.UNCONFIRMED;
+    AudioRouteController.Route lastWakeRoute(){return lastWakeRoute;}
+    /** Fixed preprocessing for schema 8. Optional models cannot change enrollment/live behavior. */
+    float[] embedRecorded(short[] pcm){return embed(QuietAudioProcessor.prepare(SoundPattern.speakerClip(pcm)));}
     /** Dedicated ECAPA-TDNN speaker-embedding model — the PRIMARY identity signal (see
      *  WakePolicy.finalScore()). Lazily attached by the caller (IrisListeningService), which
      *  owns the model's lifecycle; may be null (e.g. not yet loaded, or the ONNX model file
@@ -581,7 +554,7 @@ public final class VoskEngine {
     }
 
     /** Release all resources. */
-    public void close() {
+    public synchronized void close() {
         synchronized(stateLock){
             closed=true;stop();
             if(model!=null){model.close();model=null;}

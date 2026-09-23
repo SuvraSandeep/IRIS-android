@@ -19,7 +19,7 @@ public final class TimedRecorderFlowTest {
    check(result.done.await(3,TimeUnit.SECONDS),scenario+" failed to terminate");Thread.sleep(120);
    check(result.success.get()+result.errors.get()==1,scenario+" duplicate terminal callback");
    check(AudioRecord.released.get()==1,scenario+" recorder leaked");
-   if(scenario.equals("ok")){check(result.success.get()==1,"missing PCM completion");check(result.length==8000,"wrong sample length");}
+   if(scenario.equals("ok")){check(result.success.get()==1,"missing PCM completion");check(result.length==8000,"wrong sample length");check(recorder.capturedRouteType()==AudioRouteController.Route.HEADSET,"captured route lost after cleanup");check(AudioRouteController.observedRoute==AudioRouteController.Route.UNCONFIRMED,"test must exercise cleanup before callback");}
    else check(result.errors.get()==1,scenario+" should fail");
   }
   reset("blocked-start");Result cancelled=new Result();TimedRecorder recorder=new TimedRecorder();recorder.record(500,cancelled);

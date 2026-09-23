@@ -21,6 +21,8 @@ public final class TimedRecorder {
     public TimedRecorder(){context=null;}
     public TimedRecorder(android.content.Context context){this.context=context.getApplicationContext();}
     private volatile Attempt active;
+    private volatile AudioRouteController.Route capturedRouteType=AudioRouteController.Route.UNCONFIRMED;
+    public AudioRouteController.Route capturedRouteType(){return capturedRouteType;}
     private volatile String capturedRoute="Unconfirmed microphone";
     public String capturedRoute(){return capturedRoute;}
     private static final class Attempt {
@@ -34,6 +36,7 @@ public final class TimedRecorder {
     private synchronized void record(int durationMs,Listener listener,boolean endpoint){
         if(active!=null){main.post(()->listener.onError("Previous microphone capture is still stopping. Please try again."));return;}
         if(durationMs<100||durationMs>120000){main.post(()->listener.onError("Invalid recording duration."));return;}
+        capturedRouteType=AudioRouteController.Route.UNCONFIRMED;
         final Attempt attempt=new Attempt();active=attempt;
         attempt.watchdog=()->{
             if(attempt.terminal.compareAndSet(false,true)){
@@ -81,7 +84,7 @@ public final class TimedRecorder {
                     int actualRoute=AudioRouteController.routeId(mic);
                     if(initialRoute>=0&&actualRoute!=initialRoute)throw new IllegalStateException("Input route changed. Record this take again");
                     if(initialRoute<0)initialRoute=actualRoute;
-                    AudioRouteController.observe(mic);capturedRoute=AudioRouteController.observed;
+                    AudioRouteController.observe(mic);capturedRoute=AudioRouteController.observed;capturedRouteType=AudioRouteController.observedRoute;
                     lastLevel=now;final float level=rms(frame,n);
                     main.post(()->{if(active==attempt&&!attempt.terminal.get()&&!attempt.cancelled)listener.onLevel(level);});
                 }
