@@ -3617,7 +3617,7 @@ public class MainActivity extends Activity {
         final long generation=ownerTrainingGeneration;
         ownerAwaitingApproval=true;
         activeTrainingDialog=new AlertDialog.Builder(this).setTitle("Add headset profile?")
-            .setMessage("This adds a headset/earphone identity alongside your existing phone-mic profile. IRIS will use whichever route is confirmed active when you say the wake sound. Your phone-mic profile is unchanged.")
+            .setMessage("This adds a headset/earphone identity alongside your existing phone-mic profile. IRIS will use whichever route is confirmed active when you say the wake sound. Your phone-mic profile is unchanged. Saving starts owner-only wake listening.")
             .setNegativeButton("Cancel",(d,w)->cancelWakeTraining())
             .setPositiveButton("Authenticate and save",(d,w)->authenticateOwner("Save headset voice",()->{
                 if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration)return;
@@ -3627,7 +3627,7 @@ public class MainActivity extends Activity {
                         if(base==null)throw new IllegalStateException("Phone-route profile is missing; retrain it first");
                         OwnerVoiceProfile candidate=base.withHeadset(headsetEnrollment.ecapaSamples,headsetEnrollment.voskSamples,headsetEnrollment.ecapaValidation,headsetEnrollment.voskValidation,RecordedPhrase.create(headsetEnrollment.phraseSamples,headsetEnrollment.phraseValidation));
                         if(!new ProfileStore(this).commitOwnerEvidence(candidate,ownerBaseRevision))throw new IllegalStateException("Profile changed or save failed; previous profile preserved");
-                        TrainingProgress.clear(this,true);cancelWakeTraining();updateOwnerProfileSummary();
+                        TrainingProgress.clear(this,true);new AppSettings(this).setListeningMode(AppSettings.MODE_WAKE);resumeAfterWakeTraining=true;cancelWakeTraining();updateOwnerProfileSummary();
                         showOwnerStage(OwnerTrainingStage.Kind.SAVED,"Headset profile saved and read back successfully. IRIS now wakes for either route.",0);
                     }catch(Exception error){
                         LogStore.append(this,"OWNER TRAINING","Headset save failed (takes preserved): "+error.getMessage());
@@ -3836,7 +3836,7 @@ public class MainActivity extends Activity {
         final long generation=ownerTrainingGeneration;
         ownerAwaitingApproval=true;
         activeTrainingDialog=new AlertDialog.Builder(this).setTitle("Save verified owner profile?")
-            .setMessage("Wake sound label: “"+wakePhraseBeingTrained+"”. Recorded voice samples passed separate verification takes. No transcript was required. Saving replaces your previous owner profile and keeps owner-only wake enabled.")
+            .setMessage("Wake sound label: “"+wakePhraseBeingTrained+"”. Recorded voice samples passed separate verification takes. No transcript was required. Saving replaces your previous owner profile and starts owner-only wake listening.")
             .setNegativeButton("Cancel",(d,w)->cancelWakeTraining())
             .setPositiveButton("Authenticate and save",(d,w)->authenticateOwner("Save owner voice",()->{
                 if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
@@ -3861,7 +3861,7 @@ public class MainActivity extends Activity {
                             candidate=new OwnerVoiceProfile(candidate.data);
                         }else candidate=enrollment.build(wakePhraseBeingTrained,ownerTrainingEngine.speakerFingerprint(),new AppSettings(this).ownerThreshold());
                         if(!new ProfileStore(this).commitOwnerEvidence(candidate,ownerBaseRevision))throw new IllegalStateException("Profile changed or save failed; previous profile preserved");
-                        TrainingProgress.clear(this);cancelWakeTraining();updateOwnerProfileSummary();
+                        TrainingProgress.clear(this);new AppSettings(this).setListeningMode(AppSettings.MODE_WAKE);resumeAfterWakeTraining=true;cancelWakeTraining();updateOwnerProfileSummary();
                         showOwnerStage(OwnerTrainingStage.Kind.SAVED,"Owner profile saved and read back successfully. Independent verification passed. Encrypted export and rollback are available.",0);
                     // A save failure here (validation rejection, revision race, disk error) must
                     // NOT discard the takes the user just spent minutes recording. failOwnerTraining()

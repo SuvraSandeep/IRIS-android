@@ -16,10 +16,15 @@ android {
 
     signingConfigs {
         debug {
-            storeFile file("${rootProject.projectDir}/debug.keystore")
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
+            // Repository builds keep the existing update-compatible debug key.
+            // Source archives omit keys and use Android Gradle's local debug-key default.
+            def sharedDebugKey = file("${rootProject.projectDir}/debug.keystore")
+            if (sharedDebugKey.exists()) {
+                storeFile sharedDebugKey
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
         }
     }
 

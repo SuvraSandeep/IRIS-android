@@ -7,7 +7,7 @@ import java.util.*;
  * Earlier profiles lack phrase evidence and require authenticated retraining. */
 final class OwnerVoiceProfile {
     static final int SCHEMA = 8;
-    static final String PREPROCESSING = "quiet-v1-pcm16-16000";
+    static final String PREPROCESSING = "recorded-trim-gain-v1-pcm16-16000";
     /** Kept as the SECONDARY/ensemble model identifier (Vosk's x-vector) — the dedicated
      *  ECAPA-TDNN model has no single fixed "model name" string the same way (it's identified
      *  by WakePolicy.ECAPA_EMBED_DIM's fixed 192-dim output instead, checked structurally). */
