@@ -13,8 +13,10 @@ public final class AppSettings {
 
     private static final String PREFS = "iris_settings_v2";
     private final SharedPreferences prefs;
+    private final Context context;
 
     public AppSettings(Context context) {
+        this.context=context.getApplicationContext();
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
@@ -73,13 +75,15 @@ public final class AppSettings {
     public boolean lockScreenControl() { return prefs.getBoolean("lock_screen_control", false); }
     public void setLockScreenControl(boolean value) { prefs.edit().putBoolean("lock_screen_control", value).apply(); }
     /** Voice-verification strictness 0=lenient .. 1=strict (default balanced; missing verification always rejects). */
-    // Default raised from 0.5: the old 0.85-fixed word-confidence floor made wake unreliable
-    // even at normal volume, let alone whispered speech. 0.75 default now maps to a realistic
-    // ~0.39 confidence floor (see VoskEngine.setSensitivity) so wake is easy out of the box;
-    // users who get too many false wakes can still lower it in Settings.
-    public float ownerStrictness() { return prefs.getFloat("owner_strictness_v3", 1f-voiceSensitivity()); }
-    public double ownerThreshold() { return .65 + .20 * Math.max(0, Math.min(1, ownerStrictness())); }
-    public void setOwnerStrictness(float value) { WakeChangeApproval.require(); prefs.edit().putFloat("owner_strictness_v3",Math.max(0,Math.min(1,value))).commit(); }
+    // A saved profile is authoritative so applying or undoing a policy cannot leave the
+    // control displaying a different threshold from the one used by live verification.
+    public float ownerStrictness() {
+        OwnerVoiceProfile profile=new ProfileStore(context).ownerEvidence();
+        float value=profile==null?prefs.getFloat("owner_strictness_v3",1f-voiceSensitivity()):(float)((profile.threshold()-.65)/.20);
+        return Float.isFinite(value)?Math.max(0,Math.min(1,value)):.5f;
+    }
+    public double ownerThreshold() { OwnerVoiceProfile profile=new ProfileStore(context).ownerEvidence(); return profile==null?.65+.20*ownerStrictness():profile.threshold(); }
+    public boolean setOwnerStrictness(float value) { WakeChangeApproval.require(); if(!Float.isFinite(value))return false; return prefs.edit().putFloat("owner_strictness_v3",Math.max(0,Math.min(1,value))).commit(); }
     public float voiceSensitivity() { return Math.max(0f, Math.min(1f, prefs.getFloat("owner_voice_sensitivity_v2", 0.75f))); }
     public void setVoiceSensitivity(float value) { WakeChangeApproval.require(); prefs.edit().putFloat("owner_voice_sensitivity_v2", Math.max(0f, Math.min(1f, value))).apply(); }
     /** Use Google Speech Recognition for commands (best accuracy; falls back to Vosk offline). */

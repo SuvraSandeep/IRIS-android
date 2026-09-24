@@ -6,6 +6,15 @@ import java.util.Locale;
 /** Shared by enrollment, the test screen and the live wake service. No Android dependencies. */
 public final class WakePolicy {
     private WakePolicy() { }
+    /** Explicit wake control: same phrase tolerance in setup and live capture. */
+    public static double phraseTolerance(double ownerThreshold){
+        if(!Double.isFinite(ownerThreshold)||ownerThreshold<.65-1e-9||ownerThreshold>.85+1e-9)
+            throw new IllegalArgumentException("Invalid wake strictness");
+        return 1+Math.max(0,Math.min(1,(.85-ownerThreshold)/.20));
+    }
+    public static double phraseLimit(double calibrated,double ownerThreshold){
+        return Math.min(.32,calibrated*phraseTolerance(ownerThreshold));
+    }
     public static String normalize(String text) {
         return text == null ? "" : text.toLowerCase(Locale.ROOT)
                 .replaceAll("[^\\p{L}\\p{M}\\p{N} ]", " ").trim().replaceAll("\\s+", " ");

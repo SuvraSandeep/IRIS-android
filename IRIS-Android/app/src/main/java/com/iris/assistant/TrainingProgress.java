@@ -48,7 +48,7 @@ final class TrainingProgress {
             if(n!=d.ecapaTakes.size()||n!=d.phraseTakes.size()||v!=d.ecapaHeldOut.size()||v!=d.phraseHeldOut.size()
                 ||d.takeIndex!=n+v||v>0&&n!=4||d.takeIndex<1||d.takeIndex>8)return null;
             if(n==4){
-                double threshold=SoundPattern.calibrate(d.phraseTakes);float[] centroid=WakePolicy.enrollment(d.voskTakes);
+                double threshold=WakePolicy.phraseLimit(SoundPattern.calibrate(d.phraseTakes),policy);float[] centroid=WakePolicy.enrollment(d.voskTakes);
                 if(centroid==null)return null;
                 for(int i=0;i<v;i++)if(!RecordedWakeCheck.reject(d.phraseHeldOut.get(i),d.phraseTakes,threshold,d.voskHeldOut.get(i),centroid,policy).isEmpty())return null;
             }

@@ -457,32 +457,34 @@ public final class VoskEngine {
                 capture.setClipListener((pcm,route)->{
                     if(generation!=wakeGeneration||fired.get()){java.util.Arrays.fill(pcm,(short)0);return;}
                     analyses.offer(pcm,()->{
-                        String failure="",diagnostic="Input "+route;float[] vector=null;
+                        String failure="",diagnostic="Input "+route;float[] vector=null;float[][] pattern=null;
                         try{
                             synchronized(VoskEngine.this){
                                 if(generation!=wakeGeneration||fired.get())return;
                                 if(route==AudioRouteController.Route.UNCONFIRMED)failure="INPUT_UNCONFIRMED";
                                 else if(route==AudioRouteController.Route.HEADSET&&profile.headset==null)failure="HEADSET_PROFILE_REQUIRED";
                                 else {
-                                    float[][] pattern=SoundPattern.extract(pcm);
+                                    pattern=SoundPattern.extract(pcm);
                                     vector=embedRecorded(pcm);
                                     boolean headset=route==AudioRouteController.Route.HEADSET;
                                     RecordedPhrase phrase=headset?profile.headset.phraseEvidence:profile.phraseEvidence;
                                     float[] centroid=headset?profile.headset.voskCentroid():profile.voskCentroid();
                                     double policy=Math.max(profile.threshold(),new AppSettings(captureContext).ownerThreshold());
-                                    failure=RecordedWakeCheck.reject(pattern,phrase.samples,phrase.threshold,vector,centroid,policy);
+                                    failure=RecordedWakeCheck.reject(pattern,phrase.accepts(pattern),vector,centroid,policy);
                                     diagnostic="Input "+route+"; "+RecordedWakeCheck.diagnostic(pattern,phrase.samples,phrase.threshold,vector,centroid,policy);
                                     if(failure.isEmpty()&&!(headset?profile.acceptsHeadset(null,vector,policy):profile.accepts(null,vector,policy)))failure="OWNER_REJECTED";
                                 }
                             }
                         }catch(Throwable error){failure="ANALYSIS_ERROR";}
                         finally{java.util.Arrays.fill(pcm,(short)0);}
-                        final String reason=failure,detail=diagnostic;final float[] embedding=vector;
+                        final String reason=failure,detail=diagnostic;final float[] embedding=vector;final float[][] capturedPattern=pattern;
                         main.post(()->{
                             if(generation!=wakeGeneration||fired.get())return;
-                            lastWakeDiagnostic=detail;
-                            if(!reason.isEmpty()){listener.onRejected(reason);return;}
                             if(!profile.revision().equals(new ProfileStore(captureContext).ownerRevision())){listener.onError("Profile changed; restarting wake");return;}
+                            lastWakeDiagnostic=detail;
+                            lastWakeRoute=route;
+                            lastWakeEvent=WakeEventStore.add(reason.isEmpty()?"MATCHED":reason,profile.revision(),null,embedding,false,capturedPattern,route);
+                            if(!reason.isEmpty()){listener.onRejected(reason);return;}
                             lastWakeRoute=route;
                             if(fired.compareAndSet(false,true))listener.onWakeDetected(null,embedding);
                         });
@@ -498,6 +500,8 @@ public final class VoskEngine {
         }
     }
     private WakeAnalysisQueue wakeAnalyses;
+    private WakeEventStore.Event lastWakeEvent;
+    void recordWakeOutcome(String reason,boolean accepted){WakeEventStore.outcome(lastWakeEvent,reason,accepted);}
     private volatile String lastWakeDiagnostic="No completed wake check";
     String lastWakeDiagnostic(){return lastWakeDiagnostic;}
     private volatile AudioRouteController.Route lastWakeRoute=AudioRouteController.Route.UNCONFIRMED;

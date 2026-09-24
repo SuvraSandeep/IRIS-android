@@ -14,6 +14,13 @@ final class RecordedWakeCheck {
         return String.format(java.util.Locale.ROOT,"Phrase distance %.4f / maximum %.4f; speaker similarity %.4f / minimum %.4f",
             SoundPattern.score(pattern,phrases),threshold,WakePolicy.cosine(speaker,enrolled),policy);
     }
+    static String reject(float[][] pattern,boolean phraseAccepted,float[] speaker,float[] enrolled,double policy){
+        if(!SoundPattern.valid(pattern))return "AUDIO_QUALITY";
+        if(!phraseAccepted)return "PHRASE_MISMATCH";
+        if(!WakePolicy.owner(speaker,speaker,.99))return "SPEAKER_EVIDENCE";
+        if(!WakePolicy.owner(speaker,enrolled,policy))return "OWNER_REJECTED";
+        return "";
+    }
     static String reject(float[][] pattern,List<float[][]> phrases,double phraseThreshold,
                          float[] speaker,float[] enrolled,double ownerThreshold){
         if(!SoundPattern.valid(pattern))return "AUDIO_QUALITY";
