@@ -60,6 +60,25 @@ final class SoundPattern {
         double[] scores=new double[templates.size()];for(int i=0;i<scores.length;i++)scores[i]=distance(sample,templates.get(i));Arrays.sort(scores);
         return (scores[0]+scores[1]+scores[2])/3; // A single matching outlier cannot admit a sound.
     }
+    /** Each authenticated example is a pronunciation variant, not an outlier to discard. */
+    static double variantScore(float[][] sample,List<float[][]> templates){
+        if(!valid(sample)||templates==null||templates.isEmpty())return Double.POSITIVE_INFINITY;
+        double best=Double.POSITIVE_INFINITY;
+        for(float[][] template:templates)best=Math.min(best,distance(sample,template));
+        return best;
+    }
+    static double variantCalibrate(List<float[][]> templates){
+        if(templates==null||templates.size()!=4)throw new IllegalArgumentException("Four complete phrase examples are required");
+        for(float[][] template:templates)if(!valid(template))throw new IllegalArgumentException("Incomplete phrase example");
+        double worst=0;
+        for(int i=0;i<templates.size();i++){
+            List<float[][]> others=new ArrayList<>(templates);others.remove(i);
+            worst=Math.max(worst,variantScore(templates.get(i),others));
+        }
+        // Bounded radius even for distinct styles; held-out recordings, never enrollment
+        // recordings, must independently demonstrate that the learned bank generalizes.
+        return Math.min(.24,Math.max(.08,worst*1.2+.02));
+    }
     static double calibrate(List<float[][]> templates){
         if(templates==null||templates.size()!=4)throw new IllegalArgumentException("Four complete phrase examples are required");
         double worst=0;

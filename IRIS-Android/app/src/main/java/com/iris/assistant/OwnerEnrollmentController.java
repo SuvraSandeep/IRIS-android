@@ -89,6 +89,6 @@ final class OwnerEnrollmentController {
         return worst;
     }
     OwnerVoiceProfile build(String phrase, String hash, double threshold) throws Exception {
-        return OwnerVoiceProfile.create(phrase, hash, ecapaSamples, voskSamples, ecapaValidation, voskValidation, threshold, RecordedPhrase.create(phraseSamples,phraseValidation,threshold));
+        return OwnerVoiceProfile.create(phrase, hash, ecapaSamples, voskSamples, ecapaValidation, voskValidation, threshold, RecordedPhrase.createVariations(phraseSamples,phraseValidation,threshold));
     }
 }

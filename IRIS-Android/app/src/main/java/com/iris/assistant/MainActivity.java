@@ -2227,20 +2227,8 @@ public class MainActivity extends Activity {
         RadioGroup modes = view.findViewById(R.id.listeningModeGroup);
         RadioButton wake = view.findViewById(R.id.modeWake);
         RadioButton tap = view.findViewById(R.id.modeTap);
-        RadioButton continuous = view.findViewById(R.id.modeContinuous);
-        if (AppSettings.MODE_TAP.equals(settings.listeningMode())) tap.setChecked(true);
-        else if (AppSettings.MODE_CONTINUOUS.equals(settings.listeningMode())) continuous.setChecked(true);
-        else wake.setChecked(true);
-        modes.setOnCheckedChangeListener((group, checkedId) -> {
-            String selected = checkedId == R.id.modeTap ? AppSettings.MODE_TAP
-                    : checkedId == R.id.modeContinuous ? AppSettings.MODE_CONTINUOUS : AppSettings.MODE_WAKE;
-            if (AppSettings.MODE_CONTINUOUS.equals(selected)) {
-                new AlertDialog.Builder(this).setTitle("Continuous mode is experimental")
-                        .setMessage("It can use substantially more battery and the system recognizer may use network data. Custom wake phrase mode is the private default.")
-                        .setNegativeButton("Use wake mode", (d, w) -> wake.setChecked(true))
-                        .setPositiveButton("Use continuous", (d, w) -> saveListeningMode(selected)).show();
-            } else saveListeningMode(selected);
-        });
+        if (AppSettings.MODE_TAP.equals(settings.listeningMode())) tap.setChecked(true);else wake.setChecked(true);
+        modes.setOnCheckedChangeListener((group, checkedId) -> saveListeningMode(checkedId==R.id.modeTap?AppSettings.MODE_TAP:AppSettings.MODE_WAKE));
 
         Spinner mic = view.findViewById(R.id.microphoneSpinner);
         String[] microphones = {"Automatic", "Bluetooth", "Wired / USB", "Phone"};
@@ -2529,27 +2517,6 @@ public class MainActivity extends Activity {
         }
         Button feedbackMissed = view.findViewById(R.id.feedbackMissedButton);
         if(feedbackMissed!=null)feedbackMissed.setOnClickListener(v->reviewWakeEvents());
-        Button feedbackFalse = view.findViewById(R.id.feedbackFalseButton);
-        if(feedbackFalse!=null)feedbackFalse.setOnClickListener(v->reviewWakeEvents());
-
-        Switch highAccSwitch = view.findViewById(R.id.highAccuracyVoiceSwitch);
-        if (highAccSwitch != null) {
-            highAccSwitch.setChecked(settings.highAccuracyVoice());
-            highAccSwitch.setOnCheckedChangeListener((b, checked) -> {
-                settings.setHighAccuracyVoice(checked);
-                if (checked) {
-                    toast("High-accuracy model on. It downloads (~1GB) next time IRIS starts listening, "
-                            + "and stays loaded in memory the whole time IRIS is listening — expect higher RAM use. "
-                            + "Turn this off if IRIS feels heavy.");
-                } else {
-                    toast("Back to the fast, low-memory small model.");
-                }
-                if (IrisListeningService.isRunning) {
-                    stopListeningService();
-                    handler.postDelayed(this::startListeningService, 600);
-                }
-            });
-        }
 
         Switch powerSaverSwitch = view.findViewById(R.id.irisPowerSaverSwitch);
         if (powerSaverSwitch != null) {
@@ -2647,21 +2614,6 @@ public class MainActivity extends Activity {
         Switch haptics = view.findViewById(R.id.hapticsSwitch);
         haptics.setChecked(settings.haptics());
         haptics.setOnCheckedChangeListener((button, checked) -> settings.setHaptics(checked));
-        Switch speakerVerification = view.findViewById(R.id.speakerVerificationSwitch);
-        speakerVerification.setChecked(settings.speakerVerification());
-        speakerVerification.setText("Owner-only wake is required");
-        speakerVerification.setEnabled(false);
-        speakerVerification.setOnCheckedChangeListener((b, checked) -> {
-            if (checked && !new ProfileStore(this).hasVersionedOwner() && new ProfileStore(this).getVoiceprint() == null) {
-                speakerVerification.setChecked(false);
-                toast("Enroll your voice below first, then turn this on.");
-                return;
-            }
-            speakerVerification.setChecked(true);
-            toast(checked ? "Wake now requires your enrolled voice."
-                    : "Wake accepts the trained phrase from anyone.");
-        });
-
         Switch requireUnlock = view.findViewById(R.id.requireUnlockSwitch);
         requireUnlock.setChecked(settings.requireUnlock());
         requireUnlock.setOnCheckedChangeListener((button, checked) -> settings.setRequireUnlock(checked));
@@ -3032,7 +2984,7 @@ public class MainActivity extends Activity {
             appendCalibrationDiagnostic(sb,"VOSK OWNER VOICE",voskGroup,WakePolicy.EMBED_DIM);
             List<float[][]> patterns=liveSession?activeBank.phraseSamples:new ProfileStore(this).ownerEvidence().phraseEvidence.samples;
             sb.append("\nRecorded phrase examples: ").append(patterns.size());
-            if(patterns.size()==4)sb.append("\nPhrase distance threshold: ").append(SoundPattern.calibrate(patterns));
+            if(patterns.size()==4)sb.append("\nPhrase distance threshold: ").append(SoundPattern.variantCalibrate(patterns));
             sb.append("\nBoth the recorded phrase and owner voice must match. Typed spelling is not used for wake detection.");
             new AlertDialog.Builder(this).setTitle("Voice enrollment diagnostics").setMessage(sb.toString()).setPositiveButton("Close",null).show();
         }catch(Exception error){toast("Could not compute diagnostics: "+error.getMessage());}
@@ -3387,8 +3339,8 @@ public class MainActivity extends Activity {
         final int index=wakeSampleIndex;
         final boolean identityTake=index<OwnerTrainingPlan.ENROLLMENT;
         String prompt=phrasePreview.checking()?"Let’s check the phrase before training your voice. Tap Record, wait for Listening, then say it once.":(OwnerTrainingPlan.verification(index)?"A fresh verification take. ":"")
-            +"Use your normal speaking voice. "
-            +(identityTake?"Say your chosen wake sound once, then pause. Use the same sound each time; its spelling does not matter.":"Say the same wake sound once. This independently checks your voice." );
+            +"Use your natural voice; exact repetition is not needed. "
+            +(identityTake?"Say your chosen wake sound once, then pause. Teach a normal, softer, quicker and relaxed version across the four examples. Keep the same phrase; vary how you say it.":"Say the same wake sound once. This independently checks your voice." );
         showOwnerStage(OwnerTrainingStage.Kind.READY,prompt,0);
         pendingOwnerCapture=()->{
             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
@@ -3454,12 +3406,12 @@ public class MainActivity extends Activity {
                                 else if(!identityTake){
                                     failure=ownerImport!=null
                                         ?RecordedWakeCheck.reject(pattern,ownerImport.phraseEvidence.accepts(pattern),voskVector,candidateVosk,ownerImport.threshold())
-                                        :RecordedWakeCheck.reject(pattern,enrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.calibrate(enrollment.phraseSamples),new AppSettings(MainActivity.this).ownerThreshold()),
+                                        :RecordedWakeCheck.rejectVariant(pattern,enrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.variantCalibrate(enrollment.phraseSamples),new AppSettings(MainActivity.this).ownerThreshold()),
                                             voskVector,candidateVosk,new AppSettings(MainActivity.this).ownerThreshold());
                                 }
                             }
                             transcript=failure.isEmpty()?"Voice characteristics extracted":"Voice evidence needs another take";
-                            lastOwnerDiagnostic=(quality==null?"Route mismatch, no audio analysis performed":quality.summary())+"; input: "+recordedRoute+"; recorded phrase frames: "+pattern.length+"; Vosk components: "+(voskVector==null?0:voskVector.length)+"; "+failure+(!identityTake?"; "+RecordedWakeCheck.diagnostic(pattern,enrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.calibrate(enrollment.phraseSamples),new AppSettings(MainActivity.this).ownerThreshold()),voskVector,candidateVosk,new AppSettings(MainActivity.this).ownerThreshold()):"");
+                            lastOwnerDiagnostic=(quality==null?"Route mismatch, no audio analysis performed":quality.summary())+"; input: "+recordedRoute+"; recorded phrase frames: "+pattern.length+"; Vosk components: "+(voskVector==null?0:voskVector.length)+"; "+failure+(!identityTake?"; "+RecordedWakeCheck.variantDiagnostic(pattern,enrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.variantCalibrate(enrollment.phraseSamples),new AppSettings(MainActivity.this).ownerThreshold()),voskVector,candidateVosk,new AppSettings(MainActivity.this).ownerThreshold()):"");
                             ownerLastHeard=phrasePreview.checking()?engine.transcribe(pcm):transcript;
                         }}catch(Throwable error){failure="Voice analysis failed. Please retry this take.";}finally{java.util.Arrays.fill(pcm,(short)0);}
                         final String rejection=failure;final float[] ecapaEmbedding=ecapaVector;final float[] voskEmbedding=voskVector;
@@ -3471,7 +3423,7 @@ public class MainActivity extends Activity {
                             try{enrollment.add(index,ecapaEmbedding,voskEmbedding,OwnerTrainingPlan.verification(index));}catch(Exception error){retryOwnerTake(error.getMessage());return;}
                             (identityTake?enrollment.phraseSamples:enrollment.phraseValidation).add(pattern);
                             if(identityTake&&enrollment.phraseSamples.size()==OwnerTrainingPlan.ENROLLMENT){
-                                try{SoundPattern.calibrate(enrollment.phraseSamples);}
+                                try{SoundPattern.variantCalibrate(enrollment.phraseSamples);}
                                 catch(Exception error){int outlier=SoundPattern.rankByConsistency(enrollment.phraseSamples)[0];enrollment.removeEnrollmentAt(outlier);if(ownerImport==null&&ownerRefinement==null)saveTrainingProgress(false);retryOwnerTake("Phrase example "+(outlier+1)+" differed most. The other three takes are kept; record a replacement.");return;}
                             }
                             wakeSampleIndex++;
@@ -3603,7 +3555,7 @@ public class MainActivity extends Activity {
         final int index=headsetSampleIndex;
         final boolean identityTake=index<HeadsetTrainingPlan.ENROLLMENT;
         String prompt=(HeadsetTrainingPlan.verification(index)?"A fresh verification take. ":"")
-            +"Wearing your headset, say your wake sound once, then pause."
+            +"Wearing your headset, say your wake sound once, then pause. Vary your natural pace and volume across examples; do not imitate an earlier take."
             +(identityTake?"":" This independently checks your voice.");
         showOwnerStage(OwnerTrainingStage.Kind.READY,prompt,0);
         pendingOwnerCapture=()->{
@@ -3642,12 +3594,12 @@ public class MainActivity extends Activity {
                                     boolean voskOk=WakePolicy.owner(voskVector,voskVector,.99);
                                     if(!ecapaOk&&!voskOk)failure="Sound captured, but voice characteristics were insufficient. Try a comfortable volume.";
                                     else if(!identityTake){
-                                        failure=RecordedWakeCheck.reject(pattern,headsetEnrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.calibrate(headsetEnrollment.phraseSamples),headsetOwnerThreshold()),
+                                        failure=RecordedWakeCheck.rejectVariant(pattern,headsetEnrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.variantCalibrate(headsetEnrollment.phraseSamples),headsetOwnerThreshold()),
                                             voskVector,headsetCandidateVosk,headsetOwnerThreshold());
                                     }
                                 }
                                 lastOwnerDiagnostic=quality.summary()+"; input: "+recordedRoute+"; "+failure
-                                    +(!identityTake?"; "+RecordedWakeCheck.diagnostic(pattern,headsetEnrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.calibrate(headsetEnrollment.phraseSamples),headsetOwnerThreshold()),voskVector,headsetCandidateVosk,headsetOwnerThreshold()):"");
+                                    +(!identityTake?"; "+RecordedWakeCheck.variantDiagnostic(pattern,headsetEnrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.variantCalibrate(headsetEnrollment.phraseSamples),headsetOwnerThreshold()),voskVector,headsetCandidateVosk,headsetOwnerThreshold()):"");
                                 ownerLastHeard=failure.isEmpty()?"Voice characteristics extracted":"Voice evidence needs another take";
                             }
                         }}catch(Throwable error){failure="Voice analysis failed. Please retry this take.";}finally{java.util.Arrays.fill(pcm,(short)0);}
@@ -3658,7 +3610,7 @@ public class MainActivity extends Activity {
                             try{headsetEnrollment.add(index,ecapaEmbedding,voskEmbedding,HeadsetTrainingPlan.verification(index));}catch(Exception error){retryOwnerTake(error.getMessage());return;}
                             (identityTake?headsetEnrollment.phraseSamples:headsetEnrollment.phraseValidation).add(pattern);
                             if(identityTake&&headsetEnrollment.phraseSamples.size()==HeadsetTrainingPlan.ENROLLMENT){
-                                try{SoundPattern.calibrate(headsetEnrollment.phraseSamples);}
+                                try{SoundPattern.variantCalibrate(headsetEnrollment.phraseSamples);}
                                 catch(Exception error){int outlier=SoundPattern.rankByConsistency(headsetEnrollment.phraseSamples)[0];headsetEnrollment.removeEnrollmentAt(outlier);saveTrainingProgress(true);retryOwnerTake("Headset example "+(outlier+1)+" differed most. The other three takes are kept; record a replacement.");return;}
                             }
                             headsetSampleIndex++;
@@ -3704,7 +3656,7 @@ public class MainActivity extends Activity {
                     try{
                         OwnerVoiceProfile base=new ProfileStore(this).ownerEvidence();
                         if(base==null)throw new IllegalStateException("Phone-route profile is missing; retrain it first");
-                        OwnerVoiceProfile candidate=base.withHeadset(headsetEnrollment.ecapaSamples,headsetEnrollment.voskSamples,headsetEnrollment.ecapaValidation,headsetEnrollment.voskValidation,RecordedPhrase.create(headsetEnrollment.phraseSamples,headsetEnrollment.phraseValidation,headsetOwnerThreshold()));
+                        OwnerVoiceProfile candidate=base.withHeadset(headsetEnrollment.ecapaSamples,headsetEnrollment.voskSamples,headsetEnrollment.ecapaValidation,headsetEnrollment.voskValidation,RecordedPhrase.createVariations(headsetEnrollment.phraseSamples,headsetEnrollment.phraseValidation,headsetOwnerThreshold()));
                         if(!new ProfileStore(this).commitOwnerEvidence(candidate,ownerBaseRevision))throw new IllegalStateException("Profile changed or save failed; previous profile preserved");
                         TrainingProgress.clear(this,true);new AppSettings(this).setListeningMode(AppSettings.MODE_WAKE);resumeAfterWakeTraining=true;cancelWakeTraining();updateOwnerProfileSummary();
                         showOwnerStage(OwnerTrainingStage.Kind.SAVED,"Headset profile saved and read back successfully. IRIS now wakes for either route.",0);

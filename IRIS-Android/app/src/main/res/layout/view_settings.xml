@@ -84,8 +84,6 @@
                     android:text="Custom wake phrase — recommended" android:textColor="@color/text_primary" />
                 <RadioButton android:id="@+id/modeTap" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="Tap to talk — best battery" android:textColor="@color/text_primary" />
-                <RadioButton android:id="@+id/modeContinuous" android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="Continuous recognition — experimental" android:textColor="@color/text_primary" />
             </RadioGroup>
         </LinearLayout>
 
@@ -154,13 +152,13 @@
                 android:textColor="@color/text_primary" android:visibility="gone" />
 
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="14dp" android:text="VOICE SECURITY"
+                android:layout_marginTop="14dp" android:text="OWNER VOICE — ALWAYS REQUIRED"
                 android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
             <TextView android:id="@+id/voiceprintStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="6dp" android:text="Voiceprint: not enrolled — train your wake phrase to enroll."
                 android:textColor="@color/text_muted" android:textSize="12sp" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="10dp" android:text="Wake matching: Easy ↔ Strict (sound + owner voice)"
+                android:layout_marginTop="10dp" android:text="Wake matching: Easy ↔ Strict (requires authentication)"
                 android:textColor="@color/text_secondary" android:textSize="13sp" />
             <SeekBar android:id="@+id/sensitivitySeek" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="2dp" android:max="100" />
@@ -257,7 +255,7 @@
                 android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Teach IRIS how you say things, and see how well it is actually hearing you. Everything stays on this phone."
+                android:text="Manage local vocabulary and inspect recognition. System speech or server options may send command audio online."
                 android:textColor="@color/text_muted" android:textSize="11sp" />
             <Button android:id="@+id/fixMisheardButton" android:layout_width="match_parent" android:layout_height="46dp"
                 android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
@@ -281,21 +279,8 @@
                 android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
             <Button android:id="@+id/feedbackMissedButton" android:layout_width="match_parent" android:layout_height="46dp"
                 android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
-                android:text="It missed me — learn my voice &amp; ease up" android:textAllCaps="false"
+                android:text="Review a missed or unwanted wake" android:textAllCaps="false"
                 android:textColor="@color/text_primary" android:textSize="13sp" />
-            <Button android:id="@+id/feedbackFalseButton" android:layout_width="match_parent" android:layout_height="46dp"
-                android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
-                android:text="It woke for someone else — make it stricter" android:textAllCaps="false"
-                android:textColor="@color/text_primary" android:textSize="13sp" />
-
-            <Switch android:id="@+id/highAccuracyVoiceSwitch" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:layout_marginTop="14dp"
-                android:text="High-accuracy voice model (large, ~1GB)" android:textColor="@color/text_primary"
-                android:textSize="14sp" />
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Downloads a larger offline Indian-English model for noticeably better recognition of your accent. One-time ~1GB download; uses more storage and RAM. Falls back to the small model automatically if it can't load."
-                android:textColor="@color/text_muted" android:textSize="11sp" />
         </LinearLayout>
 
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -374,8 +359,6 @@
             android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="PRIVACY &amp; SAFETY" android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
-            <Switch android:id="@+id/speakerVerificationSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="\uD83D\uDD0A Only respond to my voice" android:textColor="@color/text_primary" android:layout_marginBottom="6dp" />
             <Switch android:id="@+id/requireUnlockSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="Require unlock before calls" android:textColor="@color/text_primary" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"

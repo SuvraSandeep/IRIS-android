@@ -470,7 +470,7 @@ public final class VoskEngine {
                                     float[] centroid=headset?profile.headset.voskCentroid():profile.voskCentroid();
                                     double policy=Math.max(profile.threshold(),new AppSettings(captureContext).ownerThreshold());
                                     failure=RecordedWakeCheck.reject(pattern,phrase.accepts(pattern),vector,centroid,policy);
-                                    diagnostic="Input "+route+"; "+RecordedWakeCheck.diagnostic(pattern,phrase.samples,phrase.threshold,vector,centroid,policy);
+                                    diagnostic="Input "+route+"; "+(phrase.variants()?RecordedWakeCheck.variantDiagnostic(pattern,phrase.samples,phrase.threshold,vector,centroid,policy):RecordedWakeCheck.diagnostic(pattern,phrase.samples,phrase.threshold,vector,centroid,policy));
                                     if(failure.isEmpty()&&!(headset?profile.acceptsHeadset(null,vector,policy):profile.accepts(null,vector,policy)))failure="OWNER_REJECTED";
                                 }
                             }

@@ -20,7 +20,7 @@ public final class AppSettings {
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    public String listeningMode() { return prefs.getString("listening_mode", MODE_WAKE); }
+    public String listeningMode() { return MODE_TAP.equals(prefs.getString("listening_mode",MODE_WAKE))?MODE_TAP:MODE_WAKE; }
     public void setListeningMode(String value) { prefs.edit().putString("listening_mode", value).apply(); }
     public String logMode() { return prefs.getString("log_mode", LOG_COMMANDS); }
     public void setLogMode(String value) { prefs.edit().putString("log_mode", value).apply(); }
@@ -52,7 +52,7 @@ public final class AppSettings {
     public void setTextScale(float value) { prefs.edit().putFloat("text_scale", value).apply(); }
     /** Use the large, high-accuracy Vosk en-IN model (~1GB, downloaded on first use).
      *  Off by default; falls back to the small model automatically if it can't load. */
-    public boolean highAccuracyVoice() { return prefs.getBoolean("high_accuracy_voice", false); }
+    public boolean highAccuracyVoice() { return false; } // Retired large decoder: bounded command-model memory.
     public void setHighAccuracyVoice(boolean value) { prefs.edit().putBoolean("high_accuracy_voice", value).apply(); }
     /** Server mode: use a private online server for smarter NLP/STT; auto-falls back offline. */
     public boolean serverModeEnabled() { return prefs.getBoolean("server_mode", false); }
