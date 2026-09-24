@@ -32,17 +32,19 @@ final class AudioRouteController implements AutoCloseable {
      *  reintroducing the same quality regression through a second, parallel route. Training
      *  (TimedRecorder) always passes true here — an explicit, short, user-initiated recording is
      *  never "merely awake" and should always honor the user's actual microphone preference. */
-    void request(Context context,AudioRecord recorder,boolean allowBluetooth){
+    void request(Context context,AudioRecord recorder,boolean allowBluetooth){request(context,recorder,allowBluetooth,Route.UNCONFIRMED);}
+    void request(Context context,AudioRecord recorder,boolean allowBluetooth,Route required){
         observed="Microphone route unconfirmed";
         if(manager==null)return;
         if(previousMode==AudioManager.MODE_IN_CALL||previousMode==AudioManager.MODE_IN_COMMUNICATION)return;
         try{
-            String preference=new AppSettings(context).preferredMicrophone();
+            String preference=required==Route.PHONE?"Phone":required==Route.HEADSET?"Automatic":new AppSettings(context).preferredMicrophone();
             AudioDeviceInfo chosen=null;
             for(AudioDeviceInfo d:manager.getDevices(AudioManager.GET_DEVICES_INPUTS)){
                 boolean bt=d.getType()==AudioDeviceInfo.TYPE_BLUETOOTH_SCO||(Build.VERSION.SDK_INT>=31&&d.getType()==AudioDeviceInfo.TYPE_BLE_HEADSET);
                 boolean phone=d.getType()==AudioDeviceInfo.TYPE_BUILTIN_MIC;
                 boolean wired=d.getType()==AudioDeviceInfo.TYPE_WIRED_HEADSET||d.getType()==AudioDeviceInfo.TYPE_USB_HEADSET||d.getType()==AudioDeviceInfo.TYPE_USB_DEVICE;
+                if(required==Route.HEADSET&&!bt&&!wired)continue;
                 if(bt&&!allowBluetooth)continue; // never even consider Bluetooth while wake-only listening
                 if((preference.equals("Phone")&&phone)||(preference.equals("Bluetooth")&&bt)||(preference.equals("Wired / USB")&&wired)){chosen=d;break;}
                 if(preference.equals("Automatic") && (chosen==null||wired||bt))chosen=d;
@@ -60,6 +62,24 @@ final class AudioRouteController implements AutoCloseable {
             }
             recorder.addOnRoutingChangedListener(r->observe(recorder),null);
         }catch(Exception error){observed="Requested microphone unavailable; checking actual input";}
+    }
+    /** Startup routing is asynchronous on Bluetooth. Discard startup audio until the requested
+     * input has been stable for 300 ms; never label phone audio as headset evidence. */
+    static void awaitInput(AudioRecord recorder,Route required) throws InterruptedException {
+        long deadline=android.os.SystemClock.elapsedRealtime()+5000,stableSince=0;
+        int previous=-1;short[] discard=new short[320];
+        while(android.os.SystemClock.elapsedRealtime()<deadline){
+            if(Thread.currentThread().isInterrupted())throw new InterruptedException();
+            int n=recorder.read(discard,0,discard.length,AudioRecord.READ_NON_BLOCKING);
+            if(n<0)throw new IllegalStateException("Microphone startup failed ("+n+")");
+            observe(recorder);int id=routeId(recorder);long now=android.os.SystemClock.elapsedRealtime();
+            if(id>=0&&observedRoute!=Route.UNCONFIRMED&&(required==Route.UNCONFIRMED||observedRoute==required)){
+                if(id!=previous){previous=id;stableSince=now;}
+                if(n>0&&now-stableSince>=300)return;
+            }else{previous=-1;stableSince=0;}
+            Thread.sleep(10);
+        }
+        throw new IllegalStateException(required==Route.HEADSET?"Headset microphone did not connect. Reconnect it and retry this take":"Microphone route did not settle. Retry this take");
     }
     static int routeId(AudioRecord recorder){try{AudioDeviceInfo d=recorder.getRoutedDevice();return d==null?-1:d.getId();}catch(Exception e){return -1;}}
     /** What's actually plugged in / connected right now, independent of any active recording —
@@ -88,7 +108,10 @@ final class AudioRouteController implements AutoCloseable {
             if(actual==null){observed="Recording input unconfirmed";observedRoute=Route.UNCONFIRMED;return;}
             boolean phone=actual.getType()==AudioDeviceInfo.TYPE_BUILTIN_MIC;
             observed=(phone?"Phone microphone":String.valueOf(actual.getProductName()))+" — confirmed input";
-            observedRoute=phone?Route.PHONE:Route.HEADSET;
+            boolean headset=actual.getType()==AudioDeviceInfo.TYPE_BLUETOOTH_SCO||actual.getType()==AudioDeviceInfo.TYPE_WIRED_HEADSET
+                ||actual.getType()==AudioDeviceInfo.TYPE_USB_HEADSET||actual.getType()==AudioDeviceInfo.TYPE_USB_DEVICE
+                ||(Build.VERSION.SDK_INT>=31&&actual.getType()==AudioDeviceInfo.TYPE_BLE_HEADSET);
+            observedRoute=phone?Route.PHONE:headset?Route.HEADSET:Route.UNCONFIRMED;
             IrisListeningService.currentMic=observed;
         }catch(Exception ignored){observed="Recording input unconfirmed";observedRoute=Route.UNCONFIRMED;}
     }

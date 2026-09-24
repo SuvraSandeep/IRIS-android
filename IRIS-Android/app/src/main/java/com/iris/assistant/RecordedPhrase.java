@@ -5,25 +5,63 @@ import org.json.*;
 
 /** Persisted phrase evidence, independent of speaker identity. Both must pass. */
 final class RecordedPhrase {
-    final List<float[][]> samples, validation;
+    static final String FORMAT=SoundPattern.VERSION+"-feedback-v1";
+    final List<float[][]> samples, validation, positives, negatives;
     final double threshold;
     final JSONObject data;
     RecordedPhrase(JSONObject object) throws Exception {
         data=new JSONObject(object.toString());
-        if(!SoundPattern.VERSION.equals(data.getString("version")))throw new IllegalArgumentException("Incompatible phrase evidence; retrain");
+        if(!SoundPattern.VERSION.equals(data.getString("version"))&&!FORMAT.equals(data.getString("version")))throw new IllegalArgumentException("Incompatible phrase evidence; retrain");
         samples=read(data.getJSONArray("samples"),4,4);
         validation=read(data.getJSONArray("validation"),4,4);
         threshold=data.getDouble("threshold");
-        double expected=SoundPattern.calibrate(samples);
+        double tolerance=data.has("tolerance")?data.getDouble("tolerance"):1;
+        if(!Double.isFinite(tolerance)||tolerance<1||tolerance>2)throw new IllegalArgumentException("Invalid phrase tolerance");
+        double expected=Math.min(.32,SoundPattern.calibrate(samples)*tolerance);
+        positives=read(data.has("positives")?data.getJSONArray("positives"):new JSONArray(),0,6);
+        negatives=read(data.has("negatives")?data.getJSONArray("negatives"):new JSONArray(),0,6);
+        for(float[][] example:positives)if(SoundPattern.score(example,samples)>.32)throw new IllegalArgumentException("Correction is too different from the wake sound");
         if(!Double.isFinite(threshold)||Math.abs(threshold-expected)>1e-9)throw new IllegalArgumentException("Invalid phrase threshold");
         for(float[][] take:validation)if(!accepts(take))throw new IllegalArgumentException("Held-out phrase did not match");
+        for(float[][] take:positives)if(!accepts(take))throw new IllegalArgumentException("Correction conflicts with a learned sound");
     }
     static RecordedPhrase create(List<float[][]> samples,List<float[][]> validation)throws Exception {
-        return new RecordedPhrase(new JSONObject().put("version",SoundPattern.VERSION)
+        return new RecordedPhrase(new JSONObject().put("version",FORMAT)
             .put("samples",array(samples)).put("validation",array(validation))
             .put("threshold",SoundPattern.calibrate(samples)));
     }
-    boolean accepts(float[][] pattern){return SoundPattern.valid(pattern)&&SoundPattern.score(pattern,samples)<=threshold;}
+    static RecordedPhrase create(List<float[][]> samples,List<float[][]> validation,double policy)throws Exception {
+        double tolerance=WakePolicy.phraseTolerance(policy);
+        return new RecordedPhrase(new JSONObject().put("version",FORMAT).put("tolerance",tolerance)
+            .put("samples",array(samples)).put("validation",array(validation))
+            .put("threshold",Math.min(.32,SoundPattern.calibrate(samples)*tolerance)));
+    }
+    RecordedPhrase withPolicy(double policy)throws Exception {
+        JSONObject j=new JSONObject(data.toString()).put("version",FORMAT);double tolerance=WakePolicy.phraseTolerance(policy);
+        j.put("tolerance",tolerance).put("threshold",Math.min(.32,SoundPattern.calibrate(samples)*tolerance));
+        return new RecordedPhrase(j);
+    }
+    RecordedPhrase withValidation(List<float[][]> heldOut)throws Exception {
+        return new RecordedPhrase(new JSONObject(data.toString()).put("validation",array(heldOut)));
+    }
+    RecordedPhrase withFeedback(float[][] pattern,boolean missed)throws Exception {
+        if(!SoundPattern.valid(pattern))throw new IllegalArgumentException("No complete sound evidence");
+        if(missed&&accepts(pattern))throw new IllegalArgumentException("This sound already matches; inspect speaker or microphone diagnostics");
+        JSONObject j=new JSONObject(data.toString()).put("version",FORMAT);String key=missed?"positives":"negatives";
+        List<float[][]> bank=new ArrayList<>(missed?positives:negatives);
+        if(bank.size()>=6)throw new IllegalArgumentException("Feedback bank full; undo or retrain");
+        for(float[][] prior:bank)if(SoundPattern.distance(prior,pattern)<.000001)throw new IllegalArgumentException("Already learned this event");
+        bank.add(pattern);j.put(key,array(bank));
+        // Construction protects all four held-out examples from an over-broad correction.
+        return new RecordedPhrase(j);
+    }
+    boolean accepts(float[][] pattern){
+        if(!SoundPattern.valid(pattern))return false;
+        for(float[][] negative:negatives)if(SoundPattern.distance(pattern,negative)<=Math.min(.04,threshold*.5))return false;
+        if(SoundPattern.score(pattern,samples)<=threshold)return true;
+        for(float[][] positive:positives)if(SoundPattern.distance(pattern,positive)<=threshold*.75)return true;
+        return false;
+    }
     static JSONArray array(List<float[][]> patterns)throws Exception {
         JSONArray out=new JSONArray();
         for(float[][] pattern:patterns){

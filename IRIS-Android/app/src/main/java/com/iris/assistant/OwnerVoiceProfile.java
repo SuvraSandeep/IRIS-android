@@ -140,6 +140,24 @@ final class OwnerVoiceProfile {
         j.put("revision", UUID.randomUUID().toString()).put("trainedAt", System.currentTimeMillis());
         return new OwnerVoiceProfile(j);
     }
+    OwnerVoiceProfile withPolicy(double policy)throws Exception {
+        JSONObject j=new JSONObject(data.toString()).put("ownerThreshold",policy)
+            .put("phraseEvidence",phraseEvidence.withPolicy(policy).data);
+        if(headset!=null)j.getJSONObject("headset").put("phraseEvidence",headset.phraseEvidence.withPolicy(policy).data);
+        j.put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
+        return new OwnerVoiceProfile(j);
+    }
+    OwnerVoiceProfile withSoundFeedback(float[][] pattern,float[] speaker,boolean useHeadset,boolean missed)throws Exception {
+        // Authentication alone cannot turn an unverified stranger into the enrolled owner.
+        if(!(useHeadset?acceptsHeadset(null,speaker,threshold()):accepts(null,speaker,threshold())))
+            throw new IllegalArgumentException("Speaker was not verified. Adjust strictness or record fresh owner examples");
+        RecordedPhrase phrase=useHeadset?headset.phraseEvidence:phraseEvidence;
+        RecordedPhrase corrected=phrase.withFeedback(pattern,missed);
+        JSONObject j=new JSONObject(data.toString());
+        if(useHeadset)j.getJSONObject("headset").put("phraseEvidence",corrected.data);else j.put("phraseEvidence",corrected.data);
+        j.put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
+        return new OwnerVoiceProfile(j);
+    }
     OwnerVoiceProfile withNegative(float[] ecapaSample, float[] voskSample) throws Exception {
         if(!WakePolicy.owner(voskSample,voskSample,.99))throw new IllegalArgumentException("No valid speaker evidence for correction");
         if(!accepts(ecapaSample,voskSample,threshold())&&!acceptsHeadset(ecapaSample,voskSample,threshold()))

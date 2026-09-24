@@ -866,8 +866,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         final double policyThreshold=settings.ownerThreshold();
         voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
             @Override public void onRejected(String reason){if(epoch==wakeEpoch&&isRunning){
-                WakeEventStore.add(reason,new ProfileStore(IrisListeningService.this).ownerRevision(),null,null,false);
-                wakeReadiness="Last wake check: "+reason;
+                wakeReadiness="Listening · "+RecordedWakeCheck.guidance(reason);
+                LogStore.append(IrisListeningService.this,"WAKE REJECTED",reason+"; "+voskEngine.lastWakeDiagnostic());
                 updateListeningNotification(wakeReadiness);
             }}
             @Override public void onWakeDetected(float[] ecapaEmbedding, float[] voskEmbedding) {
@@ -880,7 +880,8 @@ public class IrisListeningService extends Service implements RecognitionListener
                 boolean unchanged=profileVersion==new ProfileStore(IrisListeningService.this).getWakeProfile().trainedAt
                         && policyThreshold==settings.ownerThreshold();
                 boolean accepted = unchanged && !media && now - lastWakeAt >= 3000 && isOwnerVoice(ecapaEmbedding, voskEmbedding);
-                WakeEventStore.add(accepted?"OWNER_ACCEPTED":media?"PLAYBACK_CONTEXT":!unchanged?"PROFILE_CHANGED":"OWNER_REJECTED",new ProfileStore(IrisListeningService.this).ownerRevision(),ecapaEmbedding,voskEmbedding,accepted);
+                voskEngine.recordWakeOutcome(accepted?"OWNER_ACCEPTED":media?"PLAYBACK_CONTEXT":!unchanged?"PROFILE_CHANGED":"OWNER_REJECTED",accepted);
+
                 LogStore.append(IrisListeningService.this, "WAKE DECISION",
                         "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
                         + " accepted=" + accepted);

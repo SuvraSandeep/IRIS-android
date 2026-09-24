@@ -448,42 +448,47 @@ public final class VoskEngine {
             final OwnerVoiceProfile profile=new ProfileStore(captureContext).ownerEvidence();
             if(profile==null){listener.onError("Record your phrase again for this version; existing profile has no compatible sound evidence");return;}
             if(!profile.hash().equals(speakerFingerprint())){listener.onError("Owner model changed; retrain your phrase");return;}
-            final java.util.concurrent.atomic.AtomicBoolean busy=new java.util.concurrent.atomic.AtomicBoolean();
+            final WakeAnalysisQueue analyses=new WakeAnalysisQueue();
+            wakeAnalyses=analyses;
             final java.util.concurrent.atomic.AtomicBoolean fired=new java.util.concurrent.atomic.AtomicBoolean();
             try{
                 Recognizer rec=new Recognizer(model,SAMPLE_RATE);
                 ManagedSpeechService capture=new ManagedSpeechService(captureContext,rec,SAMPLE_RATE,allowBluetooth);
                 capture.setClipListener((pcm,route)->{
-                    if(generation!=wakeGeneration||fired.get()||!busy.compareAndSet(false,true)){java.util.Arrays.fill(pcm,(short)0);return;}
-                    new Thread(()->{
-                        String failure="";float[] vector=null;
+                    if(generation!=wakeGeneration||fired.get()){java.util.Arrays.fill(pcm,(short)0);return;}
+                    analyses.offer(pcm,()->{
+                        String failure="",diagnostic="Input "+route;float[] vector=null;float[][] pattern=null;
                         try{
                             synchronized(VoskEngine.this){
-                                if(generation!=wakeGeneration)return;
+                                if(generation!=wakeGeneration||fired.get())return;
                                 if(route==AudioRouteController.Route.UNCONFIRMED)failure="INPUT_UNCONFIRMED";
                                 else if(route==AudioRouteController.Route.HEADSET&&profile.headset==null)failure="HEADSET_PROFILE_REQUIRED";
                                 else {
-                                    float[][] pattern=SoundPattern.extract(pcm);
+                                    pattern=SoundPattern.extract(pcm);
                                     vector=embedRecorded(pcm);
                                     boolean headset=route==AudioRouteController.Route.HEADSET;
                                     RecordedPhrase phrase=headset?profile.headset.phraseEvidence:profile.phraseEvidence;
                                     float[] centroid=headset?profile.headset.voskCentroid():profile.voskCentroid();
                                     double policy=Math.max(profile.threshold(),new AppSettings(captureContext).ownerThreshold());
-                                    failure=RecordedWakeCheck.reject(pattern,phrase.samples,phrase.threshold,vector,centroid,policy);
+                                    failure=RecordedWakeCheck.reject(pattern,phrase.accepts(pattern),vector,centroid,policy);
+                                    diagnostic="Input "+route+"; "+RecordedWakeCheck.diagnostic(pattern,phrase.samples,phrase.threshold,vector,centroid,policy);
                                     if(failure.isEmpty()&&!(headset?profile.acceptsHeadset(null,vector,policy):profile.accepts(null,vector,policy)))failure="OWNER_REJECTED";
                                 }
                             }
                         }catch(Throwable error){failure="ANALYSIS_ERROR";}
-                        finally{java.util.Arrays.fill(pcm,(short)0);busy.set(false);}
-                        final String reason=failure;final float[] embedding=vector;
+                        finally{java.util.Arrays.fill(pcm,(short)0);}
+                        final String reason=failure,detail=diagnostic;final float[] embedding=vector;final float[][] capturedPattern=pattern;
                         main.post(()->{
                             if(generation!=wakeGeneration||fired.get())return;
-                            if(!reason.isEmpty()){listener.onRejected(reason);return;}
                             if(!profile.revision().equals(new ProfileStore(captureContext).ownerRevision())){listener.onError("Profile changed; restarting wake");return;}
+                            lastWakeDiagnostic=detail;
+                            lastWakeRoute=route;
+                            lastWakeEvent=WakeEventStore.add(reason.isEmpty()?"MATCHED":reason,profile.revision(),null,embedding,false,capturedPattern,route);
+                            if(!reason.isEmpty()){listener.onRejected(reason);return;}
                             lastWakeRoute=route;
                             if(fired.compareAndSet(false,true))listener.onWakeDetected(null,embedding);
                         });
-                    },"IRIS-RecordedWake").start();
+                    });
                 });
                 speechService=capture;
                 capture.startListening(new RecognitionListener(){
@@ -491,9 +496,14 @@ public final class VoskEngine {
                     public void onTimeout(){}
                     public void onError(Exception error){if(generation==wakeGeneration)listener.onError(error.getMessage());}
                 });
-            }catch(Exception error){listener.onError(error.getMessage());}
+            }catch(Exception error){analyses.close();listener.onError(error.getMessage());}
         }
     }
+    private WakeAnalysisQueue wakeAnalyses;
+    private WakeEventStore.Event lastWakeEvent;
+    void recordWakeOutcome(String reason,boolean accepted){WakeEventStore.outcome(lastWakeEvent,reason,accepted);}
+    private volatile String lastWakeDiagnostic="No completed wake check";
+    String lastWakeDiagnostic(){return lastWakeDiagnostic;}
     private volatile AudioRouteController.Route lastWakeRoute=AudioRouteController.Route.UNCONFIRMED;
     AudioRouteController.Route lastWakeRoute(){return lastWakeRoute;}
     /** Fixed preprocessing for schema 8. Optional models cannot change enrollment/live behavior. */
@@ -546,6 +556,7 @@ public final class VoskEngine {
     public void stop() {
         synchronized (stateLock) {
             wakeGeneration++;
+            if(wakeAnalyses!=null){wakeAnalyses.close();wakeAnalyses=null;}
             if (speechService != null) {
                 speechService.stop();
                 speechService = null;

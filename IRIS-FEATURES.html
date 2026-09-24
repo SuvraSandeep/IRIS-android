@@ -135,7 +135,7 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "10.0.1";
+const BUILD_VERSION = "10.1.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
@@ -186,8 +186,8 @@ const FEATURES = [
   // ---- Voice & Recognition ----
   {id:"wake", cat:"Voice & Recognition", icon:"🎙️", title:"Custom Wake Phrase",
    tagline:"Your recorded phrase and your voice must both match",
-   desc:"Wake training, saved-voice testing, and background listening now use the same recorded-phrase check and bundled Vosk owner model. Typed text labels the phrase; spelling and transcription do not authorize wake. Phone and headset routes use separate evidence captured from the confirmed input. Media playback pauses wake. Schema 8 requires fresh enrollment because previous profiles have no recorded-phrase evidence. Optional ECAPA and VAD downloads do not alter decisions. Accuracy depends on your microphone and environment; a successful setup is not a guarantee against every false acceptance or missed wake.",
-   examples:["Training → record phrase → verify → authenticate and save","Add headset profile, then test the actual input"], version:"10.0.1"},
+   desc:"IRIS learns the sound you record and independently checks your voice. Easy, Balanced and Strict now adjust both sound tolerance and speaker matching. Settings are saved with the profile, revalidated and applied to live listening; undo restores the policy too. Feedback can teach a missed sound only when the speaker was already verified, or reject an unwanted sound without rejecting your entire voice. Feedback is authenticated, scoped to the actual microphone and checked against all saved validation takes. Temporary evidence expires after two minutes. Real-world accuracy depends on the recording and environment; voice matching is not replay-proof.",
+   examples:["Training → record phrase → verify → authenticate and save","Add headset profile, then test the actual input"], version:"10.1.0"},
   {id:"cmdstt", cat:"Voice & Recognition", icon:"👂", title:"Indian English Command Recognition",
    tagline:"Speak naturally; wait for the ready cue.",
    desc:"Defaults to English (India) with the system speech service, without forcing on-device recognition. Existing explicit preferences remain unchanged; use Indian English accuracy setup in Settings to apply the preset. System speech may process audio online. Bundled and downloaded offline fallback models now match Indian English, using staged installation rather than a US model or uuid-dependent unpack. Unclear speech gets one retry; low-confidence results are not executed. Common natural phrases are normalised while contact names and dictated messages are preserved. Accent accuracy still depends on microphone, noise and provider; no claim of watch-equivalent accuracy.",
@@ -218,8 +218,8 @@ const FEATURES = [
    examples:["Training → “🎓 Learn My Voice & Commands”"], version:"7.19.0"},
   {id:"waketrain", cat:"Voice & Recognition", icon:"🎤", title:"Robust Wake Training",
    tagline:"Four recordings, four independent checks, recoverable progress",
-   desc:"Record the same complete phrase four times, then verify it with four fresh phrase-and-owner takes. Accepted phone and headset takes are checkpointed in encrypted storage and can resume after interruption. A rejected take does not erase earlier takes. Final saving requires device authentication and validated read-back, then starts wake listening. Tests show rejection reasons, use the correct microphone profile, and restore previously active listening. Old profiles need one new training session.",
-   examples:["Training → record phrase → verify → authenticate and save","Add headset profile, then test the actual input"], version:"10.0.1"},
+   desc:"An optional name, four recordings of your wake sound, four fresh checks, then authenticated Save. No pronunciation or transcript requirement. Headset training selects and confirms the headset input. Setup and live listening use the same capture and selected matching policy. Earlier takes survive recording errors. Use the visible matching control before training; later, open recent feedback to correct a specific missed or unwanted wake. Existing compatible profiles can be kept. Very short sounds may lack enough information to verify the speaker.",
+   examples:["Training → record phrase → verify → authenticate and save","Add headset profile, then test the actual input"], version:"10.1.0"},
   {id:"bigmodel", cat:"Voice & Recognition", icon:"🎯", title:"High-Accuracy Voice Model (opt-in)",
    tagline:"A bigger offline model for tough accents.",
    desc:"Settings toggle to download the large offline Indian-English model (~1GB, one-time) for noticeably better recognition. Uses more storage/RAM and falls back to the fast small model automatically if it can't load. 100% offline.",

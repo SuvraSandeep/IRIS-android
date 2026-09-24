@@ -18,8 +18,10 @@ public final class TimedRecorder {
         void onError(String message);
     }
     private final android.content.Context context;
+    private AudioRouteController.Route requiredRoute=AudioRouteController.Route.UNCONFIRMED;
     public TimedRecorder(){context=null;}
     public TimedRecorder(android.content.Context context){this.context=context.getApplicationContext();}
+    TimedRecorder(android.content.Context context,AudioRouteController.Route required){this(context);requiredRoute=required;}
     private volatile Attempt active;
     private volatile AudioRouteController.Route capturedRouteType=AudioRouteController.Route.UNCONFIRMED;
     public AudioRouteController.Route capturedRouteType(){return capturedRouteType;}
@@ -63,15 +65,16 @@ public final class TimedRecorder {
                 .setBufferSizeInBytes(Math.max(min*2,FRAME_SIZE*8)).build();
             if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
             if(attempt.cancelled)return;
-            if(context!=null)route.request(context,mic);
+            if(context!=null)route.request(context,mic,true,requiredRoute);
             if(attempt.cancelled)return;
             mic.startRecording();
             if(mic.getRecordingState()!=AudioRecord.RECORDSTATE_RECORDING)throw new IllegalStateException("Android did not start microphone recording");
+            AudioRouteController.awaitInput(mic,requiredRoute);
             AudioRouteController.observe(mic);
             short[] audio=new short[SAMPLE_RATE*durationMs/1000],frame=new short[FRAME_SIZE];int offset=0;
             RecordingDeadline deadline=new RecordingDeadline(SystemClock.elapsedRealtime(),durationMs);
             int initialRoute=AudioRouteController.routeId(mic);
-            long lastLevel=0;SpeechEndpoint speechEnd=new SpeechEndpoint();
+            long lastLevel=0;PhraseCapture speechEnd=new PhraseCapture();
             while(!attempt.cancelled && offset<audio.length){
                 long now=SystemClock.elapsedRealtime();
                 if(deadline.expired(now))throw new IllegalStateException("Microphone stopped supplying audio. Reconnect the headset or select Phone microphone and retry");
@@ -79,7 +82,8 @@ public final class TimedRecorder {
                 if(n<0)throw new IllegalStateException("Microphone read failed ("+n+")");
                 if(n==0){Thread.sleep(10);continue;}
                 deadline.received(now);System.arraycopy(frame,0,audio,offset,n);offset+=n;
-                boolean complete=endpoint&&speechEnd.add(frame,n);
+                short[] phrase=endpoint?speechEnd.add(frame,n):null;
+                boolean complete=phrase!=null;
                 if(now-lastLevel>=100){
                     int actualRoute=AudioRouteController.routeId(mic);
                     if(initialRoute>=0&&actualRoute!=initialRoute)throw new IllegalStateException("Input route changed. Record this take again");
@@ -88,9 +92,10 @@ public final class TimedRecorder {
                     lastLevel=now;final float level=rms(frame,n);
                     main.post(()->{if(active==attempt&&!attempt.terminal.get()&&!attempt.cancelled)listener.onLevel(level);});
                 }
-                if(complete)break;
+                if(complete){result=phrase;break;}
             }
-            if(!attempt.cancelled)result=java.util.Arrays.copyOf(audio,offset);
+            if(!attempt.cancelled&&result==null)result=java.util.Arrays.copyOf(audio,offset);
+            java.util.Arrays.fill(audio,(short)0);speechEnd.clear();
         }catch(Exception failure){error="Recording failed: "+failure.getMessage();}
         finally{
             if(mic!=null){try{mic.stop();}catch(Exception ignored){}try{mic.release();}catch(Exception ignored){}}
