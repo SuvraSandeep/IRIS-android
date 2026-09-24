@@ -431,6 +431,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     private String lastMemoryId;
 
     private VoskEngine voskEngine;
+    private VoskEngine commandEngine;
+    private long commandEpoch;
+    private boolean commandModelLoading;
     /** Dedicated ECAPA-TDNN speaker embedding + Silero VAD trimming models — see
      *  WAKE-TRAINING-REDESIGN.md's Ensemble section. Loaded once at service start, attached to
      *  voskEngine via attachEnsembleModels() as soon as either finishes loading. */
@@ -482,7 +485,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         voskEngine = new VoskEngine();
         // Schema 8 uses the bundled Vosk owner model plus recorded-phrase evidence.
         // Optional downloads never change the identity model midway through a session.
-        voskEngine.init(this, new VoskEngine.InitListener() {
+        voskEngine.initOwner(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
                 voskReady = true;
                 LogStore.append(IrisListeningService.this, "VOSK", "Voice model ready");
@@ -798,6 +801,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         handler.postDelayed(retryWake, delay);
     }
     private void startWakeDetection() {
+        stopCommandCapture();
         if (!isRunning) return;
         final long epoch = ++wakeEpoch;
         handler.removeCallbacks(retryWake);
@@ -1055,16 +1059,25 @@ public class IrisListeningService extends Service implements RecognitionListener
     private void startVoskCommandRecognition() {
         destroyRecognizer();
         googleCommandActive = false;
-        if (!(voskReady && voskEngine != null)) {
-            broadcastMessage("No speech recognizer is ready. Check the system speech service or download the offline model in Settings.");
-            rearmAfterAction(); return;
+        if(!isRunning||!PHASE_COMMAND.equals(phase))return;
+        if(commandEngine==null)commandEngine=new VoskEngine();
+        if(!commandEngine.isReady()){
+            if(commandModelLoading)return;
+            commandModelLoading=true;final VoskEngine loading=commandEngine;
+            broadcastMessage("Preparing offline Indian English. Please wait for the ready tone.");
+            loading.init(this,new VoskEngine.InitListener(){
+                public void onReady(){commandModelLoading=false;if(commandEngine==loading&&isRunning&&PHASE_COMMAND.equals(phase))startVoskCommandRecognition();}
+                public void onError(String message){commandModelLoading=false;if(commandEngine==loading&&isRunning){broadcastMessage(message);rearmAfterAction();}}
+            });return;
         }
+        final long epoch=++commandEpoch;
+        final VoskEngine commands=commandEngine;
         recognitionLabel = "Offline Indian English (Vosk)";
         broadcastState(true, phase);
         final boolean[] handled = {false};
         commandTimeout = () -> {
-            if (isRunning && PHASE_COMMAND.equals(phase) && !handled[0]) {
-                voskEngine.stop();
+            if (isRunning && PHASE_COMMAND.equals(phase) && epoch==commandEpoch && !handled[0]) {
+                commands.stop();
                 broadcastMessage("No command heard. Going back to sleep.");
                 LogStore.append(this, "TIMEOUT", "Command window expired");
                 rearmAfterAction();
@@ -1072,31 +1085,30 @@ public class IrisListeningService extends Service implements RecognitionListener
         };
         // Settle delay: let the wake recognizer's mic fully release before we open a new AudioRecord.
         handler.postDelayed(() -> {
-            if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
-            LogStore.append(this, "LISTEN", "Command window open (Vosk)");
-            handler.postDelayed(commandTimeout, 15_000);
-            voskEngine.startListening(new VoskEngine.SttListener() {
+            if (!isRunning || !PHASE_COMMAND.equals(phase)||epoch!=commandEpoch) return;
+            commands.startListening(new VoskEngine.SttListener() {
+                @Override public void onReady(){if(epoch==commandEpoch&&isRunning&&PHASE_COMMAND.equals(phase)){LogStore.append(IrisListeningService.this,"LISTEN","Microphone ready (Vosk Indian English)");handler.postDelayed(commandTimeout,15_000);playListeningEarcon();}}
+                @Override public void onUnclear(String text){if(epoch!=commandEpoch||handled[0])return;handled[0]=true;commands.stop();lastHeardTranscript=text;LogStore.append(IrisListeningService.this,"UNCLEAR CMD",text);retryUnclearCommand("I could not hear that clearly. Please repeat after the tone.");}
                 @Override public void onPartial(String text) {
-                    if (!text.isEmpty()) broadcastTranscript(text);
+                    if (epoch==commandEpoch&&!text.isEmpty()) broadcastTranscript(text);
                 }
                 @Override public void onFinal(String text) {
-                    if (handled[0] || text.isEmpty()) return;
+                    if (epoch!=commandEpoch||handled[0] || text.isEmpty()) return;
                     handled[0] = true;
                     if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
-                    voskEngine.stop();
+                    commands.stop();
                     LogStore.append(IrisListeningService.this, "HEARD CMD", text);
                     recordTranscript(text);
                     handleCommand(text);
                 }
                 @Override public void onError(String message) {
-                    if (handled[0]) return;
+                    if (epoch!=commandEpoch||handled[0]) return;
                     handled[0] = true;
                     if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
                     LogStore.append(IrisListeningService.this, "VOSK STT ERROR", message);
                     rearmAfterAction();
                 }
             });
-            playListeningEarcon();
         }, 350);
     }
 
@@ -1196,7 +1208,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         googleCommandActive = false;
         if (commandRetries++ < 1) {
             broadcastMessage(prompt);
-            speakThenRun(prompt, this::startAndroidCommandRecognition);
+            speakThenRun(prompt, ()->{if(settings.googleSttForCommands()&&SpeechRecognizer.isRecognitionAvailable(this))startAndroidCommandRecognition();else startVoskCommandRecognition();});
         } else {
             String message = "I still couldn't hear that clearly. Try Tap to talk, English India in Settings, and check which microphone is selected.";
             broadcastMessage(message);
@@ -1480,7 +1492,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
         // Natural texting without "saying" — only fires if the recipient resolves to a contact.
         Matcher looseSmsM = SMS_LOOSE_PATTERN.matcher(clean);
-        if (looseSmsM.matches()) {
+        if (looseSmsM.matches()&&SmsIntentPolicy.mayAddressContact(looseSmsM.group(1))) {
             String rest = looseSmsM.group(1).trim();
             if (tryFlexibleSms(rest)) return;
             // Verb + a recipient but NO message → start the guided compose flow.
@@ -2707,27 +2719,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
-    private void handleSendSms(String who, String message) {
-        if (blockedWhileLocked("send a text")) return;
-        if (!hasPermission(Manifest.permission.SEND_SMS)) {
-            String msg = "I need SMS permission for that. Open the IRIS app and allow sending texts.";
-            broadcastMessage(msg); speakThenRun(msg, this::rearmAfterAction);
-            LogStore.append(this, "SMS", "No SEND_SMS permission"); return;
-        }
-        // Direct SMS to a spoken/typed phone number
-        String dial = extractPhoneNumber(who);
-        if (dial != null) {
-            if (message == null || message.trim().isEmpty()) { beginSms(who, null); return; }
-            sendSmsToNumber(speakableNumber(dial), dial, message);
-            return;
-        }
-        String number = resolveNumber(who);
-        if (number == null) {
-            // Recipient unknown — fall into the guided flow so IRIS can ask.
-            beginSms(null, message);
-            return;
-        }
-        sendSmsToNumber(who, number, message);
+    private void handleSendSms(String who,String message){
+        // A recognized message is a draft, never an immediate send. Resolve and read back.
+        beginSms(who,message);
     }
 
     /** Actually send an SMS to an already-resolved number. */
@@ -5256,6 +5250,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void rearmAfterAction() {
+        stopCommandCapture();
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
         finishCommandMediaResume();   // resume media once, only if this whole command paused it
@@ -5530,7 +5525,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         }, 400);
     }
 
+    private void stopCommandCapture(){commandEpoch++;if(commandEngine!=null)commandEngine.stop();}
     private void stopWakeEngine() {
+        stopCommandCapture();
         if (wakeEngine != null) { wakeEngine.stop(); wakeEngine = null; }
         if (voskEngine != null) voskEngine.stop();
     }
@@ -6181,6 +6178,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         releaseServerTts();
 
         if (voskEngine != null) { voskEngine.close(); voskEngine = null; }
+        if(commandEngine!=null){commandEngine.close();commandEngine=null;}
         if (ecapaEngine != null) { ecapaEngine.close(); ecapaEngine = null; }
         if (vadEngine != null) { vadEngine.close(); vadEngine = null; }
         super.onDestroy();

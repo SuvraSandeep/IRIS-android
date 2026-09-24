@@ -239,7 +239,10 @@ public final class ProfileStore {
         } catch(Exception error){return false;}
     }
     public synchronized OwnerVoiceProfile ownerEvidence() {
-        try{return new OwnerVoiceProfile(root().getJSONObject("wakeWord"));}catch(Exception e){return null;}
+        try{return OwnerProfileCache.read(root().getJSONObject("wakeWord").toString());}catch(Exception e){return null;}
+    }
+    public synchronized double ownerPolicy(){
+        try{return OwnerProfileCache.threshold(root().getJSONObject("wakeWord").toString());}catch(Exception e){return Double.NaN;}
     }
     public synchronized boolean hasVersionedOwner(){return root().optJSONObject("wakeWord")!=null&&root().optJSONObject("wakeWord").optInt("schema")>=4;}
     public synchronized boolean commitOwnerEvidence(OwnerVoiceProfile candidate,String expectedRevision) {

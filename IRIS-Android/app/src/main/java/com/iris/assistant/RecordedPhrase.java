@@ -9,6 +9,15 @@ final class RecordedPhrase {
     final List<float[][]> samples, validation, positives, negatives;
     final double threshold;
     final JSONObject data;
+    /** Defensive copy of already validated evidence: no repeated DTW calibration on UI reads. */
+    RecordedPhrase(RecordedPhrase source)throws Exception {
+        data=new JSONObject(source.data.toString());threshold=source.threshold;
+        samples=copy(source.samples);validation=copy(source.validation);positives=copy(source.positives);negatives=copy(source.negatives);
+    }
+    private static List<float[][]> copy(List<float[][]> bank){
+        List<float[][]> out=new ArrayList<>();for(float[][] pattern:bank){float[][] rows=new float[pattern.length][];
+            for(int i=0;i<rows.length;i++)rows[i]=pattern[i].clone();out.add(rows);}return out;
+    }
     RecordedPhrase(JSONObject object) throws Exception {
         data=new JSONObject(object.toString());
         if(!SoundPattern.VERSION.equals(data.getString("version"))&&!FORMAT.equals(data.getString("version")))throw new IllegalArgumentException("Incompatible phrase evidence; retrain");

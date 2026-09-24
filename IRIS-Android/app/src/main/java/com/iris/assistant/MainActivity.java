@@ -58,6 +58,7 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     private static final int PERMISSION_START = 100;
     private static final int PERMISSION_TRAIN = 101;
+    private static final int PERMISSION_SMS = 102;
     private static final int PICK_CONTACT = 200;
     private static final int EXPORT_PROFILE = 201;
     private static final int IMPORT_PROFILE = 202;
@@ -2249,6 +2250,13 @@ public class MainActivity extends Activity {
             restartIfRunning();
         }));
 
+        Switch systemCommands=view.findViewById(R.id.systemCommandsSwitch);
+        systemCommands.setChecked(settings.googleSttForCommands());
+        systemCommands.setOnCheckedChangeListener((button,checked)->{settings.setGoogleSttForCommands(checked);restartIfRunning();});
+        view.findViewById(R.id.smsPermissionButton).setOnClickListener(v->{
+            if(hasPermission(Manifest.permission.SEND_SMS)){toast("SMS permission is already allowed.");return;}
+            requestPermissions(new String[]{Manifest.permission.SEND_SMS},PERMISSION_SMS);
+        });
         Switch onDevice = view.findViewById(R.id.onDeviceSwitch);
         onDevice.setChecked(settings.preferOnDevice());
         onDevice.setOnCheckedChangeListener((button, checked) -> settings.setPreferOnDevice(checked));
@@ -3140,9 +3148,10 @@ public class MainActivity extends Activity {
         if(current==null||!current.revision().equals(event.revision)||android.os.SystemClock.elapsedRealtime()-event.at>=120000){toast("Event expired or profile changed. Try again, then open feedback.");return;}
         if(event.input==AudioRouteController.Route.UNCONFIRMED){toast("Input was not confirmed; no correction applied.");return;}
         try{
-            OwnerVoiceProfile candidate=current.withSoundFeedback(event.pattern,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET,missed);
+            boolean ownerCorrection=missed&&"OWNER_REJECTED".equals(event.reason);
+            OwnerVoiceProfile candidate=ownerCorrection?current.withOwnerFeedback(event.pattern,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET):current.withSoundFeedback(event.pattern,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET,missed);
             new AlertDialog.Builder(this).setTitle(missed?"Learn this wake sound?":"Reject this sound?")
-                .setMessage("This updates only the recorded sound for this microphone. Your speaker identity stays unchanged. All four saved checks still pass. You can undo the update in Manage voice.")
+                .setMessage(ownerCorrection?"You are confirming this rejected voice was yours. This makes a small adjustment to this microphone’s voice profile without lowering strictness. All four saved checks and this recording still have to pass. You can undo it in Manage voice.":"This updates only the recorded sound for this microphone. Your speaker identity stays unchanged. All four saved checks still pass. You can undo the update in Manage voice.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Authenticate and learn",(d,w)->authenticateOwner("Learn wake feedback",()->WakeChangeApproval.runApproved(()->{
                     if(android.os.SystemClock.elapsedRealtime()-event.at>=120000){toast("Event expired; repeat it and try again.");return;}
                     boolean ok=new ProfileStore(this).commitOwnerEvidence(candidate,event.revision);
@@ -3983,7 +3992,7 @@ public class MainActivity extends Activity {
         engine.setSensitivity(new AppSettings(this).voiceSensitivity());
         wakeTestEngine = engine;
         wakeTrainingStatus.setText("Preparing the same offline detector used by background listening…");
-        engine.init(this, new VoskEngine.InitListener() {
+        engine.initOwner(this, new VoskEngine.InitListener() {
             @Override public void onReady() {
                 if (wakeTestEngine != engine) { engine.close(); return; }
                 if (requireSpeaker) engine.initSpeaker(MainActivity.this);
@@ -4729,6 +4738,7 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if(requestCode==PERMISSION_SMS){toast(hasPermission(Manifest.permission.SEND_SMS)?"SMS permission allowed. Sending still requires confirmation.":"SMS is not allowed. You can enable it in Android app permissions.");return;}
         if (requestCode == PERMISSION_START) {
             if (hasPermission(Manifest.permission.RECORD_AUDIO)) startListeningService();
             else maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO, "Microphone");

@@ -94,6 +94,9 @@
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="MICROPHONE" android:textColor="@color/cyan" android:textSize="11sp" android:textStyle="bold" />
             <Spinner android:id="@+id/microphoneSpinner" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="5dp" />
+            <Switch android:id="@+id/systemCommandsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:text="Use system speech for commands" android:textColor="@color/text_primary" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Optional: your installed speech provider may process command audio online. Off uses offline Indian English. Wake matching remains on-device." android:textColor="@color/text_secondary" android:textSize="12sp" />
+            <Button android:id="@+id/smsPermissionButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Allow SMS permission" android:textAllCaps="false" android:textColor="@color/text_primary" android:background="@drawable/bg_button_secondary" />
             <Switch android:id="@+id/onDeviceSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="Prefer on-device speech (may reduce accent accuracy)" android:textColor="@color/text_primary" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"

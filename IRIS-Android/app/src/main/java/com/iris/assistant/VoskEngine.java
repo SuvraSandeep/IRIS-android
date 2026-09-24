@@ -80,6 +80,8 @@ public final class VoskEngine {
     }
 
     public interface SttListener {
+        default void onReady(){}
+        default void onUnclear(String text){onError("Unclear speech");}
         void onPartial(String text);
         void onFinal(String text);
         void onError(String message);
@@ -114,9 +116,6 @@ public final class VoskEngine {
         },"IRIS-OwnerEnglish").start();
     }
     public void init(Context context, InitListener listener) {
-        OwnerVoiceProfile active=new ProfileStore(context).ownerEvidence();
-        if(active!=null&&OWNER_DECODER.equals(active.data.optString("recognizerModel"))){loadOwnerEnglish(context,listener);return;}
-
         if(closed){listener.onError("Voice engine is closed");return;}
         captureContext=context.getApplicationContext();
         if (modelLoaded) { main.post(listener::onReady); return; }
@@ -388,7 +387,7 @@ public final class VoskEngine {
         f.delete();
     }
 
-    public boolean isReady() { return modelLoaded && model != null; }
+    public boolean isReady() { return !closed && modelLoaded && model != null; }
 
     /**
      * Start continuous wake-word detection.
@@ -527,7 +526,9 @@ public final class VoskEngine {
         stop();
         try {
             Recognizer recognizer = new Recognizer(model, SAMPLE_RATE);
+            recognizer.setWords(true);
             speechService = new ManagedSpeechService(captureContext,recognizer, SAMPLE_RATE);
+            speechService.setReadyListener(listener::onReady);
             speechService.startListening(new RecognitionListener() {
                 @Override public void onPartialResult(String hypothesis) {
                     String text = extractText(hypothesis, "partial");
@@ -535,11 +536,11 @@ public final class VoskEngine {
                 }
                 @Override public void onResult(String hypothesis) {
                     String text = extractText(hypothesis, "text");
-                    if (!text.isEmpty()) listener.onFinal(text);
+                    if (!text.isEmpty()){if(CommandEvidence.clear(hypothesis))listener.onFinal(text);else listener.onUnclear(text);}
                 }
                 @Override public void onFinalResult(String hypothesis) {
                     String text = extractText(hypothesis, "text");
-                    if (!text.isEmpty()) listener.onFinal(text);
+                    if (!text.isEmpty()){if(CommandEvidence.clear(hypothesis))listener.onFinal(text);else listener.onUnclear(text);}
                 }
                 @Override public void onError(Exception e) {
                     listener.onError(e.getMessage());
@@ -553,25 +554,30 @@ public final class VoskEngine {
     }
 
     /** Stop any active recognition. */
+    private final java.util.List<ManagedSpeechService> retiringCaptures=new java.util.ArrayList<>();
     public void stop() {
         synchronized (stateLock) {
             wakeGeneration++;
             if(wakeAnalyses!=null){wakeAnalyses.close();wakeAnalyses=null;}
             if (speechService != null) {
-                speechService.stop();
+                speechService.stop();retiringCaptures.removeIf(ManagedSpeechService::stopped);retiringCaptures.add(speechService);
                 speechService = null;
             }
         }
     }
 
     /** Release all resources. */
-    public synchronized void close() {
-        synchronized(stateLock){
-            closed=true;stop();
-            if(model!=null){model.close();model=null;}
-            if(spkModel!=null){spkModel.close();spkModel=null;}
-            spkReady=false;modelLoaded=false;
-        }
+    public void close() {
+        final java.util.List<ManagedSpeechService> retiring;
+        synchronized(stateLock){if(closed)return;closed=true;stop();retiring=new java.util.ArrayList<>(retiringCaptures);retiringCaptures.clear();}
+        new Thread(()->{
+            for(ManagedSpeechService capture:retiring)capture.awaitStopped();
+            synchronized(VoskEngine.this){synchronized(stateLock){
+                if(model!=null){model.close();model=null;}
+                if(spkModel!=null){spkModel.close();spkModel=null;}
+                spkReady=false;modelLoaded=false;
+            }}
+        },"IRIS-VoiceCleanup").start();
     }
     private boolean installModel(Model candidate){
         synchronized(stateLock){if(closed){candidate.close();return false;}model=candidate;modelLoaded=true;return true;}

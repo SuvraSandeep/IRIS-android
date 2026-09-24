@@ -24,6 +24,7 @@ final class OwnerVoiceProfile {
     static final class HeadsetProfile {
         final JSONObject data;
         final RecordedPhrase phraseEvidence;
+        HeadsetProfile(HeadsetProfile source)throws Exception {data=new JSONObject(source.data.toString());phraseEvidence=new RecordedPhrase(source.phraseEvidence);}
         HeadsetProfile(JSONObject object) throws Exception {
             data = new JSONObject(object.toString());
             phraseEvidence=new RecordedPhrase(data.getJSONObject("phraseEvidence"));
@@ -32,6 +33,10 @@ final class OwnerVoiceProfile {
         }
         float[] ecapaCentroid() { try { return ecapaVector(data.getJSONArray("ecapaCentroid")); } catch (Exception e) { return null; } }
         float[] voskCentroid() { try { return voskVector(data.getJSONArray("voskCentroid")); } catch (Exception e) { return null; } }
+    }
+    OwnerVoiceProfile(OwnerVoiceProfile source)throws Exception {
+        data=new JSONObject(source.data.toString());phraseEvidence=new RecordedPhrase(source.phraseEvidence);
+        headset=source.headset==null?null:new HeadsetProfile(source.headset);
     }
     OwnerVoiceProfile(JSONObject object) throws Exception {
         data = new JSONObject(object.toString());
@@ -146,6 +151,34 @@ final class OwnerVoiceProfile {
         if(headset!=null)j.getJSONObject("headset").put("phraseEvidence",headset.phraseEvidence.withPolicy(policy).data);
         j.put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
         return new OwnerVoiceProfile(j);
+    }
+    /** Explicitly authenticated correction for a sound match with borderline owner evidence.
+     * Runtime thresholds never change; all held-out checks and the corrected sample must pass. */
+    OwnerVoiceProfile withOwnerFeedback(float[][] pattern,float[] speaker,boolean useHeadset)throws Exception {
+        if(!WakePolicy.owner(speaker,speaker,.99))throw new IllegalArgumentException("Missing speaker evidence");
+        if(useHeadset&&headset==null)throw new IllegalArgumentException("No headset profile");
+        RecordedPhrase phrase=useHeadset?headset.phraseEvidence:phraseEvidence;
+        if(!phrase.accepts(pattern))throw new IllegalArgumentException("The recorded sound must match first");
+        float[] old=useHeadset?headset.voskCentroid():voskCentroid();
+        float[] ecapa=useHeadset?headset.ecapaCentroid():ecapaCentroid();
+        if(!WakePolicy.isAbsent(ecapa))throw new IllegalArgumentException("This profile needs fresh multi-model enrollment");
+        double similarity=WakePolicy.cosine(old,speaker);
+        if(similarity<.55||similarity>=threshold())throw new IllegalArgumentException("Use fresh enrollment for this voice; no borderline correction available");
+        JSONObject j=new JSONObject(data.toString());JSONObject route=useHeadset?j.getJSONObject("headset"):j;
+        int corrections=route.optInt("ownerCorrections",0);if(corrections>=6)throw new IllegalArgumentException("Correction limit reached; refine with fresh recordings");
+        float[] adjusted=blendOwner(old,speaker);
+        route.put("voskCentroid",voskArray(adjusted)).put("ownerCorrections",corrections+1);
+        j.put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
+        OwnerVoiceProfile candidate=new OwnerVoiceProfile(j);
+        if(!(useHeadset?candidate.acceptsHeadset(null,speaker,threshold()):candidate.accepts(null,speaker,threshold())))
+            throw new IllegalArgumentException("A small correction is insufficient; record fresh owner samples");
+        return candidate;
+    }
+    private static float[] blendOwner(float[] old,float[] sample){
+        double a=0,b=0;for(int i=0;i<old.length;i++){a+=old[i]*(double)old[i];b+=sample[i]*(double)sample[i];}
+        float[] out=new float[old.length];double norm=0;
+        for(int i=0;i<out.length;i++){out[i]=(float)(.9*old[i]/Math.sqrt(a)+.1*sample[i]/Math.sqrt(b));norm+=out[i]*(double)out[i];}
+        for(int i=0;i<out.length;i++)out[i]/=Math.sqrt(norm);return out;
     }
     OwnerVoiceProfile withSoundFeedback(float[][] pattern,float[] speaker,boolean useHeadset,boolean missed)throws Exception {
         // Authentication alone cannot turn an unverified stranger into the enrolled owner.

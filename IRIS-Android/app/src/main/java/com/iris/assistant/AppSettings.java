@@ -78,16 +78,16 @@ public final class AppSettings {
     // A saved profile is authoritative so applying or undoing a policy cannot leave the
     // control displaying a different threshold from the one used by live verification.
     public float ownerStrictness() {
-        OwnerVoiceProfile profile=new ProfileStore(context).ownerEvidence();
-        float value=profile==null?prefs.getFloat("owner_strictness_v3",1f-voiceSensitivity()):(float)((profile.threshold()-.65)/.20);
+        double policy=new ProfileStore(context).ownerPolicy();
+        float value=!Double.isFinite(policy)?prefs.getFloat("owner_strictness_v3",1f-voiceSensitivity()):(float)((policy-.65)/.20);
         return Float.isFinite(value)?Math.max(0,Math.min(1,value)):.5f;
     }
-    public double ownerThreshold() { OwnerVoiceProfile profile=new ProfileStore(context).ownerEvidence(); return profile==null?.65+.20*ownerStrictness():profile.threshold(); }
+    public double ownerThreshold() { double policy=new ProfileStore(context).ownerPolicy(); return Double.isFinite(policy)?policy:.65+.20*ownerStrictness(); }
     public boolean setOwnerStrictness(float value) { WakeChangeApproval.require(); if(!Float.isFinite(value))return false; return prefs.edit().putFloat("owner_strictness_v3",Math.max(0,Math.min(1,value))).commit(); }
     public float voiceSensitivity() { return Math.max(0f, Math.min(1f, prefs.getFloat("owner_voice_sensitivity_v2", 0.75f))); }
     public void setVoiceSensitivity(float value) { WakeChangeApproval.require(); prefs.edit().putFloat("owner_voice_sensitivity_v2", Math.max(0f, Math.min(1f, value))).apply(); }
     /** Use Google Speech Recognition for commands (best accuracy; falls back to Vosk offline). */
-    public boolean googleSttForCommands() { return false; }
+    public boolean googleSttForCommands() { return prefs.getBoolean("google_stt_commands",false); }
     public void setGoogleSttForCommands(boolean v) { prefs.edit().putBoolean("google_stt_commands", v).apply(); }
     /** Speak a cue when a wake voice isn't recognized as the owner. */
     public boolean voiceCueEnabled() { return prefs.getBoolean("voice_cue_enabled", true); }
