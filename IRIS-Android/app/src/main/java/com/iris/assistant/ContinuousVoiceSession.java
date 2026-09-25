@@ -141,9 +141,10 @@ final class ContinuousVoiceSession implements AutoCloseable {
         });
     }
     private void drainCommand(){
+        final long token;synchronized(lock){token=generation;}
         try{
-            final long token;final VoskEngine.SttListener listener;short[] pcm;
-            synchronized(lock){token=generation;listener=commandListener;if(mode!=Mode.COMMAND||decoder==null)return;long end=ring.end();if(end==commandCursor)return;
+            final VoskEngine.SttListener listener;short[] pcm;
+            synchronized(lock){if(token!=generation)return;listener=commandListener;if(mode!=Mode.COMMAND||decoder==null)return;long end=ring.end();if(end==commandCursor)return;
                 pcm=ring.slice(commandCursor,end);commandCursor=end;}
             String output;boolean complete;
             try{complete=decoder.recognizer.acceptWaveForm(pcm,pcm.length);output=complete?decoder.recognizer.getResult():decoder.recognizer.getPartialResult();}
@@ -154,7 +155,7 @@ final class ContinuousVoiceSession implements AutoCloseable {
                 closeDecoder();note(clear?"COMMAND_HEARD":"COMMAND_UNCLEAR","Offline command result (transcript not saved in study)");
                 main.post(()->{synchronized(lock){if(token!=generation||mode==Mode.CLOSED)return;}if(clear)listener.onFinal(text);else listener.onUnclear(text);});
             }else if(!complete&&!text.equals(lastPartial)&&SystemClock.elapsedRealtime()-lastPartialAt>=150){lastPartial=text;lastPartialAt=SystemClock.elapsedRealtime();main.post(()->{if(current(token,Mode.COMMAND))listener.onPartial(text);});}
-        }catch(Exception error){long token;synchronized(lock){token=generation;}commandError(token,"Command capture failed: "+error.getMessage());}
+        }catch(Exception error){commandError(token,"Command capture failed: "+error.getMessage());}
     }
     private void commandError(long token,String error){
         VoskEngine.SttListener listener;synchronized(lock){if(!current(token,Mode.COMMAND))return;mode=Mode.IDLE;ring.clear();wakeCursor=0;listener=commandListener;}closeDecoder();note("COMMAND_LOST",error);
