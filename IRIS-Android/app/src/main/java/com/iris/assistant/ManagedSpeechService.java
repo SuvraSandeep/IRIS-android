@@ -9,6 +9,9 @@ import org.vosk.android.RecognitionListener;
 /** One microphone loop for commands and recorded wake. Wake clips carry their captured route;
  * command recognition continues to use ASR results. No transcript gate is applied to wake. */
 final class ManagedSpeechService {
+    interface FrameListener {void onFrames(short[] pcm,int count,AudioRouteController.Route route,int routeId);default void onHealth(String status){} }
+    private FrameListener frameListener;
+    void setFrameListener(FrameListener listener){frameListener=listener;}
     interface ClipListener { void onClip(short[] pcm,AudioRouteController.Route route); }
     private ClipListener clipListener;
     private Runnable readyListener;
@@ -52,7 +55,7 @@ final class ManagedSpeechService {
                 short[] frame=new short[320],raw=new short[128000];int rawCount=0,rawOffset=0;int frames=0,lastRoute=-1;
                 PhraseCapture endpoint=new PhraseCapture();
                 QuietAudioProcessor gain=new QuietAudioProcessor();
-                long lastPcm=SystemClock.elapsedRealtime(),lastPartialAt=0;String lastPartial="";
+                long lastPcm=SystemClock.elapsedRealtime(),lastPartialAt=0,lastHealth=0;String lastPartial="",health="";
                 while(running){
                     int n=mic.read(frame,0,frame.length,AudioRecord.READ_NON_BLOCKING);
                     if(n<0)throw new IllegalStateException("Microphone read failed: "+n);
@@ -60,9 +63,22 @@ final class ManagedSpeechService {
                     lastPcm=SystemClock.elapsedRealtime();
                     AudioDeviceInfo actual=mic.getRoutedDevice();int id=actual==null?-1:actual.getId();
                     if(id!=lastRoute){
-                        recognizer.reset();rawCount=rawOffset=0;gain=new QuietAudioProcessor();endpoint.clear();
+                        if(recognizer!=null)recognizer.reset();rawCount=rawOffset=0;gain=new QuietAudioProcessor();endpoint.clear();
                         lastRoute=id;AudioRouteController.observe(mic);
                     }else if(++frames%25==0)AudioRouteController.observe(mic);
+                    if(frameListener!=null){
+                        long now=SystemClock.elapsedRealtime();
+                        if(now-lastHealth>=2000){
+                            lastHealth=now;String state="PCM_ACTIVE";
+                            if(Build.VERSION.SDK_INT>=29)try{
+                                AudioManager manager=(AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
+                                for(AudioRecordingConfiguration config:manager.getActiveRecordingConfigurations())
+                                    if(config.getClientAudioSessionId()==mic.getAudioSessionId()&&config.isClientSilenced())state="MIC_SILENCED_BY_ANDROID";
+                            }catch(Exception ignored){}
+                            if(!state.equals(health)){health=state;frameListener.onHealth(state);}
+                        }
+                        frameListener.onFrames(frame,n,AudioRouteController.observedRoute,id);continue;
+                    }
                     if(clipListener==null)for(int i=0;i<n;i++){raw[rawOffset]=frame[i];rawOffset=(rawOffset+1)%raw.length;rawCount=Math.min(raw.length,rawCount+1);}
                     if(clipListener!=null){
                         short[] clip=endpoint.add(frame,n);
@@ -91,7 +107,7 @@ final class ManagedSpeechService {
             }catch(Exception error){main.post(()->{if(running)listener.onError(error);});}
             finally{
                 AudioRecord old=mic;mic=null;if(old!=null){try{old.stop();}catch(Exception ignored){}old.release();}
-                try{route.close();recognizer.close();}finally{AudioCaptureCoordinator.release(lease);}
+                try{route.close();if(recognizer!=null)recognizer.close();}finally{AudioCaptureCoordinator.release(lease);}
             }
         },"IRIS-PCM");worker.start();
     }

@@ -93,7 +93,7 @@
                 android:text="MICROPHONE" android:textColor="@color/cyan" android:textSize="11sp" android:textStyle="bold" />
             <Spinner android:id="@+id/microphoneSpinner" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="5dp" />
             <Switch android:id="@+id/systemCommandsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:text="Use system speech for commands" android:textColor="@color/text_primary" />
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Optional: your installed speech provider may process command audio online. Off uses offline Indian English. Wake matching remains on-device." android:textColor="@color/text_secondary" android:textSize="12sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Optional: your installed speech provider may process command audio online. Off uses offline Indian English. Wake matching remains on-device. The offline provider supports buffered wake-to-command capture; external providers may need a microphone handoff." android:textColor="@color/text_secondary" android:textSize="12sp" />
             <Button android:id="@+id/smsPermissionButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Allow SMS permission" android:textAllCaps="false" android:textColor="@color/text_primary" android:background="@drawable/bg_button_secondary" />
             <Switch android:id="@+id/onDeviceSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="Prefer on-device speech (may reduce accent accuracy)" android:textColor="@color/text_primary" />
@@ -277,6 +277,9 @@
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="12dp" android:text="TEACH IRIS (feedback)"
                 android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
+            <Switch android:id="@+id/wakeStudySwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Local wake reliability study (opt-in)" android:textColor="@color/text_primary" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Encrypted, on this phone: input state, candidate outcomes and your attempt labels. No audio or transcripts are saved by this study. You can stop and erase it at any time." android:textColor="@color/text_secondary" android:textSize="12sp" />
+            <Button android:id="@+id/wakeStudyButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Label a wake attempt / view study" android:textAllCaps="false" android:background="@drawable/bg_button_secondary" android:textColor="@color/text_primary" />
             <Button android:id="@+id/feedbackMissedButton" android:layout_width="match_parent" android:layout_height="46dp"
                 android:layout_marginTop="6dp" android:background="@drawable/bg_button_secondary"
                 android:text="Review a missed or unwanted wake" android:textAllCaps="false"

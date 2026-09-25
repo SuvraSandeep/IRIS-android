@@ -1,107 +1,71 @@
 #!/usr/bin/env python3
+"""Reproducible SpeechBrain ECAPA export with raw-waveform frontend and parity gates.
+CPU build only. Output and SHA-256 manifest are bundled in the APK, never fetched from
+an unconfigured runtime URL. Original SpeechBrain model is Apache-2.0.
 """
-One-time export script: SpeechBrain's pretrained ECAPA-TDNN speaker-embedding model
-(speechbrain/spkrec-ecapa-voxceleb) -> ONNX, for on-device inference via ONNX Runtime Mobile.
-
-WHY THIS SCRIPT EXISTS (see EcapaEmbedding.java's class doc and
-WAKE-TRAINING-REDESIGN.md's "Model integration plan"):
-SpeechBrain's official HuggingFace repo ships only PyTorch .ckpt checkpoints, not ONNX. This
-environment (the AI agent's sandbox) has no Python/PyTorch available, so this export could not
-be run automatically as part of the redesign implementation -- it must be run ONCE, manually,
-on any machine with Python + PyTorch + SpeechBrain installed (a laptop, a CI runner, a Colab
-notebook -- this project already has a server/colab/ directory for exactly this kind of
-offline-preparation step).
-
-USAGE:
-    pip install speechbrain torch onnx
-    python tools/export_ecapa_to_onnx.py --output ecapa_tdnn_voxceleb.onnx
-
-After running this once, host the resulting .onnx file somewhere this app can download it from
-(e.g. a GitHub release attached to this repo), and update EcapaEmbedding.MODEL_URL in
-app/src/main/java/com/iris/assistant/EcapaEmbedding.java to point at that real URL, replacing
-the current "REPLACE-ME" placeholder. Optionally also drop the file into
-app/src/main/assets/ecapa_tdnn_voxceleb.onnx to bundle it directly in the APK (matching how the
-Vosk models are bundled) -- see EcapaEmbedding.java's load() for the bundled-asset-first logic.
-
-WHAT THIS PRODUCES:
-A 192-dim speaker embedding model. Input: a 16kHz mono float32 waveform, shape (1, num_samples).
-Output: a single (1, 192) embedding tensor. This matches EcapaEmbedding.java's exact
-expectations (OUTPUT_DIM=192, input name "wav") -- do not change the input/output names or
-shapes here without also updating EcapaEmbedding.java to match.
-"""
-import argparse
-import sys
-
+import argparse, hashlib, json
+from pathlib import Path
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", default="ecapa_tdnn_voxceleb.onnx",
-                         help="Output .onnx file path")
-    parser.add_argument("--sample-seconds", type=float, default=3.0,
-                         help="Dummy input duration in seconds, used only to trace the model "
-                              "for export -- the exported graph accepts variable-length input "
-                              "at inference time regardless of this value")
-    args = parser.parse_args()
-
-    try:
-        import torch
-        from speechbrain.inference.speaker import EncoderClassifier
-    except ImportError as e:
-        print(f"Missing dependency: {e}", file=sys.stderr)
-        print("Run: pip install speechbrain torch onnx", file=sys.stderr)
-        sys.exit(1)
-
-    print("Downloading/loading speechbrain/spkrec-ecapa-voxceleb (one-time, ~90MB)...")
-    classifier = EncoderClassifier.from_hparams(
-        source="speechbrain/spkrec-ecapa-voxceleb",
-        savedir="pretrained_models/spkrec-ecapa-voxceleb",
-    )
-    model = classifier.mods.embedding_model
-    model.eval()
-
-    sample_rate = 16000
-    num_samples = int(args.sample_seconds * sample_rate)
-    dummy_wav = torch.randn(1, num_samples)
-
-    # SpeechBrain's embedding_model expects (batch, time, features) after its own feature
-    # extraction (mel-fbank) stage, not raw waveform directly -- wrap it so the EXPORTED graph's
-    # public input is still raw 16kHz waveform (matching EcapaEmbedding.java's "wav" input),
-    # with feature extraction fused into the exported graph itself.
-    class RawWaveformEcapa(torch.nn.Module):
-        def __init__(self, classifier):
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    import onnx
+    import onnxruntime as ort
+    from huggingface_hub import snapshot_download
+    from speechbrain.inference.speaker import EncoderClassifier
+    torch.set_num_threads(2)
+    args=argparse.ArgumentParser()
+    args.add_argument('--output',required=True)
+    dest=Path(args.parse_args().output);dest.parent.mkdir(parents=True,exist_ok=True)
+    revision='a025b9e8262be969a7b3f8f53c01d346eadf361b'
+    source=Path(snapshot_download('speechbrain/spkrec-ecapa-voxceleb',revision=revision))
+    # Keep checkpoint paths pinned to the downloaded snapshot, including HyperPyYAML refs.
+    local=Path('pretrained_models/ecapa-pinned');local.mkdir(parents=True,exist_ok=True)
+    yaml=(source/'hyperparams.yaml').read_text().replace('pretrained_path: speechbrain/spkrec-ecapa-voxceleb','pretrained_path: '+str(source))
+    (local/'hyperparams.yaml').write_text(yaml)
+    classifier=EncoderClassifier.from_hparams(source=str(local),savedir=str(local/'loaded'),run_opts={'device':'cpu'})
+    classifier.eval()
+    stft=classifier.mods.compute_features.compute_STFT
+    assert stft.n_fft==400 and stft.hop_length==160 and stft.win_length==400 and stft.pad_mode=="constant"
+    assert classifier.mods.mean_var_norm.norm_type=='sentence' and not classifier.mods.mean_var_norm.std_norm
+    class Export(torch.nn.Module):
+        def __init__(self):
             super().__init__()
-            self.compute_features = classifier.mods.compute_features
-            self.mean_var_norm = classifier.mods.mean_var_norm
-            self.embedding_model = classifier.mods.embedding_model
-
-        def forward(self, wav):
-            feats = self.compute_features(wav)
-            feats = self.mean_var_norm(feats, torch.ones(wav.shape[0]))
-            embeddings = self.embedding_model(feats)
-            # embedding_model outputs (batch, 1, 192) -- squeeze to (batch, 192) to match
-            # EcapaEmbedding.java's expected float[][] shape.
-            return embeddings.squeeze(1)
-
-    export_model = RawWaveformEcapa(classifier)
-    export_model.eval()
-
-    print(f"Tracing and exporting to {args.output}...")
-    torch.onnx.export(
-        export_model,
-        dummy_wav,
-        args.output,
-        input_names=["wav"],
-        output_names=["embedding"],
-        dynamic_axes={"wav": {0: "batch", 1: "time"}, "embedding": {0: "batch"}},
-        opset_version=14,
-    )
-    print(f"Done. Wrote {args.output}")
-    print()
-    print("Next steps:")
-    print("1. Verify with: python -c \"import onnx; onnx.checker.check_model(onnx.load('%s'))\"" % args.output)
-    print("2. Host this file (e.g. a GitHub release) and update EcapaEmbedding.MODEL_URL,")
-    print("   OR place it at app/src/main/assets/ecapa_tdnn_voxceleb.onnx to bundle in the APK.")
-
-
-if __name__ == "__main__":
-    main()
+            # Equivalent real-valued DFT avoids torch.stft's unsupported complex ONNX export.
+            n=torch.arange(400,dtype=torch.float64);k=torch.arange(201,dtype=torch.float64)[:,None]
+            angle=2*torch.pi*k*n/400
+            kernel=torch.cat([torch.cos(angle),-torch.sin(angle)],0)*stft.window.double()
+            self.register_buffer('dft',kernel.float().unsqueeze(1))
+            self.fb=classifier.mods.compute_features.compute_fbanks
+            self.embedding=classifier.mods.embedding_model
+        def forward(self,wav):
+            spectrum=F.conv1d(F.pad(wav.unsqueeze(1),(200,200),mode='constant'),self.dft,stride=160)
+            power=(spectrum[:,:201]**2+spectrum[:,201:]**2).transpose(1,2)
+            features=self.fb(power)
+            features=features-features.mean(dim=1,keepdim=True)
+            return self.embedding(features).squeeze(1)
+    exported=Export().eval()
+    torch.manual_seed(17)
+    dummy=torch.randn(1,48000)*.05
+    with torch.no_grad():
+        torch.onnx.export(exported,dummy,str(dest),input_names=['wav'],output_names=['embedding'],
+                          dynamic_axes={'wav':{1:'time'}},opset_version=17)
+    onnx.checker.check_model(onnx.load(str(dest)))
+    options=ort.SessionOptions();options.intra_op_num_threads=2
+    session=ort.InferenceSession(str(dest),sess_options=options,providers=['CPUExecutionProvider'])
+    checks=[]
+    for seconds in [.5,1,2,4]:
+        wave=torch.randn(1,int(seconds*16000))*.05
+        with torch.no_grad():reference=classifier.encode_batch(wave,normalize=False).squeeze(1).numpy()
+        actual=session.run(None,{'wav':wave.numpy()})[0]
+        assert actual.shape==(1,192) and np.isfinite(actual).all()
+        cosine=float((actual*reference).sum()/(np.linalg.norm(actual)*np.linalg.norm(reference)))
+        assert cosine>.9999,(seconds,cosine)
+        checks.append({'seconds':seconds,'cosine_with_pytorch':cosine})
+    manifest={'source':'speechbrain/spkrec-ecapa-voxceleb','revision':revision,'license':'Apache-2.0',
+              'sha256':hashlib.sha256(dest.read_bytes()).hexdigest(),'input':'wav','sample_rate':16000,'dimension':192,
+              'preprocessing':'speechbrain-fbank80-sentence-mean-raw-v1','parity':checks}
+    dest.with_suffix('.json').write_text(json.dumps(manifest,indent=2))
+    print(json.dumps(manifest,indent=2))
+if __name__=='__main__':main()

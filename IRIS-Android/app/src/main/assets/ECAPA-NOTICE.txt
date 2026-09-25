@@ -1,0 +1,6 @@
+SpeechBrain ECAPA-TDNN speaker model
+Upstream: https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb
+Checkpoint revision: a025b9e8262be969a7b3f8f53c01d346eadf361b
+Upstream model license: Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+Exported by IRIS tools/export_ecapa_to_onnx.py. The runtime manifest records source, checksum and parity checks.
+This distribution does not include VoxCeleb recordings.
