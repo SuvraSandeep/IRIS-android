@@ -93,6 +93,11 @@ final class OwnerVoiceProfile {
             .put("voskCentroid", voskArray(WakePolicy.enrollment(voskTakes, WakePolicy.EMBED_DIM)));
         return new OwnerVoiceProfile(j);
     }
+    boolean usesEcapa(){return !WakePolicy.isAbsent(ecapaCentroid())||(headset!=null&&!WakePolicy.isAbsent(headset.ecapaCentroid()));}
+    OwnerVoiceProfile withEcapaModelHash(String hash)throws Exception {
+        if(!hash.matches("[a-f0-9]{64}"))throw new IllegalArgumentException("Dedicated model fingerprint unavailable");
+        return new OwnerVoiceProfile(new JSONObject(data.toString()).put("ecapaModelHash",hash));
+    }
     String phrase() { return data.optString("phrase"); }
     String revision() { return data.optString("revision"); }
     String hash() { return data.optString("modelHash"); }

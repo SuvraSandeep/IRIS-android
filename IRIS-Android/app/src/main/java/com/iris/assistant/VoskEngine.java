@@ -88,7 +88,17 @@ public final class VoskEngine {
     }
 
     /** Load the Vosk model: bundled assets first, else download at runtime. */
-    public void initOwner(Context context,InitListener listener) {loadOwnerEnglish(context,listener);}
+    public void initOwner(Context context,InitListener listener) {
+        if(ecapaEngine==null){ecapaEngine=new EcapaEmbedding();ecapaEngine.load(context,new EcapaEmbedding.InitListener(){
+            public void onReady(){ecapaError="";}public void onError(String message){ecapaError=message;}
+        });}loadOwnerEnglish(context,listener);
+    }
+    private volatile String ecapaError="";
+    boolean ecapaReady(){return ecapaEngine!=null&&ecapaEngine.isReady();}
+    String ecapaError(){return ecapaError;}
+    String ecapaFingerprint(){return ecapaEngine==null?"":ecapaEngine.fingerprint();}
+    boolean profileModelMatches(OwnerVoiceProfile p){return p.hash().equals(speakerFingerprint())&&(!p.usesEcapa()||(ecapaReady()&&p.data.optString("ecapaModelHash").equals(ecapaFingerprint())));}
+
     private void loadOwnerEnglish(Context context,InitListener listener){
         captureContext=context.getApplicationContext();
         if(closed){listener.onError("Voice engine is closed");return;}
@@ -446,7 +456,7 @@ public final class VoskEngine {
             final long generation=wakeGeneration;
             final OwnerVoiceProfile profile=new ProfileStore(captureContext).ownerEvidence();
             if(profile==null){listener.onError("Record your phrase again for this version; existing profile has no compatible sound evidence");return;}
-            if(!profile.hash().equals(speakerFingerprint())){listener.onError("Owner model changed; retrain your phrase");return;}
+            if(!profileModelMatches(profile)){listener.onError("Owner model changed; retrain your phrase");return;}
             final WakeAnalysisQueue analyses=new WakeAnalysisQueue();
             wakeAnalyses=analyses;
             final java.util.concurrent.atomic.AtomicBoolean fired=new java.util.concurrent.atomic.AtomicBoolean();
@@ -456,7 +466,7 @@ public final class VoskEngine {
                 capture.setClipListener((pcm,route)->{
                     if(generation!=wakeGeneration||fired.get()){java.util.Arrays.fill(pcm,(short)0);return;}
                     analyses.offer(pcm,()->{
-                        String failure="",diagnostic="Input "+route;float[] vector=null;float[][] pattern=null;
+                        String failure="",diagnostic="Input "+route;float[] vector=null,ecapaVector=null;float[][] pattern=null;
                         try{
                             synchronized(VoskEngine.this){
                                 if(generation!=wakeGeneration||fired.get())return;
@@ -464,28 +474,28 @@ public final class VoskEngine {
                                 else if(route==AudioRouteController.Route.HEADSET&&profile.headset==null)failure="HEADSET_PROFILE_REQUIRED";
                                 else {
                                     pattern=SoundPattern.extract(pcm);
-                                    vector=embedRecorded(pcm);
+                                    vector=embedRecorded(pcm);if(profile.usesEcapa())ecapaVector=embedEcapa(pcm);
                                     boolean headset=route==AudioRouteController.Route.HEADSET;
                                     RecordedPhrase phrase=headset?profile.headset.phraseEvidence:profile.phraseEvidence;
                                     float[] centroid=headset?profile.headset.voskCentroid():profile.voskCentroid();
                                     double policy=Math.max(profile.threshold(),new AppSettings(captureContext).ownerThreshold());
-                                    failure=RecordedWakeCheck.reject(pattern,phrase.accepts(pattern),vector,centroid,policy);
+                                    failure=RecordedWakeCheck.rejectEnsemble(pattern,phrase.accepts(pattern),ecapaVector,vector,headset?profile.headset.ecapaCentroid():profile.ecapaCentroid(),centroid,policy);
                                     diagnostic="Input "+route+"; "+(phrase.variants()?RecordedWakeCheck.variantDiagnostic(pattern,phrase.samples,phrase.threshold,vector,centroid,policy):RecordedWakeCheck.diagnostic(pattern,phrase.samples,phrase.threshold,vector,centroid,policy));
-                                    if(failure.isEmpty()&&!(headset?profile.acceptsHeadset(null,vector,policy):profile.accepts(null,vector,policy)))failure="OWNER_REJECTED";
+                                    if(failure.isEmpty()&&!(headset?profile.acceptsHeadset(ecapaVector,vector,policy):profile.accepts(ecapaVector,vector,policy)))failure="OWNER_REJECTED";
                                 }
                             }
                         }catch(Throwable error){failure="ANALYSIS_ERROR";}
                         finally{java.util.Arrays.fill(pcm,(short)0);}
-                        final String reason=failure,detail=diagnostic;final float[] embedding=vector;final float[][] capturedPattern=pattern;
+                        final String reason=failure,detail=diagnostic;final float[] embedding=vector,ecapaEmbedding=ecapaVector;final float[][] capturedPattern=pattern;
                         main.post(()->{
                             if(generation!=wakeGeneration||fired.get())return;
                             if(!profile.revision().equals(new ProfileStore(captureContext).ownerRevision())){listener.onError("Profile changed; restarting wake");return;}
                             lastWakeDiagnostic=detail;
                             lastWakeRoute=route;
-                            lastWakeEvent=WakeEventStore.add(reason.isEmpty()?"MATCHED":reason,profile.revision(),null,embedding,false,capturedPattern,route);
+                            lastWakeEvent=WakeEventStore.add(reason.isEmpty()?"MATCHED":reason,profile.revision(),ecapaEmbedding,embedding,false,capturedPattern,route);
                             if(!reason.isEmpty()){listener.onRejected(reason);return;}
                             lastWakeRoute=route;
-                            if(fired.compareAndSet(false,true))listener.onWakeDetected(null,embedding);
+                            if(fired.compareAndSet(false,true))listener.onWakeDetected(ecapaEmbedding,embedding);
                         });
                     });
                 });
@@ -506,6 +516,7 @@ public final class VoskEngine {
     private volatile AudioRouteController.Route lastWakeRoute=AudioRouteController.Route.UNCONFIRMED;
     AudioRouteController.Route lastWakeRoute(){return lastWakeRoute;}
     /** Fixed preprocessing for schema 8. Optional models cannot change enrollment/live behavior. */
+    float[] embedEcapa(short[] pcm){return ecapaEngine!=null?ecapaEngine.extract(QuietAudioProcessor.prepare(SoundPattern.speakerClip(pcm))):null;}
     float[] embedRecorded(short[] pcm){return embed(QuietAudioProcessor.prepare(SoundPattern.speakerClip(pcm)));}
     /** Dedicated ECAPA-TDNN speaker-embedding model — the PRIMARY identity signal (see
      *  WakePolicy.finalScore()). Lazily attached by the caller (IrisListeningService), which
@@ -553,6 +564,17 @@ public final class VoskEngine {
         }
     }
 
+    final class Decoder implements AutoCloseable {
+        final Recognizer recognizer;private boolean released;
+        Decoder(Recognizer r){recognizer=r;}
+        public void close(){synchronized(stateLock){if(released)return;released=true;try{recognizer.close();}finally{externalDecoders--;stateLock.notifyAll();}}}
+    }
+    private int externalDecoders;
+    Decoder decoder()throws Exception {synchronized(stateLock){if(!isReady())throw new IllegalStateException("Command model not ready");Recognizer r=new Recognizer(model,SAMPLE_RATE);r.setWords(true);externalDecoders++;return new Decoder(r);}}
+    void streamingOutcome(OwnerVoiceProfile p,float[][] pattern,float[] ecapa,float[] vosk,AudioRouteController.Route route,boolean accepted,String reason,double distance){
+        lastWakeRoute=route;lastWakeDiagnostic="Input "+route+"; streaming candidate="+distance+"; "+reason;
+        lastWakeEvent=WakeEventStore.add(reason,p.revision(),ecapa,vosk,accepted,pattern,route);
+    }
     /** Stop any active recognition. */
     private final java.util.List<ManagedSpeechService> retiringCaptures=new java.util.ArrayList<>();
     public void stop() {
@@ -572,10 +594,11 @@ public final class VoskEngine {
         synchronized(stateLock){if(closed)return;closed=true;stop();retiring=new java.util.ArrayList<>(retiringCaptures);retiringCaptures.clear();}
         new Thread(()->{
             for(ManagedSpeechService capture:retiring)capture.awaitStopped();
+            synchronized(stateLock){while(externalDecoders>0)try{stateLock.wait();}catch(InterruptedException ignored){}}
             synchronized(VoskEngine.this){synchronized(stateLock){
                 if(model!=null){model.close();model=null;}
                 if(spkModel!=null){spkModel.close();spkModel=null;}
-                spkReady=false;modelLoaded=false;
+                spkReady=false;modelLoaded=false;if(ecapaEngine!=null){ecapaEngine.close();ecapaEngine=null;}
             }}
         },"IRIS-VoiceCleanup").start();
     }

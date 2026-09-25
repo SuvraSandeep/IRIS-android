@@ -21,6 +21,12 @@ final class RecordedWakeCheck {
         if(!Double.isFinite(threshold)||threshold<.025||threshold>.32)return "INVALID_PHRASE_PROFILE";
         return reject(pattern,SoundPattern.variantScore(pattern,phrases)<=threshold,speaker,enrolled,policy);
     }
+    static String rejectEnsemble(float[][] pattern,boolean phraseAccepted,float[] ecapa,float[] vosk,float[] enrolledEcapa,float[] enrolledVosk,double policy){
+        if(!SoundPattern.valid(pattern))return "AUDIO_QUALITY";
+        if(!phraseAccepted)return "PHRASE_MISMATCH";
+        if(!WakePolicy.owner(vosk,vosk,.99)||(!WakePolicy.isAbsent(enrolledEcapa)&&!WakePolicy.ownerDim(ecapa,ecapa,.99,192)))return "SPEAKER_EVIDENCE";
+        return WakePolicy.ownerEnsemble(ecapa,enrolledEcapa,vosk,enrolledVosk,policy)?"":"OWNER_REJECTED";
+    }
     static String reject(float[][] pattern,boolean phraseAccepted,float[] speaker,float[] enrolled,double policy){
         if(!SoundPattern.valid(pattern))return "AUDIO_QUALITY";
         if(!phraseAccepted)return "PHRASE_MISMATCH";

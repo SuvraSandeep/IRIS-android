@@ -14,21 +14,34 @@ final class SoundPattern {
         int start=Math.max(0,first*320-320),end=Math.min(pcm.length,(last+2)*320);
         if(end-start<6400||end-start>16000*5)return new float[0][];
         int frames=1+(end-start-400)/320;if(frames<12||frames>MAX_FRAMES)return new float[0][];
-        float[][] out=new float[frames][BANDS];double[] edges=new double[BANDS+2];
-        double lo=2595*Math.log10(1+80.0/700),hi=2595*Math.log10(1+7600.0/700);
+        float[][] out=new float[frames][BANDS];
+        for(int f=0;f<frames;f++)out[f]=frame(pcm,start+f*320);
+        return out;
+    }
+    private static final double[] WINDOW=new double[400];
+    private static final double[][] MEL=new double[BANDS][257];
+    static {
+        for(int i=0;i<400;i++)WINDOW[i]=.54-.46*Math.cos(2*Math.PI*i/399);
+        double[] edges=new double[BANDS+2];double lo=2595*Math.log10(1+80.0/700),hi=2595*Math.log10(1+7600.0/700);
         for(int i=0;i<edges.length;i++)edges[i]=700*(Math.pow(10,(lo+(hi-lo)*i/(BANDS+1))/2595)-1)*512/16000;
-        for(int f=0;f<frames;f++){
-            double[] re=new double[512],im=new double[512];
-            for(int i=0;i<400;i++)re[i]=pcm[start+f*320+i]*(.54-.46*Math.cos(2*Math.PI*i/399));
-            fft(re,im);double mean=0;
-            for(int b=0;b<BANDS;b++){double sum=0;for(int k=(int)Math.ceil(edges[b]);k<Math.min(257,edges[b+2]);k++){
-                double weight=k<=edges[b+1]?(k-edges[b])/(edges[b+1]-edges[b]):(edges[b+2]-k)/(edges[b+2]-edges[b+1]);
-                sum+=Math.max(0,weight)*(re[k]*re[k]+im[k]*im[k]);
-            }out[f][b]=(float)Math.log(1+sum);mean+=out[f][b];}
-            mean/=BANDS;double norm=0;for(int b=0;b<BANDS;b++){out[f][b]-=mean;norm+=out[f][b]*out[f][b];}
-            if(norm<1e-8){Arrays.fill(out[f],(float)(-1/Math.sqrt(BANDS)));continue;}
-            for(int b=0;b<BANDS;b++)out[f][b]/=Math.sqrt(norm);
-        }return out;
+        for(int b=0;b<BANDS;b++)for(int k=(int)Math.ceil(edges[b]);k<Math.min(257,edges[b+2]);k++)
+            MEL[b][k]=Math.max(0,k<=edges[b+1]?(k-edges[b])/(edges[b+1]-edges[b]):(edges[b+2]-k)/(edges[b+2]-edges[b+1]));
+    }
+    /** Identical transform for enrollment and each live 20ms hop. No FFT over a growing clip. */
+    static float[] frame(short[] pcm,int offset){
+        double[] re=new double[512],im=new double[512];float[] out=new float[BANDS];
+        for(int i=0;i<400;i++)re[i]=pcm[offset+i]*WINDOW[i];fft(re,im);
+        double[] power=new double[257];for(int k=0;k<257;k++)power[k]=re[k]*re[k]+im[k]*im[k];
+        double mean=0;for(int b=0;b<BANDS;b++){double sum=0;for(int k=0;k<257;k++)sum+=MEL[b][k]*power[k];out[b]=(float)Math.log(1+sum);mean+=out[b];}
+        mean/=BANDS;double norm=0;for(int b=0;b<BANDS;b++){out[b]-=mean;norm+=out[b]*out[b];}
+        if(norm<1e-8){Arrays.fill(out,(float)(-1/Math.sqrt(BANDS)));return out;}
+        for(int b=0;b<BANDS;b++)out[b]/=Math.sqrt(norm);return out;
+    }
+    /** A streaming detector supplies boundaries without surrounding silence. Padding restores
+     * the frontend's noise-estimation context; it never adds speech or identity evidence. */
+    static short[] boundedContext(short[] pcm){
+        if(pcm==null)return new short[0];int padding=Math.max(1600,pcm.length/8);
+        short[] out=new short[pcm.length+padding*2];System.arraycopy(pcm,0,out,padding,pcm.length);return out;
     }
     static short[] speakerClip(short[] pcm){
         if(!WakePolicy.usableAudio(pcm))return new short[0];

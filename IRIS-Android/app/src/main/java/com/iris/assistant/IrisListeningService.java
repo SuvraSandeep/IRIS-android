@@ -432,6 +432,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private VoskEngine voskEngine;
     private VoskEngine commandEngine;
+    private ContinuousVoiceSession voiceSession;
     private long commandEpoch;
     private boolean commandModelLoading;
     /** Dedicated ECAPA-TDNN speaker embedding + Silero VAD trimming models — see
@@ -482,6 +483,11 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
         });
 
+        commandEngine=new VoskEngine();commandModelLoading=true;
+        commandEngine.init(this,new VoskEngine.InitListener(){
+            public void onReady(){commandModelLoading=false;if(isRunning&&PHASE_COMMAND.equals(phase))startVoskCommandRecognition();}
+            public void onError(String error){commandModelLoading=false;LogStore.append(IrisListeningService.this,"COMMAND MODEL",error);}
+        });
         voskEngine = new VoskEngine();
         // Schema 8 uses the bundled Vosk owner model plus recorded-phrase evidence.
         // Optional downloads never change the identity model midway through a session.
@@ -801,132 +807,40 @@ public class IrisListeningService extends Service implements RecognitionListener
         handler.postDelayed(retryWake, delay);
     }
     private void startWakeDetection() {
-        stopCommandCapture();
-        if (!isRunning) return;
-        final long epoch = ++wakeEpoch;
-        handler.removeCallbacks(retryWake);
-        destroyRecognizer();
-        if (voskEngine != null) voskEngine.stop();
-        IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.MICROPHONE);
-        ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
-        phase = PHASE_WAKE;
-        currentPhase = phase;
-        broadcastState(true, phase);
-        reassertMediaSessionPriority();  // give the headset trigger a fresh shot at priority
-        androidWakeActive = false;
-        // REAL, SEVERE ON-DEVICE BUG fixed here: this used to check
-        // WakePolicy.owner(wake.voiceprint,wake.voiceprint,.99) directly -- wake.voiceprint is
-        // the legacy pre-schema-4 field, which a schema-7 profile (this redesign's dual
-        // ECAPA-TDNN/Vosk ensemble) never populates at all. For EVERY schema-7 profile, this
-        // check failed unconditionally and PERMANENTLY -- wake listening never even started,
-        // no matter how many times the profile was retrained, since this gate runs before any
-        // audio is ever captured or scored. This is almost certainly why voice wake appeared
-        // completely non-functional after multiple successful training sessions. Same bug
-        // class as isVoiceEnrolled()/isVoiceRecordButton status checks fixed earlier this
-        // pass -- see WakeProfile.versionedOwnerEnrolled's doc for the full history. Now uses
-        // wake.isVoiceEnrolled(), which recognizes BOTH the legacy voiceprint field and any
-        // versioned (schema>=4) profile.
-        if(!wake.isReady() || !wake.isVoiceEnrolled()){
-            wakeReadiness="Record phrase and owner voice for this version";
-            updateListeningNotification("Train your exact phrase and owner voice in Training");
-            scheduleWakeRetry(3000);return;
-        }
+        if(!isRunning)return;
+        stopCommandCapture();final long epoch=++wakeEpoch;handler.removeCallbacks(retryWake);destroyRecognizer();
+        if(voskEngine!=null)voskEngine.stop();
+        phase=PHASE_WAKE;currentPhase=phase;androidWakeActive=false;broadcastState(true,phase);
+        OwnerVoiceProfile profile=new ProfileStore(this).ownerEvidence();
+        if(profile==null){wakeReadiness="Train your wake sound and owner voice";updateListeningNotification(wakeReadiness);scheduleWakeRetry(3000);return;}
         if(!voskReady||voskEngine==null||!voskEngine.isSpeakerReady()){
-            wakeReadiness="Offline speaker model unavailable or loading";
-            scheduleWakeRetry(2000);return;
+            wakeReadiness="Loading owner voice model";updateListeningNotification(wakeReadiness);scheduleWakeRetry(2000);return;
         }
-        if (!voskReady || voskEngine == null) {
-            wakeReadiness = "Voice model unavailable or loading";
-            updateListeningNotification("Wake unavailable: loading voice model");
-            scheduleWakeRetry(2000);
-            return;
+        if(!voskEngine.profileModelMatches(profile)){wakeReadiness="Owner model changed; retrain";updateListeningNotification(wakeReadiness);return;}
+        if(profile.usesEcapa()&&!voskEngine.ecapaReady()){
+            wakeReadiness="Loading dedicated owner model";updateListeningNotification(wakeReadiness);scheduleWakeRetry(2000);return;
         }
-        if (audioManager != null && audioManager.isMusicActive()) {
-            wakeReadiness = "Paused during media playback";
-            updateListeningNotification("Wake paused during media playback. Pause media to speak.");
-            scheduleWakeRetry(1500);
-            return;
-        }
-        restoreRecognizerBeep();
-        voskEngine.setSensitivity(settings.voiceSensitivity());
-        wakeReadiness = "Recorded phrase and owner checks armed";
-        updateListeningNotification("Owner wake ready: “"+wake.phrase+"”. Input: "+AudioRouteController.observed);
-        IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Wake listening");
-        // Release command-session routing before the wake recorder selects the preferred input.
-        // Bluetooth is allowed when media is stopped; each captured route needs its own profile.
-        if (btMicAllowed) {
-            btMicAllowed = false;
-            releaseAudioRoute();
-            microphoneLabel = configureAudioRoute();
-            // releaseAudioRoute() unregisters and nulls audioDeviceCallback/audioManager;
-            // registerAudioChanges() must be called again here or the device-change callback
-            // stays permanently unregistered for the rest of the session after this first
-            // re-arm — previously only onStartCommand's once-per-service-start init blocks
-            // called it, so hot-plugging/removing a headset after the first command→wake cycle
-            // silently stopped updating the mic route and notification.
-            registerAudioChanges();
-        }
-        final long profileVersion=wake.trainedAt;
-        final double policyThreshold=settings.ownerThreshold();
-        voskEngine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
-            @Override public void onRejected(String reason){if(epoch==wakeEpoch&&isRunning){
-                wakeReadiness="Listening · "+RecordedWakeCheck.guidance(reason);
-                LogStore.append(IrisListeningService.this,"WAKE REJECTED",reason+"; "+voskEngine.lastWakeDiagnostic());
-                updateListeningNotification(wakeReadiness);
-            }}
-            @Override public void onWakeDetected(float[] ecapaEmbedding, float[] voskEmbedding) {
-                if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
-                boolean media = audioManager != null && audioManager.isMusicActive();
-                long now = android.os.SystemClock.elapsedRealtime();
-                OwnerVoiceProfile scoreProfile = new ProfileStore(IrisListeningService.this).ownerEvidence();
-                double score = WakePolicy.finalScore(ecapaEmbedding, scoreProfile != null ? scoreProfile.ecapaCentroid() : null,
-                        voskEmbedding, scoreProfile != null ? scoreProfile.voskCentroid() : null);
-                boolean unchanged=profileVersion==new ProfileStore(IrisListeningService.this).getWakeProfile().trainedAt
-                        && policyThreshold==settings.ownerThreshold();
-                boolean accepted = unchanged && !media && now - lastWakeAt >= 3000 && isOwnerVoice(ecapaEmbedding, voskEmbedding);
-                voskEngine.recordWakeOutcome(accepted?"OWNER_ACCEPTED":media?"PLAYBACK_CONTEXT":!unchanged?"PROFILE_CHANGED":"OWNER_REJECTED",accepted);
-
-                LogStore.append(IrisListeningService.this, "WAKE DECISION",
-                        "engine=vosk media=" + media + " speaker=" + score + " threshold=" + voiceThreshold()
-                        + " accepted=" + accepted);
-                voskEngine.stop();
-                // Bump the epoch immediately (before branching on accepted/rejected) so a
-                // late/duplicate callback from the just-stopped engine can never re-enter this
-                // listener on either path. Previously this only happened after the ACCEPT branch
-                // succeeded — the reject path (wrong voice/media/cooldown) left wakeEpoch
-                // unchanged until scheduleWakeRetry's delayed startWakeDetection ran (150ms or
-                // 1500ms later), so a second stale callback from that same stopping recognizer
-                // could still pass the "epoch != wakeEpoch" check and run this block again.
-                ++wakeEpoch;
-                // A rejected attempt (wrong voice, media just started, cooldown) used to wait
-                // 1.5s before re-arming — during which repeating the phrase again (the natural
-                // thing to do when you think wake didn't hear you) did nothing at all. The only
-                // real reasons to delay are external conditions that need time to change (media
-                // playback, model loading); a plain voice/cooldown rejection can re-arm almost
-                // immediately since rebuilding the Vosk recognizer itself is fast.
-                if (!accepted && media) {
-                    // Distinct from a generic rejection: media started between arming wake and
-                    // capturing speech (a real race, not a wrong voice) — say so instead of a
-                    // silent retry that looks identical to "wake just isn't working".
-                    wakeReadiness = "Media started while listening — pause it and repeat the phrase";
-                    updateListeningNotification("Wake paused: media started. Pause it and repeat the phrase.");
-                }
-                if (!accepted) { scheduleWakeRetry(media ? 1500 : 150); return; }
-                lastWakeAt = now;
-                vibrate(45);
-                String greet = wakeGreeting();
-                broadcastMessage(greet);
-                nextOutputMinor = true;
-                speakThenRun(greet, IrisListeningService.this::startCommandRecognition);
+        if(!voskEngine.profileModelMatches(profile)){wakeReadiness="Owner model fingerprint differs; retrain";updateListeningNotification(wakeReadiness);return;}
+        if(voiceSession==null||!voiceSession.usable()){if(voiceSession!=null)voiceSession.close();voiceSession=new ContinuousVoiceSession(this,voskEngine);}
+        wakeReadiness="Streaming wake armed; input: "+AudioRouteController.observed;
+        updateListeningNotification(wakeReadiness);IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE,"Streaming wake");
+        final String revision=profile.revision();
+        voiceSession.arm(profile,new VoskEngine.WakeListener(){
+            public void onRejected(String reason){if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Listening · "+RecordedWakeCheck.guidance(reason);
+                LogStore.append(IrisListeningService.this,"WAKE REJECTED",reason+"; "+voskEngine.lastWakeDiagnostic());updateListeningNotification(wakeReadiness);}
+            public void onWakeDetected(float[] ecapa,float[] vosk){
+                if(epoch!=wakeEpoch||!isRunning||!PHASE_WAKE.equals(phase))return;
+                boolean accepted=revision.equals(new ProfileStore(IrisListeningService.this).ownerRevision())&&isOwnerVoice(ecapa,vosk);
+                voskEngine.recordWakeOutcome(accepted?"OWNER_ACCEPTED":"PROFILE_OR_OWNER_CHANGED",accepted);
+                if(!accepted){scheduleWakeRetry(150);return;}
+                ++wakeEpoch;lastWakeAt=android.os.SystemClock.elapsedRealtime();vibrate(45);
+                // Keep PCM and the wake boundary; no spoken greeting or fixed cooldown discards
+                // the first command words. Media may pause only after owner verification.
+                requestSpeechFocus();broadcastMessage("Listening…");startCommandRecognition();
             }
-            @Override public void onError(String message) {
-                if (epoch != wakeEpoch || !isRunning || !PHASE_WAKE.equals(phase)) return;
-                wakeReadiness = "Wake unavailable: " + message;
-                IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.MICROPHONE);
-                LogStore.append(IrisListeningService.this, "WAKE UNAVAILABLE", message);
-                scheduleWakeRetry(3000);
-            }
-        }, true, true);
+            public void onError(String message){if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Wake unavailable: "+message;
+                LogStore.append(IrisListeningService.this,"WAKE UNAVAILABLE",message);updateListeningNotification(wakeReadiness);scheduleWakeRetry(1500);}
+        });
     }
 
     private long lastRejectCueAt = 0;
@@ -966,6 +880,11 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void startCommandRecognition() {
         commandWindowOpenedAt = System.currentTimeMillis();
+        if(voiceSession!=null&&voiceSession.usable()&&!settings.googleSttForCommands()&&!(serverMonitor.shouldUseServer(settings)&&settings.serverStt())){
+            commandRetries=0;phase=PHASE_COMMAND;currentPhase=phase;broadcastState(true,phase);startVoskCommandRecognition();return;
+        }
+        // External speech providers own their microphone; this handoff is explicitly logged.
+        if(voiceSession!=null){voiceSession.close();voiceSession=null;LogStore.append(this,"MIC_HANDOFF","External speech provider owns capture; buffered handoff is offline-only");}
         // A command window is short, so the headset mic is worth it here (and only here).
         if (!btMicAllowed) {
             btMicAllowed = true;
@@ -1086,7 +1005,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         // Settle delay: let the wake recognizer's mic fully release before we open a new AudioRecord.
         handler.postDelayed(() -> {
             if (!isRunning || !PHASE_COMMAND.equals(phase)||epoch!=commandEpoch) return;
-            commands.startListening(new VoskEngine.SttListener() {
+            VoskEngine.SttListener callbacks=new VoskEngine.SttListener() {
                 @Override public void onReady(){if(epoch==commandEpoch&&isRunning&&PHASE_COMMAND.equals(phase)){LogStore.append(IrisListeningService.this,"LISTEN","Microphone ready (Vosk Indian English)");handler.postDelayed(commandTimeout,15_000);playListeningEarcon();}}
                 @Override public void onUnclear(String text){if(epoch!=commandEpoch||handled[0])return;handled[0]=true;commands.stop();lastHeardTranscript=text;LogStore.append(IrisListeningService.this,"UNCLEAR CMD",text);retryUnclearCommand("I could not hear that clearly. Please repeat after the tone.");}
                 @Override public void onPartial(String text) {
@@ -1108,12 +1027,15 @@ public class IrisListeningService extends Service implements RecognitionListener
                     LogStore.append(IrisListeningService.this, "VOSK STT ERROR", message);
                     rearmAfterAction();
                 }
-            });
-        }, 350);
+            };
+            if(voiceSession!=null&&voiceSession.usable())voiceSession.commands(commands,callbacks);else commands.startListening(callbacks);
+
+        }, voiceSession!=null?0:350);
     }
 
     /** Command capture via Android's (Google) SpeechRecognizer — best accuracy. */
     private void startAndroidCommandRecognition() {
+        if(voiceSession!=null){voiceSession.close();voiceSession=null;}
         if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
         if (voskEngine != null) voskEngine.stop();
         createRecognizer();
@@ -5183,7 +5105,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         try {
             ProfileStore store=new ProfileStore(this);OwnerVoiceProfile profile=store.ownerEvidence();
             if(store.hasVersionedOwner()){
-                if(profile==null||voskEngine==null||!profile.hash().equals(voskEngine.speakerFingerprint()))return false;
+                if(profile==null||voskEngine==null||!voskEngine.profileModelMatches(profile))return false;
                 // Match against whichever route is actually confirmed right now — a headset
                 // enrollment must never be checked against phone-route evidence or vice versa.
                 AudioRouteController.Route captured=voskEngine.lastWakeRoute();
@@ -5525,7 +5447,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }, 400);
     }
 
-    private void stopCommandCapture(){commandEpoch++;if(commandEngine!=null)commandEngine.stop();}
+    private void stopCommandCapture(){commandEpoch++;if(voiceSession!=null)voiceSession.pause();if(commandEngine!=null)commandEngine.stop();}
     private void stopWakeEngine() {
         stopCommandCapture();
         if (wakeEngine != null) { wakeEngine.stop(); wakeEngine = null; }
@@ -5723,6 +5645,9 @@ public class IrisListeningService extends Service implements RecognitionListener
      * (VoskEngine.startWakeDetection) instead of a second recognition mechanism.
      */
     private void startStopWordListener() {
+        // Legacy API matches the enrolled phrase, not STOP_WORDS. It must not open a second
+        // microphone or label a wake phrase as a stop command during self-generated speech.
+        if(voiceSession!=null)return;
         try {
             if (!voskReady || voskEngine == null) return;
             voskEngine.stop();
@@ -6177,6 +6102,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (textToSpeech != null) textToSpeech.shutdown();
         releaseServerTts();
 
+        if(voiceSession!=null){voiceSession.close();voiceSession=null;}
         if (voskEngine != null) { voskEngine.close(); voskEngine = null; }
         if(commandEngine!=null){commandEngine.close();commandEngine=null;}
         if (ecapaEngine != null) { ecapaEngine.close(); ecapaEngine = null; }

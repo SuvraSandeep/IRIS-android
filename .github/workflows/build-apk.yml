@@ -139,6 +139,28 @@ jobs:
           curl -fSL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip -o "$PROJECT_DIR/app/src/main/assets/model-en-us.zip"
           unzip -t "$PROJECT_DIR/app/src/main/assets/model-en-us.zip" >/dev/null
 
+      - name: Set up Python for verified speaker model
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache verified dedicated speaker model
+        id: ecapa-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            IRIS-Android/app/src/main/assets/ecapa_tdnn_voxceleb.onnx
+            IRIS-Android/app/src/main/assets/ecapa_tdnn_voxceleb.json
+          key: ecapa-cpu-v1-${{ hashFiles('IRIS-Android/tools/export_ecapa_to_onnx.py') }}
+
+      - name: Export and verify dedicated speaker model
+        if: steps.ecapa-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          python -m pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install speechbrain==1.0.3 huggingface_hub==0.28.1 onnx==1.17.0 onnxruntime==1.20.1 numpy==1.26.4
+          python tools/export_ecapa_to_onnx.py --output app/src/main/assets/ecapa_tdnn_voxceleb.onnx
+
       - name: Regression tests (all suites)
         working-directory: ${{ env.PROJECT_DIR }}
         run: bash scripts/test-speech.sh
