@@ -3,8 +3,8 @@ import java.util.List;
 /** One decision rule for held-out training, manual testing, and background wake. */
 final class RecordedWakeCheck {
     static String guidance(String reason){
-        if("PHRASE_MISMATCH".equals(reason))return "The recorded sound differed from your examples. Teach this natural variation in a fresh training session or authenticated feedback.";
-        if("OWNER_REJECTED".equals(reason))return "The speaker match was below your owner-verification setting. Keep the microphone at the same distance and use your normal voice.";
+        if("PHRASE_MISMATCH".equals(reason))return "The live detector did not recognize this call. Retry naturally, or replace an earlier example using the recovery option.";
+        if("OWNER_REJECTED".equals(reason))return "The voice check needs a clearer recording. Speak naturally into the selected microphone.";
         if("SPEAKER_EVIDENCE".equals(reason))return "The sound was too short or unclear to verify the speaker. Say the complete phrase at a comfortable pace.";
         if("AUDIO_QUALITY".equals(reason))return "No complete usable phrase was captured. Wait for Listening, say the phrase, then pause.";
         if("HEADSET_PROFILE_REQUIRED".equals(reason))return "Add a headset voice profile, or select Phone microphone.";

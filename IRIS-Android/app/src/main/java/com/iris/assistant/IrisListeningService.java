@@ -814,14 +814,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         phase=PHASE_WAKE;currentPhase=phase;androidWakeActive=false;broadcastState(true,phase);
         OwnerVoiceProfile profile=new ProfileStore(this).ownerEvidence();
         if(profile==null){wakeReadiness="Train your wake sound and owner voice";updateListeningNotification(wakeReadiness);scheduleWakeRetry(3000);return;}
-        if(!voskReady||voskEngine==null||!voskEngine.isSpeakerReady()){
-            wakeReadiness="Loading owner voice model";updateListeningNotification(wakeReadiness);scheduleWakeRetry(2000);return;
+        WakeModelState.State readiness=WakeModelState.evaluate(voskReady&&voskEngine!=null,
+            voskEngine!=null&&voskEngine.isSpeakerReady(),profile.usesEcapa(),voskEngine!=null&&voskEngine.ecapaReady(),
+            voskEngine!=null&&voskEngine.profileModelMatches(profile));
+        if(readiness!=WakeModelState.State.READY){
+            wakeReadiness=readiness==WakeModelState.State.LOADING_VOSK?"Loading offline voice model":readiness==WakeModelState.State.LOADING_OWNER?"Loading dedicated owner model":"Owner model changed; retrain";
+            updateListeningNotification(wakeReadiness);
+            if(readiness!=WakeModelState.State.MODEL_CHANGED)scheduleWakeRetry(1000);
+            return;
         }
-        if(!voskEngine.profileModelMatches(profile)){wakeReadiness="Owner model changed; retrain";updateListeningNotification(wakeReadiness);return;}
-        if(profile.usesEcapa()&&!voskEngine.ecapaReady()){
-            wakeReadiness="Loading dedicated owner model";updateListeningNotification(wakeReadiness);scheduleWakeRetry(2000);return;
-        }
-        if(!voskEngine.profileModelMatches(profile)){wakeReadiness="Owner model fingerprint differs; retrain";updateListeningNotification(wakeReadiness);return;}
         if(voiceSession==null||!voiceSession.usable()){if(voiceSession!=null)voiceSession.close();voiceSession=new ContinuousVoiceSession(this,voskEngine);}
         wakeReadiness="Streaming wake armed; input: "+AudioRouteController.observed;
         updateListeningNotification(wakeReadiness);IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE,"Streaming wake");
