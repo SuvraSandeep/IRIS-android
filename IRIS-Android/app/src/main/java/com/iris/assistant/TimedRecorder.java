@@ -29,7 +29,7 @@ public final class TimedRecorder {
     public String capturedRoute(){return capturedRoute;}
     private static final class Attempt {
         final AtomicBoolean terminal=new AtomicBoolean();
-        volatile boolean cancelled;
+        volatile boolean cancelled, finish;
         Thread worker;
         Runnable watchdog;
     }
@@ -74,8 +74,8 @@ public final class TimedRecorder {
             short[] audio=new short[SAMPLE_RATE*durationMs/1000],frame=new short[FRAME_SIZE];int offset=0;
             RecordingDeadline deadline=new RecordingDeadline(SystemClock.elapsedRealtime(),durationMs);
             int initialRoute=AudioRouteController.routeId(mic);
-            long lastLevel=0;PhraseCapture speechEnd=new PhraseCapture();
-            while(!attempt.cancelled && offset<audio.length){
+            long lastLevel=0;PhraseCapture speechEnd=new PhraseCapture(11200);
+            while(!attempt.cancelled && !attempt.finish && offset<audio.length){
                 long now=SystemClock.elapsedRealtime();
                 if(deadline.expired(now))throw new IllegalStateException("Microphone stopped supplying audio. Reconnect the headset or select Phone microphone and retry");
                 int n=mic.read(frame,0,Math.min(frame.length,audio.length-offset),AudioRecord.READ_NON_BLOCKING);
@@ -108,8 +108,11 @@ public final class TimedRecorder {
                 main.removeCallbacks(attempt.watchdog);
                 if(captured!=null)listener.onComplete(captured);
                 else listener.onError(message==null?"No complete recording was captured.":message);
-            }
+            }else if(captured!=null)java.util.Arrays.fill(captured,(short)0);
         });
+    }
+    public synchronized void finish(){
+        Attempt attempt=active;if(attempt!=null&&!attempt.cancelled)attempt.finish=true;
     }
     public synchronized void stop(){
         Attempt attempt=active;if(attempt==null)return;

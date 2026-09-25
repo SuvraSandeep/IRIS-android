@@ -22,6 +22,22 @@ public class StreamingWakeTest {
   float[][] features=SoundPattern.extract(pcm);check(SoundPattern.valid(features),"Frontend retains valid enrollment features");
   short[] continuous=Arrays.copyOfRange(pcm,3200,16000);
   check(SoundPattern.valid(SoundPattern.extract(SoundPattern.boundedContext(continuous))),"Already segmented voice must not require recorded silence");
+
+  // Replay actual waveform features, rather than handcrafted feature rows alone. Vary frame
+  // alignment, volume and capture chunking; enrollment and live must agree on the same sound.
+  for(int offset:new int[]{0,137,319,16000})for(double gain:new double[]{.4,1,1.5}){
+   short[] replay=new short[pcm.length+offset+3200];
+   for(int i=0;i<pcm.length;i++)replay[offset+i]=(short)(pcm[i]*gain);
+   StreamingWakeDetector.Match match=LiveWakeProbe.check(replay,Collections.singletonList(features),.12,p->SoundPattern.distance(p,features)<=.12);
+   check(match!=null,"Real PCM missed at offset "+offset+" gain "+gain);
+   check(SoundPattern.valid(match.pattern),"Must preserve exactly the accepted live frames");
+   check(match.end<=offset+20000,"Wake boundary consumed following audio");
+  }
+  check(LiveWakeProbe.check(pcm,Collections.singletonList(features),.12,p->false)==null,"Negative evidence must veto candidate before owner verification");
+  StreamingWakeDetector afterReject=new StreamingWakeDetector(Collections.singletonList(features),.12);
+  short[] repeated=new short[pcm.length*2];System.arraycopy(pcm,0,repeated,0,pcm.length);System.arraycopy(pcm,0,repeated,pcm.length,pcm.length);
+  int detections=0;for(int i=0;i<repeated.length;i+=320){short[] block=Arrays.copyOfRange(repeated,i,Math.min(repeated.length,i+320));if(afterReject.add(block,block.length)!=null)detections++;}
+  check(detections>=2,"Detector failed to recover for a second call");
   System.out.println("Passed streaming phrase-in-speech, negative stream, bounded handoff, overrun and erasure checks");
  }
 }

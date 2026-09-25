@@ -5,7 +5,7 @@ import java.util.*;
 /** Encrypted, revision-bound checkpoints; audio patterns and vectors always stay paired. */
 final class TrainingProgress {
     static final class Data {
-        String phrase="",sessionRoute="UNCONFIRMED",baseRevision="",modelHash="";
+        String phrase="",sessionRoute="UNCONFIRMED",baseRevision="",modelHash="",ecapaHash="";
         int takeIndex;
         final List<float[]> ecapaTakes=new ArrayList<>(),voskTakes=new ArrayList<>(),ecapaHeldOut=new ArrayList<>(),voskHeldOut=new ArrayList<>();
         final List<float[][]> phraseTakes=new ArrayList<>(),phraseHeldOut=new ArrayList<>();
@@ -14,10 +14,10 @@ final class TrainingProgress {
     static boolean exists(Context c){return load(c)!=null;}
     static void clear(Context c){clear(c,false);}
     static void clear(Context c,boolean headset){try{SecureStore.write(c,file(headset),"");}catch(Exception ignored){}}
-    static boolean save(Context c,boolean headset,String phrase,int index,String route,String revision,String hash,OwnerEnrollmentController bank){
+    static boolean save(Context c,boolean headset,String phrase,int index,String route,String revision,String hash,String ecapaHash,OwnerEnrollmentController bank){
         try{
-            JSONObject j=new JSONObject().put("schema",3).put("phrase",phrase).put("takeIndex",index)
-                .put("sessionRoute",route).put("baseRevision",revision).put("modelHash",hash)
+            JSONObject j=new JSONObject().put("schema",4).put("phrase",phrase).put("takeIndex",index)
+                .put("ecapaHash",ecapaHash).put("sessionRoute",route).put("baseRevision",revision).put("modelHash",hash)
                 .put("ecapaTakes",OwnerVoiceProfile.ecapaArray(bank.ecapaSamples))
                 .put("voskTakes",OwnerVoiceProfile.voskArray(bank.voskSamples))
                 .put("ecapaHeldOut",OwnerVoiceProfile.ecapaArray(bank.ecapaValidation))
@@ -35,9 +35,9 @@ final class TrainingProgress {
     static Data parse(String raw,String revision,boolean headset,double policy){
         try{
             if(raw.length()>2000000)return null;
-            JSONObject j=new JSONObject(raw);if(j.getInt("schema")!=3)return null;
+            JSONObject j=new JSONObject(raw);int schema=j.getInt("schema");if(schema!=3&&schema!=4)return null;
             Data d=new Data();d.phrase=j.getString("phrase");d.takeIndex=j.getInt("takeIndex");
-            d.sessionRoute=j.getString("sessionRoute");d.baseRevision=j.getString("baseRevision");d.modelHash=j.getString("modelHash");
+            d.ecapaHash=j.optString("ecapaHash","");d.sessionRoute=j.getString("sessionRoute");d.baseRevision=j.getString("baseRevision");d.modelHash=j.getString("modelHash");
             if(!d.baseRevision.equals(revision)||!d.modelHash.matches("[a-f0-9]{64}"))return null;
             if(!d.sessionRoute.equals(headset?"HEADSET":"PHONE"))return null;
             read(d.ecapaTakes,j.getJSONArray("ecapaTakes"),true);read(d.voskTakes,j.getJSONArray("voskTakes"),false);
@@ -47,11 +47,18 @@ final class TrainingProgress {
             int n=d.voskTakes.size(),v=d.voskHeldOut.size();
             if(n!=d.ecapaTakes.size()||n!=d.phraseTakes.size()||v!=d.ecapaHeldOut.size()||v!=d.phraseHeldOut.size()
                 ||d.takeIndex!=n+v||v>0&&n!=4||d.takeIndex<1||d.takeIndex>8)return null;
+            boolean enhanced=!d.ecapaTakes.isEmpty()&&!WakePolicy.isAbsent(d.ecapaTakes.get(0));
+            for(float[] e:d.ecapaTakes)if(enhanced==WakePolicy.isAbsent(e))return null;
+            if(enhanced&&!d.ecapaHash.matches("[a-f0-9]{64}"))return null;
             if(n==4){
-                double threshold=WakePolicy.phraseLimit(SoundPattern.calibrate(d.phraseTakes),policy);float[] centroid=WakePolicy.enrollment(d.voskTakes);
-                if(centroid==null)return null;
-                for(int i=0;i<v;i++)if(!RecordedWakeCheck.reject(d.phraseHeldOut.get(i),d.phraseTakes,threshold,d.voskHeldOut.get(i),centroid,policy).isEmpty())return null;
+                double threshold=WakePolicy.phraseLimit(SoundPattern.variantCalibrate(d.phraseTakes),policy);
+                float[] centroid=WakePolicy.enrollment(d.voskTakes),ecapa=WakePolicy.enrollment(d.ecapaTakes,192);
+                if(centroid==null||(enhanced&&ecapa==null))return null;
+                for(int i=0;i<v;i++)if(!RecordedWakeCheck.rejectEnsemble(d.phraseHeldOut.get(i),SoundPattern.variantScore(d.phraseHeldOut.get(i),d.phraseTakes)<=threshold,d.ecapaHeldOut.get(i),d.voskHeldOut.get(i),ecapa,centroid,policy).isEmpty())return null;
             }
+            // Older drafts were not tested through the live detector. Keep enrollment but
+            // require fresh live checks; never relabel previous held-out data as new training.
+            if(schema==3){d.phraseHeldOut.clear();d.ecapaHeldOut.clear();d.voskHeldOut.clear();d.takeIndex=n;}
             return d;
         }catch(Exception error){return null;}
     }

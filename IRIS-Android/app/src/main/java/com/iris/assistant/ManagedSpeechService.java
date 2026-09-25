@@ -39,6 +39,7 @@ final class ManagedSpeechService {
     void startListening(RecognitionListener listener){
         running=true;
         worker=new Thread(()->{
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
             Object lease=null;long acquireUntil=SystemClock.elapsedRealtime()+2500;
             while(running&&lease==null&&SystemClock.elapsedRealtime()<acquireUntil){
                 lease=AudioCaptureCoordinator.acquire();if(lease==null)try{Thread.sleep(10);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
