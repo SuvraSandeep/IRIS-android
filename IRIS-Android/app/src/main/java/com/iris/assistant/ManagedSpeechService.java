@@ -11,6 +11,8 @@ import org.vosk.android.RecognitionListener;
 final class ManagedSpeechService {
     interface ClipListener { void onClip(short[] pcm,AudioRouteController.Route route); }
     private ClipListener clipListener;
+    private Runnable readyListener;
+    void setReadyListener(Runnable listener){readyListener=listener;}
     void setClipListener(ClipListener listener){clipListener=listener;}
     private volatile short[] lastResultClip;
     /** The raw PCM clip that produced the most recently completed ASR result, or null if no
@@ -34,20 +36,25 @@ final class ManagedSpeechService {
     void startListening(RecognitionListener listener){
         running=true;
         worker=new Thread(()->{
-            Object lease=AudioCaptureCoordinator.acquire();
+            Object lease=null;long acquireUntil=SystemClock.elapsedRealtime()+2500;
+            while(running&&lease==null&&SystemClock.elapsedRealtime()<acquireUntil){
+                lease=AudioCaptureCoordinator.acquire();if(lease==null)try{Thread.sleep(10);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
+            }
             AudioRouteController route=new AudioRouteController(context);
             try{
+                if(!running)return;
                 if(lease==null)throw new IllegalStateException("Microphone is in use by training");
                 int buffer=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
                 mic=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(4096,buffer*2));
                 if(mic.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("Microphone unavailable");
                 route.request(context,mic,allowBluetooth);mic.startRecording();AudioRouteController.awaitInput(mic,AudioRouteController.Route.UNCONFIRMED);AudioRouteController.observe(mic);
+                main.post(()->{if(running&&readyListener!=null)readyListener.run();});
                 short[] frame=new short[320],raw=new short[128000];int rawCount=0,rawOffset=0;int frames=0,lastRoute=-1;
                 PhraseCapture endpoint=new PhraseCapture();
                 QuietAudioProcessor gain=new QuietAudioProcessor();
-                long lastPcm=SystemClock.elapsedRealtime();
+                long lastPcm=SystemClock.elapsedRealtime(),lastPartialAt=0;String lastPartial="";
                 while(running){
-                    int n=mic.read(frame,0,frame.length);
+                    int n=mic.read(frame,0,frame.length,AudioRecord.READ_NON_BLOCKING);
                     if(n<0)throw new IllegalStateException("Microphone read failed: "+n);
                     if(n==0){if(SystemClock.elapsedRealtime()-lastPcm>=3000)throw new IllegalStateException("Microphone stopped supplying audio");Thread.sleep(10);continue;}
                     lastPcm=SystemClock.elapsedRealtime();
@@ -76,6 +83,8 @@ final class ManagedSpeechService {
                         lastResultClip=clip;
                         rawCount=rawOffset=0;gain=new QuietAudioProcessor();
                     }
+                    if(!complete){long now=SystemClock.elapsedRealtime();if(output.equals(lastPartial)||now-lastPartialAt<150)continue;lastPartial=output;lastPartialAt=now;}
+                    else lastPartial="";
                     final String result=output;
                     main.post(()->{if(running){if(complete)listener.onResult(result);else listener.onPartialResult(result);}});
                 }
@@ -87,10 +96,13 @@ final class ManagedSpeechService {
         },"IRIS-PCM");worker.start();
     }
     void stop(){
+        // Non-blocking reads let the capture worker release its own recorder. Never join it
+        // on the UI thread or close a recorder concurrently with native decoding.
         running=false;
-        AudioRecord old=mic;if(old!=null)try{old.stop();}catch(Exception ignored){}
-        if(worker!=null&&worker!=Thread.currentThread())try{worker.join(1500);}catch(InterruptedException e){Thread.currentThread().interrupt();}
-        if(worker!=null&&worker.isAlive())throw new IllegalStateException("Recorder is still stopping");
+    }
+    boolean stopped(){return worker==null||!worker.isAlive();}
+    void awaitStopped(){
+        if(worker!=null&&worker!=Thread.currentThread())try{worker.join();}catch(InterruptedException e){Thread.currentThread().interrupt();throw new IllegalStateException("Capture cleanup interrupted",e);}
     }
     void shutdown(){stop();}
 }

@@ -16,6 +16,12 @@ public class WakeFeedbackStateTest {
   @org.robolectric.annotation.Implementation public static String read(android.content.Context c,String file,String fallback){return files.getOrDefault(file,fallback);}
  }
 
+ @Test public void commandRecognitionPreferenceHonorsExplicitSelection(){
+  AppSettings settings=new AppSettings(RuntimeEnvironment.getApplication());
+  settings.setGoogleSttForCommands(false);assertFalse(settings.googleSttForCommands());
+  settings.setGoogleSttForCommands(true);assertTrue(new AppSettings(RuntimeEnvironment.getApplication()).googleSttForCommands());
+  settings.setGoogleSttForCommands(false);assertFalse(settings.googleSttForCommands());
+ }
  @Test public void featuresAreCopiedRouteIsExplicitAndExpiryErasesEvidence(){
   float[][] pattern=WakeLearningTest.sound(1);float[] speaker=OwnerVoiceProfileTest.vv(1);
   WakeEventStore.Event e=WakeEventStore.add("PHRASE_MISMATCH","revision",null,speaker,false,pattern,AudioRouteController.Route.HEADSET);

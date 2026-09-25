@@ -1,0 +1,11 @@
+# Voice runtime fixes — 10.1.1 (337)
+
+The reported phrase distance 0.1777 passed 0.2808, but owner similarity 0.6140 failed 0.6500. The phrase detector was not the rejection source in that event. This release keeps the owner floor and adds an explicit authenticated, bounded correction for borderline owner events. It shifts the route-specific centroid 10% toward the confirmed sample, preserves all four held-out checks, and requires the corrected sample to pass at unchanged strictness. At most six corrections per route; larger disagreements require fresh enrollment. Feedback retains expiry, revision checks and undo. It is not automatic self-training.
+
+Commands previously selected the owner-training US decoder while displaying Indian English. Owner and command engines now have separate lifecycles; offline commands use the Indian English model. The ignored system-recognition preference is now honored with an explicit network disclosure and offline default. The ready tone follows actual input readiness, uncertain offline word confidence prompts a repeat, and stale command callbacks are discarded.
+
+Repeated settings reads no longer recalibrate and revalidate unchanged profiles. Exact serialized profile documents are validated once in a bounded cache and returned as defensive snapshots. Microphone reads are nonblocking; recorder and native model cleanup no longer join on the UI thread. Unchanged/rapid partial transcripts are suppressed to reduce UI queue traffic.
+
+The logged “tell me that dying” cannot fall through to contact-based SMS routing. Direct message commands use the existing confirmation flow. SMS still needs Android permission; Settings now exposes that permission request without sending anything.
+
+Validation: scripts/test-speech.sh; Android unit tests and APK build in PR CI. New tests cover the logged owner score, stranger rejection, malformed evidence, profile snapshot isolation, uncertain command evidence and the logged SMS false intent. Synthetic evidence does not establish on-device speaker accuracy. Hardware checks still needed: phone/headset training through every take, soft and normal wake in quiet/noise, command onset after tone, repeated wake/command cycles, and stranger/replay rejection. Short phrases and the current Vosk speaker model cannot guarantee exclusive-owner or Jarvis-level recognition.
