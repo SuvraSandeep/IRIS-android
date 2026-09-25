@@ -145,6 +145,7 @@ final class ContinuousVoiceSession implements AutoCloseable {
     private void closeDecoder(){if(decoder!=null){decoder.close();decoder=null;}}
     private void execute(Runnable task){try{work.execute(task);}catch(RejectedExecutionException ignored){}}
     private void note(String kind,String detail){execute(()->{LogStore.append(context,kind,detail);WakeDiagnostics.event(context,kind,detail);});}
+    void awaitCaptureStopped(){capture.awaitStopped();}
     public void close(){
         synchronized(lock){if(mode==Mode.CLOSED)return;mode=Mode.CLOSED;generation++;detector=null;ring.clear();}
         capture.stop();execute(()->{closeDecoder();capture.awaitStopped();WakeDiagnostics.exposure(context,exposureSamples);WakeDiagnostics.event(context,"MIC_STOPPED","Session ended; active ms="+(SystemClock.elapsedRealtime()-startedAt));});work.shutdown();

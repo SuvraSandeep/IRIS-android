@@ -3936,6 +3936,7 @@ public class MainActivity extends Activity {
             })).setOnCancelListener(d->cancelWakeTraining()).show();
     }
 
+    private ContinuousVoiceSession wakeTestSession;
     private boolean resumeAfterWakeTest;
     private String lastWakeTestRejection="No complete phrase captured";
     private void testWakePhrase() {
@@ -3977,17 +3978,17 @@ public class MainActivity extends Activity {
                 handler.post(new Runnable() {
                     @Override public void run() {
                         if (wakeTestEngine != engine) return;
-                        if (requireSpeaker && !engine.isSpeakerReady()) {
+                        OwnerVoiceProfile tested=new ProfileStore(MainActivity.this).ownerEvidence();
+                        if(tested==null){stopWakeTrainingEngine();return;}
+                        if (requireSpeaker && (!engine.isSpeakerReady()||(tested.usesEcapa()&&!engine.ecapaReady()))) {
                             if (android.os.SystemClock.elapsedRealtime() < deadline) handler.postDelayed(this, 500);
                             else { stopWakeTrainingEngine(); wakeTrainingStatus.setText("Offline speaker model unavailable. Try again after downloading it."); }
                             return;
                         }
-                        android.media.AudioManager am = (android.media.AudioManager)getSystemService(AUDIO_SERVICE);
-                        if (am != null && am.isMusicActive()) {
-                            stopWakeTrainingEngine(); wakeTrainingStatus.setText("Pause media before testing, just as in background wake."); return;
-                        }
+                        if(!engine.profileModelMatches(tested)){stopWakeTrainingEngine();wakeTrainingStatus.setText("Owner model changed; fresh training is required.");return;}
                         wakeTrainingStatus.setText("Say your saved wake sound: “" + wake.phrase + "”");
-                        engine.startWakeDetection(wake.allPhrases(), new VoskEngine.WakeListener() {
+                        wakeTestSession=new ContinuousVoiceSession(MainActivity.this,engine);
+                        wakeTestSession.arm(tested, new VoskEngine.WakeListener() {
                             @Override public void onRejected(String reason){
                                 if(wakeTestEngine!=engine)return;
                                 lastWakeTestRejection=reason;
@@ -3995,7 +3996,7 @@ public class MainActivity extends Activity {
                             }
                             @Override public void onWakeDetected(float[] ecapaEmbedding, float[] voskEmbedding) {
                                 if (wakeTestEngine != engine) return;
-                                boolean mediaOk = (am == null || !am.isMusicActive());
+                                boolean mediaOk = true;
                                 ProfileStore store=new ProfileStore(MainActivity.this);OwnerVoiceProfile profile=store.ownerEvidence();
                                 boolean ownerOk=profile!=null&&profile.hash().equals(engine.speakerFingerprint())&&(engine.lastWakeRoute()==AudioRouteController.Route.HEADSET?profile.acceptsHeadset(ecapaEmbedding,voskEmbedding,new AppSettings(MainActivity.this).ownerThreshold()):engine.lastWakeRoute()==AudioRouteController.Route.PHONE&&profile.accepts(ecapaEmbedding,voskEmbedding,new AppSettings(MainActivity.this).ownerThreshold()));
                                 boolean accepted=mediaOk&&(!requireSpeaker||ownerOk);
@@ -4011,7 +4012,7 @@ public class MainActivity extends Activity {
                                 if (wakeTestEngine != engine) return;
                                 stopWakeTrainingEngine(); wakeTrainingStatus.setText("Test unavailable: " + message);
                             }
-                        }, requireSpeaker);
+                        });
                         handler.postDelayed(() -> {
                             if (wakeTestEngine == engine) { stopWakeTrainingEngine(); wakeTrainingStatus.setText("Test ended: "+lastWakeTestRejection+". Your saved training is unchanged."); }
                         }, 15000);
@@ -4026,6 +4027,7 @@ public class MainActivity extends Activity {
     }
 
     private void stopWakeTrainingEngine() {
+        if(wakeTestSession!=null){wakeTestSession.close();wakeTestSession=null;}
         if (wakeTestEngine != null) { VoskEngine old = wakeTestEngine; wakeTestEngine = null; old.close(); }
         if (wakeTrainingEngine != null) { wakeTrainingEngine.stop(); wakeTrainingEngine = null; }
         if(resumeAfterWakeTest){resumeAfterWakeTest=false;if(!isFinishing()&&!isDestroyed())startListeningService();}

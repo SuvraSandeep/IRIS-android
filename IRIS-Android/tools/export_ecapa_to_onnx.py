@@ -27,7 +27,7 @@ def main():
     classifier=EncoderClassifier.from_hparams(source=str(local),savedir=str(local/'loaded'),run_opts={'device':'cpu'})
     classifier.eval()
     stft=classifier.mods.compute_features.compute_STFT
-    assert stft.n_fft==400 and stft.hop_length==160 and stft.win_length==400
+    assert stft.n_fft==400 and stft.hop_length==160 and stft.win_length==400 and stft.pad_mode=="constant"
     assert classifier.mods.mean_var_norm.norm_type=='sentence' and not classifier.mods.mean_var_norm.std_norm
     class Export(torch.nn.Module):
         def __init__(self):
@@ -40,7 +40,7 @@ def main():
             self.fb=classifier.mods.compute_features.compute_fbanks
             self.embedding=classifier.mods.embedding_model
         def forward(self,wav):
-            spectrum=F.conv1d(F.pad(wav.unsqueeze(1),(200,200),mode='reflect'),self.dft,stride=160)
+            spectrum=F.conv1d(F.pad(wav.unsqueeze(1),(200,200),mode='constant'),self.dft,stride=160)
             power=(spectrum[:,:201]**2+spectrum[:,201:]**2).transpose(1,2)
             features=self.fb(power)
             features=features-features.mean(dim=1,keepdim=True)

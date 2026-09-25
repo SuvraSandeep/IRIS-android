@@ -433,6 +433,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private VoskEngine voskEngine;
     private VoskEngine commandEngine;
     private ContinuousVoiceSession voiceSession;
+    private long captureActionGeneration;
     private long commandEpoch;
     private boolean commandModelLoading;
     /** Dedicated ECAPA-TDNN speaker embedding + Silero VAD trimming models — see
@@ -2965,7 +2966,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         int secs = seconds > 0 ? Math.min(seconds, 3600) : 60;
         String m = "Recording the screen for " + humanizeDuration(secs) + ".";
         broadcastMessage(m);
-        speakThenRun(m, () -> { pauseListeningForCapture(); launchScreenCapture("rec", secs); });
+        speakThenRun(m, () -> releaseVoiceCaptureThen(()->launchScreenCapture("rec",secs)));
     }
 
     private void launchScreenCapture(String op, int seconds) {
@@ -2994,14 +2995,13 @@ public class IrisListeningService extends Service implements RecognitionListener
         final int secs = seconds > 0 ? Math.min(seconds, 3600) : 60;
         String intro = "Recording " + humanizeDuration(secs) + " on the " + (front ? "front" : "back") + " camera.";
         broadcastMessage(intro);
-        speakThenRun(intro, () -> {
-            pauseListeningForCapture();
+        speakThenRun(intro, () -> releaseVoiceCaptureThen(()->{
             Intent i = new Intent(this, LockedCaptureActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     .putExtra(LockedCaptureActivity.EXTRA_SECONDS, secs)
                     .putExtra(LockedCaptureActivity.EXTRA_FRONT, front);
             launchCaptureActivity(i, "IRIS camera", "Recording video…");
-        });
+        }));
     }
 
     /** Take a single still photo (not video) via the same lock-screen-capable camera activity. */
@@ -3029,15 +3029,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         String intro = "Taking a photo on the " + (front ? "front" : "back") + " camera"
                 + (useFlash ? ", with flash" : "") + ".";
         broadcastMessage(intro);
-        speakThenRun(intro, () -> {
-            pauseListeningForCapture();
+        speakThenRun(intro, () -> releaseVoiceCaptureThen(()->{
             Intent i = new Intent(this, LockedCaptureActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     .putExtra(LockedCaptureActivity.EXTRA_MODE, "photo")
                     .putExtra(LockedCaptureActivity.EXTRA_FRONT, front)
                     .putExtra(LockedCaptureActivity.EXTRA_FLASH, useFlash);
             launchCaptureActivity(i, "IRIS camera", "Taking a photo\u2026");
-        });
+        }));
     }
 
     /** Whether the requested lens actually has a flash unit. Front cameras usually don't. */
@@ -3405,8 +3404,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         final int durMs = cappedSecs * 1000;
         String intro = "Recording " + humanizeDuration(cappedSecs) + " using " + micName + ".";
         broadcastMessage(intro);
-        speakThenRun(intro, () -> {
-            pauseListeningForCapture();
+        speakThenRun(intro, () -> releaseVoiceCaptureThen(()->{
             showRecordingNotification();
             memoRecorder = new MediaMemoRecorder(this);
             memoRecorder.start(durMs, dev, micName, new MediaMemoRecorder.Listener() {
@@ -3425,7 +3423,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     broadcastMessage(message); speakThenRun(message, IrisListeningService.this::rearmAfterAction);
                 }
             });
-        });
+        }));
     }
 
     private void stopVoiceRecording() {
@@ -3438,7 +3436,15 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Free the mic (stop wake/command listening) so MediaRecorder can grab it. */
+    private void releaseVoiceCaptureThen(Runnable action){
+        ContinuousVoiceSession retiring=voiceSession;pauseListeningForCapture();final long token=captureActionGeneration;
+        if(retiring==null){if(isRunning)action.run();return;}
+        new Thread(()->{retiring.awaitCaptureStopped();handler.post(()->{if(isRunning&&token==captureActionGeneration)action.run();});},"IRIS-MicHandoff").start();
+    }
     private void pauseListeningForCapture() {
+        captureActionGeneration++;
+        if(voiceSession!=null){voiceSession.close();voiceSession=null;}
+        stopCommandCapture();
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         try { destroyRecognizer(); } catch (Exception ignored) { }
         try { if (voskEngine != null) voskEngine.stop(); } catch (Exception ignored) { }
@@ -5449,6 +5455,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void stopCommandCapture(){commandEpoch++;if(voiceSession!=null)voiceSession.pause();if(commandEngine!=null)commandEngine.stop();}
     private void stopWakeEngine() {
+        captureActionGeneration++;if(!isRunning&&voiceSession!=null){voiceSession.close();voiceSession=null;}
         stopCommandCapture();
         if (wakeEngine != null) { wakeEngine.stop(); wakeEngine = null; }
         if (voskEngine != null) voskEngine.stop();
