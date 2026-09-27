@@ -39,6 +39,11 @@ public final class SystemTelemetryController {
 
     private Listener listener;
     private boolean running;
+    private long generation;
+    private final java.util.concurrent.ExecutorService collector = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "IRIS-Telemetry"); t.setDaemon(true); return t;
+    });
+    private final java.util.concurrent.atomic.AtomicBoolean collecting = new java.util.concurrent.atomic.AtomicBoolean();
     private long slowCounter;
     private volatile TelemetrySnapshot latest = TelemetrySnapshot.empty();
     private long serviceStartElapsed;
@@ -47,7 +52,6 @@ public final class SystemTelemetryController {
     private final Runnable fastTick = new Runnable() {
         @Override public void run() {
             if (!running) return;
-            network.sampleTraffic();
             slowCounter += FAST_TICK_MS;
             if (slowCounter >= SLOW_TICK_MS) { slowCounter = 0; rebuild(true); }
             else rebuild(false);
@@ -90,14 +94,35 @@ public final class SystemTelemetryController {
     public void stop() {
         if (!running) return;
         running = false;
+        generation++;
         main.removeCallbacks(fastTick);
         network.stop();
     }
+
+    public void close() { stop(); listener = null; collector.shutdownNow(); }
 
     public boolean isRunning() { return running; }
 
     /** Rebuild the snapshot. {@code full} also refreshes the slower/expensive sources. */
     private void rebuild(boolean full) {
+        if (!running || !collecting.compareAndSet(false, true)) return;
+        final long token = generation;
+        collector.execute(() -> {
+            try {
+                network.sampleTraffic();
+                TelemetrySnapshot snapshot = collect(full);
+                main.post(() -> {
+                    if (!running || token != generation) return;
+                    latest = snapshot;
+                    events.add(TelemetryEventLog.Category.WAKE, snapshot.display("wake_ready"));
+                    events.add(TelemetryEventLog.Category.SENSOR, snapshot.display("active_sensors"));
+                    if (listener != null) listener.onTelemetry(snapshot);
+                });
+            } finally { collecting.set(false); }
+        });
+    }
+
+    private TelemetrySnapshot collect(boolean full) {
         TelemetrySnapshot.Builder b = TelemetrySnapshot.builder(SystemClock.elapsedRealtime());
         try {
             network.contribute(b, settings.telemetryPublicIp());
@@ -121,6 +146,7 @@ public final class SystemTelemetryController {
             } catch (Throwable t) {
                 LogStore.append(ctx, "TELEMETRY", "phone details collector failed: " + t);
             }
+            addIrisState(slow);
             try {
                 slowSnapshot = slow.build();
             } catch (Throwable t) {
@@ -132,20 +158,7 @@ public final class SystemTelemetryController {
         } catch (Throwable t) {
             LogStore.append(ctx, "TELEMETRY", "merging slow snapshot failed: " + t);
         }
-        try {
-            addIrisState(b);
-        } catch (Throwable t) {
-            LogStore.append(ctx, "TELEMETRY", "IRIS state collector failed: " + t);
-        }
-        try {
-            // Age it so a frozen collector cannot keep looking live.
-            latest = b.build().agedAt(SystemClock.elapsedRealtime(), STALE_AFTER_MS);
-            events.add(TelemetryEventLog.Category.WAKE, latest.display("wake_ready"));
-            events.add(TelemetryEventLog.Category.SENSOR, latest.display("active_sensors"));
-            if (listener != null) listener.onTelemetry(latest);
-        } catch (Throwable t) {
-            LogStore.append(ctx, "TELEMETRY", "finalizing/publishing snapshot failed: " + t);
-        }
+        return b.build().agedAt(SystemClock.elapsedRealtime(), STALE_AFTER_MS);
     }
 
     /** IRIS's own state: wake readiness, engine, and what hardware IRIS is really using. */
@@ -173,6 +186,6 @@ public final class SystemTelemetryController {
     }
 
     /** Force a full refresh (e.g. the user opened a panel). */
-    public void refreshNow() { network.sampleTraffic(); rebuild(true); }
+    public void refreshNow() { rebuild(true); }
 }
 

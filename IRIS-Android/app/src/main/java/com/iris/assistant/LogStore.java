@@ -16,17 +16,32 @@ import java.nio.charset.StandardCharsets;
 public final class LogStore {
     private static final String FILE_NAME = "iris_activity_v2.enc";
     private static final int MAX_CHARACTERS = 600_000;
+    private static final java.util.concurrent.ThreadPoolExecutor WRITER = new java.util.concurrent.ThreadPoolExecutor(
+            1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+            new java.util.concurrent.ArrayBlockingQueue<>(128), r -> {
+                Thread t = new Thread(r, "IRIS-ActivityLog"); t.setDaemon(true); return t;
+            }, new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
     private static final Object LOCK = new Object();
 
     private LogStore() { }
 
     public static void append(Context context, String type, String message) {
-        migrateLegacy(context);
         AppSettings settings = new AppSettings(context);
         String mode = settings.logMode();
         if (AppSettings.LOG_OFF.equals(mode)) return;
         if (AppSettings.LOG_COMMANDS.equals(mode)
                 && ("HEARD".equals(type) || "IGNORED".equals(type) || "PARTIAL".equals(type))) return;
+        Context app = context.getApplicationContext();
+        // Never run encryption or wait for a full queue on a capture/UI caller.
+        String bounded = message == null ? "" : message.substring(0, Math.min(message.length(), 4000));
+        try { WRITER.execute(() -> appendNow(app, type, bounded)); }
+        catch (java.util.concurrent.RejectedExecutionException full) { /* bounded best-effort diagnostics */ }
+    }
+
+    private static void appendNow(Context context, String type, String message) {
+        AppSettings settings = new AppSettings(context);
+        if (AppSettings.LOG_OFF.equals(settings.logMode())) return;
+        migrateLegacy(context);
         synchronized (LOCK) {
             String existing = SecureStore.read(context, FILE_NAME, "");
             existing = applyRetention(existing, settings.retentionDays());
@@ -43,7 +58,14 @@ public final class LogStore {
         }
     }
 
+    /** Background-only ordered read; pending appends are visible to the export/view. */
     public static String readNewestFirst(Context context) {
+        try { return WRITER.submit(() -> readNow(context)).get(); }
+        catch (InterruptedException error) { Thread.currentThread().interrupt(); return "Activity read interrupted."; }
+        catch (Exception error) { return "Activity log busy. Try again."; }
+    }
+
+    private static String readNow(Context context) {
         migrateLegacy(context);
         synchronized (LOCK) {
             String content = applyRetention(SecureStore.read(context, FILE_NAME, ""),
@@ -57,10 +79,15 @@ public final class LogStore {
         }
     }
 
-    public static void clear(Context context) {
+    /** Background-only barrier: older queued appends cannot restore cleared history. */
+    public static void clear(Context context) throws Exception {
+        WRITER.submit(() -> clearNow(context)).get();
+    }
+
+    private static void clearNow(Context context) {
         migrateLegacy(context);
         synchronized (LOCK) {
-            try { SecureStore.write(context, FILE_NAME, ""); } catch (Exception ignored) { }
+            try { SecureStore.write(context, FILE_NAME, ""); } catch (Exception error) { throw new IllegalStateException("Activity clear failed", error); }
         }
     }
 

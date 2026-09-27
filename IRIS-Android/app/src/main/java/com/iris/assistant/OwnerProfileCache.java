@@ -10,6 +10,7 @@ final class OwnerProfileCache {
             while(cache.size()>2)cache.remove(cache.keySet().iterator().next());}
         return profile;
     }
+    static boolean isValid(String json)throws Exception {return validated(json)!=null;}
     static OwnerVoiceProfile read(String json)throws Exception {return new OwnerVoiceProfile(validated(json));}
     static double threshold(String json)throws Exception {return validated(json).threshold();}
 }

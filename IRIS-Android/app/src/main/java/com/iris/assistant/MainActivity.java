@@ -1265,12 +1265,17 @@ public class MainActivity extends Activity {
         View view = LayoutInflater.from(this).inflate(R.layout.view_logs, contentHost, false);
         contentHost.addView(view);
         TextView logText = view.findViewById(R.id.logText);
-        String logs = LogStore.readNewestFirst(this);
-        final String allLogs = logs;
-        logText.setText(logs.isEmpty() ? "No activity yet. IRIS is impressively innocent." : logs);
-        // Filter chips
+        logText.setText("Loading activity…");
         LinearLayout filterRow = view.findViewById(R.id.logFilterRow);
-        buildLogFilters(filterRow, logText, allLogs);
+        final java.util.concurrent.atomic.AtomicInteger logGeneration = new java.util.concurrent.atomic.AtomicInteger();
+        new Thread(() -> {
+            String logs = LogStore.readNewestFirst(getApplicationContext());
+            runOnUiThread(() -> {
+                if (isDestroyed() || view.getParent() != contentHost || logGeneration.get() != 0) return;
+                logText.setText(logs.isEmpty() ? "No activity yet." : logs);
+                buildLogFilters(filterRow, logText, logs);
+            });
+        }, "IRIS-ReadLogs").start();
         view.findViewById(R.id.crashReportButton).setOnClickListener(v->authenticateThen("View crash and wake report",()->{
             new Thread(()->{String report=CrashDiagnostics.report(getApplicationContext());
                 runOnUiThread(()->{if(isFinishing()||isDestroyed())return;
@@ -1288,8 +1293,19 @@ public class MainActivity extends Activity {
                 .setMessage("This removes the encrypted timeline. Training stays untouched.")
                 .setNegativeButton("Keep it", null)
                 .setPositiveButton("Clear", (dialog, which) -> {
-                    LogStore.clear(this);
-                    logText.setText("No activity yet. IRIS is impressively innocent.");
+                    logGeneration.incrementAndGet();
+                    filterRow.removeAllViews();
+                    logText.setText("Clearing activity…");
+                    new Thread(() -> {
+                        boolean cleared;
+                        try { LogStore.clear(getApplicationContext()); cleared = true; }
+                        catch (Exception error) { cleared = false; }
+                        final boolean success = cleared;
+                        runOnUiThread(() -> {
+                            if (!isDestroyed() && view.getParent() == contentHost)
+                                logText.setText(success ? "No activity yet." : "Activity log busy. Try clearing again.");
+                        });
+                    }, "IRIS-ClearLogs").start();
                 }).show());
         updateTabs();
     }
@@ -4602,9 +4618,13 @@ public class MainActivity extends Activity {
                 toast("Imported " + count + " memories.");
                 LogStore.append(this, "MEMORY IMPORT", count + " memories merged");
             } else if (requestCode == EXPORT_LOGS) {
-                String logs = LogStore.readNewestFirst(this);
-                writeText(uri, logs.isEmpty() ? "IRIS has no recorded activity.\n" : logs);
-                toast("Activity log exported.");
+                new Thread(() -> {
+                    try {
+                        String logs = LogStore.readNewestFirst(getApplicationContext());
+                        writeText(uri, logs.isEmpty() ? "IRIS has no recorded activity.\n" : logs);
+                        runOnUiThread(() -> toast("Activity log exported."));
+                    } catch (Exception error) { runOnUiThread(() -> toast("Activity export failed.")); }
+                }, "IRIS-ExportLogs").start();
             }
         } catch (Exception error) { toast("That didn't work: " + error.getMessage()); }
     }
@@ -4743,6 +4763,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (telemetry != null) telemetry.close();
         diagnosticExpiry.removeCallbacksAndMessages(null);if(diagnosticPcm!=null)java.util.Arrays.fill(diagnosticPcm,(short)0);diagnosticPcm=null;captureDiagnostic=false;pendingDiagnosticExport=null;
         releaseOwnerTraining();
         handler.removeCallbacksAndMessages(null);
