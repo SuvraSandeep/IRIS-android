@@ -18,15 +18,21 @@ public final class QuietAudioProcessor {
         double applied=peak == 0 ? 1 : Math.min(gain, 28000/peak);
         for(int i=0;i<count;i++) pcm[i]=(short)Math.round(Math.max(-28000,Math.min(28000,(pcm[i]-mean)*applied)));
     }
+    /** Same 20 ms gain updates for buffered commands and recorded preprocessing. */
+    public void processFrames(short[] pcm) {
+        if(pcm==null)return;
+        short[] frame=new short[320];
+        try {
+            for(int offset=0;offset<pcm.length;offset+=320){
+                int n=Math.min(320,pcm.length-offset);
+                System.arraycopy(pcm,offset,frame,0,n);process(frame,n);
+                System.arraycopy(frame,0,pcm,offset,n);
+            }
+        } finally { java.util.Arrays.fill(frame,(short)0); }
+    }
     public static short[] prepare(short[] input) {
         if(input == null) return null;
-        short[] result=input.clone(); QuietAudioProcessor processor=new QuietAudioProcessor();
-        short[] frame=new short[320];
-        for(int offset=0;offset<result.length;offset+=320){
-            int n=Math.min(320,result.length-offset);
-            System.arraycopy(result,offset,frame,0,n); processor.process(frame,n);
-            System.arraycopy(frame,0,result,offset,n);
-        }
+        short[] result=input.clone();new QuietAudioProcessor().processFrames(result);
         return result;
     }
 }

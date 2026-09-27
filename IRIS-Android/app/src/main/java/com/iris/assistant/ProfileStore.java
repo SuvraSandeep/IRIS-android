@@ -138,7 +138,7 @@ public final class ProfileStore {
                 }
             }
             // Readiness means structurally valid, held-out-verified evidence for this version.
-            profile.versionedOwnerEnrolled = ownerEvidence() != null;
+            profile.versionedOwnerEnrolled = OwnerProfileCache.isValid(wake.toString());
         } catch (Exception ignored) { }
         return profile;
     }

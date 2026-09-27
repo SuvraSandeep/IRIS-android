@@ -12,9 +12,9 @@ final class EcapaEmbedding {
     static final int OUTPUT_DIM=192;
     private static final String NAME="ecapa_tdnn_voxceleb";
     private static final Object INSTALL=new Object();private final Object lock=new Object();
-    private OrtSession session;private OrtEnvironment env;private boolean closed;private volatile String fingerprint="";
+    private OrtSession session;private OrtEnvironment env;private volatile boolean closed,ready;private volatile String fingerprint="";
     interface InitListener {void onReady();void onError(String message);}
-    boolean isReady(){synchronized(lock){return session!=null&&!closed;}}
+    boolean isReady(){return ready&&!closed;}
     String fingerprint(){return fingerprint;}
     void load(Context context,InitListener listener){
         Context app=context.getApplicationContext();new Thread(()->{
@@ -31,11 +31,13 @@ final class EcapaEmbedding {
                         if(!temp.renameTo(model))throw new IOException("Cannot install owner model");
                     }
                     synchronized(lock){if(closed)return;env=OrtEnvironment.getEnvironment();
-                        try(OrtSession.SessionOptions opts=new OrtSession.SessionOptions()){opts.setIntraOpNumThreads(2);opts.setInterOpNumThreads(1);session=env.createSession(model.getAbsolutePath(),opts);}
-                        if(!session.getInputNames().contains("wav"))throw new IOException("Incompatible owner model input");fingerprint=expected;}
+                        try(OrtSession.SessionOptions opts=new OrtSession.SessionOptions()){opts.setIntraOpNumThreads(2);opts.setInterOpNumThreads(1);
+                            // Variable-duration speech must not retain peak-size arena buffers.
+                            opts.setCPUArenaAllocator(false);opts.setMemoryPatternOptimization(false);session=env.createSession(model.getAbsolutePath(),opts);}
+                        if(!session.getInputNames().contains("wav"))throw new IOException("Incompatible owner model input");fingerprint=expected;ready=true;}
                 }
-                listener.onReady();
-            }catch(Exception error){synchronized(lock){if(session!=null)try{session.close();}catch(Exception ignored){}session=null;}listener.onError("Dedicated owner model: "+error.getMessage());}
+                if(!closed)listener.onReady();
+            }catch(Exception error){ready=false;synchronized(lock){if(session!=null)try{session.close();}catch(Exception ignored){}session=null;}listener.onError("Dedicated owner model: "+error.getMessage());}
         },"IRIS-OwnerModel").start();
     }
     float[] extract(short[] pcm){
@@ -49,6 +51,6 @@ final class EcapaEmbedding {
             }catch(Exception error){return null;}finally{java.util.Arrays.fill(audio,0);}
         }
     }
-    void close(){synchronized(lock){closed=true;if(session!=null)try{session.close();}catch(Exception ignored){}session=null;}}
+    void close(){closed=true;ready=false;synchronized(lock){if(session!=null)try{session.close();}catch(Exception ignored){}session=null;}}
     private static String sha(File file)throws Exception{MessageDigest md=MessageDigest.getInstance("SHA-256");try(InputStream in=new FileInputStream(file)){byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)md.update(b,0,n);}StringBuilder out=new StringBuilder();for(byte b:md.digest())out.append(String.format(java.util.Locale.ROOT,"%02x",b&255));return out.toString();}
 }

@@ -436,6 +436,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     private long captureActionGeneration;
     private long commandEpoch;
     private boolean commandModelLoading;
+    private final CommandLoadGate commandLoadGate=new CommandLoadGate();
     /** Dedicated ECAPA-TDNN speaker embedding + Silero VAD trimming models — see
      *  WAKE-TRAINING-REDESIGN.md's Ensemble section. Loaded once at service start, attached to
      *  voskEngine via attachEnsembleModels() as soon as either finishes loading. */
@@ -484,11 +485,8 @@ public class IrisListeningService extends Service implements RecognitionListener
             }
         });
 
-        commandEngine=new VoskEngine();commandModelLoading=true;
-        commandEngine.init(this,new VoskEngine.InitListener(){
-            public void onReady(){commandModelLoading=false;if(isRunning&&PHASE_COMMAND.equals(phase))startVoskCommandRecognition();}
-            public void onError(String error){commandModelLoading=false;LogStore.append(IrisListeningService.this,"COMMAND MODEL",error);}
-        });
+        // Prewarm only the selected offline provider. Readiness cannot select a provider.
+        if(!settings.googleSttForCommands())prepareOfflineCommandModel();
         voskEngine = new VoskEngine();
         // Schema 8 uses the bundled Vosk owner model plus recorded-phrase evidence.
         // Optional downloads never change the identity model midway through a session.
@@ -913,6 +911,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Record the command locally and send it to the server's Whisper endpoint; fall back on failure. */
     private void startServerSttCommand() {
+        commandLoadGate.cancel();
         stopWakeEngine();
         if (voskEngine != null) voskEngine.stop();
         androidWakeActive = false;
@@ -976,6 +975,23 @@ public class IrisListeningService extends Service implements RecognitionListener
         startVoskCommandRecognition();
     }
 
+    private void prepareOfflineCommandModel() {
+        if(commandEngine==null)commandEngine=new VoskEngine();
+        if(commandEngine.isReady()||commandModelLoading)return;
+        commandModelLoading=true;final VoskEngine loading=commandEngine;
+        loading.init(this,new VoskEngine.InitListener(){
+            public void onReady(){
+                if(commandEngine!=loading)return;commandModelLoading=false;
+                if(isRunning&&PHASE_COMMAND.equals(phase)&&!googleCommandActive&&commandLoadGate.consume(commandEpoch))startVoskCommandRecognition();
+            }
+            public void onError(String message){
+                if(commandEngine!=loading)return;commandModelLoading=false;
+                LogStore.append(IrisListeningService.this,"COMMAND MODEL",message);
+                if(isRunning&&PHASE_COMMAND.equals(phase)&&commandLoadGate.consume(commandEpoch)){broadcastMessage(message);rearmAfterAction();}
+            }
+        });
+    }
+
     /** Offline Vosk streaming STT for commands (used when Google STT is off/unavailable). */
     private void startVoskCommandRecognition() {
         destroyRecognizer();
@@ -983,14 +999,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         if(!isRunning||!PHASE_COMMAND.equals(phase))return;
         if(commandEngine==null)commandEngine=new VoskEngine();
         if(!commandEngine.isReady()){
-            if(commandModelLoading)return;
-            commandModelLoading=true;final VoskEngine loading=commandEngine;
+            commandLoadGate.request(commandEpoch);
             broadcastMessage("Preparing offline Indian English. Please wait for the ready tone.");
-            loading.init(this,new VoskEngine.InitListener(){
-                public void onReady(){commandModelLoading=false;if(commandEngine==loading&&isRunning&&PHASE_COMMAND.equals(phase))startVoskCommandRecognition();}
-                public void onError(String message){commandModelLoading=false;if(commandEngine==loading&&isRunning){broadcastMessage(message);rearmAfterAction();}}
-            });return;
+            prepareOfflineCommandModel();return;
         }
+        commandLoadGate.cancel();
         final long epoch=++commandEpoch;
         final VoskEngine commands=commandEngine;
         recognitionLabel = "Offline Indian English (Vosk)";
@@ -1037,6 +1050,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Command capture via Android's (Google) SpeechRecognizer — best accuracy. */
     private void startAndroidCommandRecognition() {
+        commandLoadGate.cancel();
         if(voiceSession!=null){voiceSession.close();voiceSession=null;}
         if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
         if (voskEngine != null) voskEngine.stop();
@@ -5454,7 +5468,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }, 400);
     }
 
-    private void stopCommandCapture(){commandEpoch++;if(voiceSession!=null)voiceSession.pause();if(commandEngine!=null)commandEngine.stop();}
+    private void stopCommandCapture(){commandLoadGate.cancel();commandEpoch++;if(voiceSession!=null)voiceSession.pause();if(commandEngine!=null)commandEngine.stop();}
     private void stopWakeEngine() {
         captureActionGeneration++;if(!isRunning&&voiceSession!=null){voiceSession.close();voiceSession=null;}
         stopCommandCapture();

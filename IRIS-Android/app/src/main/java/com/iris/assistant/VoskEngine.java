@@ -94,9 +94,9 @@ public final class VoskEngine {
         });}loadOwnerEnglish(context,listener);
     }
     private volatile String ecapaError="";
-    boolean ecapaReady(){return ecapaEngine!=null&&ecapaEngine.isReady();}
+    boolean ecapaReady(){EcapaEmbedding current=ecapaEngine;return current!=null&&current.isReady();}
     String ecapaError(){return ecapaError;}
-    String ecapaFingerprint(){return ecapaEngine==null?"":ecapaEngine.fingerprint();}
+    String ecapaFingerprint(){EcapaEmbedding current=ecapaEngine;return current==null?"":current.fingerprint();}
     boolean profileModelMatches(OwnerVoiceProfile p){return p.hash().equals(speakerFingerprint())&&(!p.usesEcapa()||(ecapaReady()&&p.data.optString("ecapaModelHash").equals(ecapaFingerprint())));}
 
     private void loadOwnerEnglish(Context context,InitListener listener){
@@ -516,14 +516,14 @@ public final class VoskEngine {
     private volatile AudioRouteController.Route lastWakeRoute=AudioRouteController.Route.UNCONFIRMED;
     AudioRouteController.Route lastWakeRoute(){return lastWakeRoute;}
     /** Fixed preprocessing for schema 8. Optional models cannot change enrollment/live behavior. */
-    float[] embedEcapa(short[] pcm){return ecapaEngine!=null?ecapaEngine.extract(QuietAudioProcessor.prepare(SoundPattern.speakerClip(pcm))):null;}
+    float[] embedEcapa(short[] pcm){EcapaEmbedding current=ecapaEngine;return current!=null?current.extract(QuietAudioProcessor.prepare(SoundPattern.speakerClip(pcm))):null;}
     float[] embedRecorded(short[] pcm){return embed(QuietAudioProcessor.prepare(SoundPattern.speakerClip(pcm)));}
     /** Dedicated ECAPA-TDNN speaker-embedding model — the PRIMARY identity signal (see
      *  WakePolicy.finalScore()). Lazily attached by the caller (IrisListeningService), which
      *  owns the model's lifecycle; may be null (e.g. not yet loaded, or the ONNX model file
      *  isn't sourced yet — see EcapaEmbedding's known blocker doc) in which case wake detection
      *  gracefully degrades to Vosk's x-vector alone rather than failing outright. */
-    private EcapaEmbedding ecapaEngine;
+    private volatile EcapaEmbedding ecapaEngine;
     private SileroVad vadEngine;
     public void attachEnsembleModels(EcapaEmbedding ecapa, SileroVad vad) { this.ecapaEngine = ecapa; this.vadEngine = vad; }
 
@@ -572,7 +572,12 @@ public final class VoskEngine {
     private int externalDecoders;
     Decoder decoder()throws Exception {synchronized(stateLock){if(!isReady())throw new IllegalStateException("Command model not ready");Recognizer r=new Recognizer(model,SAMPLE_RATE);r.setWords(true);externalDecoders++;return new Decoder(r);}}
     void streamingOutcome(OwnerVoiceProfile p,float[][] pattern,float[] ecapa,float[] vosk,AudioRouteController.Route route,boolean accepted,String reason,double distance){
-        lastWakeRoute=route;lastWakeDiagnostic="Input "+route+"; streaming candidate="+distance+"; "+reason;
+        lastWakeRoute=route;
+        boolean headset=route==AudioRouteController.Route.HEADSET;
+        float[] ev=headset?(p.headset==null?null:p.headset.ecapaCentroid()):p.ecapaCentroid();
+        float[] vv=headset?(p.headset==null?null:p.headset.voskCentroid()):p.voskCentroid();
+        lastWakeDiagnostic=String.format(java.util.Locale.ROOT,"Input %s; candidate %.4f; Vosk %.4f (%d components); ECAPA %.4f (%d components); combined %.4f / required %.4f; %s",route,distance,WakePolicy.cosine(vosk,vv),vosk==null?0:vosk.length,WakePolicy.cosine(ecapa,ev),ecapa==null?0:ecapa.length,WakePolicy.finalScore(ecapa,ev,vosk,vv),p.threshold(),reason);
+        VoiceHealth.event(reason,lastWakeDiagnostic);
         lastWakeEvent=WakeEventStore.add(reason,p.revision(),ecapa,vosk,accepted,pattern,route);
     }
     /** Stop any active recognition. */
@@ -693,7 +698,7 @@ public final class VoskEngine {
 
     /** Transcribe a PCM clip (16kHz mono) with the full vocabulary — used to learn how the
      *  user pronounces a command word. Returns lowercase text, or "" on failure. */
-    public String transcribe(short[] pcm) {
+    public synchronized String transcribe(short[] pcm) {
         if(!isReady() || pcm==null || pcm.length<1600)return "";
         Recognizer rec=null;
         try {
@@ -721,7 +726,7 @@ public final class VoskEngine {
     }
 
     /** Compute a speaker x-vector for a PCM clip (16kHz mono). Null if unavailable. */
-    public float[] embed(short[] pcm) {
+    public synchronized float[] embed(short[] pcm) {
         if(!isReady()||!isSpeakerReady()||pcm==null||pcm.length<3200)return null;
         Recognizer rec=null;
         try{
