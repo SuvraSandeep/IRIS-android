@@ -141,7 +141,7 @@ final class ContinuousVoiceSession implements AutoCloseable {
             closeDecoder();if(!current(token,Mode.COMMAND))return;
             try{decoder=commandEngine.decoder();lastPartial="";lastPartialAt=0;
                 main.post(()->{if(current(token,Mode.COMMAND))listener.onReady();});requestDrain();}
-            catch(Exception error){commandError(token,"Cannot start command decoder: "+error.getMessage());}
+            catch(Exception error){VoiceHealth.event("COMMAND_START_ERROR",CrashSummary.describe(error));commandError(token,"Cannot start command decoder: "+error.getClass().getSimpleName());}
         });
     }
     private void drainCommand(){
@@ -159,7 +159,7 @@ final class ContinuousVoiceSession implements AutoCloseable {
                 closeDecoder();note(clear?"COMMAND_HEARD":"COMMAND_UNCLEAR","Offline command result (transcript not saved in study)");
                 main.post(()->{synchronized(lock){if(token!=generation||mode==Mode.CLOSED)return;}if(clear)listener.onFinal(text);else listener.onUnclear(text);});
             }else if(!complete&&!text.equals(lastPartial)&&SystemClock.elapsedRealtime()-lastPartialAt>=150){lastPartial=text;lastPartialAt=SystemClock.elapsedRealtime();main.post(()->{if(current(token,Mode.COMMAND))listener.onPartial(text);});}
-        }catch(Exception error){commandError(token,"Command capture failed: "+error.getMessage());}
+        }catch(Exception error){VoiceHealth.event("COMMAND_DECODE_ERROR",CrashSummary.describe(error));commandError(token,"Command capture failed: "+error.getClass().getSimpleName());}
     }
     private void commandError(long token,String error){
         VoskEngine.SttListener listener;synchronized(lock){if(!current(token,Mode.COMMAND))return;mode=Mode.IDLE;ring.clear();wakeCursor=0;listener=commandListener;}closeDecoder();note("COMMAND_LOST",error);
