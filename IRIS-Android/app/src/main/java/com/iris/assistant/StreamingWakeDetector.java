@@ -15,7 +15,8 @@ final class StreamingWakeDetector {
     }
     private final List<Track> tracks=new ArrayList<>();private final double threshold;
     private final short[] window=new short[400];private int buffered;private long samples,frameIndex,lastEnd=-32000;
-    private Match best;private int sinceBest;
+    private Match best;private int sinceBest;private double closest=Double.POSITIVE_INFINITY;
+    double bestDistance(){double result=closest;closest=Double.POSITIVE_INFINITY;return result;}
     private final float[][] history=new float[560][];
     private final java.util.function.Predicate<float[][]> accept;
     StreamingWakeDetector(List<float[][]> examples,double threshold){
@@ -49,6 +50,7 @@ final class StreamingWakeDetector {
             }
             t.next=t.previous;t.nextStarts=t.starts;t.previous=next;t.starts=starts;long length=frameIndex-starts[size]+1;
             double score=next[size]/Math.max(length,size);
+            if(length>=Math.max(12,Math.ceil(size*.65))&&length<=Math.ceil(size*2.2))closest=Math.min(closest,score);
             if(length>=Math.max(12,Math.ceil(size*.65))&&length<=Math.ceil(size*2.2)&&score<=threshold){
                 long from=sampleEnd-400-(length-1)*320;
                 if(from>=lastEnd&&(current==null||score<current.distance)&&length<=SoundPattern.MAX_FRAMES){

@@ -1271,6 +1271,16 @@ public class MainActivity extends Activity {
         // Filter chips
         LinearLayout filterRow = view.findViewById(R.id.logFilterRow);
         buildLogFilters(filterRow, logText, allLogs);
+        view.findViewById(R.id.crashReportButton).setOnClickListener(v->authenticateThen("View crash and wake report",()->{
+            new Thread(()->{String report=CrashDiagnostics.report(getApplicationContext());
+                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;
+                    new AlertDialog.Builder(this).setTitle("Crash & wake report").setMessage(report)
+                        .setNegativeButton("Close",null).setPositiveButton("Copy report",(d,w)->{
+                            android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("IRIS crash and wake report",report));toast("Report copied. Paste it into your support conversation.");
+                        }).show();});
+            },"IRIS-CrashReport").start();
+        }));
         view.findViewById(R.id.exportLogsButton).setOnClickListener(v ->
                 authenticateThen("Export private activity", this::createLogDocument));
         view.findViewById(R.id.clearLogsButton).setOnClickListener(v -> new AlertDialog.Builder(this)
