@@ -27,6 +27,12 @@ public final class TimedRecorderFlowTest {
   reset("blocked-start");Result cancelled=new Result();TimedRecorder recorder=new TimedRecorder();recorder.record(500,cancelled);
   check(AudioRecord.started.await(1,TimeUnit.SECONDS),"cancel setup did not start");recorder.stop();Thread.sleep(150);
   check(cancelled.success.get()+cancelled.errors.get()==0,"cancelled attempt delivered terminal callback");check(AudioRecord.released.get()==1,"cancel leaked recorder");
+  reset("slow");Result finished=new Result();TimedRecorder manual=new TimedRecorder();manual.recordPhrase(finished);
+  check(AudioRecord.started.await(1,TimeUnit.SECONDS),"manual capture never started");Thread.sleep(50);manual.finish();
+  check(finished.done.await(3,TimeUnit.SECONDS),"Done did not deliver audio");
+  check(finished.success.get()==1&&finished.errors.get()==0,"Done must complete, not cancel");
+  check(AudioRecord.released.get()==1,"Done must release microphone before completion");
+  check(finished.length>0&&finished.length<128000,"Done did not preserve bounded recorded PCM");
   System.out.println("Passed "+checks+" real recorder flow checks with platform fakes");
  }
 }

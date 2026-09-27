@@ -17,7 +17,7 @@ final class OwnerTrainingStage {
         case SPEAKER_MODEL:return "Preparing speaker model";
         case READY:return "Get ready";
         case MICROPHONE:return "Opening microphone";
-        case RECORDING:return "Recording";
+        case RECORDING:return "Listening";
         case ANALYSIS:return "Checking your recording";
         case RETRY:return "Take not accepted";
         case PHRASE_READY:return "Phrase check passed";

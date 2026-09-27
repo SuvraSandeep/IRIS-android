@@ -9,6 +9,21 @@ final class OwnerEnrollmentController {
     final List<float[]> ecapaValidation = new ArrayList<>();
     final List<float[]> voskValidation = new ArrayList<>();
     final List<float[][]> phraseSamples=new ArrayList<>(), phraseValidation=new ArrayList<>();
+    void addPaired(int index,float[] ecapa,float[] vosk,float[][] sound,boolean verify){
+        List<float[][]> sounds=verify?phraseValidation:phraseSamples;
+        List<float[]> voices=verify?voskValidation:voskSamples;
+        int expected=verify?index-OwnerTrainingPlan.ENROLLMENT:index;
+        if(expected!=sounds.size()||sounds.size()!=voices.size())throw new IllegalStateException("Training step changed; retry this take");
+        if(!SoundPattern.valid(sound))throw new IllegalArgumentException("Incomplete phrase");
+        add(index,ecapa,vosk,verify);sounds.add(sound);
+    }
+    int weakestVoice(boolean enhanced){
+        List<float[]> voices=enhanced?ecapaSamples:voskSamples;
+        double lowest=Double.POSITIVE_INFINITY;int worst=0;
+        for(int i=0;i<voices.size();i++){double score=0;for(int k=0;k<voices.size();k++)if(k!=i)score+=WakePolicy.cosine(voices.get(i),voices.get(k));
+            if(score<lowest){lowest=score;worst=i;}}
+        return worst;
+    }
     void clear() {
         phraseSamples.clear();phraseValidation.clear();
         ecapaSamples.clear(); voskSamples.clear();

@@ -24,6 +24,6 @@ final class TrainingAudioQuality {
      *  explains it was deliberately lowered once already because whispered/short speech has
      *  much less sustained energy than a full sentence. Training's bar should be close to
      *  that, not five times stricter than the bar live detection uses for the same phrase. */
-    boolean enrollmentUsable(){return samples>=16000&&voicedFrames>=15&&clipped<samples/100;}
+    boolean enrollmentUsable(){return samples>=8000&&voicedFrames>=15&&clipped<samples/100;}
     String summary(){return String.format(java.util.Locale.ROOT,"PCM: 16 kHz mono; %.1f s captured; %.1f s above estimated noise; RMS %.0f; clipping %.2f%%",samples/16000.0,voicedFrames*.02,rms,samples==0?0:100.0*clipped/samples);}
 }

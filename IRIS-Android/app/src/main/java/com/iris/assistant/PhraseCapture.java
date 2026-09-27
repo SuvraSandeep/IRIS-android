@@ -13,6 +13,9 @@ final class PhraseCapture {
     // freeze the estimate so the phrase cannot raise its own detection threshold.
     private double idleMin=Double.POSITIVE_INFINITY;
     private int idleFrames;
+    private final int endQuiet;
+    PhraseCapture(){this(19200);}
+    PhraseCapture(int endQuiet){if(endQuiet<6400||endQuiet>32000)throw new IllegalArgumentException("Invalid pause");this.endQuiet=endQuiet;}
     short[] add(short[] input,int n){
         short[] complete=null;
         for(int i=0;i<n;i++){
@@ -44,7 +47,7 @@ final class PhraseCapture {
         if(speech){voiced+=FRAME;quiet=0;}else quiet+=FRAME;
         // Keep the established 1.2 s pause between phrases; hard limit prevents noise from
         // wedging the endpoint forever. Too-long/noisy clips still face phrase AND owner checks.
-        if(quiet<19200&&count<MAX_SAMPLES)return null;
+        if(quiet<endQuiet&&count<MAX_SAMPLES)return null;
         if(count>=MAX_SAMPLES)noise=Math.max(60,activeMin);
         short[] result=voiced>=6400?Arrays.copyOf(audio,count):null;
         resetUtterance();return result;

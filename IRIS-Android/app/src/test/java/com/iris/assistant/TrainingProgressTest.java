@@ -5,7 +5,7 @@ import static org.junit.Assert.*;
 public class TrainingProgressTest {
     JSONObject checkpoint()throws Exception {
         OwnerVoiceProfile p=OwnerVoiceProfileTest.profileVoskOnly();
-        return new JSONObject().put("schema",3).put("phrase",p.phrase()).put("takeIndex",8)
+        return new JSONObject().put("schema",4).put("phrase",p.phrase()).put("takeIndex",8)
             .put("sessionRoute","PHONE").put("baseRevision","revision").put("modelHash",p.hash())
             .put("ecapaTakes",p.data.getJSONArray("ecapaSamples")).put("voskTakes",p.data.getJSONArray("voskSamples"))
             .put("ecapaHeldOut",p.data.getJSONArray("ecapaValidation")).put("voskHeldOut",p.data.getJSONArray("voskValidation"))
@@ -14,6 +14,10 @@ public class TrainingProgressTest {
     @Test public void completedVoskOnlySessionSurvivesResume()throws Exception {
         TrainingProgress.Data data=TrainingProgress.parse(checkpoint().toString(),"revision",false,.65);
         assertNotNull(data);assertEquals(8,data.takeIndex);assertEquals(4,data.phraseHeldOut.size());assertEquals(0,data.ecapaTakes.get(0).length);
+    }
+    @Test public void oldDraftKeepsExamplesButRequiresNewLiveChecks()throws Exception {
+        TrainingProgress.Data data=TrainingProgress.parse(checkpoint().put("schema",3).toString(),"revision",false,.65);
+        assertNotNull(data);assertEquals(4,data.takeIndex);assertEquals(4,data.phraseTakes.size());assertTrue(data.phraseHeldOut.isEmpty());
     }
     @Test public void routeAndRevisionMustMatch()throws Exception {
         assertNull(TrainingProgress.parse(checkpoint().toString(),"changed",false,.65));

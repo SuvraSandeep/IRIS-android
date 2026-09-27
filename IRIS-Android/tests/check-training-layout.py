@@ -13,7 +13,7 @@ while node in parents:
 feedback=by_id['@+id/wakeWizardFeedback'].get(a+'text')
 assert 'Recording' not in feedback, 'Initial state must not claim recording before model loading'
 assert 'of 3' not in by_id['@+id/wakeWizardStep'].get(a+'text')
-assert by_id['@+id/wakeWizardDots'].get(a+'text')=='0 / 6'
+assert by_id['@+id/wakeWizardDots'].get(a+'text')=='0 / 8'
 assert by_id['@+id/ownerRetryButton'].get(a+'visibility')=='gone'
 assert by_id['@+id/wakeWizardCancel'].get(a+'text')=='Cancel training'
 print('Passed training layout visibility and initial-state checks')

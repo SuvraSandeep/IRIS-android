@@ -1146,7 +1146,7 @@ public class MainActivity extends Activity {
         view.findViewById(R.id.ownerPhraseSuggestions).setOnClickListener(v->showPhraseChoices());
         view.findViewById(R.id.otherTrainingToggle).setOnClickListener(v->{View panel=view.findViewById(R.id.otherTrainingPanel);boolean opening=panel.getVisibility()!=View.VISIBLE;panel.setVisibility(opening?View.VISIBLE:View.GONE);((Button)v).setText(opening?"Command & contact practice  ⌄":"Command & contact practice  ›");});
         ownerRecordButton=view.findViewById(R.id.ownerRecordButton);
-        ownerRecordButton.setOnClickListener(v->{if(previewBusy()){toast("Stop playback before recording.");return;}Runnable action=pendingOwnerCapture;pendingOwnerCapture=null;if(action!=null)action.run();});
+        ownerRecordButton.setOnClickListener(v->{if(ownerStage.kind()==OwnerTrainingStage.Kind.RECORDING){if(timedRecorder!=null)timedRecorder.finish();showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,"Finishing your recording…",30000);return;}if(previewBusy()){toast("Stop playback before recording.");return;}Runnable action=pendingOwnerCapture;pendingOwnerCapture=null;if(action!=null)action.run();});
 
         // Contact section
         profileSummary = view.findViewById(R.id.profileSummary);
@@ -2843,7 +2843,7 @@ public class MainActivity extends Activity {
         ownerBaseRevision=new ProfileStore(this).ownerRevision();
         wakePhraseBeingTrained=resume.phrase;
         enrollment.phraseSamples.addAll(resume.phraseTakes);enrollment.phraseValidation.addAll(resume.phraseHeldOut);
-        resumedModelHash=resume.modelHash;
+        resumedModelHash=resume.modelHash;resumedEcapaHash=resume.ecapaHash;
         enrollment.ecapaSamples.addAll(resume.ecapaTakes);enrollment.voskSamples.addAll(resume.voskTakes);
         enrollment.ecapaValidation.addAll(resume.ecapaHeldOut);enrollment.voskValidation.addAll(resume.voskHeldOut);
         wakeSampleIndex=resume.takeIndex;
@@ -2856,9 +2856,9 @@ public class MainActivity extends Activity {
         ownerTrainingHandler.post(ownerHeartbeat);
         ownerTrainingHandler.postDelayed(this::captureNextWakeSample, resumeAfterWakeTraining ? 700 : 150);
     }
-    private String resumedModelHash="";
+    private String resumedModelHash="",resumedEcapaHash="";
     private void beginWakeTrainingFresh(String phrase) {
-        resumedModelHash="";
+        resumedModelHash="";resumedEcapaHash="";
         resumeAfterWakeTraining = IrisListeningService.isRunning;
         if (resumeAfterWakeTraining) stopListeningService();
         releaseOwnerTraining();
@@ -3188,14 +3188,6 @@ public class MainActivity extends Activity {
     private volatile String lastOwnerDiagnostic="No take analyzed yet.";
     private VoskEngine wakeTestEngine;
     private VoskEngine ownerTrainingEngine;
-    /** Dedicated ECAPA-TDNN speaker-embedding model — the PRIMARY identity signal in the
-     *  redesigned pipeline. Loaded alongside ownerTrainingEngine (Vosk), not instead of it — see
-     *  WakePolicy.finalScore()'s ensemble fusion. */
-    private EcapaEmbedding ecapaEngine;
-    /** Neural voice-activity trimming model — replaces the old hand-rolled energy-floor gate
-     *  that used to live inside the now-deleted SoundPattern.extract(). Runs on every take
-     *  before either embedding model sees the audio. */
-    private SileroVad vadEngine;
     private boolean ownerAwaitingApproval;
     /** True from onStop() (training paused, not cancelled, because the app was backgrounded)
      *  until the user resumes via "Try one more take" or cancels outright. Lets onStart() tell
@@ -3253,7 +3245,7 @@ public class MainActivity extends Activity {
         TextView hero=findViewById(R.id.ownerPhraseHero);if(hero!=null)hero.setText(wakePhraseBeingTrained);
         TextView promptLabel=findViewById(R.id.ownerPromptLabel);if(promptLabel!=null)promptLabel.setText("YOUR WAKE SOUND LABEL");
         VoiceTrainingVisualizer meter=findViewById(R.id.ownerVoiceMeter);if(meter!=null)meter.update(ownerStage.kind()==OwnerTrainingStage.Kind.RECORDING,ownerMeterLevel);
-        if(ownerRecordButton!=null){boolean ready=ownerStage.kind()==OwnerTrainingStage.Kind.READY&&pendingOwnerCapture!=null;ownerRecordButton.setVisibility(ready?View.VISIBLE:View.GONE);ownerRecordButton.setEnabled(ready&&!previewBusy());}
+        if(ownerRecordButton!=null){boolean recording=ownerStage.kind()==OwnerTrainingStage.Kind.RECORDING;boolean ready=ownerStage.kind()==OwnerTrainingStage.Kind.READY&&pendingOwnerCapture!=null;ownerRecordButton.setVisibility(ready||recording?View.VISIBLE:View.GONE);ownerRecordButton.setText(recording?"Done recording":"Start recording");ownerRecordButton.setEnabled((ready||recording)&&!previewBusy());}
         if(wakeWizardPrompt!=null)wakeWizardPrompt.setText(ownerStage.message());
         if(wakeWizardFeedback!=null)wakeWizardFeedback.setText(ownerStage.title()
             +(ownerStage.busy()?" • "+ownerStage.elapsedSeconds(android.os.SystemClock.elapsedRealtime())+" seconds":"")
@@ -3275,7 +3267,7 @@ public class MainActivity extends Activity {
             ownerRetryButton.setVisibility(showRetry?View.VISIBLE:View.GONE);
             ownerRetryButton.setText(ownerStage.kind()==OwnerTrainingStage.Kind.SAVE_FAILED?"Retry save":"Try one more take");
         }
-        View hear=findViewById(R.id.ownerHearPrompt);if(hear!=null)hear.setVisibility(ownerStage.kind()==OwnerTrainingStage.Kind.READY?View.VISIBLE:View.GONE);
+        View hear=findViewById(R.id.ownerHearPrompt);if(hear!=null)hear.setVisibility(View.GONE);
         View play=findViewById(R.id.ownerPlayRecording);if(play!=null)play.setVisibility(diagnosticPcm!=null&&!ownerStage.busy()?View.VISIBLE:View.GONE);
         TextView input=findViewById(R.id.micLabelTraining);
         if(input!=null){
@@ -3360,131 +3352,106 @@ public class MainActivity extends Activity {
         final VoskEngine engine=ownerTrainingEngine;
         if(!engine.isReady()||(!phrasePreview.checking()&&!engine.isSpeakerReady())){failOwnerTraining("Offline models are not ready. Open offline model status in Settings.");return;}
         if(wakeSampleIndex>=OwnerTrainingPlan.TOTAL){finishWakeTraining();return;}
-        final int index=wakeSampleIndex;
-        final boolean identityTake=index<OwnerTrainingPlan.ENROLLMENT;
-        String prompt=phrasePreview.checking()?"Let’s check the phrase before training your voice. Tap Record, wait for Listening, then say it once.":(OwnerTrainingPlan.verification(index)?"A fresh verification take. ":"")
-            +"Use your natural voice; exact repetition is not needed. "
-            +(identityTake?"Say your chosen wake sound once, then pause. Teach a normal, softer, quicker and relaxed version across the four examples. Keep the same phrase; vary how you say it.":"Say the same wake sound once. This independently checks your voice." );
-        showOwnerStage(OwnerTrainingStage.Kind.READY,prompt,0);
+        prepareOwnerTake(false,engine,generation);
+    }
+    /** One capture and validation transaction for phone and headset. Only the route differs. */
+    private void prepareOwnerTake(boolean headset,VoskEngine engine,long generation){
+        final int index=headset?headsetSampleIndex:wakeSampleIndex;
+        final boolean learning=index<OwnerTrainingPlan.ENROLLMENT;
+        final OwnerEnrollmentController bank=headset?headsetEnrollment:enrollment;
+        final AudioRouteController.Route required=headset?AudioRouteController.Route.HEADSET:AudioRouteController.Route.PHONE;
+        final boolean enhanced=trainingUsesEcapa(headset);
+        final double policy=headset?headsetOwnerThreshold():ownerImport!=null?ownerImport.threshold():new AppSettings(this).ownerThreshold();
+        String[] styles={"Use your everyday voice.","Say it a little more softly, without whispering.","Try your natural quicker pace.","Say it casually, as you would call me."};
+        showOwnerStage(OwnerTrainingStage.Kind.READY,(learning?styles[index]:"Try a fresh, natural call. This tests the actual wake detector and your voice.")+" Tap Start recording, wait for Listening, say your phrase once, then tap Done or pause.",0);
         pendingOwnerCapture=()->{
             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
-            showOwnerStage(OwnerTrainingStage.Kind.MICROPHONE,"Opening the selected microphone. Please wait before speaking.",14000);
             final long take=++ownerTakeGeneration;
-            timedRecorder=new TimedRecorder(this,AudioRouteController.Route.PHONE);
-            TimedRecorder.Listener takeListener=new TimedRecorder.Listener(){
+            showOwnerStage(OwnerTrainingStage.Kind.MICROPHONE,"Opening "+(headset?"headset":"phone")+" microphone. Wait for Listening.",14000);
+            final TimedRecorder recorder=new TimedRecorder(this,required);timedRecorder=recorder;
+            recorder.recordPhrase(new TimedRecorder.Listener(){
                 public void onLevel(float level){
                     if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
-                    if(ownerStage.kind()==OwnerTrainingStage.Kind.MICROPHONE)showOwnerStage(OwnerTrainingStage.Kind.RECORDING,identityTake?"Say your wake sound once, then pause.":"Listening now. Say the wake phrase once, then pause.",13000);
+                    if(ownerStage.kind()==OwnerTrainingStage.Kind.MICROPHONE)showOwnerStage(OwnerTrainingStage.Kind.RECORDING,"Listening — say your phrase once. Tap Done when finished, or let the pause end this take.",13000);
                     if(ownerStage.kind()!=OwnerTrainingStage.Kind.RECORDING)return;
-                    ownerMeterLevel=level;ownerMicLevel=" • microphone level "+Math.round(level*100)+"%";renderOwnerStage();
+                    ownerMeterLevel=level;ownerMicLevel=" • "+Math.round(level*100)+"%";renderOwnerStage();
                 }
-                public void onError(String error){if(ownerTrainingActive&&generation==ownerTrainingGeneration&&take==ownerTakeGeneration)retryOwnerTake(error);}
+                public void onError(String message){if(ownerTrainingActive&&generation==ownerTrainingGeneration&&take==ownerTakeGeneration)retryOwnerTake(message);}
                 public void onComplete(short[] pcm){
-                    if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
-                    showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,identityTake?"Checking audio quality and extracting voice characteristics. No need to speak now.":"Comparing your voice against your earlier takes. No text recognition is used.",30000);
+                    if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration){java.util.Arrays.fill(pcm,(short)0);return;}
+                    showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,learning?"Learning this example…":"Testing the live wake path…",30000);
                     if(captureDiagnostic){captureDiagnostic=false;if(diagnosticPcm!=null)java.util.Arrays.fill(diagnosticPcm,(short)0);diagnosticPcm=pcm.clone();final short[] retained=diagnosticPcm;
                         diagnosticExpiry.postDelayed(()->{java.util.Arrays.fill(retained,(short)0);if(diagnosticPcm==retained)diagnosticPcm=null;},120000);}
-                    final String expectedPhrase=wakePhraseBeingTrained;
-                    final String recordedRoute=timedRecorder.capturedRoute();
-                    final AudioRouteController.Route takeRoute=timedRecorder.capturedRouteType();
                     new Thread(()->{
-                        if(phrasePreview.checking()){
-                            String heard;
-                            try{synchronized(engine){heard=engine.transcribe(pcm);}}catch(Exception error){heard="";}
-                            java.util.Arrays.fill(pcm,(short)0);final String text=heard;
-                            ownerTrainingHandler.post(()->{
-                                if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration||ownerStage.kind()!=OwnerTrainingStage.Kind.ANALYSIS)return;
-                                ownerLastHeard=text;
-                                if(!phrasePreview.recognize(expectedPhrase,text)){retryOwnerTake("Optional word check did not match. Wake training learns your recorded sound independently.");return;}
-                                showOwnerStage(OwnerTrainingStage.Kind.PHRASE_READY,"Optional word check complete. Continue to record your phrase and owner voice.",0);
-                            });return;
-                        }
-                        String transcript="",failure="";float[] ecapaVector=null,voskVector=null;final float[][] pattern=SoundPattern.extract(pcm);
+                        String failure="";float[] ecapa=null,vosk=null;float[][] sound=new float[0][];
+                        short[] speakerPcm=pcm;
                         try{synchronized(engine){
                             if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
-                            // Lock the whole session to whichever route recorded the first take
-                            // that had a confirmed route at all. A Bluetooth headset auto-
-                            // connecting mid-session (routine Android behavior, not something the
-                            // user did) would otherwise mix phone-mic and headset-mic samples into
-                            // one batch that looks "inconsistent" only because two different
-                            // microphones produced it.
-                            if(sessionRoute==AudioRouteController.Route.UNCONFIRMED&&takeRoute==AudioRouteController.Route.PHONE){
-                                sessionRoute=takeRoute;
-                            } else if(sessionRoute!=AudioRouteController.Route.UNCONFIRMED&&takeRoute!=AudioRouteController.Route.UNCONFIRMED&&takeRoute!=sessionRoute){
-                                failure=sessionRoute==AudioRouteController.Route.PHONE
-                                    ?"This take was recorded on a headset, but this session started on your phone microphone. Disconnect your headset (or turn off its mic) and record this take again."
-                                    :"This take was recorded on your phone microphone, but this session started on a headset. Reconnect your headset and record this take again.";
-                            }
-                            if(failure.isEmpty()&&takeRoute!=AudioRouteController.Route.PHONE)
-                                failure="Select Phone microphone and disconnect your headset for phone training. Add the headset profile afterwards.";
-                            TrainingAudioQuality quality=failure.isEmpty()?TrainingAudioQuality.measure(pcm):null;
-                            // Use the same raw phrase and fixed speaker preprocessing as live wake.
-                            if(!failure.isEmpty()){/* route mismatch already set failure above */}
-                            else if(quality==null||!quality.enrollmentUsable()||!SoundPattern.valid(pattern))failure="Not enough usable sound. Say the complete sound once, then pause. Check the microphone or replay a diagnostic take.";
-                            else {
-                                ecapaVector=trainingUsesEcapa(headsetTrainingActive)?engine.embedEcapa(pcm):null;
-                                voskVector=engine.embedRecorded(pcm);
-                                boolean ecapaOk=WakePolicy.ownerDim(ecapaVector,ecapaVector,.99,WakePolicy.ECAPA_EMBED_DIM);
-                                boolean voskOk=WakePolicy.owner(voskVector,voskVector,.99);
-                                if(!voskOk||(trainingUsesEcapa(headsetTrainingActive)&&!ecapaOk))failure="Speech captured, but voice characteristics were insufficient. Try a comfortable volume.";
-                                else if(!identityTake){
-                                    boolean phraseOk=ownerImport!=null?ownerImport.phraseEvidence.accepts(pattern):SoundPattern.variantScore(pattern,enrollment.phraseSamples)<=WakePolicy.phraseLimit(SoundPattern.variantCalibrate(enrollment.phraseSamples),new AppSettings(MainActivity.this).ownerThreshold());
-                                    failure=RecordedWakeCheck.rejectEnsemble(pattern,phraseOk,ecapaVector,voskVector,candidateEcapa,candidateVosk,ownerImport!=null?ownerImport.threshold():new AppSettings(MainActivity.this).ownerThreshold());
+                            if(recorder.capturedRouteType()!=required)failure="The microphone changed. Reconnect your selected input and retry this take.";
+                            else if(phrasePreview.checking()){
+                                ownerLastHeard=engine.transcribe(pcm);
+                                if(!phrasePreview.recognize(wakePhraseBeingTrained,ownerLastHeard))failure="Optional word check did not match. You can continue with recorded-sound training instead.";
+                            }else{
+                                TrainingAudioQuality quality=TrainingAudioQuality.measure(pcm);
+                                sound=SoundPattern.extract(pcm);
+                                if(!quality.enrollmentUsable()||!SoundPattern.valid(sound))failure="AUDIO_QUALITY";
+                                else if(!learning){
+                                    RecordedPhrase imported=!headset&&ownerImport!=null?ownerImport.phraseEvidence:null;
+                                    java.util.List<float[][]> examples=new java.util.ArrayList<>(imported!=null?imported.samples:bank.phraseSamples);
+                                    if(imported!=null)examples.addAll(imported.positives);
+                                    double limit=imported!=null?imported.threshold:WakePolicy.phraseLimit(SoundPattern.variantCalibrate(bank.phraseSamples),policy);
+                                    StreamingWakeDetector.Match match=LiveWakeProbe.check(pcm,examples,limit,imported!=null?imported::accepts:p->SoundPattern.variantScore(p,bank.phraseSamples)<=limit);
+                                    if(match==null)failure="PHRASE_MISMATCH";
+                                    else{sound=match.pattern;speakerPcm=LiveWakeProbe.speakerAudio(pcm,match);}
                                 }
+                                if(failure.isEmpty()){
+                                    vosk=engine.embedRecorded(speakerPcm);if(enhanced)ecapa=engine.embedEcapa(speakerPcm);
+                                    if(!WakePolicy.owner(vosk,vosk,.99)||(enhanced&&!WakePolicy.ownerDim(ecapa,ecapa,.99,192)))failure="SPEAKER_EVIDENCE";
+                                    else if(!learning)failure=RecordedWakeCheck.rejectEnsemble(sound,true,ecapa,vosk,headset?headsetCandidateEcapa:candidateEcapa,headset?headsetCandidateVosk:candidateVosk,policy);
+                                    if(failure.isEmpty()&&!headset&&((ownerImport!=null&&!ownerImport.accepts(ecapa,vosk,policy))||(ownerRefinement!=null&&!ownerRefinement.accepts(ecapa,vosk,policy))))failure="OWNER_REJECTED";
+                                }
+                                lastOwnerDiagnostic=quality.summary()+"; input="+recorder.capturedRoute()+"; phase="+(learning?"learn":"live check")+"; result="+(failure.isEmpty()?"passed":failure);
+                                ownerLastHeard=failure.isEmpty()?(learning?"Example learned":"Live wake and owner check passed"):RecordedWakeCheck.guidance(failure);
                             }
-                            transcript=failure.isEmpty()?"Voice characteristics extracted":"Voice evidence needs another take";
-                            lastOwnerDiagnostic=(quality==null?"Route mismatch, no audio analysis performed":quality.summary())+"; input: "+recordedRoute+"; recorded phrase frames: "+pattern.length+"; Vosk components: "+(voskVector==null?0:voskVector.length)+"; "+failure+(!identityTake?"; "+RecordedWakeCheck.variantDiagnostic(pattern,enrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.variantCalibrate(enrollment.phraseSamples),new AppSettings(MainActivity.this).ownerThreshold()),voskVector,candidateVosk,new AppSettings(MainActivity.this).ownerThreshold()):"");
-                            ownerLastHeard=phrasePreview.checking()?engine.transcribe(pcm):transcript;
-                        }}catch(Throwable error){failure="Voice analysis failed. Please retry this take.";}finally{java.util.Arrays.fill(pcm,(short)0);}
-                        final String rejection=failure;final float[] ecapaEmbedding=ecapaVector;final float[] voskEmbedding=voskVector;
+                        }}catch(Exception error){failure="Voice analysis failed: "+error.getMessage();}
+                        finally{java.util.Arrays.fill(pcm,(short)0);if(speakerPcm!=pcm)java.util.Arrays.fill(speakerPcm,(short)0);}
+                        final String rejection=failure;final float[] e=ecapa,v=vosk;final float[][] pattern=sound;
                         ownerTrainingHandler.post(()->{
-                            if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration||wakeSampleIndex!=index||ownerStage.kind()!=OwnerTrainingStage.Kind.ANALYSIS)return;
+                            if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration||index!=(headset?headsetSampleIndex:wakeSampleIndex))return;
                             if(!rejection.isEmpty()){retryOwnerTake(rejection);return;}
-                            if(phrasePreview.checking()){if(!phrasePreview.recognize(expectedPhrase,ownerLastHeard)){retryOwnerTake("The complete phrase was not verified.");return;}showOwnerStage(OwnerTrainingStage.Kind.PHRASE_READY,"The full phrase was recognized. This checks the words only. Continue to teach IRIS your voice, then verify it.",0);return;}
-                            if((ownerImport!=null&&!ownerImport.accepts(ecapaEmbedding,voskEmbedding,new AppSettings(MainActivity.this).ownerThreshold()))||(ownerRefinement!=null&&!ownerRefinement.accepts(ecapaEmbedding,voskEmbedding,new AppSettings(MainActivity.this).ownerThreshold()))){retryOwnerTake("This sample does not match your existing owner profile. Record it again in your own voice.");return;}
-                            try{enrollment.add(index,ecapaEmbedding,voskEmbedding,OwnerTrainingPlan.verification(index));}catch(Exception error){retryOwnerTake(error.getMessage());return;}
-                            (identityTake?enrollment.phraseSamples:enrollment.phraseValidation).add(pattern);
-                            if(identityTake&&enrollment.phraseSamples.size()==OwnerTrainingPlan.ENROLLMENT){
-                                try{SoundPattern.variantCalibrate(enrollment.phraseSamples);}
-                                catch(Exception error){int outlier=SoundPattern.rankByConsistency(enrollment.phraseSamples)[0];enrollment.removeEnrollmentAt(outlier);if(ownerImport==null&&ownerRefinement==null)saveTrainingProgress(false);retryOwnerTake("Phrase example "+(outlier+1)+" differed most. The other three takes are kept; record a replacement.");return;}
-                            }
-                            wakeSampleIndex++;
-                            if(wakeSampleIndex==OwnerTrainingPlan.ENROLLMENT){
-                                // Calibration is now ONE statistic (WakePolicy.enrollment()'s
-                                // majority-agreement outlier-tolerant aggregator, already proven
-                                // elsewhere in this file), evaluated ONCE, run TWICE — once per
-                                // embedding model — never a separate percentile/ceiling check on
-                                // top. There is no spare-take recovery: on failure, the whole
-                                // 4-take batch is simply discarded and retried from index 0 —
-                                // see WAKE-TRAINING-REDESIGN.md's Calibration section for why
-                                // this is a strictly simpler, more honest recovery model than
-                                // the old spare-take/overflow machinery it replaces.
-                                float[] ecapaCentroid=WakePolicy.enrollment(enrollment.ecapaSamples,WakePolicy.ECAPA_EMBED_DIM);
-                                float[] voskCentroid=WakePolicy.enrollment(enrollment.voskSamples,WakePolicy.EMBED_DIM);
-                                if(ecapaCentroid==null&&voskCentroid==null){
-                                    enrollment.removeLastEnrollment();wakeSampleIndex--;
-                                    retryOwnerTake("This take did not agree with the previous voice recordings. Earlier takes are kept; retry this take.");
-                                    return;
+                            if(phrasePreview.checking()){showOwnerStage(OwnerTrainingStage.Kind.PHRASE_READY,"Optional word check complete. Continue to train your recorded sound.",0);return;}
+                            try{
+                                bank.addPaired(index,e,v,pattern,!learning);
+                                if(learning&&bank.voskSamples.size()==OwnerTrainingPlan.ENROLLMENT){
+                                    float[] ce=WakePolicy.enrollment(bank.ecapaSamples,192),cv=WakePolicy.enrollment(bank.voskSamples,128);
+                                    if(cv==null||(enhanced&&ce==null)){
+                                        int replace=bank.weakestVoice(enhanced&&ce==null);
+                                        bank.removeEnrollmentAt(replace);
+                                        if(headset)headsetSampleIndex=bank.voskSamples.size();else wakeSampleIndex=bank.voskSamples.size();
+                                        if(ownerImport==null&&ownerRefinement==null)saveTrainingProgress(headset);
+                                        retryOwnerTake("Example "+(replace+1)+" had inconsistent voice evidence. The other three are kept. Record its replacement.");return;
+                                    }
+                                    if(headset){headsetCandidateEcapa=ce;headsetCandidateVosk=cv;}else{candidateEcapa=ce;candidateVosk=cv;}
                                 }
-                                candidateEcapa=ecapaCentroid;candidateVosk=voskCentroid;
-                            }
-                            if(ownerImport==null&&ownerRefinement==null)saveTrainingProgress(false);
-                            if(wakeSampleIndex==OwnerTrainingPlan.TOTAL){showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All required takes passed. Review and authenticate to replace the owner profile.",0);finishWakeTraining();return;}
-                            ownerRejectedTakes=0;
-                            showOwnerStage(OwnerTrainingStage.Kind.READY,(identityTake?"Voice characteristics extracted. ":"Owner match verified. ")+wakeSampleIndex+" of "+OwnerTrainingPlan.TOTAL+" takes complete. Preparing the next take…",0);
-                            ownerTrainingHandler.postDelayed(MainActivity.this::captureNextWakeSample,1500);
+                            }catch(Exception error){retryOwnerTake(error.getMessage());return;}
+                            if(headset)headsetSampleIndex++;else wakeSampleIndex++;
+                            sessionRoute=required;ownerRejectedTakes=0;
+                            if(ownerImport==null&&ownerRefinement==null)saveTrainingProgress(headset);
+                            if((headset?headsetSampleIndex:wakeSampleIndex)==OwnerTrainingPlan.TOTAL){
+                                showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"Four live checks passed. Authenticate to save.",0);
+                                if(headset)finishHeadsetTraining();else finishWakeTraining();
+                            }else captureNextWakeSample();
                         });
-                    },"IRIS-ValidateOwner").start();
+                    },"IRIS-TrainingTake").start();
                 }
-            };
-            timedRecorder.recordPhrase(takeListener);
+            });
         };
         renderOwnerStage();
     }
     private void waitForOwnerModel(VoskEngine engine,long generation){
         if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
         if(engine.isSpeakerReady()&&(!trainingUsesEcapa(headsetTrainingActive)||engine.ecapaReady())){
-            if(!resumedModelHash.isEmpty()&&!resumedModelHash.equals(engine.speakerFingerprint())){failOwnerTraining("Model changed since the saved session. Start fresh training.");return;}
+            if((!resumedModelHash.isEmpty()&&!resumedModelHash.equals(engine.speakerFingerprint()))||(!resumedEcapaHash.isEmpty()&&!resumedEcapaHash.equals(engine.ecapaFingerprint()))){failOwnerTraining("Model changed since the saved session. Start fresh training.");return;}
             OwnerVoiceProfile existing=ownerImport!=null?ownerImport:ownerRefinement;
             if(existing!=null&&!existing.hash().equals(engine.speakerFingerprint())){failOwnerTraining("Speaker model differs from this profile. Fresh enrollment is required.");return;}
             captureNextWakeSample();return;
@@ -3511,7 +3478,7 @@ public class MainActivity extends Activity {
             .setPositiveButton("Continue",(d,w)->{
                 beginHeadsetTrainingFresh();
                 if(!headsetTrainingActive)return;
-                resumedModelHash=saved.modelHash;
+                resumedModelHash=saved.modelHash;resumedEcapaHash=saved.ecapaHash;
                 headsetEnrollment.ecapaSamples.addAll(saved.ecapaTakes);headsetEnrollment.voskSamples.addAll(saved.voskTakes);
                 headsetEnrollment.ecapaValidation.addAll(saved.ecapaHeldOut);headsetEnrollment.voskValidation.addAll(saved.voskHeldOut);
                 headsetEnrollment.phraseSamples.addAll(saved.phraseTakes);headsetEnrollment.phraseValidation.addAll(saved.phraseHeldOut);
@@ -3520,7 +3487,7 @@ public class MainActivity extends Activity {
             }).show();
     }
     private void beginHeadsetTrainingFresh(){
-        resumedModelHash="";
+        resumedModelHash="";resumedEcapaHash="";
         if (previewBusy() || ownerTrainingActive || trainVosk != null || trainingRecognizer != null || wakeTestEngine != null) {
             toast("Finish or cancel the current voice session first."); return;
         }
@@ -3549,7 +3516,7 @@ public class MainActivity extends Activity {
     }
     private void saveTrainingProgress(boolean headset){
         if(!TrainingProgress.save(this,headset,wakePhraseBeingTrained,headset?headsetSampleIndex:wakeSampleIndex,
-                headset?"HEADSET":sessionRoute.name(),ownerBaseRevision,ownerTrainingEngine.speakerFingerprint(),headset?headsetEnrollment:enrollment))
+                headset?"HEADSET":sessionRoute.name(),ownerBaseRevision,ownerTrainingEngine.speakerFingerprint(),ownerTrainingEngine.ecapaFingerprint(),headset?headsetEnrollment:enrollment))
             toast("Training is kept in memory, but saving progress failed. Keep this session open.");
     }
     private double headsetOwnerThreshold(){
@@ -3575,90 +3542,12 @@ public class MainActivity extends Activity {
         final VoskEngine engine=ownerTrainingEngine;
         if(!engine.isReady()||!engine.isSpeakerReady()){failOwnerTraining("Offline models are not ready. Open offline model status in Settings.");return;}
         if(headsetSampleIndex>=HeadsetTrainingPlan.TOTAL){finishHeadsetTraining();return;}
-        final int index=headsetSampleIndex;
-        final boolean identityTake=index<HeadsetTrainingPlan.ENROLLMENT;
-        String prompt=(HeadsetTrainingPlan.verification(index)?"A fresh verification take. ":"")
-            +"Wearing your headset, say your wake sound once, then pause. Vary your natural pace and volume across examples; do not imitate an earlier take."
-            +(identityTake?"":" This independently checks your voice.");
-        showOwnerStage(OwnerTrainingStage.Kind.READY,prompt,0);
-        pendingOwnerCapture=()->{
-            if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration)return;
-            showOwnerStage(OwnerTrainingStage.Kind.MICROPHONE,"Opening the headset microphone. Please wait before speaking.",14000);
-            final long take=++ownerTakeGeneration;
-            timedRecorder=new TimedRecorder(this,AudioRouteController.Route.HEADSET);
-            TimedRecorder.Listener takeListener=new TimedRecorder.Listener(){
-                public void onLevel(float level){
-                    if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
-                    if(ownerStage.kind()==OwnerTrainingStage.Kind.MICROPHONE)showOwnerStage(OwnerTrainingStage.Kind.RECORDING,"Say your wake sound once, then pause.",13000);
-                    if(ownerStage.kind()!=OwnerTrainingStage.Kind.RECORDING)return;
-                    ownerMeterLevel=level;ownerMicLevel=" • microphone level "+Math.round(level*100)+"%";renderOwnerStage();
-                }
-                public void onError(String error){if(ownerTrainingActive&&headsetTrainingActive&&generation==ownerTrainingGeneration&&take==ownerTakeGeneration)retryOwnerTake(error);}
-                public void onComplete(short[] pcm){
-                    if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
-                    showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,"Checking audio quality and extracting voice characteristics. No need to speak now.",30000);
-                    final String recordedRoute=timedRecorder.capturedRoute();
-                    final AudioRouteController.Route takeRoute=timedRecorder.capturedRouteType();
-                    new Thread(()->{
-                        String failure="";float[] ecapaVector=null,voskVector=null;final float[][] pattern=SoundPattern.extract(pcm);
-                        try{synchronized(engine){
-                            if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
-                            // A take actually recorded on the phone mic (headset not connected, or
-                            // Android silently fell back) must never be accepted into the headset
-                            // profile — that would defeat the entire point of a separate route.
-                            if(takeRoute!=AudioRouteController.Route.HEADSET){failure="This take was recorded on the phone microphone, not a headset. Connect your headset and retry.";}
-                            else {
-                                TrainingAudioQuality quality=TrainingAudioQuality.measure(pcm);
-                                if(quality==null||!quality.enrollmentUsable()||!SoundPattern.valid(pattern))failure="Not enough usable sound. Say the complete sound once, then pause.";
-                                else {
-                                    ecapaVector=trainingUsesEcapa(headsetTrainingActive)?engine.embedEcapa(pcm):null;
-                                    voskVector=engine.embedRecorded(pcm);
-                                    boolean ecapaOk=WakePolicy.ownerDim(ecapaVector,ecapaVector,.99,WakePolicy.ECAPA_EMBED_DIM);
-                                    boolean voskOk=WakePolicy.owner(voskVector,voskVector,.99);
-                                    if(!voskOk||(trainingUsesEcapa(headsetTrainingActive)&&!ecapaOk))failure="Sound captured, but voice characteristics were insufficient. Try a comfortable volume.";
-                                    else if(!identityTake){
-                                        failure=RecordedWakeCheck.rejectEnsemble(pattern,SoundPattern.variantScore(pattern,headsetEnrollment.phraseSamples)<=WakePolicy.phraseLimit(SoundPattern.variantCalibrate(headsetEnrollment.phraseSamples),headsetOwnerThreshold()),ecapaVector,voskVector,headsetCandidateEcapa,headsetCandidateVosk,headsetOwnerThreshold());
-                                    }
-                                }
-                                lastOwnerDiagnostic=quality.summary()+"; input: "+recordedRoute+"; "+failure
-                                    +(!identityTake?"; "+RecordedWakeCheck.variantDiagnostic(pattern,headsetEnrollment.phraseSamples,WakePolicy.phraseLimit(SoundPattern.variantCalibrate(headsetEnrollment.phraseSamples),headsetOwnerThreshold()),voskVector,headsetCandidateVosk,headsetOwnerThreshold()):"");
-                                ownerLastHeard=failure.isEmpty()?"Voice characteristics extracted":"Voice evidence needs another take";
-                            }
-                        }}catch(Throwable error){failure="Voice analysis failed. Please retry this take.";}finally{java.util.Arrays.fill(pcm,(short)0);}
-                        final String rejection=failure;final float[] ecapaEmbedding=ecapaVector;final float[] voskEmbedding=voskVector;
-                        ownerTrainingHandler.post(()->{
-                            if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration||headsetSampleIndex!=index||ownerStage.kind()!=OwnerTrainingStage.Kind.ANALYSIS)return;
-                            if(!rejection.isEmpty()){retryOwnerTake(rejection);return;}
-                            try{headsetEnrollment.add(index,ecapaEmbedding,voskEmbedding,HeadsetTrainingPlan.verification(index));}catch(Exception error){retryOwnerTake(error.getMessage());return;}
-                            (identityTake?headsetEnrollment.phraseSamples:headsetEnrollment.phraseValidation).add(pattern);
-                            if(identityTake&&headsetEnrollment.phraseSamples.size()==HeadsetTrainingPlan.ENROLLMENT){
-                                try{SoundPattern.variantCalibrate(headsetEnrollment.phraseSamples);}
-                                catch(Exception error){int outlier=SoundPattern.rankByConsistency(headsetEnrollment.phraseSamples)[0];headsetEnrollment.removeEnrollmentAt(outlier);saveTrainingProgress(true);retryOwnerTake("Headset example "+(outlier+1)+" differed most. The other three takes are kept; record a replacement.");return;}
-                            }
-                            headsetSampleIndex++;
-                            if(headsetSampleIndex==HeadsetTrainingPlan.ENROLLMENT){
-                                float[] ecapaCentroid=WakePolicy.enrollment(headsetEnrollment.ecapaSamples,WakePolicy.ECAPA_EMBED_DIM);
-                                float[] voskCentroid=WakePolicy.enrollment(headsetEnrollment.voskSamples,WakePolicy.EMBED_DIM);
-                                if(voskCentroid==null){headsetEnrollment.removeLastEnrollment();headsetSampleIndex--;retryOwnerTake("This voice take did not agree. Earlier takes are kept; retry it.");return;}
-                                headsetCandidateEcapa=ecapaCentroid;headsetCandidateVosk=voskCentroid;
-                            }
-                            saveTrainingProgress(true);
-                            if(headsetSampleIndex==HeadsetTrainingPlan.TOTAL){showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All headset takes passed. Review and authenticate to add this route to your owner profile.",0);finishHeadsetTraining();return;}
-                            ownerRejectedTakes=0;
-                            showOwnerStage(OwnerTrainingStage.Kind.READY,(identityTake?"Voice characteristics extracted. ":"Owner match verified. ")+headsetSampleIndex+" of "+HeadsetTrainingPlan.TOTAL+" headset takes complete. Preparing the next take…",0);
-                            ownerTrainingHandler.postDelayed(MainActivity.this::captureNextHeadsetSample,1500);
-                        });
-                    },"IRIS-ValidateOwnerHeadset").start();
-                }
-            };
-            timedRecorder.recordPhrase(takeListener);
-        };
-        renderOwnerStage();
+        prepareOwnerTake(true,engine,generation);
     }
     private void waitForHeadsetOwnerModel(VoskEngine engine,long generation){
         if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration)return;
         if(engine.isSpeakerReady()&&(!trainingUsesEcapa(headsetTrainingActive)||engine.ecapaReady())){
-            if(!resumedModelHash.isEmpty()&&!resumedModelHash.equals(engine.speakerFingerprint())){failOwnerTraining("Model changed since this training session. Start over.");return;}
+            if((!resumedModelHash.isEmpty()&&!resumedModelHash.equals(engine.speakerFingerprint()))||(!resumedEcapaHash.isEmpty()&&!resumedEcapaHash.equals(engine.ecapaFingerprint()))){failOwnerTraining("Model changed since this training session. Start over.");return;}
             OwnerVoiceProfile existing=new ProfileStore(this).ownerEvidence();
             if(existing==null||!existing.hash().equals(engine.speakerFingerprint())){failOwnerTraining("Speaker model differs from your saved profile. Retrain the phone-route profile first.");return;}
             captureNextHeadsetSample();return;
@@ -3699,10 +3588,6 @@ public class MainActivity extends Activity {
         if(timedRecorder!=null)timedRecorder.stop();
         final VoskEngine old=ownerTrainingEngine;ownerTrainingEngine=null;
         if(old!=null)new Thread(()->{synchronized(old){old.close();}},"IRIS-ReleaseOwner").start();
-        final EcapaEmbedding oldEcapa=ecapaEngine;ecapaEngine=null;
-        if(oldEcapa!=null)new Thread(()->oldEcapa.close(),"IRIS-ReleaseEcapa").start();
-        final SileroVad oldVad=vadEngine;vadEngine=null;
-        if(oldVad!=null)new Thread(()->oldVad.close(),"IRIS-ReleaseVad").start();
     }
 
     /** Restart the wake listener after training finishes (called once enrollment frees its model). */

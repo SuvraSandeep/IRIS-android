@@ -18,9 +18,10 @@ final class SoundPattern {
         for(int f=0;f<frames;f++)out[f]=frame(pcm,start+f*320);
         return out;
     }
-    private static final double[] WINDOW=new double[400];
+    private static final double[] WINDOW=new double[400],FFT_COS=new double[256],FFT_SIN=new double[256];
     private static final double[][] MEL=new double[BANDS][257];
     static {
+        for(int i=0;i<256;i++){FFT_COS[i]=Math.cos(-2*Math.PI*i/512);FFT_SIN[i]=Math.sin(-2*Math.PI*i/512);}
         for(int i=0;i<400;i++)WINDOW[i]=.54-.46*Math.cos(2*Math.PI*i/399);
         double[] edges=new double[BANDS+2];double lo=2595*Math.log10(1+80.0/700),hi=2595*Math.log10(1+7600.0/700);
         for(int i=0;i<edges.length;i++)edges[i]=700*(Math.pow(10,(lo+(hi-lo)*i/(BANDS+1))/2595)-1)*512/16000;
@@ -144,8 +145,8 @@ final class SoundPattern {
     }
     private static void fft(double[] re,double[] im){
         for(int i=1,j=0;i<512;i++){int bit=256;for(; (j&bit)!=0;bit>>=1)j^=bit;j^=bit;if(i<j){double t=re[i];re[i]=re[j];re[j]=t;}}
-        for(int len=2;len<=512;len<<=1){double angle=-2*Math.PI/len;
-            for(int base=0;base<512;base+=len)for(int j=0;j<len/2;j++){double c=Math.cos(angle*j),s=Math.sin(angle*j);int a=base+j,b=a+len/2;double r=re[b]*c-im[b]*s,v=re[b]*s+im[b]*c;re[b]=re[a]-r;im[b]=im[a]-v;re[a]+=r;im[a]+=v;}
+        for(int len=2;len<=512;len<<=1){int stride=512/len;
+            for(int base=0;base<512;base+=len)for(int j=0;j<len/2;j++){double c=FFT_COS[j*stride],s=FFT_SIN[j*stride];int a=base+j,b=a+len/2;double r=re[b]*c-im[b]*s,v=re[b]*s+im[b]*c;re[b]=re[a]-r;im[b]=im[a]-v;re[a]+=r;im[a]+=v;}
         }
     }
 }
