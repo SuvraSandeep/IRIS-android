@@ -50,8 +50,8 @@ final class StreamingWakeDetector {
             }
             t.next=t.previous;t.nextStarts=t.starts;t.previous=next;t.starts=starts;long length=frameIndex-starts[size]+1;
             double score=next[size]/Math.max(length,size);
-            if(length>=Math.max(12,Math.ceil(size*.65))&&length<=Math.ceil(size*2.2))closest=Math.min(closest,score);
-            if(length>=Math.max(12,Math.ceil(size*.65))&&length<=Math.ceil(size*2.2)&&score<=threshold){
+            if(length>=Math.max(12,Math.ceil(size*.45))&&length<=Math.ceil(size*2.2))closest=Math.min(closest,score);
+            if(length>=Math.max(12,Math.ceil(size*.45))&&length<=Math.ceil(size*2.2)&&score<=threshold){
                 long from=sampleEnd-400-(length-1)*320;
                 if(from>=lastEnd&&(current==null||score<current.distance)&&length<=SoundPattern.MAX_FRAMES){
                     float[][] pattern=new float[(int)length][];

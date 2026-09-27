@@ -38,6 +38,16 @@ public class StreamingWakeTest {
   short[] repeated=new short[pcm.length*2];System.arraycopy(pcm,0,repeated,0,pcm.length);System.arraycopy(pcm,0,repeated,pcm.length,pcm.length);
   int detections=0;for(int i=0;i<repeated.length;i+=320){short[] block=Arrays.copyOfRange(repeated,i,Math.min(repeated.length,i+320));if(afterReject.add(block,block.length)!=null)detections++;}
   check(detections>=2,"Detector failed to recover for a second call");
+  // The saved phrase matcher permits 0.45x duration. The streaming gate must not
+  // silently impose a stricter 0.65x limit on the same authenticated sound.
+  float[][] fast=new float[20][];for(int i=0;i<20;i++)fast[i]=phrase()[i*2];
+  check(SoundPattern.distance(fast,phrase())<.08,"Fast phrase passes saved evidence");
+  StreamingWakeDetector quick=new StreamingWakeDetector(Collections.singletonList(phrase()),.08);
+  long fastClock=0;StreamingWakeDetector.Match quickMatch=null;
+  for(int i=0;i<30;i++){fastClock+=320;quick.feature(row(20),fastClock);}
+  for(float[] f:fast){fastClock+=320;StreamingWakeDetector.Match m=quick.feature(f,fastClock);if(m!=null)quickMatch=m;}
+  for(int i=0;i<10;i++){fastClock+=320;StreamingWakeDetector.Match m=quick.feature(row(20),fastClock);if(m!=null)quickMatch=m;}
+  check(quickMatch!=null,"Live detector rejects a faster phrase accepted by saved evidence");
   System.out.println("Passed streaming phrase-in-speech, negative stream, bounded handoff, overrun and erasure checks");
  }
 }
