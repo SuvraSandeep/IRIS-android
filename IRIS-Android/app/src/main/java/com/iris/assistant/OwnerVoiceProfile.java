@@ -186,8 +186,11 @@ final class OwnerVoiceProfile {
         for(int i=0;i<out.length;i++)out[i]/=Math.sqrt(norm);return out;
     }
     OwnerVoiceProfile withSoundFeedback(float[][] pattern,float[] speaker,boolean useHeadset,boolean missed)throws Exception {
+        return withSoundFeedback(pattern,null,speaker,useHeadset,missed);
+    }
+    OwnerVoiceProfile withSoundFeedback(float[][] pattern,float[] ecapa,float[] speaker,boolean useHeadset,boolean missed)throws Exception {
         // Authentication alone cannot turn an unverified stranger into the enrolled owner.
-        if(!(useHeadset?acceptsHeadset(null,speaker,threshold()):accepts(null,speaker,threshold())))
+        if(!(useHeadset?acceptsHeadset(ecapa,speaker,threshold()):accepts(ecapa,speaker,threshold())))
             throw new IllegalArgumentException("Speaker was not verified. Adjust strictness or record fresh owner examples");
         RecordedPhrase phrase=useHeadset?headset.phraseEvidence:phraseEvidence;
         RecordedPhrase corrected=phrase.withFeedback(pattern,missed);

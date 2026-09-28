@@ -3146,7 +3146,7 @@ public class MainActivity extends Activity {
         if(event.input==AudioRouteController.Route.UNCONFIRMED){toast("Input was not confirmed; no correction applied.");return;}
         try{
             boolean ownerCorrection=missed&&"OWNER_REJECTED".equals(event.reason);
-            OwnerVoiceProfile candidate=ownerCorrection?current.withOwnerFeedback(event.pattern,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET):current.withSoundFeedback(event.pattern,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET,missed);
+            OwnerVoiceProfile candidate=ownerCorrection?current.withOwnerFeedback(event.pattern,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET):current.withSoundFeedback(event.pattern,event.ecapaEmbedding,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET,missed);
             new AlertDialog.Builder(this).setTitle(missed?"Learn this wake sound?":"Reject this sound?")
                 .setMessage(ownerCorrection?"You are confirming this rejected voice was yours. This makes a small adjustment to this microphone’s voice profile without lowering strictness. All four saved checks and this recording still have to pass. You can undo it in Manage voice.":"This updates only the recorded sound for this microphone. Your speaker identity stays unchanged. All four saved checks still pass. You can undo the update in Manage voice.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Authenticate and learn",(d,w)->authenticateOwner("Learn wake feedback",()->WakeChangeApproval.runApproved(()->{
