@@ -1119,7 +1119,7 @@ public class MainActivity extends Activity {
         ownerRetryButton.setOnClickListener(v->{
             if(previewBusy()||!ownerTrainingActive)return;
             if(ownerStage.kind()==OwnerTrainingStage.Kind.RETRY)retryOrRepairOwnerTraining();
-            else if(ownerStage.kind()==OwnerTrainingStage.Kind.SAVE_FAILED)finishWakeTraining();
+            else if(ownerStage.canRetrySave())finishWakeTraining();
         });
 
         installOwnerTools(view);
@@ -3215,6 +3215,7 @@ public class MainActivity extends Activity {
     private VoskEngine wakeTestEngine;
     private VoskEngine ownerTrainingEngine;
     private boolean ownerAwaitingApproval;
+    private boolean ownerSaveBusy;
     /** True from onStop() (training paused, not cancelled, because the app was backgrounded)
      *  until the user resumes via "Try one more take" or cancels outright. Lets onStart() tell
      *  "we're resuming a background-paused session" apart from every other reason the RETRY
@@ -3272,6 +3273,7 @@ public class MainActivity extends Activity {
         TextView promptLabel=findViewById(R.id.ownerPromptLabel);if(promptLabel!=null)promptLabel.setText("YOUR WAKE SOUND LABEL");
         VoiceTrainingVisualizer meter=findViewById(R.id.ownerVoiceMeter);if(meter!=null)meter.update(ownerStage.kind()==OwnerTrainingStage.Kind.RECORDING,ownerMeterLevel);
         if(ownerRecordButton!=null){boolean recording=ownerStage.kind()==OwnerTrainingStage.Kind.RECORDING;boolean ready=ownerStage.kind()==OwnerTrainingStage.Kind.READY&&pendingOwnerCapture!=null;ownerRecordButton.setVisibility(ready||recording?View.VISIBLE:View.GONE);ownerRecordButton.setText(recording?"Done recording":"Start recording");ownerRecordButton.setEnabled((ready||recording)&&!previewBusy());}
+        if(wakeWizardCancel!=null)wakeWizardCancel.setEnabled(!ownerSaveBusy);
         if(wakeWizardPrompt!=null)wakeWizardPrompt.setText(ownerStage.message());
         if(wakeWizardFeedback!=null)wakeWizardFeedback.setText(ownerStage.title()
             +(ownerStage.busy()?" • "+ownerStage.elapsedSeconds(android.os.SystemClock.elapsedRealtime())+" seconds":"")
@@ -3289,9 +3291,9 @@ public class MainActivity extends Activity {
             wakeWizardFeedback.setTextColor(color);
         }
         if(ownerRetryButton!=null){
-            boolean showRetry=ownerStage.kind()==OwnerTrainingStage.Kind.RETRY||ownerStage.kind()==OwnerTrainingStage.Kind.SAVE_FAILED;
+            boolean showRetry=ownerStage.kind()==OwnerTrainingStage.Kind.RETRY||ownerStage.canRetrySave();
             ownerRetryButton.setVisibility(showRetry?View.VISIBLE:View.GONE);
-            ownerRetryButton.setText(ownerStage.kind()==OwnerTrainingStage.Kind.SAVE_FAILED?"Retry save":"Try one more take");
+            ownerRetryButton.setText(ownerStage.canRetrySave()?"Save profile":"Try one more take");
         }
         View hear=findViewById(R.id.ownerHearPrompt);if(hear!=null)hear.setVisibility(View.GONE);
         View play=findViewById(R.id.ownerPlayRecording);if(play!=null)play.setVisibility(diagnosticPcm!=null&&!ownerStage.busy()?View.VISIBLE:View.GONE);
@@ -3410,6 +3412,7 @@ public class MainActivity extends Activity {
                         diagnosticExpiry.postDelayed(()->{java.util.Arrays.fill(retained,(short)0);if(diagnosticPcm==retained)diagnosticPcm=null;},120000);}
                     new Thread(()->{
                         String failure="";float[] ecapa=null,vosk=null;float[][] sound=new float[0][];
+                        double phraseDistance=Double.NaN,phraseMaximum=Double.NaN;
                         short[] speakerPcm=pcm;
                         try{synchronized(engine){
                             if(!ownerTrainingActive||generation!=ownerTrainingGeneration||take!=ownerTakeGeneration)return;
@@ -3426,6 +3429,7 @@ public class MainActivity extends Activity {
                                     java.util.List<float[][]> examples=new java.util.ArrayList<>(imported!=null?imported.samples:bank.phraseSamples);
                                     if(imported!=null)examples.addAll(imported.positives);
                                     double limit=imported!=null?imported.threshold:WakePolicy.phraseLimit(SoundPattern.variantCalibrate(bank.phraseSamples),policy);
+                                    phraseMaximum=limit;phraseDistance=SoundPattern.variantScore(sound,examples);
                                     StreamingWakeDetector.Match match=LiveWakeProbe.check(pcm,examples,limit,imported!=null?imported::accepts:p->SoundPattern.variantScore(p,bank.phraseSamples)<=limit);
                                     if(match==null)failure="PHRASE_MISMATCH";
                                     else{sound=match.pattern;speakerPcm=LiveWakeProbe.speakerAudio(pcm,match);}
@@ -3436,7 +3440,8 @@ public class MainActivity extends Activity {
                                     else if(!learning)failure=RecordedWakeCheck.rejectEnsemble(sound,true,ecapa,vosk,headset?headsetCandidateEcapa:candidateEcapa,headset?headsetCandidateVosk:candidateVosk,policy);
                                     if(failure.isEmpty()&&!headset&&((ownerImport!=null&&!ownerImport.accepts(ecapa,vosk,policy))||(ownerRefinement!=null&&!ownerRefinement.accepts(ecapa,vosk,policy))))failure="OWNER_REJECTED";
                                 }
-                                lastOwnerDiagnostic=quality.summary()+"; input="+recorder.capturedRoute()+"; phase="+(learning?"learn":"live check")+"; result="+(failure.isEmpty()?"passed":failure);
+                                lastOwnerDiagnostic="Take "+(index+1)+"/"+OwnerTrainingPlan.TOTAL+"; "+quality.summary()+"; phrase distance="+phraseDistance+" / "+phraseMaximum+"; owner score="+(learning?Double.NaN:WakePolicy.finalScore(ecapa,headset?headsetCandidateEcapa:candidateEcapa,vosk,headset?headsetCandidateVosk:candidateVosk))+" / "+policy+"; input="+recorder.capturedRoute()+"; phase="+(learning?"learn":"live check")+"; result="+(failure.isEmpty()?"passed":failure);
+                                if(!failure.isEmpty())LogStore.append(MainActivity.this,"TRAINING REJECTED",lastOwnerDiagnostic);
                                 ownerLastHeard=failure.isEmpty()?(learning?"Example learned":"Live wake and owner check passed"):RecordedWakeCheck.guidance(failure);
                             }
                         }}catch(Exception error){failure="Voice analysis failed: "+error.getMessage();}
@@ -3583,34 +3588,49 @@ public class MainActivity extends Activity {
         ownerTrainingHandler.postDelayed(()->waitForHeadsetOwnerModel(engine,generation),300);
     }
     private void finishHeadsetTraining(){
+        if(ownerSaveBusy)return;
         final long generation=ownerTrainingGeneration;
         ownerAwaitingApproval=true;
         activeTrainingDialog=new AlertDialog.Builder(this).setTitle("Add headset profile?")
             .setMessage("This adds a headset/earphone identity alongside your existing phone-mic profile. IRIS will use whichever route is confirmed active when you say the wake sound. Your phone-mic profile is unchanged. Saving starts owner-only wake listening.")
-            .setNegativeButton("Cancel",(d,w)->cancelWakeTraining())
+            .setNegativeButton("Keep takes",(d,w)->showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All takes are kept. Tap Save profile when ready.",0))
             .setPositiveButton("Authenticate and save",(d,w)->authenticateOwner("Save headset voice",()->{
                 if(!ownerTrainingActive||!headsetTrainingActive||generation!=ownerTrainingGeneration)return;
-                WakeChangeApproval.runApproved(()->{
+                if(ownerSaveBusy)return;
+                ownerSaveBusy=true;
+                final OwnerEnrollmentController bank=headsetEnrollment.snapshot();
+                final VoskEngine engine=ownerTrainingEngine;
+                final String expectedRevision=ownerBaseRevision;
+                showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,"Saving your completed training. No more recordings are needed…",0);
+                new Thread(()->WakeChangeApproval.runApproved(()->{
                     try{
                         OwnerVoiceProfile base=new ProfileStore(this).ownerEvidence();
                         if(base==null)throw new IllegalStateException("Phone-route profile is missing; retrain it first");
-                        OwnerVoiceProfile candidate=base.withHeadset(headsetEnrollment.ecapaSamples,headsetEnrollment.voskSamples,headsetEnrollment.ecapaValidation,headsetEnrollment.voskValidation,RecordedPhrase.createVariations(headsetEnrollment.phraseSamples,headsetEnrollment.phraseValidation,headsetOwnerThreshold()));
-                        if(candidate.usesEcapa())candidate=candidate.withEcapaModelHash(ownerTrainingEngine.ecapaFingerprint());
-                        if(!new ProfileStore(this).commitOwnerEvidence(candidate,ownerBaseRevision))throw new IllegalStateException("Profile changed or save failed; previous profile preserved");
+                        OwnerVoiceProfile candidate=base.withHeadset(bank.ecapaSamples,bank.voskSamples,bank.ecapaValidation,bank.voskValidation,RecordedPhrase.createVariations(bank.phraseSamples,bank.phraseValidation,headsetOwnerThreshold()));
+                        if(candidate.usesEcapa())candidate=candidate.withEcapaModelHash(engine.ecapaFingerprint());
+                        if(!new ProfileStore(this).commitOwnerEvidence(candidate,expectedRevision))throw new IllegalStateException("Profile changed or save failed; previous profile preserved");
+                        ownerTrainingHandler.post(()->{
+                            if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
+                            ownerSaveBusy=false;
                         TrainingProgress.clear(this,true);new AppSettings(this).setListeningMode(AppSettings.MODE_WAKE);resumeAfterWakeTraining=true;cancelWakeTraining();updateOwnerProfileSummary();
                         showOwnerStage(OwnerTrainingStage.Kind.SAVED,"Headset profile saved and read back successfully. IRIS now wakes for either route.",0);
+                        });
                     }catch(Exception error){
+                        ownerTrainingHandler.post(()->{
+                            if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
+                            ownerSaveBusy=false;
                         LogStore.append(this,"OWNER TRAINING","Headset save failed (takes preserved): "+error.getMessage());
                         showOwnerStage(OwnerTrainingStage.Kind.SAVE_FAILED,"Headset profile not saved: "+error.getMessage()+" Your recorded takes were kept — tap Retry save to try again, or Cancel training to discard them.",0);
+                        });
                     }
-                });
-            })).setOnCancelListener(d->cancelWakeTraining()).show();
+                }),"IRIS-SaveOwner").start();
+            })).setOnCancelListener(d->showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All takes are kept. Tap Save profile when ready.",0)).show();
     }
     private void releaseOwnerTraining(){
         stopTrainingPreview();
         pendingOwnerCapture=null;
         ownerTrainingHandler.removeCallbacksAndMessages(null);
-        ownerTrainingActive=false;ownerAwaitingApproval=false;ownerTrainingGeneration++;
+        ownerTrainingActive=false;ownerAwaitingApproval=false;ownerSaveBusy=false;ownerTrainingGeneration++;
         if(timedRecorder!=null)timedRecorder.stop();
         final VoskEngine old=ownerTrainingEngine;ownerTrainingEngine=null;
         if(old!=null)new Thread(()->{synchronized(old){old.close();}},"IRIS-ReleaseOwner").start();
@@ -3799,52 +3819,68 @@ public class MainActivity extends Activity {
 
     private void finishWakeTraining() {
         if(headsetTrainingActive){finishHeadsetTraining();return;}
+        if(ownerSaveBusy)return;
         final long generation=ownerTrainingGeneration;
         ownerAwaitingApproval=true;
         activeTrainingDialog=new AlertDialog.Builder(this).setTitle("Save verified owner profile?")
             .setMessage("Wake sound label: “"+wakePhraseBeingTrained+"”. Recorded voice samples passed separate verification takes. No transcript was required. Saving replaces your previous owner profile and starts owner-only wake listening.")
-            .setNegativeButton("Cancel",(d,w)->cancelWakeTraining())
+            .setNegativeButton("Keep takes",(d,w)->showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All takes are kept. Tap Save profile when ready.",0))
             .setPositiveButton("Authenticate and save",(d,w)->authenticateOwner("Save owner voice",()->{
                 if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
-                WakeChangeApproval.runApproved(()->{
+                if(ownerSaveBusy)return;
+                ownerSaveBusy=true;
+                final OwnerEnrollmentController bank=enrollment.snapshot();
+                final OwnerVoiceProfile importedProfile=ownerImport,refinementProfile=ownerRefinement;
+                final VoskEngine engine=ownerTrainingEngine;
+                final String label=wakePhraseBeingTrained,expectedRevision=ownerBaseRevision;
+                showOwnerStage(OwnerTrainingStage.Kind.ANALYSIS,"Saving your completed training. No more recordings are needed…",0);
+                new Thread(()->WakeChangeApproval.runApproved(()->{
                     try{
                         OwnerVoiceProfile candidate;
-                        if(ownerImport!=null){
-                            org.json.JSONObject imported=new org.json.JSONObject(ownerImport.data.toString());
+                        if(importedProfile!=null){
+                            org.json.JSONObject imported=new org.json.JSONObject(importedProfile.data.toString());
                             imported.put("revision",java.util.UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
-                            imported.put("ecapaValidation",OwnerVoiceProfile.ecapaArray(enrollment.ecapaValidation));
-                            imported.put("voskValidation",OwnerVoiceProfile.voskArray(enrollment.voskValidation));
-                            imported.put("phraseEvidence",ownerImport.phraseEvidence.withValidation(enrollment.phraseValidation).data);
+                            imported.put("ecapaValidation",OwnerVoiceProfile.ecapaArray(bank.ecapaValidation));
+                            imported.put("voskValidation",OwnerVoiceProfile.voskArray(bank.voskValidation));
+                            imported.put("phraseEvidence",importedProfile.phraseEvidence.withValidation(bank.phraseValidation).data);
                             candidate=new OwnerVoiceProfile(imported);
                         }
-                        else if(ownerRefinement!=null){
-                            candidate=enrollment.build(wakePhraseBeingTrained,ownerTrainingEngine.speakerFingerprint(),Math.max(ownerRefinement.threshold(),new AppSettings(this).ownerThreshold()));
-                            candidate.data.put("negatives",ownerRefinement.data.getJSONArray("negatives"));
-                            candidate.data.put("voskNegatives",ownerRefinement.data.getJSONArray("voskNegatives"));
+                        else if(refinementProfile!=null){
+                            candidate=bank.build(label,engine.speakerFingerprint(),Math.max(refinementProfile.threshold(),new AppSettings(this).ownerThreshold()));
+                            candidate.data.put("negatives",refinementProfile.data.getJSONArray("negatives"));
+                            candidate.data.put("voskNegatives",refinementProfile.data.getJSONArray("voskNegatives"));
                             // Preserve the independently trained headset route and its held-out checks.
                             for(String key:new String[]{"headset","headsetEcapaValidation","headsetVoskValidation"})
-                                if(ownerRefinement.data.has(key))candidate.data.put(key,ownerRefinement.data.get(key));
+                                if(refinementProfile.data.has(key))candidate.data.put(key,refinementProfile.data.get(key));
                             candidate=new OwnerVoiceProfile(candidate.data);
-                        }else candidate=enrollment.build(wakePhraseBeingTrained,ownerTrainingEngine.speakerFingerprint(),new AppSettings(this).ownerThreshold());
-                        if(candidate.usesEcapa())candidate=candidate.withEcapaModelHash(ownerTrainingEngine.ecapaFingerprint());
-                        if(!new ProfileStore(this).commitOwnerEvidence(candidate,ownerBaseRevision))throw new IllegalStateException("Profile changed or save failed; previous profile preserved");
+                        }else candidate=bank.build(label,engine.speakerFingerprint(),new AppSettings(this).ownerThreshold());
+                        if(candidate.usesEcapa())candidate=candidate.withEcapaModelHash(engine.ecapaFingerprint());
+                        if(!new ProfileStore(this).commitOwnerEvidence(candidate,expectedRevision))throw new IllegalStateException("Profile changed or save failed; previous profile preserved");
+                        ownerTrainingHandler.post(()->{
+                            if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
+                            ownerSaveBusy=false;
                         TrainingProgress.clear(this);new AppSettings(this).setListeningMode(AppSettings.MODE_WAKE);resumeAfterWakeTraining=true;cancelWakeTraining();updateOwnerProfileSummary();
                         showOwnerStage(OwnerTrainingStage.Kind.SAVED,"Owner profile saved and read back successfully. Independent verification passed. Encrypted export and rollback are available.",0);
+                        });
                     // A save failure here (validation rejection, revision race, disk error) must
                     // NOT discard the takes the user just spent minutes recording. failOwnerTraining()
                     // calls cancelWakeTraining(), which tears down the recorder/engine but previously
                     // left the wizard on a dead-end FAILED screen whose only way forward was
-                    // beginWakeTraining() — which unconditionally wipes enrollment. Land on
+                    // beginWakeTraining() — which unconditionally wipes bank. Land on
                     // SAVE_FAILED instead: the session stays alive (ownerTrainingActive remains
                     // true, all captured takes remain in memory) and "Try one more take" is
                     // repurposed to retry the save itself.
                     }catch(Exception error){
+                        ownerTrainingHandler.post(()->{
+                            if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
+                            ownerSaveBusy=false;
                         LogStore.append(this,"OWNER TRAINING","Save failed (takes preserved): "+error.getMessage());
                         showOwnerStage(OwnerTrainingStage.Kind.SAVE_FAILED,"Profile not saved: "+error.getMessage()+" Your recorded takes were kept — tap Retry save to try again, or Cancel training to discard them.",0);
+                        });
                     }
 
-                });
-            })).setOnCancelListener(d->cancelWakeTraining()).show();
+                }),"IRIS-SaveOwner").start();
+            })).setOnCancelListener(d->showOwnerStage(OwnerTrainingStage.Kind.REVIEW,"All takes are kept. Tap Save profile when ready.",0)).show();
     }
 
     private ContinuousVoiceSession wakeTestSession;

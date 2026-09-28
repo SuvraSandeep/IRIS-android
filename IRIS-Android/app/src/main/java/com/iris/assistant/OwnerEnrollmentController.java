@@ -24,6 +24,19 @@ final class OwnerEnrollmentController {
             if(score<lowest){lowest=score;worst=i;}}
         return worst;
     }
+    OwnerEnrollmentController snapshot() {
+        OwnerEnrollmentController copy=new OwnerEnrollmentController();
+        for(float[] v:ecapaSamples)copy.ecapaSamples.add(v.clone());
+        for(float[] v:voskSamples)copy.voskSamples.add(v.clone());
+        for(float[] v:ecapaValidation)copy.ecapaValidation.add(v.clone());
+        for(float[] v:voskValidation)copy.voskValidation.add(v.clone());
+        copyPatterns(phraseSamples,copy.phraseSamples);copyPatterns(phraseValidation,copy.phraseValidation);
+        return copy;
+    }
+    private static void copyPatterns(List<float[][]> from,List<float[][]> to){
+        for(float[][] pattern:from){float[][] cloned=new float[pattern.length][];
+            for(int i=0;i<pattern.length;i++)cloned[i]=pattern[i].clone();to.add(cloned);}
+    }
     void clear() {
         phraseSamples.clear();phraseValidation.clear();
         ecapaSamples.clear(); voskSamples.clear();

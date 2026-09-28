@@ -11,6 +11,7 @@ final class OwnerTrainingStage {
     String message(){return message;}
     boolean expired(long now){return deadline>0&&now>=deadline;}
     long elapsedSeconds(long now){return Math.max(0,now-began)/1000;}
+    boolean canRetrySave(){return kind==Kind.REVIEW||kind==Kind.SAVE_FAILED;}
     boolean busy(){return kind==Kind.SPEECH_MODEL||kind==Kind.SPEAKER_MODEL||kind==Kind.MICROPHONE||kind==Kind.RECORDING||kind==Kind.ANALYSIS;}
     String title(){switch(kind){
         case SPEECH_MODEL:return "Preparing speech model";
