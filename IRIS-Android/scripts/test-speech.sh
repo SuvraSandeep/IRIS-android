@@ -85,3 +85,5 @@ javac -encoding UTF-8 -d "$test_dir/recorded" app/src/main/java/com/iris/assista
 java -cp "$test_dir/recorded" com.iris.assistant.WakeAnalysisQueueTest
 javac -encoding UTF-8 -cp "$test_dir/recorded" -d "$test_dir/recorded" app/src/main/java/com/iris/assistant/AudioRing.java app/src/main/java/com/iris/assistant/StreamingWakeDetector.java app/src/main/java/com/iris/assistant/LiveWakeProbe.java tests/StreamingWakeTest.java
 java -cp "$test_dir/recorded" com.iris.assistant.StreamingWakeTest
+javac -encoding UTF-8 -d "$test_dir/recorded" app/src/main/java/com/iris/assistant/ReplyCompletionGate.java app/src/main/java/com/iris/assistant/CommandLoadGate.java tests/ReplyCompletionTest.java
+java -cp "$test_dir/recorded" com.iris.assistant.ReplyCompletionTest
