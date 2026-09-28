@@ -7,6 +7,7 @@ test_dir=$(mktemp -d)
 trap 'rm -rf "$test_dir"' EXIT
 javac -encoding UTF-8 -d "$test_dir" \
   app/src/main/java/com/iris/assistant/SpeechText.java \
+  app/src/main/java/com/iris/assistant/SmsIntentPolicy.java \
   app/src/main/java/com/iris/assistant/IrisIntent.java \
   app/src/main/java/com/iris/assistant/ToolCall.java \
   app/src/main/java/com/iris/assistant/Plan.java \

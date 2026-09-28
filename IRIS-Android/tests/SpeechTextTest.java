@@ -11,6 +11,13 @@ public final class SpeechTextTest {
         check(expected.equals(SpeechText.command(spoken)), spoken + " -> " + SpeechText.command(spoken));
     }
     public static void main(String[] args) {
+        for(String q:Arrays.asList("tell by the time", "tell my the time", "tell me the time", "tell by the time?"))
+            check(SpeechText.quickInfo(q), "Time request: " + q);
+        for(String q:Arrays.asList("text dad the time", "tell Bob the time", "remind me at this time", "text mom saying tell by the time"))
+            check(!SpeechText.quickInfo(q), "Do not steal message: " + q);
+        for(String q:Arrays.asList("tell by the time", "tell me that dying", "tell Bob hello", "let me know the time"))
+            check(!SmsIntentPolicy.LOOSE.matcher(q).matches(), "No implicit SMS: " + q);
+        check(SmsIntentPolicy.LOOSE.matcher("text mom I am late").matches(), "Explicit SMS retained");
         command("Hey, IRIS, could you please switch on the torch?", "torch on");
         command("put the flashlight off", "torch off");
         command("turn the torch on please", "torch on");

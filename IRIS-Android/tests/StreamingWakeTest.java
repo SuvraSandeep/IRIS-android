@@ -5,6 +5,12 @@ public class StreamingWakeTest {
  static float[] row(int band){float[] r=new float[24];r[band]=1;return r;}
  static float[][] phrase(){float[][] p=new float[40][24];for(int i=0;i<40;i++)p[i]=row(i/5);return p;}
  public static void main(String[] args){
+  SoundPattern.Frontend frontend=new SoundPattern.Frontend();
+  java.util.Random random=new java.util.Random(7);
+  for(int attempt=0;attempt<30;attempt++){
+   short[] wave=new short[400];for(int i=0;i<wave.length;i++)wave[i]=(short)(attempt%3==0?0:random.nextInt(20000)-10000);
+   check(Arrays.equals(SoundPattern.frame(wave,0),frontend.frame(wave,0)),"Reused FFT scratch changed features");
+  }
   AudioRing ring=new AudioRing(8);ring.append(new short[]{1,2,3,4,5},5);check(Arrays.equals(ring.slice(2,5),new short[]{3,4,5}),"Wake boundary");
   ring.append(new short[]{6,7,8,9,10},5);check(Arrays.equals(ring.slice(5,10),new short[]{6,7,8,9,10}),"Buffered command after delayed verification");
   boolean overrun=false;try{ring.slice(0,3);}catch(IllegalStateException expected){overrun=true;}check(overrun,"Do not silently lose command audio");

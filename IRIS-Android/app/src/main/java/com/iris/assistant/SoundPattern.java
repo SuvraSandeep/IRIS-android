@@ -15,7 +15,8 @@ final class SoundPattern {
         if(end-start<6400||end-start>16000*5)return new float[0][];
         int frames=1+(end-start-400)/320;if(frames<12||frames>MAX_FRAMES)return new float[0][];
         float[][] out=new float[frames][BANDS];
-        for(int f=0;f<frames;f++)out[f]=frame(pcm,start+f*320);
+        Frontend frontend=new Frontend();
+        for(int f=0;f<frames;f++)out[f]=frontend.frame(pcm,start+f*320);
         return out;
     }
     private static final double[] WINDOW=new double[400],FFT_COS=new double[256],FFT_SIN=new double[256];
@@ -30,13 +31,20 @@ final class SoundPattern {
     }
     /** Identical transform for enrollment and each live 20ms hop. No FFT over a growing clip. */
     static float[] frame(short[] pcm,int offset){
-        double[] re=new double[512],im=new double[512];float[] out=new float[BANDS];
-        for(int i=0;i<400;i++)re[i]=pcm[offset+i]*WINDOW[i];fft(re,im);
-        double[] power=new double[257];for(int k=0;k<257;k++)power[k]=re[k]*re[k]+im[k]*im[k];
-        double mean=0;for(int b=0;b<BANDS;b++){double sum=0;for(int k=0;k<257;k++)sum+=MEL[b][k]*power[k];out[b]=(float)Math.log(1+sum);mean+=out[b];}
-        mean/=BANDS;double norm=0;for(int b=0;b<BANDS;b++){out[b]-=mean;norm+=out[b]*out[b];}
-        if(norm<1e-8){Arrays.fill(out,(float)(-1/Math.sqrt(BANDS)));return out;}
-        for(int b=0;b<BANDS;b++)out[b]/=Math.sqrt(norm);return out;
+        return new Frontend().frame(pcm,offset);
+    }
+    /** One instance per capture/analysis owner, never shared across threads. */
+    static final class Frontend {
+        private final double[] re=new double[512],im=new double[512],power=new double[257];
+        float[] frame(short[] pcm,int offset){
+            Arrays.fill(re,0);Arrays.fill(im,0);float[] out=new float[BANDS];
+            for(int i=0;i<400;i++)re[i]=pcm[offset+i]*WINDOW[i];fft(re,im);
+            for(int k=0;k<257;k++)power[k]=re[k]*re[k]+im[k]*im[k];
+            double mean=0;for(int b=0;b<BANDS;b++){double sum=0;for(int k=0;k<257;k++)sum+=MEL[b][k]*power[k];out[b]=(float)Math.log(1+sum);mean+=out[b];}
+            mean/=BANDS;double norm=0;for(int b=0;b<BANDS;b++){out[b]-=mean;norm+=out[b]*out[b];}
+            if(norm<1e-8){Arrays.fill(out,(float)(-1/Math.sqrt(BANDS)));return out;}
+            for(int b=0;b<BANDS;b++)out[b]/=Math.sqrt(norm);return out;
+        }
     }
     /** A streaming detector supplies boundaries without surrounding silence. Padding restores
      * the frontend's noise-estimation context; it never adds speech or identity evidence. */
@@ -61,12 +69,13 @@ final class SoundPattern {
         if(!valid(a)||!valid(b))return Double.POSITIVE_INFINITY;
         double ratio=a.length/(double)b.length;if(ratio<.45||ratio>2.2)return Double.POSITIVE_INFINITY;
         double[] previous=new double[b.length+1];Arrays.fill(previous,Double.POSITIVE_INFINITY);previous[0]=0;
+        double[] current=new double[b.length+1];
         int band=Math.max(Math.abs(a.length-b.length)+2,(int)Math.ceil(Math.max(a.length,b.length)*.25));
-        for(int i=1;i<=a.length;i++){double[] current=new double[b.length+1];Arrays.fill(current,Double.POSITIVE_INFINITY);
+        for(int i=1;i<=a.length;i++){Arrays.fill(current,Double.POSITIVE_INFINITY);
             for(int j=Math.max(1,i-band);j<=Math.min(b.length,i+band);j++){
                 double dot=0;for(int k=0;k<BANDS;k++)dot+=a[i-1][k]*b[j-1][k];double cost=Math.max(0,1-dot);
                 current[j]=cost+Math.min(previous[j-1],Math.min(previous[j]+.015,current[j-1]+.015));
-            }previous=current;
+            }double[] swap=previous;previous=current;current=swap;
         }return previous[b.length]/Math.max(a.length,b.length);
     }
     static double score(float[][] sample,List<float[][]> templates){

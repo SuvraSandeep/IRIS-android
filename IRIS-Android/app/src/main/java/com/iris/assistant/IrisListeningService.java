@@ -157,11 +157,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     private static final Pattern SHARE_PATTERN = Pattern.compile(
             "^(?:send|text|share|message|forward)\\s+(.+?)\\s+to\\s+(.+)$",
             Pattern.CASE_INSENSITIVE);
-    // Loose, natural texting with NO "saying": "text mom i'll be late", "tell dad i'm coming",
-    // "let mom know i'm safe". Recipient is inferred; only fires if it resolves to a real contact.
-    private static final Pattern SMS_LOOSE_PATTERN = Pattern.compile(
-            "^(?:text|txt|message|msg|sms|tell|let)\\s+(.+)$",
-            Pattern.CASE_INSENSITIVE);
+    // An explicit messaging verb is required before fuzzy contact resolution.
+    // "tell ..." and "let ..." can be misheard information requests, never SMS intent.
+    private static final Pattern SMS_LOOSE_PATTERN = SmsIntentPolicy.LOOSE;
     // "send an sms", "send a text to mom", "compose a message" — start the guided compose flow
     // (IRIS will ask for whoever/whatever is missing).
     private static final Pattern SMS_START_PATTERN = Pattern.compile(
@@ -830,7 +828,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this,"WAKE REJECTED",reason+"; "+voskEngine.lastWakeDiagnostic());updateListeningNotification(wakeReadiness);}
             public void onWakeDetected(float[] ecapa,float[] vosk){
                 if(epoch!=wakeEpoch||!isRunning||!PHASE_WAKE.equals(phase))return;
-                boolean accepted=revision.equals(new ProfileStore(IrisListeningService.this).ownerRevision())&&isOwnerVoice(ecapa,vosk);
+                boolean accepted=revision.equals(new ProfileStore(IrisListeningService.this).ownerRevision())&&isOwnerVoice(profile,ecapa,vosk);
                 voskEngine.recordWakeOutcome(accepted?"OWNER_ACCEPTED":"PROFILE_OR_OWNER_CHANGED",accepted);
                 if(!accepted){scheduleWakeRetry(150);return;}
                 ++wakeEpoch;lastWakeAt=android.os.SystemClock.elapsedRealtime();vibrate(45);
@@ -5111,31 +5109,16 @@ public class IrisListeningService extends Service implements RecognitionListener
         return false;
     }
 
-    /** If speaker verification is off (default), the phrase alone is enough to wake. If it's
-     *  on but the user never enrolled a voiceprint, don't lock them out forever — fall back to
-     *  phrase-only rather than rejecting every wake attempt with no way to recover by voice.
-     *
-     *  Redesigned per WAKE-TRAINING-REDESIGN.md: the legacy pre-versioned fallback
-     *  (getVoiceprint/getQuietVoiceprint, an "either accepts" OR gate over ONE embedding model)
-     *  is kept as-is for profiles that predate the versioned schema entirely — those never had
-     *  a dual-embedding ensemble to begin with. Any versioned profile (hasVersionedOwner()) now
-     *  requires BOTH embeddings (ecapaEmbedding may be null if the ECAPA-TDNN model isn't
-     *  loaded/ready — WakePolicy.finalScore() degrades gracefully to the single available
-     *  signal, never silently skips the check entirely). */
-    private boolean isOwnerVoice(float[] ecapaEmbedding, float[] voskEmbedding) {
+    /** Recheck the exact armed snapshot after the persisted revision guard above.
+     * No repeated decrypt/JSON copies on the main thread for the same owner decision. */
+    private boolean isOwnerVoice(OwnerVoiceProfile profile, float[] ecapaEmbedding, float[] voskEmbedding) {
         try {
-            ProfileStore store=new ProfileStore(this);OwnerVoiceProfile profile=store.ownerEvidence();
-            if(store.hasVersionedOwner()){
-                if(profile==null||voskEngine==null||!voskEngine.profileModelMatches(profile))return false;
-                // Match against whichever route is actually confirmed right now — a headset
-                // enrollment must never be checked against phone-route evidence or vice versa.
-                AudioRouteController.Route captured=voskEngine.lastWakeRoute();
-                if(captured==AudioRouteController.Route.UNCONFIRMED)return false;
-                boolean headsetRoute=captured==AudioRouteController.Route.HEADSET;
-                return headsetRoute?profile.acceptsHeadset(ecapaEmbedding,voskEmbedding,voiceThreshold()):profile.accepts(ecapaEmbedding,voskEmbedding,voiceThreshold());
-            }
-            return voskEngine != null && voskEngine.isSpeakerReady()
-                    && WakePolicy.ownerEither(voskEmbedding, new ProfileStore(this).getVoiceprint(),new ProfileStore(this).getQuietVoiceprint(), voiceThreshold());
+            if(profile==null||voskEngine==null||!voskEngine.profileModelMatches(profile))return false;
+            AudioRouteController.Route captured=voskEngine.lastWakeRoute();
+            if(captured==AudioRouteController.Route.UNCONFIRMED)return false;
+            return captured==AudioRouteController.Route.HEADSET
+                ?profile.acceptsHeadset(ecapaEmbedding,voskEmbedding,profile.threshold())
+                :profile.accepts(ecapaEmbedding,voskEmbedding,profile.threshold());
         } catch (Throwable error) { return false; }
     }
 

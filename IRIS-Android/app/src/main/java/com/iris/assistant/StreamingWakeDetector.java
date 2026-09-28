@@ -14,6 +14,7 @@ final class StreamingWakeDetector {
         Track(float[][] t){template=t;previous=new double[t.length+1];starts=new long[t.length+1];next=new double[t.length+1];nextStarts=new long[t.length+1];Arrays.fill(previous,Double.POSITIVE_INFINITY);previous[0]=0;}
     }
     private final List<Track> tracks=new ArrayList<>();private final double threshold;
+    private final SoundPattern.Frontend frontend=new SoundPattern.Frontend();
     private final short[] window=new short[400];private int buffered;private long samples,frameIndex,lastEnd=-32000;
     private Match best;private int sinceBest;private double closest=Double.POSITIVE_INFINITY;
     double bestDistance(){double result=closest;closest=Double.POSITIVE_INFINITY;return result;}
@@ -32,7 +33,7 @@ final class StreamingWakeDetector {
         Match found=null;
         for(int i=0;i<count;i++){
             window[buffered++]=pcm[i];samples++;
-            if(buffered==400){Match m=feature(SoundPattern.frame(window,0),samples);if(m!=null)found=m;System.arraycopy(window,320,window,0,80);buffered=80;}
+            if(buffered==400){Match m=feature(frontend.frame(window,0),samples);if(m!=null)found=m;System.arraycopy(window,320,window,0,80);buffered=80;}
         }return found;
     }
     // Package visible for controlled feature-sequence tests, independent from the audio frontend.

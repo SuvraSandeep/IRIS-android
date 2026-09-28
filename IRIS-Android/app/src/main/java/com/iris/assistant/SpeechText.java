@@ -65,6 +65,8 @@ public final class SpeechText {
     public static boolean quickInfo(String n) {
         if (n == null) return false;
         n = n.toLowerCase(Locale.ROOT).trim();
+        // Narrow recovery for a reported ASR substitution; never rewrite a message body.
+        if (n.matches("^tell (?:me|by|my) (?:the )?(?:time|current time)(?: now)?[.!?]?$")) return true;
         if (n.matches("^(?:time(?: now)?|battery(?: level| percentage| percent| status)?|charging status)$")) return true;
         return n.matches("^(?:what(?:s| is|'s)?|how|is|am|are|tell me|check)\\b.*")
                 && n.matches(".*\\b(?:time|battery|charging|charged|plugged)\\b.*");
