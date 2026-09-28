@@ -323,6 +323,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onStop() {
+        finishFeedbackCapture();
         stopTrainingPreview();
         // Backgrounding (minimize, screen lock, an incoming call, switching apps — all routine
         // Android behavior, not something the user did wrong) previously called
@@ -1124,7 +1125,11 @@ public class MainActivity extends Activity {
 
         installOwnerTools(view);
         view.findViewById(R.id.wakeStrictnessButton).setOnClickListener(v->chooseWakeStrictness());
-        view.findViewById(R.id.wakeFeedbackButton).setOnClickListener(v->reviewWakeEvents());
+        view.findViewById(R.id.wakeFeedbackButton).setOnClickListener(v->new AlertDialog.Builder(this)
+            .setTitle("Help IRIS learn you")
+            .setItems(new String[]{"Correct a recent wake attempt","Teach a natural phrase variation"},(d,choice)->{
+                if(choice==0)reviewWakeEvents();else recordFeedbackVariation();
+            }).show());
         view.findViewById(R.id.ownerHearPhrase).setOnClickListener(v->previewTrainingAudio(false));
         view.findViewById(R.id.ownerHearPrompt).setOnClickListener(v->previewTrainingAudio(false));
         view.findViewById(R.id.ownerPlayRecording).setOnClickListener(v->previewTrainingAudio(true));
@@ -2961,7 +2966,7 @@ public class MainActivity extends Activity {
         TextView summary=findViewById(R.id.ownerProfileSummary);if(summary==null)return;
         OwnerVoiceProfile saved=new ProfileStore(this).ownerEvidence();
         if(saved==null){summary.setText("No validated versioned owner profile found. Rejected takes are not saved as your voice.");return;}
-        try{summary.setText("Saved voice profile\n"+saved.ecapaList("ecapaSamples",OwnerTrainingPlan.ENROLLMENT,OwnerTrainingPlan.ENROLLMENT).size()+" enrollment · "+saved.ecapaList("ecapaValidation",OwnerTrainingPlan.VERIFY,OwnerTrainingPlan.VERIFY).size()+" verification samples\nChecks: recorded phrase + "+OwnerVoiceProfile.MODEL+" owner voice (128 components)\nSaved: "+java.text.DateFormat.getDateTimeInstance().format(new java.util.Date(saved.data.optLong("trainedAt")))+"\nRevision: "+saved.revision()+"\nThis is stored evidence, not a measured accuracy score.");}
+        try{summary.setText("Saved voice profile\n"+saved.ecapaList("ecapaSamples",OwnerTrainingPlan.ENROLLMENT,OwnerTrainingPlan.ENROLLMENT).size()+" enrollment · "+saved.ecapaList("ecapaValidation",OwnerTrainingPlan.VERIFY,OwnerTrainingPlan.VERIFY).size()+" verification samples\nChecks: recorded phrase + "+(saved.usesEcapa()?"ECAPA + Vosk speaker identity":"Vosk speaker identity")+". Delivery can vary\nSaved: "+java.text.DateFormat.getDateTimeInstance().format(new java.util.Date(saved.data.optLong("trainedAt")))+"\nRevision: "+saved.revision()+"\nThis is stored evidence, not a measured accuracy score.");}
         catch(Exception error){summary.setText("Saved voice evidence could not be validated. Your profile has not been changed.");}
         TextView headsetSummary=findViewById(R.id.headsetProfileSummary);
         Button removeHeadsetButton=findViewById(R.id.ownerRemoveHeadsetButton);
@@ -2969,7 +2974,7 @@ public class MainActivity extends Activity {
         if(headsetSummary!=null)headsetSummary.setText(hasHeadset?"\u2705 Headset profile saved. IRIS wakes on either your phone mic or headset — whichever is confirmed active.":"\u26AA No headset profile yet. IRIS wakes using your phone microphone only.");
         if(removeHeadsetButton!=null)removeHeadsetButton.setVisibility(hasHeadset?View.VISIBLE:View.GONE);
     }
-    private boolean ownerSessionBusy(){return previewBusy()||ownerTrainingActive||trainVosk!=null||trainingRecognizer!=null||wakeTestEngine!=null;}
+    private boolean ownerSessionBusy(){return feedbackCapture!=null||previewBusy()||ownerTrainingActive||trainVosk!=null||trainingRecognizer!=null||wakeTestEngine!=null;}
     private void installOwnerTools(View view){
         LinearLayout section=view.findViewById(R.id.wakeSection);
         Button disclosure=new Button(this);disclosure.setText("Manage voice · backup · privacy  ›");disclosure.setTextColor(getColor(R.color.text_primary));disclosure.setTextSize(13);disclosure.setAllCaps(false);disclosure.setBackgroundResource(R.drawable.bg_button_secondary);section.addView(disclosure);
@@ -3139,6 +3144,46 @@ public class MainActivity extends Activity {
             new Thread(()->WakeDiagnostics.event(this,kind,"User labelled the previous attempt"),"IRIS-WakeLabel").start();toast("Attempt labelled. No voice settings changed.");
         }).show();
     }
+    private OwnerFeedbackCapture feedbackCapture;
+    private AlertDialog feedbackCaptureDialog;
+    private boolean resumeAfterFeedback;
+    private void finishFeedbackCapture(){
+        if(feedbackCapture!=null){feedbackCapture.close();feedbackCapture=null;}
+        if(feedbackCaptureDialog!=null){feedbackCaptureDialog.dismiss();feedbackCaptureDialog=null;}
+        if(resumeAfterFeedback){resumeAfterFeedback=false;handler.postDelayed(()->{if(!isFinishing()&&!isDestroyed())startListeningService();},700);}
+    }
+    private void recordFeedbackVariation(){
+        if(ownerSessionBusy()||feedbackCapture!=null){toast("Finish the current voice session first.");return;}
+        if(!hasPermission(Manifest.permission.RECORD_AUDIO)){maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO,"Microphone");return;}
+        final OwnerVoiceProfile profile=new ProfileStore(this).ownerEvidence();
+        if(profile==null){toast("Save your first voice profile before teaching variations.");return;}
+        new AlertDialog.Builder(this).setTitle("Teach a natural variation")
+            .setMessage("Say the same wake phrase naturally, with the pace, pitch or expression that was missed. This records one example even if background wake detection misses it. IRIS checks your voice before proposing a change. Saving requires authentication.")
+            .setNegativeButton("Cancel",null).setPositiveButton("Start",(dialog,which)->{
+                if(ownerSessionBusy()||feedbackCapture!=null)return;
+                resumeAfterFeedback=IrisListeningService.isRunning;if(resumeAfterFeedback)stopListeningService();
+                feedbackCaptureDialog=new AlertDialog.Builder(this).setTitle("Teach a variation")
+                    .setMessage("Preparing…").setNegativeButton("Cancel",(d,w)->finishFeedbackCapture())
+                    .setPositiveButton("Done",null).setOnCancelListener(d->finishFeedbackCapture()).create();
+                feedbackCaptureDialog.setCanceledOnTouchOutside(false);feedbackCaptureDialog.show();
+                feedbackCaptureDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+                feedbackCaptureDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(feedbackCapture!=null)feedbackCapture.finish();});
+                feedbackCapture=new OwnerFeedbackCapture(this,profile,new OwnerFeedbackCapture.Listener(){
+                    public void state(String text,boolean recording){if(feedbackCaptureDialog!=null){feedbackCaptureDialog.setMessage(text);feedbackCaptureDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(recording);}}
+                    public void error(String message){finishFeedbackCapture();toast(message);}
+                    public void sample(float[][] pattern,float[] ecapa,float[] vosk,AudioRouteController.Route route){
+                        boolean headset=route==AudioRouteController.Route.HEADSET;
+                        boolean phrase=(headset?profile.headset.phraseEvidence:profile.phraseEvidence).accepts(pattern);
+                        boolean owner=headset?profile.acceptsHeadset(ecapa,vosk,profile.threshold()):profile.accepts(ecapa,vosk,profile.threshold());
+                        WakeEventStore.Event event=WakeEventStore.add(owner?(phrase?"OWNER_ACCEPTED":"PHRASE_MISMATCH"):"OWNER_REJECTED",profile.revision(),ecapa,vosk,false,pattern,route);
+                        finishFeedbackCapture();
+                        if(owner&&phrase){toast("This example already passes both checks. Your saved voice is unchanged.");return;}
+                        proposeSoundFeedback(event,true);
+                    }
+                });
+                feedbackCapture.start();
+            }).show();
+    }
     private void proposeSoundFeedback(WakeEventStore.Event event,boolean missed){
         if(!missed&&!event.accepted){toast("This event did not wake IRIS; choose an accepted event.");return;}
         ProfileStore store=new ProfileStore(this);OwnerVoiceProfile current=store.ownerEvidence();
@@ -3146,9 +3191,9 @@ public class MainActivity extends Activity {
         if(event.input==AudioRouteController.Route.UNCONFIRMED){toast("Input was not confirmed; no correction applied.");return;}
         try{
             boolean ownerCorrection=missed&&"OWNER_REJECTED".equals(event.reason);
-            OwnerVoiceProfile candidate=ownerCorrection?current.withOwnerFeedback(event.pattern,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET):current.withSoundFeedback(event.pattern,event.ecapaEmbedding,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET,missed);
+            OwnerVoiceProfile candidate=ownerCorrection?current.withOwnerFeedback(event.pattern,event.ecapaEmbedding,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET):current.withSoundFeedback(event.pattern,event.ecapaEmbedding,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET,missed);
             new AlertDialog.Builder(this).setTitle(missed?"Learn this wake sound?":"Reject this sound?")
-                .setMessage(ownerCorrection?"You are confirming this rejected voice was yours. This makes a small adjustment to this microphone’s voice profile without lowering strictness. All four saved checks and this recording still have to pass. You can undo it in Manage voice.":"This updates only the recorded sound for this microphone. Your speaker identity stays unchanged. All four saved checks still pass. You can undo the update in Manage voice.")
+                .setMessage(ownerCorrection?"Confirm that this was you saying your wake phrase. IRIS will make a small update to both available speaker models for this microphone, keeping the original voice as an anchor. Strictness stays the same. All saved checks and this example must pass. You can undo it in Manage voice.":"This updates only the recorded sound for this microphone. Your speaker identity stays unchanged. All four saved checks still pass. You can undo the update in Manage voice.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Authenticate and learn",(d,w)->authenticateOwner("Learn wake feedback",()->WakeChangeApproval.runApproved(()->{
                     if(android.os.SystemClock.elapsedRealtime()-event.at>=120000){toast("Event expired; repeat it and try again.");return;}
                     boolean ok=new ProfileStore(this).commitOwnerEvidence(candidate,event.revision);
@@ -3390,7 +3435,7 @@ public class MainActivity extends Activity {
         final AudioRouteController.Route required=headset?AudioRouteController.Route.HEADSET:AudioRouteController.Route.PHONE;
         final boolean enhanced=trainingUsesEcapa(headset);
         final double policy=headset?headsetOwnerThreshold():ownerImport!=null?ownerImport.threshold():new AppSettings(this).ownerThreshold();
-        String[] styles={"Use your everyday voice.","Say it a little more softly, without whispering.","Try your natural quicker pace.","Say it casually, as you would call me."};
+        String[] styles={"Say the wake phrase in your everyday voice.","Keep the words, but speak a little more softly. Do not imitate the first take.","Use the same words at your natural quicker pace.","Call me casually with the same phrase. Natural changes in pitch and expression are welcome."};
         showOwnerStage(OwnerTrainingStage.Kind.READY,(learning?styles[index]:"Try a fresh, natural call. This tests the actual wake detector and your voice.")+" Tap Start recording, wait for Listening, say your phrase once, then tap Done or pause.",0);
         pendingOwnerCapture=()->{
             if(!ownerTrainingActive||generation!=ownerTrainingGeneration)return;
