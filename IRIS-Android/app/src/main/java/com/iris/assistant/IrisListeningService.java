@@ -476,7 +476,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         watchBridge=new WatchBridge(this,path->{
             if(!isRunning)return "Start IRIS on your phone first";
             if(path.equals("/status"))return "IRIS: "+phase+"; "+chargingStatusText();
-            if(path.equals("/stop")){if(phoneFinder!=null)phoneFinder.stop();rearmAfterAction();return "Finder stopped";}
+            if(path.equals("/stop")){if(phoneFinder==null||!phoneFinder.active())return "Finder is not ringing";phoneFinder.stop();rearmAfterAction();return "Finder stopped";}
             if(path.equals("/find")){if(!PHASE_WAKE.equals(phase))return "IRIS is busy; finish the current command first";handleCommand("ring my phone");return phoneFinder!=null&&phoneFinder.active()?"Ringing for 30 seconds":"Alarm blocked: check phone DND settings";}
             android.app.NotificationManager nm=(android.app.NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(!nm.areNotificationsEnabled())return "Enable IRIS notifications on your phone first";
@@ -754,7 +754,19 @@ public class IrisListeningService extends Service implements RecognitionListener
                 microphoneLabel = configureAudioRoute();
                 registerAudioChanges();
             }
-            broadcastState(true, PHASE_COMMAND);
+            // A reviewed typed retry starts a fresh command, never supplies an answer to
+            // an old SMS/contact/clarification flow or races its recognition callback.
+            commandEpoch++;phoneQuestionGeneration++;
+            stopCommandCapture();destroyRecognizer();googleCommandActive=false;
+            speechCancelled=true;replyCompletion.cancel();
+            try{if(textToSpeech!=null)textToSpeech.stop();}catch(Exception ignored){}
+            releaseServerTts();stopWordEngine();abandonSpeechFocus();
+            if(voiceSession!=null)voiceSession.pause();
+            if(commandTimeout!=null){handler.removeCallbacks(commandTimeout);commandTimeout=null;}
+            if(confirmTimeout!=null){handler.removeCallbacks(confirmTimeout);confirmTimeout=null;}
+            pendingPlan=null;smsCompose=null;spellingCall=false;pendingName=null;pendingNumber=null;
+            cancelCallNotification();replyCompletion.cancel();
+            phase=PHASE_COMMAND;currentPhase=phase;broadcastState(true, PHASE_COMMAND);
             handler.post(() -> handleCommand(typed));
             return START_STICKY;
         }
