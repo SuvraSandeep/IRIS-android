@@ -13,7 +13,7 @@ final class ReliabilityTools {
   new Thread(()->{String report=WakeDiagnostics.report(a);h.post(()->{if(open[0])study[0]=report;});},"IRIS-DashboardStudy").start();
   Runnable refresh=new Runnable(){public void run(){if(!open[0])return;t.setText("Listening service: "+(IrisListeningService.isRunning?"on":"off")+"\n"+VoiceHealth.snapshot()+"\n\n"+study[0]);h.postDelayed(this,2000);}};
   d.setOnDismissListener(x->{open[0]=false;h.removeCallbacksAndMessages(null);});d.show();refresh.run();
-  d.getButton(-3).setOnClickListener(v->{Intent share=new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,"IRIS 12.0.0 diagnostics\n"+VoiceHealth.snapshot()+"\n"+study[0]);a.startActivity(Intent.createChooser(share,"Share metadata diagnostics"));});
+  d.getButton(-3).setOnClickListener(v->{Intent share=new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,"IRIS 13.0.0 diagnostics\n"+VoiceHealth.snapshot()+"\n"+study[0]+"\n"+VoiceEndurance.report());a.startActivity(Intent.createChooser(share,"Share metadata diagnostics"));});
  }
  static void history(Activity a,java.util.function.Consumer<String> run){if(!unlocked(a))return;
   JSONArray rows=CommandHistory.recent(a);String[] items=new String[rows.length()];for(int i=0;i<items.length;i++)items[i]=rows.optJSONObject(rows.length()-1-i).optString("heard");

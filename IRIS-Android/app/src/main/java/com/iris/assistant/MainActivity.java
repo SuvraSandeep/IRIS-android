@@ -2253,6 +2253,11 @@ public class MainActivity extends Activity {
         try{startForegroundService(new Intent(this,IrisListeningService.class).setAction(IrisListeningService.ACTION_PROCESS_TEXT).putExtra(IrisListeningService.EXTRA_TEXT,command));}catch(Exception e){toast("Could not start IRIS. Try the main Talk control.");}
     }
     private void showWatchSetup(){
+        if(WatchBridge.enabled(this)){new AlertDialog.Builder(this).setTitle("Watch connection")
+            .setItems(new String[]{"Test phone bridge","Pairing and controls"},(d,i)->{if(i==0)WatchTransportProbe.run(this);else showWatchPairing();}).show();return;}
+        showWatchPairing();
+    }
+    private void showWatchPairing(){
         if(!ReliabilityTools.unlocked(this))return;
         new AlertDialog.Builder(this).setTitle("T-Rex 3 remote · experimental")
             .setMessage("Status: "+WatchBridge.state+"\n\nA Zepp mini app can request status, ring/stop your phone, or post a Talk notification. The phone uses its own microphone. The local bridge runs only while IRIS runs. Compatibility with Zepp's local HTTP policy must be tested on your phone. DND still needs alarms allowed.")
@@ -2269,6 +2274,7 @@ public class MainActivity extends Activity {
         contentHost.addView(view);
         AppSettings settings = new AppSettings(this);
         wireAppearance(view, settings);
+        view.findViewById(R.id.enduranceSetup).setOnClickListener(v->VoiceEndurance.show(this));
         view.findViewById(R.id.reliabilityDashboard).setOnClickListener(v->ReliabilityTools.dashboard(this,this::recordFeedbackVariation));
         view.findViewById(R.id.recognitionSetup).setOnClickListener(v->RecognitionSetup.show(this));
         view.findViewById(R.id.commandHistory).setOnClickListener(v->ReliabilityTools.history(this,this::runReviewedCommand));
@@ -3236,7 +3242,7 @@ public class MainActivity extends Activity {
                             try{OwnerVoiceProfile candidate=base.withLongSpeech(ecapa,vosk,route==AudioRouteController.Route.HEADSET);
                                 if(feedbackCaptureDialog!=null)feedbackCaptureDialog.dismiss();
                                 feedbackCaptureDialog=new AlertDialog.Builder(MainActivity.this).setTitle("Review speaker refinement")
-                                    .setMessage("Input: "+route+". Existing owner identity and all saved checks passed. Wake sound and strictness stay the same. The previous profile is kept for rollback.")
+                                    .setMessage("Input: "+route+(". Existing owner identity and all saved checks passed. Wake sound and strictness stay the same. The previous profile is kept for rollback."+VoiceRefinementReport.compare(base,candidate,route==AudioRouteController.Route.HEADSET)))
                                     .setNeutralButton("Play recording",null).setNegativeButton("Discard",(x,y)->finishFeedbackCapture()).setOnCancelListener(x->finishFeedbackCapture())
                                     .setPositiveButton("Authenticate and save",(x,y)->{finishFeedbackCapture();authenticateOwner("Save speaker refinement",()->WakeChangeApproval.runApproved(()->{boolean ok=new ProfileStore(MainActivity.this).commitOwnerEvidence(candidate,base.revision());if(ok)restartIfRunning();toast(ok?"Speaker refinement saved.":"Profile changed or save failed; no update.");}));}).create();feedbackCaptureDialog.show();
                                 feedbackCaptureDialog.getButton(-3).setOnClickListener(v->{if(feedbackCapture!=null)feedbackCapture.preview(MainActivity.this::toast);});
@@ -3256,7 +3262,7 @@ public class MainActivity extends Activity {
             boolean ownerCorrection=missed&&"OWNER_REJECTED".equals(event.reason);
             OwnerVoiceProfile candidate=ownerCorrection?current.withOwnerFeedback(event.pattern,event.ecapaEmbedding,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET):current.withSoundFeedback(event.pattern,event.ecapaEmbedding,event.voskEmbedding,event.input==AudioRouteController.Route.HEADSET,missed);
             new AlertDialog.Builder(this).setTitle(missed?"Learn this wake sound?":"Reject this sound?")
-                .setMessage(ownerCorrection?"Confirm that this was you saying your wake phrase. IRIS will make a small update to both available speaker models for this microphone, keeping the original voice as an anchor. Strictness stays the same. All saved checks and this example must pass. You can undo it in Manage voice.":"This updates only the recorded sound for this microphone. Your speaker identity stays unchanged. All four saved checks still pass. You can undo the update in Manage voice.")
+                .setMessage(ownerCorrection?"Confirm that this was you saying your wake phrase. IRIS will make a small update to both available speaker models for this microphone, keeping the original voice as an anchor. Strictness stays the same. All saved checks and this example must pass. You can undo it in Manage voice."+VoiceRefinementReport.compare(current,candidate,event.input==AudioRouteController.Route.HEADSET):("This updates only the recorded sound for this microphone. Your speaker identity stays unchanged. All four saved checks still pass. You can undo the update in Manage voice."+VoiceRefinementReport.compare(current,candidate,event.input==AudioRouteController.Route.HEADSET)))
                 .setNegativeButton("Cancel",null).setPositiveButton("Authenticate and learn",(d,w)->authenticateOwner("Learn wake feedback",()->WakeChangeApproval.runApproved(()->{
                     if(android.os.SystemClock.elapsedRealtime()-event.at>=120000){toast("Event expired; repeat it and try again.");return;}
                     boolean ok=new ProfileStore(this).commitOwnerEvidence(candidate,event.revision);

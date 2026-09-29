@@ -45,8 +45,8 @@ public class ContinuousSessionRecoveryTest {
   worker().submit(()->{try{m.invoke(session,new StreamingWakeDetector.Match(0,12000,0,OwnerVoiceProfileTest.pattern(0)),token,profile,profile.phraseEvidence);}catch(Exception e){throw new RuntimeException(e);}}).get(5,TimeUnit.SECONDS);
   Shadows.shadowOf(Looper.getMainLooper()).idle();
  }
- @Test public void fiftyWakeReplyRearmCyclesRemainUsable()throws Exception{
-  for(int i=0;i<50;i++){
+ @Test public void fiveHundredWakeReplyRearmCyclesRemainUsable()throws Exception{
+  for(int i=0;i<500;i++){
    session.arm(profile,listener);verifyFrom("WAKE");assertEquals(i+1,wakes);assertEquals("READY",get("mode").toString());
    session.pause();assertEquals("IDLE",get("mode").toString());assertTrue(session.usable());
   }

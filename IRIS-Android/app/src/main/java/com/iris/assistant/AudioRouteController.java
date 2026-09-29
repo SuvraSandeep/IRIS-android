@@ -14,54 +14,64 @@ final class AudioRouteController implements AutoCloseable {
     static volatile String observed="Microphone idle";
     static volatile Route observedRoute=Route.UNCONFIRMED;
     private final AudioManager manager;
-    private final int previousMode;
-    private boolean changed;
-    AudioRouteController(Context context){
-        manager=context==null?null:(AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
-        previousMode=manager==null?AudioManager.MODE_NORMAL:manager.getMode();
-    }
+    private CommunicationRouteLease communication;
+    private AudioDeviceInfo bluetoothOutput;
+    private boolean media,listenerAdded;
+    private Route requiredRoute=Route.UNCONFIRMED;
+    AudioRouteController(Context context){manager=context==null?null:(AudioManager)context.getSystemService(Context.AUDIO_SERVICE);}
     void request(Context context,AudioRecord recorder){request(context,recorder,true);}
-    /** @param allowBluetooth false during always-on wake listening: forcing MODE_IN_COMMUNICATION
-     *  and Bluetooth SCO turns a connected headset's music stream from full-quality A2DP into
-     *  call-quality narrowband audio the instant this runs — which is what made music sound bad
-     *  while IRIS was merely awaiting the wake phrase, not actually in a command. This mirrors
-     *  IrisListeningService.chooseDevice()'s own allowBluetoothInAuto gate (btMicAllowed &&
-     *  !musicPlaying) — that gate already existed and was already documented as the fix for
-     *  exactly this symptom, but this class is a SEPARATE device-selection path used by
-     *  ManagedSpeechService for live listening, and it never inherited the same gate, silently
-     *  reintroducing the same quality regression through a second, parallel route. Training
-     *  (TimedRecorder) always passes true here — an explicit, short, user-initiated recording is
-     *  never "merely awake" and should always honor the user's actual microphone preference. */
     void request(Context context,AudioRecord recorder,boolean allowBluetooth){request(context,recorder,allowBluetooth,Route.UNCONFIRMED);}
     void request(Context context,AudioRecord recorder,boolean allowBluetooth,Route required){
-        observed="Microphone route unconfirmed";
+        requiredRoute=required;observed="Microphone route unconfirmed";observedRoute=Route.UNCONFIRMED;
         if(manager==null)return;
-        if(previousMode==AudioManager.MODE_IN_CALL||previousMode==AudioManager.MODE_IN_COMMUNICATION)return;
+        media=manager.isMusicActive();
+        // Explicit headset training may request its mic briefly. Passive listening preserves
+        // media output and uses the phone mic when classic Bluetooth needs a call-mode switch.
+        boolean bluetoothAllowed=allowBluetooth&&(required==Route.HEADSET||!media);
         try{
+            if(manager.getMode()!=AudioManager.MODE_NORMAL&&(communication==null||!communication.owned()))return;
             String preference=required==Route.PHONE?"Phone":required==Route.HEADSET?"Automatic":new AppSettings(context).preferredMicrophone();
-            AudioDeviceInfo chosen=null;
+            AudioDeviceInfo chosen=null;int best=-1;
             for(AudioDeviceInfo d:manager.getDevices(AudioManager.GET_DEVICES_INPUTS)){
-                boolean bt=d.getType()==AudioDeviceInfo.TYPE_BLUETOOTH_SCO||(Build.VERSION.SDK_INT>=31&&d.getType()==AudioDeviceInfo.TYPE_BLE_HEADSET);
-                boolean phone=d.getType()==AudioDeviceInfo.TYPE_BUILTIN_MIC;
+                boolean bt=bluetooth(d),phone=d.getType()==AudioDeviceInfo.TYPE_BUILTIN_MIC;
                 boolean wired=d.getType()==AudioDeviceInfo.TYPE_WIRED_HEADSET||d.getType()==AudioDeviceInfo.TYPE_USB_HEADSET||d.getType()==AudioDeviceInfo.TYPE_USB_DEVICE;
+                if(!bt&&!phone&&!wired)continue;
                 if(required==Route.HEADSET&&!bt&&!wired)continue;
-                if(bt&&!allowBluetooth)continue; // never even consider Bluetooth while wake-only listening
-                if((preference.equals("Phone")&&phone)||(preference.equals("Bluetooth")&&bt)||(preference.equals("Wired / USB")&&wired)){chosen=d;break;}
-                if(preference.equals("Automatic") && (chosen==null||wired||bt))chosen=d;
+                if(bt&&!bluetoothAllowed)continue;
+                int score=phone?1:bt?2:3;
+                if(preference.equals("Phone")){if(!phone)continue;score=10;}
+                else if(preference.equals("Bluetooth")&&bt)score=10;
+                else if(preference.equals("Wired / USB")&&wired)score=10;
+                if(score>best){chosen=d;best=score;}
             }
-            if(chosen!=null){
-                boolean bt=chosen.getType()==AudioDeviceInfo.TYPE_BLUETOOTH_SCO||(Build.VERSION.SDK_INT>=31&&chosen.getType()==AudioDeviceInfo.TYPE_BLE_HEADSET);
-                if(bt&&allowBluetooth){
-                    manager.setMode(AudioManager.MODE_IN_COMMUNICATION);changed=true;
-                    observed="Bluetooth requested; input unconfirmed";
-                    if(Build.VERSION.SDK_INT>=31){
-                        for(AudioDeviceInfo d:manager.getAvailableCommunicationDevices())if(d.getType()==chosen.getType()){manager.setCommunicationDevice(d);break;}
-                    }else{manager.startBluetoothSco();manager.setBluetoothScoOn(true);}
+            if(chosen!=null&&bluetooth(chosen)){
+                bluetoothOutput=null;
+                if(Build.VERSION.SDK_INT>=31){
+                    for(AudioDeviceInfo d:manager.getAvailableCommunicationDevices())if(bluetooth(d)&&d.getType()==chosen.getType()){
+                        bluetoothOutput=d;if(d.getProductName().toString().equals(chosen.getProductName().toString()))break;
+                    }
+                    if(bluetoothOutput==null)throw new IllegalStateException("Bluetooth communication output unavailable");
                 }
-                recorder.setPreferredDevice(chosen);
-            }
-            recorder.addOnRoutingChangedListener(r->observe(recorder),null);
-        }catch(Exception error){observed="Requested microphone unavailable; checking actual input";}
+                if(communication==null)communication=new CommunicationRouteLease(new CommunicationRouteLease.Controls(){
+                    public int mode(){return manager.getMode();}
+                    public void communication(){manager.setMode(AudioManager.MODE_IN_COMMUNICATION);}
+                    public boolean select(){if(Build.VERSION.SDK_INT>=31)return manager.setCommunicationDevice(bluetoothOutput);manager.startBluetoothSco();manager.setBluetoothScoOn(true);return true;}
+                    public void clear(){if(Build.VERSION.SDK_INT>=31)manager.clearCommunicationDevice();else{try{manager.stopBluetoothSco();}finally{manager.setBluetoothScoOn(false);}}}
+                    public void normal(){manager.setMode(AudioManager.MODE_NORMAL);}
+                });
+                if(!communication.acquire())throw new IllegalStateException("Bluetooth routing refused");
+            }else if(communication!=null)communication.close();
+            if(!recorder.setPreferredDevice(chosen))throw new IllegalStateException("Microphone routing refused");
+            if(!listenerAdded){recorder.addOnRoutingChangedListener(r->observe(recorder),null);listenerAdded=true;}
+            if(media&&required==Route.UNCONFIRMED)VoiceHealth.event("MEDIA_ROUTE","Preserving media output; using confirmed non-Bluetooth input");
+        }catch(Exception error){if(communication!=null)communication.close();recorder.setPreferredDevice(null);observed="Requested microphone unavailable; checking actual input";}
+    }
+    private static boolean bluetooth(AudioDeviceInfo d){return d.getType()==AudioDeviceInfo.TYPE_BLUETOOTH_SCO||(Build.VERSION.SDK_INT>=31&&d.getType()==AudioDeviceInfo.TYPE_BLE_HEADSET);}
+    void reconcile(Context context,AudioRecord recorder,boolean allowBluetooth){
+        if(manager==null||requiredRoute!=Route.UNCONFIRMED)return;
+        boolean active=manager.isMusicActive();
+        boolean lost=communication!=null&&communication.owned()&&capturedRoute(recorder)!=Route.HEADSET;
+        if(active!=media||lost){if(communication!=null)communication.close();request(context,recorder,allowBluetooth,requiredRoute);}
     }
     /** Startup routing is asynchronous on Bluetooth. Discard startup audio until the requested
      * input has been stable for 300 ms; never label phone audio as headset evidence. */
@@ -124,7 +134,7 @@ final class AudioRouteController implements AutoCloseable {
         }catch(Exception ignored){observed="Recording input unconfirmed";observedRoute=Route.UNCONFIRMED;}
     }
     public void close(){
-        if(changed&&manager!=null)try{if(Build.VERSION.SDK_INT>=31)manager.clearCommunicationDevice();else{manager.stopBluetoothSco();manager.setBluetoothScoOn(false);}manager.setMode(previousMode);}catch(Exception ignored){}
+        if(communication!=null)communication.close();
         observed="Microphone idle";observedRoute=Route.UNCONFIRMED;
     }
 }
