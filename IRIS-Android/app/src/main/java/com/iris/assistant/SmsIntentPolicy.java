@@ -1,5 +1,7 @@
 package com.iris.assistant;
 final class SmsIntentPolicy {
+    static final java.util.regex.Pattern LOOSE = java.util.regex.Pattern.compile(
+            "^(?:text|txt|message|msg|sms)\\s+(.+)$", java.util.regex.Pattern.CASE_INSENSITIVE);
     static boolean mayAddressContact(String rest){
         if(rest==null)return false;
         String text=rest.trim().toLowerCase(java.util.Locale.ROOT);

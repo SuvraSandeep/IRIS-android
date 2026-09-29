@@ -8,6 +8,18 @@ public class WakeLearningTest {
  static RecordedPhrase phrase(double policy)throws Exception{
   List<float[][]> bank=Arrays.asList(sound(1),sound(1),sound(1),sound(1));return RecordedPhrase.create(bank,bank,policy);
  }
+ @Test public void dualModelSoundFeedbackRequiresBothCapturedVectors()throws Exception{
+  OwnerVoiceProfile p=OwnerVoiceProfileTest.profile();float[][] missed=sound(.9);
+  float[] ecapa=OwnerVoiceProfileTest.ev(1),vosk=OwnerVoiceProfileTest.vv(1);
+  OwnerVoiceProfile q=p.withSoundFeedback(missed,ecapa,vosk,false,true);
+  assertTrue(q.phraseEvidence.accepts(missed));assertTrue(q.validates());
+  assertArrayEquals(p.ecapaCentroid(),q.ecapaCentroid(),0);
+  assertArrayEquals(p.voskCentroid(),q.voskCentroid(),0);
+  assertEquals(p.threshold(),q.threshold(),0);
+  assertThrows(Exception.class,()->p.withSoundFeedback(missed,null,vosk,false,true));
+  assertThrows(Exception.class,()->p.withSoundFeedback(missed,ecapa,null,false,true));
+  assertThrows(Exception.class,()->p.withSoundFeedback(missed,OwnerVoiceProfileTest.ev(0),OwnerVoiceProfileTest.vv(0),false,true));
+ }
  @Test public void easeAffectsSoundAndOwnerAndCanUndoStrictness()throws Exception{
   RecordedPhrase strict=phrase(.85),easy=phrase(.65);
   assertFalse(strict.accepts(sound(.965)));assertTrue(easy.accepts(sound(.965)));

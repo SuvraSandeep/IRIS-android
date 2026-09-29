@@ -30,6 +30,7 @@ final class OwnerVoiceProfile {
             phraseEvidence=new RecordedPhrase(data.getJSONObject("phraseEvidence"));
             ecapaVector(data.getJSONArray("ecapaCentroid"));
             voskVector(data.getJSONArray("voskCentroid"));
+            validateAdaptation(data);
         }
         float[] ecapaCentroid() { try { return ecapaVector(data.getJSONArray("ecapaCentroid")); } catch (Exception e) { return null; } }
         float[] voskCentroid() { try { return voskVector(data.getJSONArray("voskCentroid")); } catch (Exception e) { return null; } }
@@ -65,6 +66,7 @@ final class OwnerVoiceProfile {
         // redesign touches.)
         if (!Double.isFinite(threshold()) || threshold() < .65 - 1e-9 || threshold() > .85 + 1e-9)
             throw new IllegalArgumentException("Invalid owner policy");
+        validateAdaptation(data);
         if (!validates()) throw new IllegalArgumentException("Saved validation samples do not pass this profile");
         if (headset != null) {
             List<float[]> ev = ecapaList("headsetEcapaValidation", OwnerTrainingPlan.VERIFY, OwnerTrainingPlan.VERIFY);
@@ -160,24 +162,54 @@ final class OwnerVoiceProfile {
     /** Explicitly authenticated correction for a sound match with borderline owner evidence.
      * Runtime thresholds never change; all held-out checks and the corrected sample must pass. */
     OwnerVoiceProfile withOwnerFeedback(float[][] pattern,float[] speaker,boolean useHeadset)throws Exception {
+        return withOwnerFeedback(pattern,null,speaker,useHeadset);
+    }
+    OwnerVoiceProfile withOwnerFeedback(float[][] pattern,float[] ecapaSample,float[] speaker,boolean useHeadset)throws Exception {
         if(!WakePolicy.owner(speaker,speaker,.99))throw new IllegalArgumentException("Missing speaker evidence");
         if(useHeadset&&headset==null)throw new IllegalArgumentException("No headset profile");
         RecordedPhrase phrase=useHeadset?headset.phraseEvidence:phraseEvidence;
-        if(!phrase.accepts(pattern))throw new IllegalArgumentException("The recorded sound must match first");
-        float[] old=useHeadset?headset.voskCentroid():voskCentroid();
-        float[] ecapa=useHeadset?headset.ecapaCentroid():ecapaCentroid();
-        if(!WakePolicy.isAbsent(ecapa))throw new IllegalArgumentException("This profile needs fresh multi-model enrollment");
-        double similarity=WakePolicy.cosine(old,speaker);
-        if(similarity<.55||similarity>=threshold())throw new IllegalArgumentException("Use fresh enrollment for this voice; no borderline correction available");
+        if(!phrase.accepts(pattern))throw new IllegalArgumentException("The recorded phrase must match before updating your voice");
+        float[] oldVosk=useHeadset?headset.voskCentroid():voskCentroid();
+        float[] oldEcapa=useHeadset?headset.ecapaCentroid():ecapaCentroid();
+        boolean dual=!WakePolicy.isAbsent(oldEcapa);
+        if(dual&&!WakePolicy.ownerDim(ecapaSample,ecapaSample,.99,192))
+            throw new IllegalArgumentException("Both speaker models need a clean voice recording");
+        double similarity=WakePolicy.finalScore(dual?ecapaSample:null,oldEcapa,speaker,oldVosk);
+        if(similarity<Math.max(.55,threshold()-.10)||similarity>=threshold())
+            throw new IllegalArgumentException("This needs fresh voice examples, not a small feedback correction");
+        // A weighted average must not hide one model strongly disagreeing about the speaker.
+        if(dual&&(WakePolicy.cosine(ecapaSample,oldEcapa)<.55||WakePolicy.cosine(speaker,oldVosk)<.35))
+            throw new IllegalArgumentException("Speaker models disagree; record fresh owner examples");
         JSONObject j=new JSONObject(data.toString());JSONObject route=useHeadset?j.getJSONObject("headset"):j;
-        int corrections=route.optInt("ownerCorrections",0);if(corrections>=6)throw new IllegalArgumentException("Correction limit reached; refine with fresh recordings");
-        float[] adjusted=blendOwner(old,speaker);
-        route.put("voskCentroid",voskArray(adjusted)).put("ownerCorrections",corrections+1);
+        int corrections=route.optInt("ownerCorrections",0);
+        if(corrections>=6)throw new IllegalArgumentException("Feedback limit reached; refine with fresh recordings");
+        if(!route.has("ownerAnchorVosk")){
+            route.put("ownerAnchorVosk",voskArray(oldVosk));
+            route.put("ownerAnchorEcapa",ecapaArray(oldEcapa));
+        }
+        float[] adjustedVosk=blendOwner(oldVosk,speaker);
+        float[] adjustedEcapa=dual?blendOwner(oldEcapa,ecapaSample):oldEcapa;
+        route.put("voskCentroid",voskArray(adjustedVosk)).put("ecapaCentroid",ecapaArray(adjustedEcapa))
+            .put("ownerCorrections",corrections+1);
         j.put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
+        // Constructor checks the immutable anchor, both routes' held-out examples and negatives.
         OwnerVoiceProfile candidate=new OwnerVoiceProfile(j);
-        if(!(useHeadset?candidate.acceptsHeadset(null,speaker,threshold()):candidate.accepts(null,speaker,threshold())))
-            throw new IllegalArgumentException("A small correction is insufficient; record fresh owner samples");
+        if(!(useHeadset?candidate.acceptsHeadset(ecapaSample,speaker,threshold()):candidate.accepts(ecapaSample,speaker,threshold())))
+            throw new IllegalArgumentException("A small update is insufficient; refine with fresh owner recordings");
         return candidate;
+    }
+    /** Prevent repeated feedback from gradually replacing the enrolled identity. Legacy
+     * profiles acquire an anchor on their first update; read-back validates it thereafter. */
+    private static void validateAdaptation(JSONObject route)throws Exception {
+        boolean anchored=route.has("ownerAnchorVosk")||route.has("ownerAnchorEcapa");
+        if(!anchored)return;
+        int corrections=route.getInt("ownerCorrections");
+        if(corrections<1||corrections>6)throw new IllegalArgumentException("Invalid feedback count");
+        float[] av=voskVector(route.getJSONArray("ownerAnchorVosk")),v=voskVector(route.getJSONArray("voskCentroid"));
+        float[] ae=ecapaVector(route.getJSONArray("ownerAnchorEcapa")),e=ecapaVector(route.getJSONArray("ecapaCentroid"));
+        if(WakePolicy.cosine(av,v)<.97||WakePolicy.isAbsent(ae)!=WakePolicy.isAbsent(e)
+            ||(!WakePolicy.isAbsent(ae)&&WakePolicy.cosine(ae,e)<.97))
+            throw new IllegalArgumentException("Voice has changed too far for feedback; refine with fresh recordings");
     }
     private static float[] blendOwner(float[] old,float[] sample){
         double a=0,b=0;for(int i=0;i<old.length;i++){a+=old[i]*(double)old[i];b+=sample[i]*(double)sample[i];}
@@ -186,8 +218,11 @@ final class OwnerVoiceProfile {
         for(int i=0;i<out.length;i++)out[i]/=Math.sqrt(norm);return out;
     }
     OwnerVoiceProfile withSoundFeedback(float[][] pattern,float[] speaker,boolean useHeadset,boolean missed)throws Exception {
+        return withSoundFeedback(pattern,null,speaker,useHeadset,missed);
+    }
+    OwnerVoiceProfile withSoundFeedback(float[][] pattern,float[] ecapa,float[] speaker,boolean useHeadset,boolean missed)throws Exception {
         // Authentication alone cannot turn an unverified stranger into the enrolled owner.
-        if(!(useHeadset?acceptsHeadset(null,speaker,threshold()):accepts(null,speaker,threshold())))
+        if(!(useHeadset?acceptsHeadset(ecapa,speaker,threshold()):accepts(ecapa,speaker,threshold())))
             throw new IllegalArgumentException("Speaker was not verified. Adjust strictness or record fresh owner examples");
         RecordedPhrase phrase=useHeadset?headset.phraseEvidence:phraseEvidence;
         RecordedPhrase corrected=phrase.withFeedback(pattern,missed);

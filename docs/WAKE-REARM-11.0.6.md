@@ -1,0 +1,10 @@
+# Wake re-arm recovery — 11.0.6
+
+Follow-up to the report that IRIS wakes once after training, then stops responding. The report does not include live phase/microphone diagnostics, so these are verified lifecycle gaps, not proof of the particular device failure.
+
+- The offline command-model loading branch had no timeout. A missing ready/error callback left the service in command mode indefinitely. After 30 seconds the pending request is consumed, late readiness cannot reopen it, and wake listening is re-armed. Model loading can finish in the background for the next command.
+- The command timeout was scheduled only after the decoder reported ready. It now also covers decoder startup (15 seconds), then resets for the normal command window on readiness. A late ready callback cannot post a null timeout after a result.
+- Quick time/battery/charging/help answers called `speak` and immediately re-armed wake detection while TTS was still speaking. They now complete through `speakThenRun` and re-arm after the reply.
+- Every local reply previously reused `iris_greet`, and completion could run on TTS callback threads. A callback from an old utterance could be mistaken for the new one; error/fallback paths could complete twice. Each reply now has a unique ID and a synchronized completion gate. Cleanup and callbacks run on the main handler. Cancel, shutdown and server-TTS handoff invalidate pending local completions. A text-length-based fallback (6–60 seconds) bounds missing callbacks; it stops remaining TTS before re-arming, so long replies are not treated as new commands.
+
+Regression coverage includes 100 successive reply completions, duplicate done/fallback completion, superseded replies, cancellation/restart, and command-load expiration followed by stale readiness and a new command. These are deterministic lifecycle tests, not physical microphone wake trials. Full offline regressions and Android CI are required. Version 11.0.6/code 346 retains 11.0.5 routing/performance/feedback fixes and existing saved owner training.

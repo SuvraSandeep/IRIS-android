@@ -32,6 +32,9 @@ final class EcapaEmbedding {
                     }
                     synchronized(lock){if(closed)return;env=OrtEnvironment.getEnvironment();
                         try(OrtSession.SessionOptions opts=new OrtSession.SessionOptions()){opts.setIntraOpNumThreads(2);opts.setInterOpNumThreads(1);
+                            // Do not spend CPU spinning between intermittent owner checks.
+                            opts.addConfigEntry("session.intra_op.allow_spinning","0");
+                            opts.addConfigEntry("session.inter_op.allow_spinning","0");
                             // Variable-duration speech must not retain peak-size arena buffers.
                             opts.setCPUArenaAllocator(false);opts.setMemoryPatternOptimization(false);session=env.createSession(model.getAbsolutePath(),opts);}
                         if(!session.getInputNames().contains("wav"))throw new IOException("Incompatible owner model input");fingerprint=expected;ready=true;}
