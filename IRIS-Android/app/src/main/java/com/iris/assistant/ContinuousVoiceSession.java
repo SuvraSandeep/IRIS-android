@@ -20,7 +20,7 @@ final class ContinuousVoiceSession implements AutoCloseable {
     private final Object lock=new Object();private final AudioRing ring=new AudioRing(16000*8);
     private final AtomicBoolean draining=new AtomicBoolean();
     private final ManagedSpeechService capture;
-    private Mode mode=Mode.IDLE;private long generation,detectorOrigin,commandCursor,commandStart,wakeCursor;
+    private Mode mode=Mode.IDLE, beforeVerify=Mode.WAKE;private long generation,detectorOrigin,commandCursor,commandStart,wakeCursor;
     private int routeId=-1;private AudioRouteController.Route route=AudioRouteController.Route.UNCONFIRMED;
     private OwnerVoiceProfile profile;private RecordedPhrase phrase;private StreamingWakeDetector detector;
     private VoskEngine.WakeListener wakeListener;private VoskEngine.SttListener commandListener;
@@ -28,26 +28,39 @@ final class ContinuousVoiceSession implements AutoCloseable {
     private long lastScanAt;
     private QuietAudioProcessor commandGain=new QuietAudioProcessor();
     private long startedAt=SystemClock.elapsedRealtime();private volatile boolean ready,failed,inputSilenced;private long exposureSamples;
-    ContinuousVoiceSession(Context context,VoskEngine owner){
+    private volatile long lastPcmAt=SystemClock.elapsedRealtime(),lastAnalysisAt=SystemClock.elapsedRealtime();
+    private final Runnable watchdog=new Runnable(){public void run(){
+        synchronized(lock){if(mode==Mode.CLOSED||failed)return;}
+        long now=SystemClock.elapsedRealtime();
+        if(capture.stopped()||now-lastPcmAt>8000){failSession("Microphone stalled; restarting capture");return;}
+        synchronized(lock){
+            if(!inputSilenced&&(mode==Mode.WAKE||mode==Mode.COMMAND||mode==Mode.VERIFY)
+                    && now-lastAnalysisAt>15000){failSession("Voice analysis stalled; restarting capture");return;}
+        }
+        main.postDelayed(this,2000);
+    }};
+    ContinuousVoiceSession(Context context,VoskEngine owner){this(context,owner,true);}
+    // Allows lifecycle tests to supply PCM without opening physical hardware.
+    ContinuousVoiceSession(Context context,VoskEngine owner,boolean startCapture){
         this.context=context.getApplicationContext();this.owner=owner;
         capture=new ManagedSpeechService(this.context,null,16000,true);
         capture.setReadyListener(()->{ready=true;note("MIC_READY","Input stable; startup "+(SystemClock.elapsedRealtime()-startedAt)+"ms");});
         capture.setFrameListener(new ManagedSpeechService.FrameListener(){
-            public void onFrames(short[] pcm,int n,AudioRouteController.Route input,int id){frames(pcm,n,input,id);}
-            public void onHealth(String status){inputSilenced="MIC_SILENCED_BY_ANDROID".equals(status);note(status,"Microphone capture state");
+            public void onFrames(short[] pcm,int n,AudioRouteController.Route input,int id){lastPcmAt=SystemClock.elapsedRealtime();frames(pcm,n,input,id);}
+            public void onHealth(String status){lastAnalysisAt=SystemClock.elapsedRealtime();inputSilenced="MIC_SILENCED_BY_ANDROID".equals(status);note(status,"Microphone capture state");
                 if(inputSilenced){VoskEngine.SttListener c;VoskEngine.WakeListener w;synchronized(lock){if(mode==Mode.CLOSED)return;c=commandListener;w=wakeListener;mode=Mode.IDLE;generation++;ring.clear();wakeCursor=0;}execute(ContinuousVoiceSession.this::closeDecoder);
                     main.post(()->{if(c!=null)c.onError("Android silenced the microphone");else if(w!=null)w.onError("Android silenced the microphone");});}}
         });
-        capture.startListening(new RecognitionListener(){
+        if(startCapture)capture.startListening(new RecognitionListener(){
             public void onPartialResult(String s){}public void onResult(String s){}public void onFinalResult(String s){}public void onTimeout(){}
-            public void onError(Exception e){failed=true;note("MIC_UNAVAILABLE",String.valueOf(e.getMessage()));VoskEngine.WakeListener w;VoskEngine.SttListener c;synchronized(lock){w=wakeListener;c=commandListener;}
-                if(c!=null)c.onError(e.getMessage());else if(w!=null)w.onError(e.getMessage());}
+            public void onError(Exception e){failSession("Microphone unavailable: "+e.getMessage());}
         });
+        if(startCapture)main.postDelayed(watchdog,2000);
     }
     boolean usable(){synchronized(lock){return mode!=Mode.CLOSED&&!failed;}}
     boolean readyForCommand(){synchronized(lock){return mode==Mode.READY&&ready&&!failed;}}
     void arm(OwnerVoiceProfile saved,VoskEngine.WakeListener listener){
-        synchronized(lock){if(mode==Mode.CLOSED)return;generation++;mode=Mode.WAKE;profile=saved;wakeListener=listener;commandListener=null;ring.clear();wakeCursor=0;detector=null;phrase=null;routeId=-1;}
+        synchronized(lock){if(mode==Mode.CLOSED)return;generation++;mode=Mode.WAKE;lastAnalysisAt=SystemClock.elapsedRealtime();profile=saved;wakeListener=listener;commandListener=null;ring.clear();wakeCursor=0;detector=null;phrase=null;routeId=-1;}
         execute(this::closeDecoder);note("WAKE_ARMED","Streaming phrase + owner; waiting for real PCM");
     }
     void pause(){synchronized(lock){if(mode==Mode.CLOSED)return;generation++;mode=Mode.IDLE;commandListener=null;detector=null;ring.clear();wakeCursor=0;}execute(this::closeDecoder);}
@@ -72,16 +85,16 @@ final class ContinuousVoiceSession implements AutoCloseable {
      * At most one drain is queued; producer speed cannot create an unbounded task backlog. */
     private void requestDrain(){
         synchronized(lock){
-            boolean pending=!inputSilenced&&!failed&&(mode==Mode.WAKE&&wakeCursor<ring.end()||mode==Mode.COMMAND&&decoder!=null&&commandCursor<ring.end());
+            boolean pending=!inputSilenced&&!failed&&((mode==Mode.WAKE||mode==Mode.COMMAND&&profile!=null)&&wakeCursor<ring.end()||mode==Mode.COMMAND&&decoder!=null&&commandCursor<ring.end());
             if(!pending||!draining.compareAndSet(false,true))return;
         }
-        execute(()->{try{VoiceTaskGuard.run(()->{Mode state;synchronized(lock){state=mode;}if(state==Mode.WAKE)drainWake();else if(state==Mode.COMMAND)drainCommand();},this::analysisFailed);}
+        execute(()->{try{VoiceTaskGuard.run(()->{Mode state;synchronized(lock){state=mode;}if(state==Mode.WAKE||state==Mode.COMMAND&&profile!=null)drainWake();if(state==Mode.COMMAND)drainCommand();lastAnalysisAt=SystemClock.elapsedRealtime();},this::analysisFailed);}
             finally{draining.set(false);requestDrain();}});
     }
     private void drainWake(){
         short[] pcm;StreamingWakeDetector active;long token,origin;OwnerVoiceProfile saved;RecordedPhrase evidence;
         synchronized(lock){
-            if(mode!=Mode.WAKE||inputSilenced)return;
+            if((mode!=Mode.WAKE&&mode!=Mode.COMMAND)||inputSilenced)return;
             if(route==AudioRouteController.Route.UNCONFIRMED){wakeCursor=ring.end();return;}
             if(wakeCursor<ring.first()){
                 note("WAKE_OVERRUN","Analysis fell behind capture; discarded stale audio");wakeCursor=ring.first();detector=null;
@@ -100,7 +113,7 @@ final class ContinuousVoiceSession implements AutoCloseable {
         long now=SystemClock.elapsedRealtime();
         if(now-lastScanAt>=5000){lastScanAt=now;VoiceHealth.event("WAKE_SCAN","Input="+route+"; closest candidate="+active.bestDistance()+"; sample position="+wakeCursor);}
         if(candidate==null)return;
-        synchronized(lock){if(!current(token,Mode.WAKE))return;mode=Mode.VERIFY;}
+        synchronized(lock){if(token!=generation||(mode!=Mode.WAKE&&mode!=Mode.COMMAND)||inputSilenced)return;beforeVerify=mode;mode=Mode.VERIFY;}
         verify(new StreamingWakeDetector.Match(candidate.start+origin,candidate.end+origin,candidate.distance,candidate.pattern),token,saved,evidence);
     }
     private boolean current(long token,Mode expected){synchronized(lock){return generation==token&&mode==expected&&!inputSilenced;}}
@@ -124,16 +137,21 @@ final class ContinuousVoiceSession implements AutoCloseable {
             if(!accepted){reject(token,reason,pattern,ecapa,vosk,input,match.distance);return;}
             if(!p.revision().equals(new ProfileStore(context).ownerRevision())){reject(token,"PROFILE_CHANGED",pattern,ecapa,vosk,input,match.distance);return;}
             final float[] v=vosk,e=ecapa;final float[][] sound=pattern;
-            synchronized(lock){if(!current(token,Mode.VERIFY))return;mode=Mode.READY;commandStart=match.end;}
+            final long acceptedToken;
+            synchronized(lock){if(!current(token,Mode.VERIFY))return;acceptedToken=++generation;mode=Mode.READY;commandListener=null;commandStart=match.end;}
+            closeDecoder();
             note("OWNER_ACCEPTED",input+"; processing="+(SystemClock.elapsedRealtime()-begin)+"ms; one owner decision per candidate");
-            main.post(()->{if(!current(token,Mode.READY))return;owner.streamingOutcome(p,sound,e,v,input,true,"OWNER_ACCEPTED",match.distance);wakeListener.onWakeDetected(e,v);});
+            main.post(()->{if(!current(acceptedToken,Mode.READY))return;
+                try{owner.streamingOutcome(p,sound,e,v,input,true,"OWNER_ACCEPTED",match.distance);wakeListener.onWakeDetected(e,v);}
+                catch(RuntimeException error){failSession("Wake handoff failed: "+error.getClass().getSimpleName());}});
         }catch(Exception error){reject(token,reason,pattern,ecapa,vosk,input,match.distance);}
     }
     private void reject(long token,String reason,float[][] pattern,float[] ecapa,float[] vosk,AudioRouteController.Route input,double distance){
-        synchronized(lock){if(!current(token,Mode.VERIFY))return;mode=Mode.WAKE;}
+        synchronized(lock){if(!current(token,Mode.VERIFY))return;mode=beforeVerify;}
         note(reason,input+"; streaming distance="+distance);
         main.post(()->{synchronized(lock){if(token!=generation||mode==Mode.CLOSED)return;}
-            owner.streamingOutcome(profile,pattern,ecapa,vosk,input,false,reason,distance);wakeListener.onRejected(reason);});
+            try{owner.streamingOutcome(profile,pattern,ecapa,vosk,input,false,reason,distance);wakeListener.onRejected(reason);}
+            catch(RuntimeException error){VoiceHealth.event("WAKE_DIAGNOSTIC_ERROR",error.getClass().getSimpleName());}});
         requestDrain();
     }
     boolean hasBufferedCommand(){
@@ -146,7 +164,7 @@ final class ContinuousVoiceSession implements AutoCloseable {
     }
     void commands(VoskEngine commandEngine,VoskEngine.SttListener listener){
         final long token;
-        synchronized(lock){if(mode==Mode.CLOSED)return;boolean handoff=mode==Mode.READY;generation++;token=generation;mode=Mode.COMMAND;commandListener=listener;commandCursor=handoff?commandStart:ring.end();}
+        synchronized(lock){if(mode==Mode.CLOSED)return;boolean handoff=mode==Mode.READY;generation++;token=generation;mode=Mode.COMMAND;lastAnalysisAt=SystemClock.elapsedRealtime();commandListener=listener;commandCursor=handoff?commandStart:ring.end();wakeCursor=commandCursor;detector=null;phrase=null;}
         execute(()->{
             closeDecoder();if(!current(token,Mode.COMMAND))return;
             try{decoder=commandEngine.decoder();commandGain=new QuietAudioProcessor();lastPartial="";lastPartialAt=0;
@@ -175,12 +193,13 @@ final class ContinuousVoiceSession implements AutoCloseable {
         VoskEngine.SttListener listener;synchronized(lock){if(!current(token,Mode.COMMAND))return;mode=Mode.IDLE;ring.clear();wakeCursor=0;listener=commandListener;}closeDecoder();note("COMMAND_LOST",error);
         main.post(()->{synchronized(lock){if(token!=generation||mode==Mode.CLOSED)return;}if(listener!=null)listener.onError(error);});
     }
-    private void analysisFailed(RuntimeException error){
+    private void analysisFailed(RuntimeException error){failSession("Voice worker failed: "+error.getClass().getSimpleName());}
+    private void failSession(String message){
         final VoskEngine.WakeListener w;final VoskEngine.SttListener c;final long token;
-        synchronized(lock){if(mode==Mode.CLOSED)return;failed=true;mode=Mode.IDLE;generation++;token=generation;ring.clear();w=wakeListener;c=commandListener;}
-        VoiceHealth.event("WAKE_WORKER_FAILED",CrashSummary.describe(error));
+        synchronized(lock){if(mode==Mode.CLOSED||failed)return;failed=true;mode=Mode.IDLE;generation++;token=generation;ring.clear();w=wakeListener;c=commandListener;}
+        capture.stop();VoiceHealth.event("VOICE_RECOVERY",message);
         main.post(()->{synchronized(lock){if(generation!=token||mode==Mode.CLOSED)return;}
-            if(c!=null)c.onError("Voice worker failed; restarting capture");else if(w!=null)w.onError("Voice worker failed; restarting capture");});
+            if(c!=null)c.onError(message);else if(w!=null)w.onError(message);});
     }
     private void closeDecoder(){if(decoder!=null){decoder.close();decoder=null;}}
     private void execute(Runnable task){try{work.execute(task);}catch(RejectedExecutionException ignored){}}
@@ -188,6 +207,6 @@ final class ContinuousVoiceSession implements AutoCloseable {
     void awaitCaptureStopped(){capture.awaitStopped();}
     public void close(){
         synchronized(lock){if(mode==Mode.CLOSED)return;mode=Mode.CLOSED;generation++;detector=null;ring.clear();wakeCursor=0;}
-        capture.stop();execute(()->{closeDecoder();capture.awaitStopped();WakeDiagnostics.exposure(context,exposureSamples);WakeDiagnostics.event(context,"MIC_STOPPED","Session ended; active ms="+(SystemClock.elapsedRealtime()-startedAt));});work.shutdown();
+        main.removeCallbacks(watchdog);capture.stop();execute(()->{closeDecoder();capture.awaitStopped();WakeDiagnostics.exposure(context,exposureSamples);WakeDiagnostics.event(context,"MIC_STOPPED","Session ended; active ms="+(SystemClock.elapsedRealtime()-startedAt));});work.shutdown();
     }
 }

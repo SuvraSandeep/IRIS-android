@@ -4,5 +4,6 @@ final class ReplyCompletionGate {
     private long generation; private boolean pending;
     synchronized long begin(){pending=true;return ++generation;}
     synchronized boolean complete(long token){if(!pending||token!=generation)return false;pending=false;return true;}
+    synchronized boolean pending(long token){return pending&&token==generation;}
     synchronized void cancel(){generation++;pending=false;}
 }

@@ -103,6 +103,14 @@ final class AudioRouteController implements AutoCloseable {
             return Route.PHONE;
         }catch(Exception error){return Route.UNCONFIRMED;}
     }
+    static Route capturedRoute(AudioRecord recorder){
+        try{AudioDeviceInfo d=recorder.getRoutedDevice();if(d==null)return Route.UNCONFIRMED;
+            int t=d.getType();
+            if(t==AudioDeviceInfo.TYPE_BUILTIN_MIC)return Route.PHONE;
+            if(t==AudioDeviceInfo.TYPE_BLUETOOTH_SCO||t==AudioDeviceInfo.TYPE_WIRED_HEADSET||t==AudioDeviceInfo.TYPE_USB_HEADSET||t==AudioDeviceInfo.TYPE_USB_DEVICE||(Build.VERSION.SDK_INT>=31&&t==AudioDeviceInfo.TYPE_BLE_HEADSET))return Route.HEADSET;
+        }catch(Exception ignored){}
+        return Route.UNCONFIRMED;
+    }
     static void observe(AudioRecord recorder){
         try{AudioDeviceInfo actual=recorder.getRoutedDevice();
             if(actual==null){observed="Recording input unconfirmed";observedRoute=Route.UNCONFIRMED;return;}

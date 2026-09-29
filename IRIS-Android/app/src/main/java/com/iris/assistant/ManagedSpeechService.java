@@ -78,7 +78,7 @@ final class ManagedSpeechService {
                             }catch(Exception ignored){}
                             if(!state.equals(health)){health=state;frameListener.onHealth(state);}
                         }
-                        frameListener.onFrames(frame,n,AudioRouteController.observedRoute,id);continue;
+                        frameListener.onFrames(frame,n,AudioRouteController.capturedRoute(mic),id);continue;
                     }
                     if(clipListener==null)for(int i=0;i<n;i++){raw[rawOffset]=frame[i];rawOffset=(rawOffset+1)%raw.length;rawCount=Math.min(raw.length,rawCount+1);}
                     if(clipListener!=null){
