@@ -16,6 +16,6 @@ final class VoiceHealth {
     }
     static synchronized String snapshot(){
         long age=lastPcmNanos==0?-1:(System.nanoTime()-lastPcmNanos)/1_000_000;
-        return "Input="+input+"; last PCM age ms="+age+"; captured samples="+samples+"; peak RMS="+Math.round(peak)+"\n"+String.join("\n",events);
+        return "Microphone frames: "+(age>=0&&age<2000?"live":"stale / paused / stopped")+"\nInput="+input+"; last PCM age ms="+age+"; captured samples="+samples+"; peak RMS="+Math.round(peak)+"\n"+String.join("\n",events);
     }
 }

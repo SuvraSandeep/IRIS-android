@@ -1,0 +1,12 @@
+{
+  "name": "iris-watch-remote",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check app.js && node --check page/index.js && node --check app-side/index.js && node --check setting/index.js"
+  },
+  "dependencies": {
+    "@zeppos/zml": "0.0.9"
+  }
+}

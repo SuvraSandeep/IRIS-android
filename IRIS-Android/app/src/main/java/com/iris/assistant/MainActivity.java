@@ -2247,6 +2247,20 @@ public class MainActivity extends Activity {
         } catch (Throwable ignored) { }
     }
 
+    private void runReviewedCommand(String command){
+        if(!ReliabilityTools.unlocked(this))return;
+        if(!hasPermission(Manifest.permission.RECORD_AUDIO)){toast("Grant microphone permission before starting IRIS.");return;}
+        try{startForegroundService(new Intent(this,IrisListeningService.class).setAction(IrisListeningService.ACTION_PROCESS_TEXT).putExtra(IrisListeningService.EXTRA_TEXT,command));}catch(Exception e){toast("Could not start IRIS. Try the main Talk control.");}
+    }
+    private void showWatchSetup(){
+        if(!ReliabilityTools.unlocked(this))return;
+        new AlertDialog.Builder(this).setTitle("T-Rex 3 remote · experimental")
+            .setMessage("Status: "+WatchBridge.state+"\n\nA Zepp mini app can request status, ring/stop your phone, or post a Talk notification. The phone uses its own microphone. The local bridge runs only while IRIS runs. Compatibility with Zepp's local HTTP policy must be tested on your phone. DND still needs alarms allowed.")
+            .setPositiveButton(WatchBridge.enabled(this)?"Disable":"Enable and pair",(d,w)->authenticateOwner("Change watch pairing",()->{try{boolean on=!WatchBridge.enabled(this);if(on)WatchBridge.rotate(this);WatchBridge.enabled(this,on);restartIfRunning();if(on)showWatchToken();}catch(Exception e){toast("Pairing could not be saved.");}}))
+            .setNeutralButton("New pairing code",(d,w)->authenticateOwner("Replace watch pairing",()->{try{WatchBridge.rotate(this);showWatchToken();}catch(Exception e){toast("Could not replace pairing.");}})).setNegativeButton("Close",null).show();
+    }
+    private void showWatchToken(){try{TextView text=new TextView(this);text.setPadding(24,16,24,16);text.setTextIsSelectable(true);text.setText("Paste this secret into the IRIS Remote mini app's Zepp settings. Replacing it revokes the old pairing.\n\n"+WatchBridge.token(this));new AlertDialog.Builder(this).setTitle("Watch pairing secret").setView(text).setPositiveButton("Close",null).show();}catch(Exception e){toast("No pairing secret available.");}}
+
     private void showSettings() {
         selectedTab = 4;
         if(ownerTrainingActive)cancelWakeTraining();
@@ -2255,6 +2269,14 @@ public class MainActivity extends Activity {
         contentHost.addView(view);
         AppSettings settings = new AppSettings(this);
         wireAppearance(view, settings);
+        view.findViewById(R.id.reliabilityDashboard).setOnClickListener(v->ReliabilityTools.dashboard(this,this::recordFeedbackVariation));
+        view.findViewById(R.id.recognitionSetup).setOnClickListener(v->RecognitionSetup.show(this));
+        view.findViewById(R.id.commandHistory).setOnClickListener(v->ReliabilityTools.history(this,this::runReviewedCommand));
+        view.findViewById(R.id.routinesSetup).setOnClickListener(v->ReliabilityTools.routines(this,this::runReviewedCommand));
+        view.findViewById(R.id.watchSetup).setOnClickListener(v->showWatchSetup());
+        view.findViewById(R.id.assistantSetup).setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Optional default assistant")
+            .setMessage("Choose IRIS as Android's digital assistant, then use your system assistant gesture and tap Talk to IRIS. This experimental entry point does not provide a hardware hotword guarantee or replace owner checks.")
+            .setPositiveButton("Choose assistant",(d,w)->{try{startActivity(new Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS));}catch(Exception e){toast("Open Android Settings → Default apps → Digital assistant.");}}).setNegativeButton("Close",null).show());
         view.findViewById(R.id.findPhoneSetup).setOnClickListener(v->new AlertDialog.Builder(this)
             .setTitle("Find my phone")
             .setMessage("After waking IRIS, say ‘where are you’ or ‘ring my phone’. The alarm plays for 30 seconds with a Stop notification and temporarily raises alarm volume. Silent mode is supported. In Android Do Not Disturb settings, allow alarms in every active mode; total silence can block playback. Test on this phone before relying on it.")
@@ -2985,7 +3007,7 @@ public class MainActivity extends Activity {
         Button disclosure=new Button(this);disclosure.setText("Manage voice · backup · privacy  ›");disclosure.setTextColor(getColor(R.color.text_primary));disclosure.setTextSize(13);disclosure.setAllCaps(false);disclosure.setBackgroundResource(R.drawable.bg_button_secondary);section.addView(disclosure);
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setVisibility(View.GONE);section.addView(box);
         disclosure.setOnClickListener(v->{boolean open=box.getVisibility()!=View.VISIBLE;box.setVisibility(open?View.VISIBLE:View.GONE);disclosure.setText(open?"Manage voice · backup · privacy  ⌄":"Manage voice · backup · privacy  ›");});
-        String[] labels={"Voice diagnostics","Sound calibration diagnostics","Improve my voice profile","Review recent wake events","Export encrypted owner voice","Import owner voice","Undo last voice update","Keep one diagnostic recording","Export diagnostic WAV"};
+        String[] labels={"Voice diagnostics","Sound calibration diagnostics","Improve my voice profile","Review recent wake events","Export encrypted owner voice","Import owner voice","Undo last voice update","Keep one diagnostic recording","Export diagnostic WAV","Longer speaker refinement"};
         Runnable[] actions={()->new AlertDialog.Builder(this).setTitle("Last take diagnostics").setMessage(lastOwnerDiagnostic+"\nRaw audio is kept only when you enable a diagnostic take; export is a separate action. Recognition errors are not proof that you spoke incorrectly.").setPositiveButton("Close",null).show(),
             this::showCalibrationDiagnostics,
             this::startOwnerRefinement,this::reviewWakeEvents,this::exportOwnerProfile,
@@ -2998,7 +3020,7 @@ public class MainActivity extends Activity {
                 if(diagnosticPcm==null){toast("Enable one diagnostic recording, then record a take. It expires after two minutes.");return;}
                 pendingDiagnosticExport=VoiceDiagnosticWav.encode(diagnosticPcm);
                 startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("audio/wav").putExtra(Intent.EXTRA_TITLE,"IRIS-voice-diagnostic.wav"),EXPORT_VOICE_DIAGNOSTIC);
-            })};
+            }),this::recordLongSpeaker};
         for(int i=0;i<labels.length;i++){
             if(i==0||i==4||i==7){TextView group=new TextView(this);group.setText(i==0?"UNDERSTAND & IMPROVE":i==4?"BACKUP & RESTORE":"OPTIONAL AUDIO DIAGNOSTICS");group.setTextSize(10);group.setTextColor(getColor(R.color.text_secondary));group.setPadding(4,24,4,8);box.addView(group);}
             Button b=new Button(this);b.setText(labels[i]);b.setAllCaps(false);b.setTextColor(getColor(R.color.text_primary));b.setTextSize(13);b.setBackgroundResource(R.drawable.bg_button_secondary);final Runnable action=actions[i];b.setOnClickListener(v->action.run());box.addView(b);}
@@ -3158,6 +3180,10 @@ public class MainActivity extends Activity {
         if(resumeAfterFeedback){resumeAfterFeedback=false;handler.postDelayed(()->{if(!isFinishing()&&!isDestroyed())startListeningService();},700);}
     }
     private void recordFeedbackVariation(){
+        if(ownerSessionBusy()){toast("Finish the current voice session first.");return;}
+        authenticateOwner("Record missed wake feedback",this::recordFeedbackVariationApproved);
+    }
+    private void recordFeedbackVariationApproved(){
         if(ownerSessionBusy()||feedbackCapture!=null){toast("Finish the current voice session first.");return;}
         if(!hasPermission(Manifest.permission.RECORD_AUDIO)){maybeOpenAppSettings(Manifest.permission.RECORD_AUDIO,"Microphone");return;}
         final OwnerVoiceProfile profile=new ProfileStore(this).ownerEvidence();
@@ -3181,13 +3207,44 @@ public class MainActivity extends Activity {
                         boolean phrase=(headset?profile.headset.phraseEvidence:profile.phraseEvidence).accepts(pattern);
                         boolean owner=headset?profile.acceptsHeadset(ecapa,vosk,profile.threshold()):profile.accepts(ecapa,vosk,profile.threshold());
                         WakeEventStore.Event event=WakeEventStore.add(owner?(phrase?"OWNER_ACCEPTED":"PHRASE_MISMATCH"):"OWNER_REJECTED",profile.revision(),ecapa,vosk,false,pattern,route);
-                        finishFeedbackCapture();
-                        if(owner&&phrase){toast("This example already passes both checks. Your saved voice is unchanged.");return;}
-                        proposeSoundFeedback(event,true);
+                        if(feedbackCaptureDialog!=null){feedbackCaptureDialog.dismiss();feedbackCaptureDialog=null;}
+                        feedbackCaptureDialog=new AlertDialog.Builder(MainActivity.this).setTitle("Review missed attempt")
+                            .setMessage("Microphone: "+route+"\nPhrase: "+(phrase?"matched":"did not match")+"\nOwner: "+(owner?"matched":"did not match")+"\n\nListen before learning. Audio remains in memory only and expires after two minutes.")
+                            .setNeutralButton("Play recording",null).setNegativeButton("Discard",(d,w)->finishFeedbackCapture())
+                            .setPositiveButton(owner&&phrase?"Keep profile":"Review update",(d,w)->{finishFeedbackCapture();if(owner&&phrase)toast("Both checks passed. Check reply/recovery diagnostics if IRIS was silent.");else proposeSoundFeedback(event,true);})
+                            .setOnCancelListener(d->finishFeedbackCapture()).create();feedbackCaptureDialog.show();
+                        feedbackCaptureDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{if(feedbackCapture!=null)feedbackCapture.preview(MainActivity.this::toast);});
                     }
                 });
                 feedbackCapture.start();
             }).show();
+    }
+    private void recordLongSpeaker(){
+        if(ownerSessionBusy()){toast("Finish the current voice session first.");return;}
+        if(!hasPermission(Manifest.permission.RECORD_AUDIO)){toast("Grant microphone permission first.");return;}
+        OwnerVoiceProfile base=new ProfileStore(this).ownerEvidence();if(base==null){toast("Complete phrase enrollment first.");return;}
+        authenticateOwner("Record longer owner speech",()->{
+            new AlertDialog.Builder(this).setTitle("Separate speaker refinement")
+                .setMessage("Read in your normal voice for about ten seconds: ‘This is my everyday speaking voice. I use Iris on my phone to check the time, find information and help me through my day.’ This teaches speaker identity only; it cannot replace your wake sound. Your existing identity must match, and all four held-out checks must still pass.")
+                .setNegativeButton("Cancel",null).setPositiveButton("Record",(d,w)->{
+                    resumeAfterFeedback=IrisListeningService.isRunning;if(resumeAfterFeedback)stopListeningService();
+                    feedbackCaptureDialog=new AlertDialog.Builder(this).setTitle("Longer speaker sample").setMessage("Preparing…").setNegativeButton("Cancel",(x,y)->finishFeedbackCapture()).setOnCancelListener(x->finishFeedbackCapture()).create();feedbackCaptureDialog.show();
+                    feedbackCapture=new OwnerFeedbackCapture(this,base,true,new OwnerFeedbackCapture.Listener(){
+                        public void state(String message,boolean recording){if(feedbackCaptureDialog!=null)feedbackCaptureDialog.setMessage(message);}
+                        public void error(String message){finishFeedbackCapture();toast(message);}
+                        public void sample(float[][] ignored,float[] ecapa,float[] vosk,AudioRouteController.Route route){
+                            try{OwnerVoiceProfile candidate=base.withLongSpeech(ecapa,vosk,route==AudioRouteController.Route.HEADSET);
+                                if(feedbackCaptureDialog!=null)feedbackCaptureDialog.dismiss();
+                                feedbackCaptureDialog=new AlertDialog.Builder(MainActivity.this).setTitle("Review speaker refinement")
+                                    .setMessage("Input: "+route+". Existing owner identity and all saved checks passed. Wake sound and strictness stay the same. The previous profile is kept for rollback.")
+                                    .setNeutralButton("Play recording",null).setNegativeButton("Discard",(x,y)->finishFeedbackCapture()).setOnCancelListener(x->finishFeedbackCapture())
+                                    .setPositiveButton("Authenticate and save",(x,y)->{finishFeedbackCapture();authenticateOwner("Save speaker refinement",()->WakeChangeApproval.runApproved(()->{boolean ok=new ProfileStore(MainActivity.this).commitOwnerEvidence(candidate,base.revision());if(ok)restartIfRunning();toast(ok?"Speaker refinement saved.":"Profile changed or save failed; no update.");}));}).create();feedbackCaptureDialog.show();
+                                feedbackCaptureDialog.getButton(-3).setOnClickListener(v->{if(feedbackCapture!=null)feedbackCapture.preview(MainActivity.this::toast);});
+                            }catch(Exception e){finishFeedbackCapture();toast("No update: "+e.getMessage());}
+                        }
+                    });feedbackCapture.start();
+                }).show();
+        });
     }
     private void proposeSoundFeedback(WakeEventStore.Event event,boolean missed){
         if(missed&&event.accepted){toast("IRIS woke for this event. If the reply was missing, this is not a voice-training failure.");return;}
@@ -3323,7 +3380,7 @@ public class MainActivity extends Activity {
         View next=findViewById(R.id.ownerContinueButton);if(next!=null)next.setVisibility(phrasePreview.checking()&&phrasePreview.passed()?View.VISIBLE:View.GONE);
         View change=findViewById(R.id.ownerChangePhraseButton);if(change!=null)change.setVisibility(phrasePreview.checking()&&(ownerStage.kind()==OwnerTrainingStage.Kind.RETRY||phrasePreview.passed())?View.VISIBLE:View.GONE);
         TextView hero=findViewById(R.id.ownerPhraseHero);if(hero!=null)hero.setText(wakePhraseBeingTrained);
-        TextView promptLabel=findViewById(R.id.ownerPromptLabel);if(promptLabel!=null)promptLabel.setText("YOUR WAKE SOUND LABEL");
+        TextView promptLabel=findViewById(R.id.ownerPromptLabel);if(promptLabel!=null)promptLabel.setText(ownerTrainingActive?OwnerTrainingPlan.coaching(headsetTrainingActive?headsetSampleIndex:wakeSampleIndex):"YOUR WAKE SOUND LABEL");
         VoiceTrainingVisualizer meter=findViewById(R.id.ownerVoiceMeter);if(meter!=null)meter.update(ownerStage.kind()==OwnerTrainingStage.Kind.RECORDING,ownerMeterLevel);
         if(ownerRecordButton!=null){boolean recording=ownerStage.kind()==OwnerTrainingStage.Kind.RECORDING;boolean ready=ownerStage.kind()==OwnerTrainingStage.Kind.READY&&pendingOwnerCapture!=null;ownerRecordButton.setVisibility(ready||recording?View.VISIBLE:View.GONE);ownerRecordButton.setText(recording?"Done recording":"Start recording");ownerRecordButton.setEnabled((ready||recording)&&!previewBusy());}
         if(wakeWizardCancel!=null)wakeWizardCancel.setEnabled(!ownerSaveBusy);
@@ -4488,6 +4545,7 @@ public class MainActivity extends Activity {
     private void handleLaunchIntent(Intent intent) {
         if(intent!=null&&intent.getBooleanExtra("voiceFeedback",false)){intent.removeExtra("voiceFeedback");showTraining();handler.post(this::reviewWakeEvents);return;}
         if (intent == null) return;
+        if(intent.hasExtra("routinePreview")){String phrase=intent.getStringExtra("routinePreview");intent.removeExtra("routinePreview");ReliabilityTools.preview(this,RoutineStore.match(this,phrase),this::runReviewedCommand);return;}
         String act = intent.getAction();
         if (Intent.ACTION_ASSIST.equals(act) || "android.intent.action.VOICE_COMMAND".equals(act)) {
             intent.setAction(null);

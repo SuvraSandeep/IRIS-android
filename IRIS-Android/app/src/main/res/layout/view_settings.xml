@@ -10,6 +10,12 @@
         android:orientation="vertical"
         android:paddingBottom="22dp">
 
+        <Button android:id="@+id/reliabilityDashboard" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Wake reliability dashboard" />
+        <Button android:id="@+id/recognitionSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Offline language readiness" />
+        <Button android:id="@+id/commandHistory" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Command history and retry" />
+        <Button android:id="@+id/routinesSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Editable routines" />
+        <Button android:id="@+id/watchSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="T-Rex 3 remote · experimental" />
+        <Button android:id="@+id/assistantSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Default assistant · experimental" />
         <Button android:id="@+id/findPhoneSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Find my phone · alarm setup" />
 
         <TextView

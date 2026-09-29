@@ -408,6 +408,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     private WakeWordEngine wakeEngine;
     private AppSettings settings;
     private String phase = PHASE_WAKE;
+    private WatchBridge watchBridge;
+    private String historyId="";
     private String microphoneLabel = "Phone microphone";
     /** True only while a short command window / recording is open. Wake listening must never
      *  hold the Bluetooth SCO mic, because that degrades A2DP music quality. */
@@ -471,6 +473,18 @@ public class IrisListeningService extends Service implements RecognitionListener
         try { new ProfileStore(this).seedDefaultWakePhrase(); } catch (Throwable ignored) { }
         try { new ProfileStore(this).seedHardcodedVoiceprint(); } catch (Throwable ignored) { }
         createNotificationChannels();
+        watchBridge=new WatchBridge(this,path->{
+            if(!isRunning)return "Start IRIS on your phone first";
+            if(path.equals("/status"))return "IRIS: "+phase+"; "+chargingStatusText();
+            if(path.equals("/stop")){if(phoneFinder!=null)phoneFinder.stop();rearmAfterAction();return "Finder stopped";}
+            if(path.equals("/find")){if(!PHASE_WAKE.equals(phase))return "IRIS is busy; finish the current command first";handleCommand("ring my phone");return phoneFinder!=null&&phoneFinder.active()?"Ringing for 30 seconds":"Alarm blocked: check phone DND settings";}
+            android.app.NotificationManager nm=(android.app.NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+            if(!nm.areNotificationsEnabled())return "Enable IRIS notifications on your phone first";
+            nm.createNotificationChannel(new android.app.NotificationChannel("iris_watch","Watch talk requests",android.app.NotificationManager.IMPORTANCE_DEFAULT));
+            android.app.PendingIntent open=android.app.PendingIntent.getActivity(this,18473,new Intent(this,MainActivity.class).setAction(Intent.ACTION_ASSIST),android.app.PendingIntent.FLAG_UPDATE_CURRENT|android.app.PendingIntent.FLAG_IMMUTABLE);
+            nm.notify(18473,new android.app.Notification.Builder(this,"iris_watch").setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS · talk requested from watch").setContentText("Tap to speak using your phone microphone").setContentIntent(open).setAutoCancel(true).build());
+            return "Tap the IRIS notification on your phone to talk";
+        });watchBridge.start();
         textToSpeech = new TextToSpeech(this, status -> {
             ttsReady = status == TextToSpeech.SUCCESS;
             if (ttsReady) {
@@ -1188,6 +1202,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Guarded entry point: no command-handling error may crash the app. */
     private void handleCommand(String heard) {
+        historyId=CommandHistory.begin(this,heard);
         String feedback=WakePolicy.normalize(heard);
         if(feedback.equals("that was not me")||feedback.equals("that wasn t me")||feedback.equals("you missed me")){
             try{startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("voiceFeedback",true));}catch(Exception ignored){}
@@ -1267,6 +1282,11 @@ public class IrisListeningService extends Service implements RecognitionListener
             broadcastMessage(result);LogStore.append(this,"FIND_PHONE",result);
             if (!phoneFinder.active()) speakThenRun(result,this::rearmAfterAction);
             return;
+        }
+        org.json.JSONObject routine=RoutineStore.match(this,clean);
+        if(routine!=null){
+            try{startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("routinePreview",routine.optString("phrase")));reply("Review the routine actions on your phone before running them.");}
+            catch(Exception e){reply("Open IRIS Settings, Routines, to review these actions.");}return;
         }
         // Read the sticky battery broadcast directly before generic fact/planner routing.
         if (SpeechText.chargingQuestion(clean)) {
@@ -5210,6 +5230,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void rearmAfterAction() {
+        historyId="";
         replyCompletion.cancel();
         stopCommandCapture();
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
@@ -6019,6 +6040,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void broadcastMessage(String text) {
+        CommandHistory.reply(this,historyId,text);
         if (text != null) sendBroadcast(new Intent(EVENT_MESSAGE).setPackage(getPackageName()).putExtra(EXTRA_TEXT, text));
     }
 
@@ -6084,6 +6106,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (heard == null) heard = "";
         if (PHASE_CONFIRM.equals(phase)) { handleConfirmation(heard); return; }
         float[] confidence = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
+        if(CommandAmbiguity.needsRepeat(matches,confidence)){
+            retryUnclearCommand("I heard two different possible commands. Please repeat the action and its details clearly.");return;
+        }
         if (heard.trim().isEmpty() || (confidence != null && confidence.length > 0
                 && SpeechText.lowConfidence(confidence[0]))) {
             try { recognitionStats().recordUnclear(); } catch (Throwable ignored) { }
@@ -6121,6 +6146,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     @Override
     public void onDestroy() {
+        if(watchBridge!=null)watchBridge.close();
         if (phoneFinder != null) phoneFinder.stop();
         isRunning = false;
         replyCompletion.cancel();

@@ -198,6 +198,18 @@ final class OwnerVoiceProfile {
             throw new IllegalArgumentException("A small update is insufficient; refine with fresh owner recordings");
         return candidate;
     }
+    /** Optional independently recorded longer speech; phrase evidence never enters this update. */
+    OwnerVoiceProfile withLongSpeech(float[] ecapa,float[] vosk,boolean useHeadset)throws Exception {
+        if(useHeadset&&headset==null)throw new IllegalArgumentException("Train this microphone first");
+        if(!(useHeadset?acceptsHeadset(ecapa,vosk,threshold()):accepts(ecapa,vosk,threshold())))throw new IllegalArgumentException("Longer speech does not match the saved owner. Use full authenticated enrollment instead.");
+        JSONObject j=new JSONObject(data.toString()),route=useHeadset?j.getJSONObject("headset"):j;
+        int count=route.optInt("ownerCorrections");if(count>=6)throw new IllegalArgumentException("Refinement limit reached; use fresh full enrollment");
+        float[] oldV=useHeadset?headset.voskCentroid():voskCentroid(),oldE=useHeadset?headset.ecapaCentroid():ecapaCentroid();
+        if(!route.has("ownerAnchorVosk"))route.put("ownerAnchorVosk",voskArray(oldV)).put("ownerAnchorEcapa",ecapaArray(oldE));
+        route.put("voskCentroid",voskArray(blendOwner(oldV,vosk))).put("ecapaCentroid",ecapaArray(WakePolicy.isAbsent(oldE)?oldE:blendOwner(oldE,ecapa))).put("ownerCorrections",count+1);
+        j.put("revision",UUID.randomUUID().toString()).put("trainedAt",System.currentTimeMillis());
+        return new OwnerVoiceProfile(j); // revalidates anchors, negatives and every held-out route
+    }
     /** Prevent repeated feedback from gradually replacing the enrolled identity. Legacy
      * profiles acquire an anchor on their first update; read-back validates it thereafter. */
     private static void validateAdaptation(JSONObject route)throws Exception {
