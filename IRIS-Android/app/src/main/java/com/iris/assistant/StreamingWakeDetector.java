@@ -63,7 +63,7 @@ final class StreamingWakeDetector {
                 }
             }
         }
-        if(current!=null&&(best==null||current.distance<best.distance-1e-5)){best=current;sinceBest=0;}
+        if(current!=null&&(best==null||current.distance<best.distance-1e-5)&&accept.test(current.pattern)){best=current;sinceBest=0;}
         if(best!=null&&++sinceBest>=5){Match found=best;best=null;sinceBest=0;if(accept.test(found.pattern)){lastEnd=found.end;return found;}}
         return null;
     }

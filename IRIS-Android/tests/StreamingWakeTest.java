@@ -54,6 +54,13 @@ public class StreamingWakeTest {
   for(float[] f:fast){fastClock+=320;StreamingWakeDetector.Match m=quick.feature(f,fastClock);if(m!=null)quickMatch=m;}
   for(int i=0;i<10;i++){fastClock+=320;StreamingWakeDetector.Match m=quick.feature(row(20),fastClock);if(m!=null)quickMatch=m;}
   check(quickMatch!=null,"Live detector rejects a faster phrase accepted by saved evidence");
+  // A lower raw distance must not replace a candidate that passed full phrase evidence.
+  StreamingWakeDetector retained=new StreamingWakeDetector(Collections.singletonList(phrase()),.08,p->p.length>=36&&p.length<40);
+  long retainedClock=0;StreamingWakeDetector.Match retainedMatch=null;
+  for(int i=0;i<30;i++){retainedClock+=320;retained.feature(row(20),retainedClock);}
+  for(float[] f:phrase()){retainedClock+=320;StreamingWakeDetector.Match m=retained.feature(f,retainedClock);if(m!=null)retainedMatch=m;}
+  for(int i=0;i<10;i++){retainedClock+=320;StreamingWakeDetector.Match m=retained.feature(row(20),retainedClock);if(m!=null)retainedMatch=m;}
+  check(retainedMatch!=null,"Rejected lower-distance match displaced valid candidate");
   System.out.println("Passed streaming phrase-in-speech, negative stream, bounded handoff, overrun and erasure checks");
  }
 }

@@ -10,6 +10,8 @@
         android:orientation="vertical"
         android:paddingBottom="22dp">
 
+        <Button android:id="@+id/findPhoneSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Find my phone · alarm setup" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

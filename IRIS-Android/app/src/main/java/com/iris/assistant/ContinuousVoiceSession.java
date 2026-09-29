@@ -136,6 +136,14 @@ final class ContinuousVoiceSession implements AutoCloseable {
             owner.streamingOutcome(profile,pattern,ecapa,vosk,input,false,reason,distance);wakeListener.onRejected(reason);});
         requestDrain();
     }
+    boolean hasBufferedCommand(){
+        synchronized(lock){
+            if(mode!=Mode.READY)return false;
+            short[] tail=ring.slice(Math.min(ring.end(),Math.max(ring.first(),commandStart+1600)),ring.end());
+            int voiced=0;try{for(short sample:tail)if(Math.abs((int)sample)>350)voiced++;return voiced>480;}
+            finally{Arrays.fill(tail,(short)0);}
+        }
+    }
     void commands(VoskEngine commandEngine,VoskEngine.SttListener listener){
         final long token;
         synchronized(lock){if(mode==Mode.CLOSED)return;boolean handoff=mode==Mode.READY;generation++;token=generation;mode=Mode.COMMAND;commandListener=listener;commandCursor=handoff?commandStart:ring.end();}

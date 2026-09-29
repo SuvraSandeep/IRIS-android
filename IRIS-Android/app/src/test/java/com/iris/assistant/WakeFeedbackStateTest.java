@@ -32,6 +32,13 @@ public class WakeFeedbackStateTest {
   shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(2));
   assertFalse(WakeEventStore.recent().contains(e));assertEquals(0,e.pattern[0][0],0);assertEquals(0,e.voskEmbedding[0],0);
  }
+ @Test public void successfulFeedbackConsumesAndErasesEvidence(){
+  WakeEventStore.Event e=WakeEventStore.add("PHRASE_MISMATCH","revision",null,OwnerVoiceProfileTest.vv(1),false,WakeLearningTest.sound(1),AudioRouteController.Route.PHONE);
+  WakeEventStore.consume(e);
+  assertFalse(WakeEventStore.recent().contains(e));
+  assertEquals(0,e.pattern[0][0],0);assertEquals(0,e.voskEmbedding[0],0);
+  WakeEventStore.consume(e); // Repeated completion is harmless.
+ }
  @Test public void undoRestoresTheEffectiveStrictnessToo()throws Exception{
   android.content.Context context=RuntimeEnvironment.getApplication();ProfileStore store=new ProfileStore(context);
   OwnerVoiceProfile strict=OwnerVoiceProfileTest.profileVoskOnly().withPolicy(.85);

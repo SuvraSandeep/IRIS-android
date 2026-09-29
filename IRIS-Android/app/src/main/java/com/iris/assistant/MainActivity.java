@@ -2255,6 +2255,11 @@ public class MainActivity extends Activity {
         contentHost.addView(view);
         AppSettings settings = new AppSettings(this);
         wireAppearance(view, settings);
+        view.findViewById(R.id.findPhoneSetup).setOnClickListener(v->new AlertDialog.Builder(this)
+            .setTitle("Find my phone")
+            .setMessage("After waking IRIS, say ‘where are you’ or ‘ring my phone’. The alarm plays for 30 seconds with a Stop notification and temporarily raises alarm volume. Silent mode is supported. In Android Do Not Disturb settings, allow alarms in every active mode; total silence can block playback. Test on this phone before relying on it.")
+            .setPositiveButton("DND settings",(d,w)->{try{startActivity(new Intent("android.settings.ZEN_MODE_SETTINGS"));}catch(Exception e){toast("Open Android Settings → Do Not Disturb and allow alarms.");}})
+            .setNegativeButton("Close",null).show());
         RadioGroup modes = view.findViewById(R.id.listeningModeGroup);
         RadioButton wake = view.findViewById(R.id.modeWake);
         RadioButton tap = view.findViewById(R.id.modeTap);
@@ -3185,6 +3190,7 @@ public class MainActivity extends Activity {
             }).show();
     }
     private void proposeSoundFeedback(WakeEventStore.Event event,boolean missed){
+        if(missed&&event.accepted){toast("IRIS woke for this event. If the reply was missing, this is not a voice-training failure.");return;}
         if(!missed&&!event.accepted){toast("This event did not wake IRIS; choose an accepted event.");return;}
         ProfileStore store=new ProfileStore(this);OwnerVoiceProfile current=store.ownerEvidence();
         if(current==null||!current.revision().equals(event.revision)||android.os.SystemClock.elapsedRealtime()-event.at>=120000){toast("Event expired or profile changed. Try again, then open feedback.");return;}
@@ -3197,6 +3203,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Cancel",null).setPositiveButton("Authenticate and learn",(d,w)->authenticateOwner("Learn wake feedback",()->WakeChangeApproval.runApproved(()->{
                     if(android.os.SystemClock.elapsedRealtime()-event.at>=120000){toast("Event expired; repeat it and try again.");return;}
                     boolean ok=new ProfileStore(this).commitOwnerEvidence(candidate,event.revision);
+                    if(ok)WakeEventStore.consume(event);
                     if(ok&&IrisListeningService.isRunning){stopListeningService();handler.postDelayed(this::startListeningService,700);}
                     toast(ok?"Feedback learned. Try the phrase again.":"Profile changed or save failed; nothing learned.");
                 }))).show();
@@ -3205,8 +3212,8 @@ public class MainActivity extends Activity {
     private void reviewWakeEvents(){
         if(ownerSessionBusy()){toast("Finish the current voice session first.");return;}
         List<WakeEventStore.Event> events=WakeEventStore.recent();
-        if(events.isEmpty()){new AlertDialog.Builder(this).setTitle("No recent wake evidence").setMessage("Say your wake sound with listening switched on, then open feedback within two minutes. Only temporary sound features are kept, not recordings. If no event appears, check the input in Voice diagnostics.").setPositiveButton("Close",null).show();return;}
-        String[] labels=new String[events.size()];for(int i=0;i<labels.length;i++){WakeEventStore.Event e=events.get(i);labels[i]=(e.accepted?"Woke":"Rejected")+" · "+e.reason+" · "+Math.max(0,(android.os.SystemClock.elapsedRealtime()-e.at)/1000)+"s ago";}
+        if(events.isEmpty()){new AlertDialog.Builder(this).setTitle("No recent wake evidence").setMessage("Say your wake sound with listening switched on, then open feedback within two minutes. Only temporary sound features are kept, not recordings. If no event appears, record a fresh attempt here.").setNeutralButton("Record missed attempt",(d,w)->recordFeedbackVariation()).setPositiveButton("Close",null).show();return;}
+        String[] labels=new String[events.size()];for(int i=0;i<labels.length;i++){WakeEventStore.Event e=events.get(i);labels[i]=(e.accepted?"Woke":"Rejected")+" · "+e.route+" · "+RecordedWakeCheck.guidance(e.reason)+" · "+Math.max(0,(android.os.SystemClock.elapsedRealtime()-e.at)/1000)+"s ago";}
         new AlertDialog.Builder(this).setTitle("Choose the event to correct").setItems(labels,(d,index)->{
             WakeEventStore.Event event=events.get(index);
             new AlertDialog.Builder(this).setTitle("What happened?").setItems(new String[]{"My wake sound was missed","My voice, but the wrong sound woke IRIS","Another person woke IRIS"},(dialog,kind)->{
@@ -3229,7 +3236,8 @@ public class MainActivity extends Activity {
                 .setMessage("This event will be a negative voice example. All saved owner validation takes still pass. Strictness is unchanged. This small test does not guarantee rejection of every other voice. You can undo the update.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Authenticate and apply",(d,w)->authenticateOwner("Apply voice correction",()->WakeChangeApproval.runApproved(()->{
                     if(android.os.SystemClock.elapsedRealtime()-event.at>=120000){toast("Event expired while awaiting approval. No change applied.");return;}
-                    boolean ok=new ProfileStore(this).commitOwnerEvidence(candidate,event.revision);if(ok&&IrisListeningService.isRunning){stopListeningService();handler.postDelayed(this::startListeningService,700);}toast(ok?"Voice correction applied. Previous profile retained for rollback.":"Profile changed or save failed; correction not applied.");
+                    boolean ok=new ProfileStore(this).commitOwnerEvidence(candidate,event.revision);if(ok)WakeEventStore.consume(event);
+                    if(ok&&IrisListeningService.isRunning){stopListeningService();handler.postDelayed(this::startListeningService,700);}toast(ok?"Voice correction applied. Previous profile retained for rollback.":"Profile changed or save failed; correction not applied.");
                 }))).show();
         }catch(Exception e){toast("Correction not applied: "+e.getMessage()+". Collect fresh owner samples instead.");}
     }

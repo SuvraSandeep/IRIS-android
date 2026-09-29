@@ -628,6 +628,12 @@ public class IrisListeningService extends Service implements RecognitionListener
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? ACTION_START : intent.getAction();
+        if (ACTION_STOP_FINDER.equals(action)) {
+            if (phoneFinder != null) phoneFinder.stop();
+            if (isRunning) rearmAfterAction();
+            else stopSelf();
+            return START_NOT_STICKY;
+        }
         if (ACTION_STOP.equals(action)) {
             stopIris("Listening switched off");
             return START_NOT_STICKY;
@@ -796,6 +802,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     private boolean beepMuted;
     private long wakeEpoch;
     private long lastWakeAt;
+    private PhoneFinder phoneFinder;
+    static final String ACTION_STOP_FINDER = "com.iris.assistant.STOP_FINDER";
     private final Runnable retryWake = () -> {
         if (isRunning && PHASE_WAKE.equals(phase)) startWakeDetection();
     };
@@ -832,9 +840,17 @@ public class IrisListeningService extends Service implements RecognitionListener
                 voskEngine.recordWakeOutcome(accepted?"OWNER_ACCEPTED":"PROFILE_OR_OWNER_CHANGED",accepted);
                 if(!accepted){scheduleWakeRetry(150);return;}
                 ++wakeEpoch;lastWakeAt=android.os.SystemClock.elapsedRealtime();vibrate(45);
-                // Keep PCM and the wake boundary; no spoken greeting or fixed cooldown discards
-                // the first command words. Media may pause only after owner verification.
-                requestSpeechFocus();broadcastMessage("Listening…");startCommandRecognition();
+                requestSpeechFocus();
+                // Preserve an inline command already in the ring. For a standalone wake,
+                // pause capture analysis while greeting so IRIS cannot transcribe itself.
+                if (voiceSession != null && voiceSession.hasBufferedCommand()) {
+                    broadcastMessage("Listening…");startCommandRecognition();
+                } else {
+                    if (voiceSession != null) voiceSession.pause();
+                    phase=PHASE_COMMAND;currentPhase=phase;broadcastState(true,phase);
+                    String greeting=wakeGreeting();broadcastMessage(greeting);nextOutputMinor=true;
+                    speakThenRun(greeting,IrisListeningService.this::startCommandRecognition);
+                }
             }
             public void onError(String message){if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Wake unavailable: "+message;
                 LogStore.append(IrisListeningService.this,"WAKE UNAVAILABLE",message);updateListeningNotification(wakeReadiness);scheduleWakeRetry(1500);}
@@ -1240,6 +1256,19 @@ public class IrisListeningService extends Service implements RecognitionListener
         LogStore.append(this, "HEARD", clean);
         broadcastTranscript(clean);
 
+        if (SpeechText.findPhone(clean)) {
+            if (phoneFinder == null) phoneFinder = new PhoneFinder(this);
+            if (voiceSession != null) voiceSession.pause();
+            String result = phoneFinder.start(() -> { if (isRunning) rearmAfterAction(); });
+            broadcastMessage(result);LogStore.append(this,"FIND_PHONE",result);
+            if (!phoneFinder.active()) speakThenRun(result,this::rearmAfterAction);
+            return;
+        }
+        // Read the sticky battery broadcast directly before generic fact/planner routing.
+        if (SpeechText.chargingQuestion(clean)) {
+            String result=chargingStatusText();broadcastMessage(result);
+            speakThenRun(result,this::rearmAfterAction);return;
+        }
         java.util.List<PhoneFacts.Field> phoneFields = PhoneFacts.select(clean);
         if (!phoneFields.isEmpty()) {
             final long question = phoneQuestionGeneration;
@@ -2063,20 +2092,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     private String chargingStatusText() {
         Intent b = batteryIntent();
         if (b == null) return "I can\u2019t check charging right now.";
-        int status = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-        int level = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-        int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-        int pct = (level >= 0 && scale > 0) ? Math.round(level * 100f / scale) : -1;
-        String pctPart = pct >= 0 ? " It's at " + pct + " percent." : "";
-        if (status == BatteryManager.BATTERY_STATUS_FULL) return "Yes, it's plugged in and fully charged.";
-        if (status == BatteryManager.BATTERY_STATUS_CHARGING) {
-            int plugged = b.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1);
-            String how = plugged == BatteryManager.BATTERY_PLUGGED_USB ? " over USB"
-                    : plugged == BatteryManager.BATTERY_PLUGGED_AC ? " on the charger"
-                    : plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS ? " wirelessly" : "";
-            return "Yes, your phone is charging" + how + "." + pctPart;
-        }
-        return "No, your phone isn't charging." + pctPart;
+        return ChargingState.describe(b.getIntExtra(BatteryManager.EXTRA_STATUS,-1),
+            b.getIntExtra(BatteryManager.EXTRA_PLUGGED,-1),
+            b.getIntExtra(BatteryManager.EXTRA_LEVEL,-1),b.getIntExtra(BatteryManager.EXTRA_SCALE,-1));
     }
 
     private void handleQuickAction(String normalized) {
@@ -5412,6 +5430,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void stopIris(String reason) {
+        if (phoneFinder != null) phoneFinder.stop();
         clearCameraLaunch();
         isRunning = false;
         replyCompletion.cancel();
@@ -6094,6 +6113,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     @Override
     public void onDestroy() {
+        if (phoneFinder != null) phoneFinder.stop();
         isRunning = false;
         replyCompletion.cancel();
         serviceStartedAt = 0; wakeReadiness = "Service stopped"; phoneQuestionGeneration++;
