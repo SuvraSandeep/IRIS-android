@@ -849,7 +849,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     if (voiceSession != null) voiceSession.pause();
                     phase=PHASE_COMMAND;currentPhase=phase;broadcastState(true,phase);
                     String greeting=wakeGreeting();broadcastMessage(greeting);nextOutputMinor=true;
-                    speakThenRun(greeting,this::startCommandRecognition);
+                    speakThenRun(greeting,IrisListeningService.this::startCommandRecognition);
                 }
             }
             public void onError(String message){if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Wake unavailable: "+message;
