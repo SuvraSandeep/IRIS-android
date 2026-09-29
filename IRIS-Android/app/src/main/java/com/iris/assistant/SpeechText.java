@@ -72,6 +72,19 @@ public final class SpeechText {
                 && n.matches(".*\\b(?:time|battery|charging|charged|plugged)\\b.*");
     }
 
+    public static boolean findPhone(String text) {
+        String n = text == null ? "" : text.toLowerCase(Locale.ROOT).replaceAll("[^a-z ]", " ").replaceAll("\\s+", " ").trim();
+        return n.matches("(?:please )?(?:where are you(?: iris)?|(?:find|locate|ring) (?:my |the )?phone)(?: please)?");
+    }
+
+    public static boolean chargingQuestion(String text) {
+        if (text == null) return false;
+        String n=text.toLowerCase(Locale.ROOT).replaceAll("[^a-z ]"," ").replaceAll("\\s+"," ").trim();
+        if(n.matches("^(?:text|sms|message|send|remind|call|search|google|open|set)\\b.*"))return false;
+        return n.matches("(?:charging|charging status|charge status|power source)")
+            || n.matches("^(?:is|am|are|check|tell me|what|whats|what s|whether)\\b.*\\b(?:charging|charged|plugged|charger|power source)\\b.*");
+    }
+
     public static boolean lowConfidence(float score) {
         return Float.isFinite(score) && score >= 0 && score < 0.35f;
     }

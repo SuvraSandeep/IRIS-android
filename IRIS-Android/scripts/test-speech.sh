@@ -18,6 +18,8 @@ javac -encoding UTF-8 -d "$test_dir" \
   app/src/main/java/com/iris/assistant/TelemetrySnapshot.java \
   app/src/main/java/com/iris/assistant/TrafficRateMeter.java \
   app/src/main/java/com/iris/assistant/TelemetryEventLog.java \
+  app/src/main/java/com/iris/assistant/ChargingState.java \
+  tests/PhoneCommandsTest.java \
   tests/AppRequestTest.java \
   tests/SpeechTextTest.java \
   tests/PersonalVocabularyTest.java \
@@ -37,6 +39,7 @@ javac -encoding UTF-8 -d "$test_dir" \
   app/src/main/java/com/iris/assistant/OwnerTrainingPlan.java \
   app/src/main/java/com/iris/assistant/OwnerTrainingStage.java \
   tests/OwnerTrainingStageTest.java
+java -cp "$test_dir" com.iris.assistant.PhoneCommandsTest
 java -cp "$test_dir" com.iris.assistant.SpeechTextTest
 java -cp "$test_dir" com.iris.assistant.PersonalVocabularyTest
 java -cp "$test_dir" com.iris.assistant.PlanTest

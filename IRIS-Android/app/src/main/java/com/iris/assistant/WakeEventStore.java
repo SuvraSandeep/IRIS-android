@@ -31,6 +31,7 @@ final class WakeEventStore {
     static synchronized void outcome(Event event,String reason,boolean accepted){
         if(event!=null&&events.contains(event)){event.reason=reason;event.accepted=accepted;}
     }
+    static synchronized void consume(Event event){if(events.remove(event))erase(event);}
     static synchronized List<Event> recent(){prune();return new ArrayList<>(events);}
     private static synchronized void expire(Event e){events.remove(e);erase(e);}
     static float[][] copy(float[][] pattern){
