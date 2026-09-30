@@ -47,12 +47,16 @@ final class StreamingWakeDetector {
                 if(diagonal<=stay&&diagonal<=skip){next[j]=diagonal+cost;starts[j]=j==1?frameIndex:t.starts[j-1];}
                 else if(stay<=skip){next[j]=stay+cost;starts[j]=t.starts[j];}
                 else{next[j]=skip+cost;starts[j]=starts[j-1];}
-                if(frameIndex-starts[j]+1>Math.ceil(size*2.2))next[j]=Double.POSITIVE_INFINITY;
+                if(frameIndex-starts[j]+1>Math.ceil(size*2.4))next[j]=Double.POSITIVE_INFINITY;
             }
             t.next=t.previous;t.nextStarts=t.starts;t.previous=next;t.starts=starts;long length=frameIndex-starts[size]+1;
             double score=next[size]/Math.max(length,size);
-            if(length>=Math.max(12,Math.ceil(size*.45))&&length<=Math.ceil(size*2.2))closest=Math.min(closest,score);
-            if(length>=Math.max(12,Math.ceil(size*.45))&&length<=Math.ceil(size*2.2)&&score<=threshold){
+            // Duration band widened .45->.40 lower and 2.2->2.4 upper: candidate generation only,
+            // so a slightly quicker or slower-but-genuine delivery of the same phrase still gets a
+            // chance to reach the phrase-evidence accepts() test and the owner-identity check --
+            // both of which are unchanged and remain fully authoritative for accept/reject.
+            if(length>=Math.max(12,Math.ceil(size*.40))&&length<=Math.ceil(size*2.4))closest=Math.min(closest,score);
+            if(length>=Math.max(12,Math.ceil(size*.40))&&length<=Math.ceil(size*2.4)&&score<=threshold){
                 long from=sampleEnd-400-(length-1)*320;
                 if(from>=lastEnd&&(current==null||score<current.distance)&&length<=SoundPattern.MAX_FRAMES){
                     float[][] pattern=new float[(int)length][];

@@ -100,7 +100,16 @@ final class SoundPattern {
         }
         // Bounded radius even for distinct styles; held-out recordings, never enrollment
         // recordings, must independently demonstrate that the learned bank generalizes.
-        return Math.min(.24,Math.max(.08,worst*1.2+.02));
+        // Floor raised .08 -> .12: if the four enrollment takes happen to be very consistent
+        // (near-identical pace/energy/distance), worst ~= 0 and the calibrated radius collapses
+        // to the floor, producing a live phrase threshold so tight that ordinary natural
+        // variation next time (slightly faster, louder, or a different mic distance) exceeds it
+        // and is rejected as a phrase mismatch -- even though it is the same owner saying the
+        // same words. .12 gives an over-consistent profile a usable minimum variation band.
+        // This is a pre-identity acoustic phrase gate only; the .24 ceiling, the global .32 cap,
+        // and every owner-identity threshold are unchanged, and a normally-varied profile already
+        // calibrates above .12 so it is unaffected by this floor.
+        return Math.min(.24,Math.max(.12,worst*1.2+.02));
     }
     static double calibrate(List<float[][]> templates){
         if(templates==null||templates.size()!=4)throw new IllegalArgumentException("Four complete phrase examples are required");

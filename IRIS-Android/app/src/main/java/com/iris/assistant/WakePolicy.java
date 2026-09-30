@@ -277,7 +277,14 @@ public final class WakePolicy {
         }
         java.util.Arrays.sort(levels);
         double noise = Math.max(60, levels[levels.length / 10]);
-        int voiced = 0; for (double rms : levels) if (rms >= Math.max(150, noise * 3)) voiced++;
+        // noise * 2.5 (was * 3): a genuine quiet/whispered utterance against a low background
+        // hum sits only a little above the ambient floor, and the 3x multiplier could push the
+        // voiced threshold above a real whisper and silently drop it here, before any phrase or
+        // identity check runs. 2.5x still sits well clear of steady background noise (which sits
+        // at roughly 1x the p10 floor), so this never accepts ambient hiss -- it only stops
+        // rejecting genuine quiet speech. The absolute 150 floor and voiced>=12 count are
+        // unchanged, and this gate is pre-identity: the owner ensemble check is untouched.
+        int voiced = 0; for (double rms : levels) if (rms >= Math.max(150, noise * 2.5)) voiced++;
         return voiced >= 12 && clipped < pcm.length / 100;
     }
 }
