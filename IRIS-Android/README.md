@@ -1,3 +1,5 @@
+> Current release: **13.0.0**. See [release notes](RELEASE-13.0.0.md) for the current eight-take training flow, reliability tools and known device-testing limits. Some historical setup sections below describe earlier releases. The experimental T-Rex 3 source project is in `../IRIS-Watch`.
+
 # IRIS v0.2.2
 
 **Intelligent Responsive Interaction System**

@@ -74,6 +74,14 @@
 
         <activity android:name=".NotificationReplyActivity" android:exported="false" />
 
+        <service android:name=".VoiceWorkerService" android:process=":voice_models" android:exported="false" />
+
+        <service android:name=".IrisVoiceInteractionService" android:exported="true" android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter><action android:name="android.service.voice.VoiceInteractionService" /></intent-filter>
+            <meta-data android:name="android.voice_interaction" android:resource="@xml/iris_voice_interaction" />
+        </service>
+        <service android:name=".IrisVoiceSessionService" android:exported="true" android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
         <service
             android:name=".IrisListeningService"
             android:exported="false"

@@ -408,6 +408,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     private WakeWordEngine wakeEngine;
     private AppSettings settings;
     private String phase = PHASE_WAKE;
+    private WatchBridge watchBridge;
+    private String historyId="";
     private String microphoneLabel = "Phone microphone";
     /** True only while a short command window / recording is open. Wake listening must never
      *  hold the Bluetooth SCO mic, because that degrades A2DP music quality. */
@@ -471,6 +473,18 @@ public class IrisListeningService extends Service implements RecognitionListener
         try { new ProfileStore(this).seedDefaultWakePhrase(); } catch (Throwable ignored) { }
         try { new ProfileStore(this).seedHardcodedVoiceprint(); } catch (Throwable ignored) { }
         createNotificationChannels();
+        watchBridge=new WatchBridge(this,path->{
+            if(!isRunning)return "Start IRIS on your phone first";
+            if(path.equals("/status"))return "IRIS: "+phase+"; "+chargingStatusText();
+            if(path.equals("/stop")){if(phoneFinder==null||!phoneFinder.active())return "Finder is not ringing";phoneFinder.stop();rearmAfterAction();return "Finder stopped";}
+            if(path.equals("/find")){if(!PHASE_WAKE.equals(phase))return "IRIS is busy; finish the current command first";handleCommand("ring my phone");return phoneFinder!=null&&phoneFinder.active()?"Ringing for 30 seconds":"Alarm blocked: check phone DND settings";}
+            android.app.NotificationManager nm=(android.app.NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+            if(!nm.areNotificationsEnabled())return "Enable IRIS notifications on your phone first";
+            nm.createNotificationChannel(new android.app.NotificationChannel("iris_watch","Watch talk requests",android.app.NotificationManager.IMPORTANCE_DEFAULT));
+            android.app.PendingIntent open=android.app.PendingIntent.getActivity(this,18473,new Intent(this,MainActivity.class).setAction(Intent.ACTION_ASSIST),android.app.PendingIntent.FLAG_UPDATE_CURRENT|android.app.PendingIntent.FLAG_IMMUTABLE);
+            nm.notify(18473,new android.app.Notification.Builder(this,"iris_watch").setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS · talk requested from watch").setContentText("Tap to speak using your phone microphone").setContentIntent(open).setAutoCancel(true).build());
+            return "Tap the IRIS notification on your phone to talk";
+        });watchBridge.start();
         textToSpeech = new TextToSpeech(this, status -> {
             ttsReady = status == TextToSpeech.SUCCESS;
             if (ttsReady) {
@@ -740,7 +754,19 @@ public class IrisListeningService extends Service implements RecognitionListener
                 microphoneLabel = configureAudioRoute();
                 registerAudioChanges();
             }
-            broadcastState(true, PHASE_COMMAND);
+            // A reviewed typed retry starts a fresh command, never supplies an answer to
+            // an old SMS/contact/clarification flow or races its recognition callback.
+            commandEpoch++;phoneQuestionGeneration++;
+            stopCommandCapture();destroyRecognizer();googleCommandActive=false;
+            speechCancelled=true;replyCompletion.cancel();
+            try{if(textToSpeech!=null)textToSpeech.stop();}catch(Exception ignored){}
+            releaseServerTts();stopWordEngine();abandonSpeechFocus();
+            if(voiceSession!=null)voiceSession.pause();
+            if(commandTimeout!=null){handler.removeCallbacks(commandTimeout);commandTimeout=null;}
+            if(confirmTimeout!=null){handler.removeCallbacks(confirmTimeout);confirmTimeout=null;}
+            pendingPlan=null;smsCompose=null;spellingCall=false;pendingName=null;pendingNumber=null;
+            cancelCallNotification();replyCompletion.cancel();
+            phase=PHASE_COMMAND;currentPhase=phase;broadcastState(true, PHASE_COMMAND);
             handler.post(() -> handleCommand(typed));
             return START_STICKY;
         }
@@ -835,11 +861,15 @@ public class IrisListeningService extends Service implements RecognitionListener
             public void onRejected(String reason){if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Listening · "+RecordedWakeCheck.guidance(reason);
                 LogStore.append(IrisListeningService.this,"WAKE REJECTED",reason+"; "+voskEngine.lastWakeDiagnostic());updateListeningNotification(wakeReadiness);}
             public void onWakeDetected(float[] ecapa,float[] vosk){
-                if(epoch!=wakeEpoch||!isRunning||!PHASE_WAKE.equals(phase))return;
+                if(epoch!=wakeEpoch||!isRunning||(!PHASE_WAKE.equals(phase)&&!PHASE_COMMAND.equals(phase)))return;
                 boolean accepted=revision.equals(new ProfileStore(IrisListeningService.this).ownerRevision())&&isOwnerVoice(profile,ecapa,vosk);
                 voskEngine.recordWakeOutcome(accepted?"OWNER_ACCEPTED":"PROFILE_OR_OWNER_CHANGED",accepted);
-                if(!accepted){scheduleWakeRetry(150);return;}
-                ++wakeEpoch;lastWakeAt=android.os.SystemClock.elapsedRealtime();vibrate(45);
+                if(!accepted){rearmAfterAction();return;}
+                commandEpoch++;commandLoadGate.cancel();
+                // A fresh verified wake abandons an unfinished command/clarification.
+                smsCompose=null;pendingPlan=null;spellingCall=false;pendingName=null;pendingNumber=null;
+                if(commandTimeout!=null){handler.removeCallbacks(commandTimeout);commandTimeout=null;}
+                lastWakeAt=android.os.SystemClock.elapsedRealtime();vibrate(45);
                 requestSpeechFocus();
                 // Preserve an inline command already in the ring. For a standalone wake,
                 // pause capture analysis while greeting so IRIS cannot transcribe itself.
@@ -848,12 +878,14 @@ public class IrisListeningService extends Service implements RecognitionListener
                 } else {
                     if (voiceSession != null) voiceSession.pause();
                     phase=PHASE_COMMAND;currentPhase=phase;broadcastState(true,phase);
-                    String greeting=wakeGreeting();broadcastMessage(greeting);nextOutputMinor=true;
-                    speakThenRun(greeting,IrisListeningService.this::startCommandRecognition);
+                    String greeting="Hello"+butlerAddress()+".";broadcastMessage(greeting);nextOutputMinor=false;
+                    wakeAckPending=true;mirrorToWatch(greeting,true);
+                    // A wake acknowledgement never waits for a server voice download.
+                    speakThenRunLocal(greeting,IrisListeningService.this::startCommandRecognition);
                 }
             }
             public void onError(String message){if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Wake unavailable: "+message;
-                LogStore.append(IrisListeningService.this,"WAKE UNAVAILABLE",message);updateListeningNotification(wakeReadiness);scheduleWakeRetry(1500);}
+                LogStore.append(IrisListeningService.this,"WAKE UNAVAILABLE",message);updateListeningNotification(wakeReadiness);rearmAfterAction();scheduleWakeRetry(1500);}
         });
     }
 
@@ -1045,7 +1077,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         handler.postDelayed(() -> {
             if (!isRunning || !PHASE_COMMAND.equals(phase)||epoch!=commandEpoch) return;
             VoskEngine.SttListener callbacks=new VoskEngine.SttListener() {
-                @Override public void onReady(){if(epoch==commandEpoch&&isRunning&&!handled[0]&&commandTimeout!=null&&PHASE_COMMAND.equals(phase)){LogStore.append(IrisListeningService.this,"LISTEN","Microphone ready (Vosk Indian English)");handler.removeCallbacks(commandTimeout);handler.postDelayed(commandTimeout,15_000);playListeningEarcon();}}
+                @Override public void onReady(){if(epoch==commandEpoch&&isRunning&&!handled[0]&&commandTimeout!=null&&PHASE_COMMAND.equals(phase)){VoiceEndurance.event("COMMAND_READY");LogStore.append(IrisListeningService.this,"LISTEN","Microphone ready (Vosk Indian English)");handler.removeCallbacks(commandTimeout);handler.postDelayed(commandTimeout,15_000);playListeningEarcon();}}
                 @Override public void onUnclear(String text){if(epoch!=commandEpoch||handled[0])return;handled[0]=true;commands.stop();lastHeardTranscript=text;LogStore.append(IrisListeningService.this,"UNCLEAR CMD",text);retryUnclearCommand("I could not hear that clearly. Please repeat after the tone.");}
                 @Override public void onPartial(String text) {
                     if (epoch==commandEpoch&&!text.isEmpty()) broadcastTranscript(text);
@@ -1184,6 +1216,8 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Guarded entry point: no command-handling error may crash the app. */
     private void handleCommand(String heard) {
+        VoiceEndurance.event("COMMAND_HEARD");
+        historyId=CommandHistory.begin(this,heard);
         String feedback=WakePolicy.normalize(heard);
         if(feedback.equals("that was not me")||feedback.equals("that wasn t me")||feedback.equals("you missed me")){
             try{startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("voiceFeedback",true));}catch(Exception ignored){}
@@ -1263,6 +1297,11 @@ public class IrisListeningService extends Service implements RecognitionListener
             broadcastMessage(result);LogStore.append(this,"FIND_PHONE",result);
             if (!phoneFinder.active()) speakThenRun(result,this::rearmAfterAction);
             return;
+        }
+        org.json.JSONObject routine=RoutineStore.match(this,clean);
+        if(routine!=null){
+            try{startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("routinePreview",routine.optString("phrase")));reply("Review the routine actions on your phone before running them.");}
+            catch(Exception e){reply("Open IRIS Settings, Routines, to review these actions.");}return;
         }
         // Read the sticky battery broadcast directly before generic fact/planner routing.
         if (SpeechText.chargingQuestion(clean)) {
@@ -3422,6 +3461,8 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (memoRecorder != null && memoRecorder.isRecording()) return;
         if (PHASE_COMMAND.equals(phase)) return;   // already listening
         try { if (voskEngine != null) voskEngine.stop(); } catch (Exception ignored) { }
+        if(voiceSession!=null)voiceSession.pause();
+        phase=PHASE_COMMAND;currentPhase=phase;
         vibrate(45);
         broadcastState(true, PHASE_COMMAND);
         String greet = wakeGreeting();
@@ -5204,6 +5245,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void rearmAfterAction() {
+        VoiceEndurance.event("REARM");wakeAckPending=false;
+        historyId="";
+        replyCompletion.cancel();
         stopCommandCapture();
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
@@ -5217,7 +5261,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         cancelCallNotification();
         if (!isRunning) return;
         if (AppSettings.MODE_TAP.equals(settings.listeningMode())) stopIris("Tap session completed");
-        else if (AppSettings.MODE_WAKE.equals(settings.listeningMode())) handler.postDelayed(this::startWakeDetection, 500);
+        else if (AppSettings.MODE_WAKE.equals(settings.listeningMode())) {
+            phase=PHASE_WAKE;currentPhase=phase;broadcastState(true,phase);scheduleWakeRetry(150);
+        }
         else handler.postDelayed(this::startCommandRecognition, 650);
     }
 
@@ -5567,6 +5613,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private Object speechFocusRequest;
     private volatile boolean speechCancelled;
+    private boolean wakeAckPending;
     private final ReplyCompletionGate replyCompletion=new ReplyCompletionGate();
     /** Set once per command the first time we actually pause media for speech; only this
      *  flag (not per-utterance state) decides whether media is resumed, and only once, when
@@ -5726,43 +5773,42 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Fetch the server's Piper audio and play it; fall back to Android TTS on any failure. */
     private void speakServerThenRun(String text, Runnable afterSpeaking) {
-        replyCompletion.cancel();
+        final long token=replyCompletion.begin();speechCancelled=false;
+        Runnable complete=()->{
+            if(!replyCompletion.complete(token))return;
+            releaseServerTts();abandonSpeechFocus();
+            if(isRunning&&!speechCancelled&&afterSpeaking!=null)afterSpeaking.run();
+        };
+        Runnable fallback=()->{
+            if(!replyCompletion.complete(token))return;
+            releaseServerTts();
+            if(isRunning&&!speechCancelled)speakThenRunLocal(text,afterSpeaking);
+        };
+        // Covers network exceptions, hung playback and missing MediaPlayer callbacks.
+        handler.postDelayed(complete,Math.min(60000L,Math.max(18000L,text.length()*90L+14000L)));
         new Thread(() -> {
-            byte[] wav = new ServerClient(settings.serverUrl(), settings.serverToken()).tts(text, 2500, 12000);
+            byte[] received=null;
+            try{received=new ServerClient(settings.serverUrl(),settings.serverToken()).tts(text,2500,12000);}
+            catch(Exception error){LogStore.append(this,"SERVER_TTS",CrashSummary.describe(error));}
+            final byte[] wav=received;
             handler.post(() -> {
-                if (wav == null || wav.length < 64) {
-                    speakThenRunLocal(text, afterSpeaking);
-                    return;
-                }
-                try {
-                    java.io.File f = new java.io.File(getCacheDir(), "iris_tts.wav");
-                    try (java.io.FileOutputStream o = new java.io.FileOutputStream(f)) { o.write(wav); }
-                    releaseServerTts();
-                    serverTtsPlayer = new android.media.MediaPlayer();
+                if(!replyCompletion.pending(token)||!isRunning||speechCancelled)return;
+                if(wav==null||wav.length<64){fallback.run();return;}
+                try{
+                    java.io.File f=new java.io.File(getCacheDir(),"iris_tts.wav");
+                    try(java.io.FileOutputStream out=new java.io.FileOutputStream(f)){out.write(wav);}
+                    releaseServerTts();serverTtsPlayer=new android.media.MediaPlayer();
                     serverTtsPlayer.setAudioAttributes(new android.media.AudioAttributes.Builder()
-                            .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
-                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build());
+                        .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build());
                     serverTtsPlayer.setDataSource(f.getAbsolutePath());
-                    serverTtsPlayer.setOnCompletionListener(mp -> {
-                        releaseServerTts();
-                        abandonSpeechFocus();
-                        if (afterSpeaking != null) afterSpeaking.run();
-                    });
-                    serverTtsPlayer.setOnErrorListener((mp, what, extra) -> {
-                        releaseServerTts();
-                        abandonSpeechFocus();
-                        if (afterSpeaking != null) afterSpeaking.run();
-                        return true;
-                    });
-                    serverTtsPlayer.prepare();
-                    requestSpeechFocus();
-                    serverTtsPlayer.start();
-                } catch (Throwable t) {
-                    releaseServerTts();
-                    speakThenRunLocal(text, afterSpeaking);
-                }
+                    serverTtsPlayer.setOnPreparedListener(mp->{if(replyCompletion.pending(token)&&isRunning&&!speechCancelled){requestSpeechFocus();mp.start();}});
+                    serverTtsPlayer.setOnCompletionListener(mp->complete.run());
+                    serverTtsPlayer.setOnErrorListener((mp,what,extra)->{fallback.run();return true;});
+                    serverTtsPlayer.prepareAsync();
+                }catch(Exception error){fallback.run();}
             });
-        }, "IRIS-ServerTTS").start();
+        },"IRIS-ServerTTS").start();
     }
 
     private void speakAndroidTts(String text) {
@@ -5845,6 +5891,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void speakThenRunLocal(String text, Runnable afterSpeaking) {
+        final boolean acknowledgement=wakeAckPending;wakeAckPending=false;
         final long token=replyCompletion.begin();
         final String utterance="iris_reply_"+token;
         speechCancelled=false;
@@ -5858,15 +5905,16 @@ public class IrisListeningService extends Service implements RecognitionListener
                 try{textToSpeech.stop();}catch(Exception ignored){}
             }
             abandonSpeechFocus();
-            if(isRunning&&!speechCancelled)afterSpeaking.run();
+            if(isRunning&&!speechCancelled&&afterSpeaking!=null)afterSpeaking.run();
         };
         if(text==null||text.isEmpty()||!settings.voiceReplies()||textToSpeech==null||!ttsReady){
+            if(acknowledgement){vibrate(45);playListeningEarcon();VoiceEndurance.event("ACK_FALLBACK_CUE");}
             handler.postDelayed(complete,600);return;
         }
         requestSpeechFocus();
         startStopWordListener();
         textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener(){
-            @Override public void onStart(String id){}
+            @Override public void onStart(String id){if(utterance.equals(id)&&replyCompletion.pending(token))VoiceEndurance.event(acknowledgement?"ACK_STARTED":"REPLY_STARTED");}
             @Override public void onDone(String id){if(utterance.equals(id))handler.postDelayed(complete,300);}
             @Override public void onError(String id){if(utterance.equals(id))handler.post(complete);}
         });
@@ -5874,7 +5922,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             if(textToSpeech.speak(text,TextToSpeech.QUEUE_FLUSH,null,utterance)==TextToSpeech.ERROR)handler.post(complete);
         }catch(Exception error){handler.post(complete);}
         // A missing callback must not leave the assistant permanently in a command phase.
-        handler.postDelayed(complete,Math.min(60_000L,Math.max(6000L,text.length()*90L+2000L)));
+        handler.postDelayed(complete,Math.min(60_000L,Math.max(acknowledgement?2500L:6000L,text.length()*90L+2000L)));
     }
 
     private String callTimingWarning(String name, String number) {
@@ -6011,6 +6059,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void broadcastMessage(String text) {
+        CommandHistory.reply(this,historyId,text);
         if (text != null) sendBroadcast(new Intent(EVENT_MESSAGE).setPackage(getPackageName()).putExtra(EXTRA_TEXT, text));
     }
 
@@ -6076,6 +6125,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (heard == null) heard = "";
         if (PHASE_CONFIRM.equals(phase)) { handleConfirmation(heard); return; }
         float[] confidence = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
+        if(CommandAmbiguity.needsRepeat(matches,confidence)){
+            retryUnclearCommand("I heard two different possible commands. Please repeat the action and its details clearly.");return;
+        }
         if (heard.trim().isEmpty() || (confidence != null && confidence.length > 0
                 && SpeechText.lowConfidence(confidence[0]))) {
             try { recognitionStats().recordUnclear(); } catch (Throwable ignored) { }
@@ -6113,6 +6165,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     @Override
     public void onDestroy() {
+        if(watchBridge!=null)watchBridge.close();
         if (phoneFinder != null) phoneFinder.stop();
         isRunning = false;
         replyCompletion.cancel();

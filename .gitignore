@@ -38,3 +38,8 @@ now*.json
 now - Copy.json
 noe.json
 
+
+# Zepp companion dependencies and generated output
+IRIS-Watch/node_modules/
+IRIS-Watch/dist/
+IRIS-Watch/.zeus/

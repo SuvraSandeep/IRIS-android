@@ -564,6 +564,29 @@ public final class VoskEngine {
         }
     }
 
+    /** Worker-process loading is read-only: model installation remains in the foreground app. */
+    void loadInstalledBlocking(Context context,boolean ownerMode,boolean enhanced)throws Exception {
+        captureContext=context.getApplicationContext();
+        String directory=ownerMode?OWNER_DECODER:(new AppSettings(context).highAccuracyVoice()&&!new AppSettings(context).irisPowerSaver()?LARGE_DIR_NAME:MODEL_DIR_NAME);
+        File path=new File(context.getFilesDir(),directory);
+        if(!isValidModelDir(path))throw new java.io.IOException("Install the selected voice model in IRIS first");
+        if(!isReady())installModel(new Model(path.getAbsolutePath()));
+        if(ownerMode&&!isSpeakerReady()){
+            File spk=new File(context.getFilesDir(),SPK_DIR_NAME);if(!isValidSpkDir(spk))throw new java.io.IOException("Speaker model is not installed");
+            java.security.MessageDigest digest=java.security.MessageDigest.getInstance("SHA-256");
+            for(String name:new String[]{"final.ext.raw","mfcc.conf","mean.vec","transform.mat"}){
+                digest.update(name.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                try(java.io.InputStream in=new java.io.FileInputStream(new File(spk,name))){byte[] block=new byte[16384];int n;while((n=in.read(block))!=-1)digest.update(block,0,n);}
+            }
+            StringBuilder hash=new StringBuilder();for(byte b:digest.digest())hash.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
+            spkModel=new SpeakerModel(spk.getAbsolutePath());speakerHash=hash.toString();spkReady=true;
+        }
+        if(ownerMode&&enhanced&&!ecapaReady()){
+            java.util.concurrent.CountDownLatch ready=new java.util.concurrent.CountDownLatch(1);
+            ecapaEngine=new EcapaEmbedding();ecapaEngine.load(context,new EcapaEmbedding.InitListener(){public void onReady(){ready.countDown();}public void onError(String message){ready.countDown();}});
+            if(!ready.await(30,java.util.concurrent.TimeUnit.SECONDS)||!ecapaReady())throw new java.io.IOException("Dedicated speaker model unavailable");
+        }
+    }
     final class Decoder implements AutoCloseable {
         final Recognizer recognizer;private boolean released;
         Decoder(Recognizer r){recognizer=r;}

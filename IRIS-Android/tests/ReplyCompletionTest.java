@@ -8,6 +8,8 @@ public final class ReplyCompletionTest {
    check(!gate.complete(reply),"TTS done plus timeout must not re-arm twice");
   }
   long old=gate.begin(),current=gate.begin();
+  check(!gate.pending(old),"Late server download must not start playback");
+  check(gate.pending(current),"Current server reply remains live");
   check(!gate.complete(old),"Late prior callback must not finish current reply");
   check(gate.complete(current),"Current reply finishes");
   long cancelled=gate.begin();gate.cancel();long resumed=gate.begin();
