@@ -17,7 +17,18 @@ final class ContinuousVoiceSession implements AutoCloseable {
     private final Context context;private final VoskEngine owner;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ScheduledExecutorService work=Executors.newSingleThreadScheduledExecutor(r->new Thread(r,"IRIS-VoiceSession"));
-    private final Object lock=new Object();private final AudioRing ring=new AudioRing(16000*8);
+    // Ring capacity raised 8s -> 16s. This is STRICTLY ADDITIVE by construction: when analysis
+    // keeps up with capture the extra capacity is never read, so a wake that succeeds today
+    // follows a byte-identical path. It only changes the case where analysis briefly falls
+    // behind and wakeCursor < ring.first(), which currently logs WAKE_OVERRUN, discards the
+    // stale audio and resets the detector - losing that utterance outright. A longer window
+    // gives those phrases a chance to be analysed instead of dropped.
+    // Cost is 256,000 shorts = ~512KB of RAM. No threshold, score or decision changes.
+    // Verified safe against the clip-size limits downstream: verify() slices only
+    // (match.start-1600 .. match.end+1600), SoundPattern.extract rejects spans over 16000*5,
+    // and VoiceWorkerService rejects clips over 128000 samples - none of which can be reached
+    // just because the ring is longer.
+    private final Object lock=new Object();private final AudioRing ring=new AudioRing(16000*16);
     private final AtomicBoolean draining=new AtomicBoolean();
     private final ManagedSpeechService capture;
     private final VoiceWorkerClient modelWorker;private volatile boolean preparing;private volatile String remoteDecoder="";private String preparedRevision="";

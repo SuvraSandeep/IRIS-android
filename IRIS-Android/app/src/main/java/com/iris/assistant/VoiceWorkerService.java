@@ -23,7 +23,14 @@ public final class VoiceWorkerService extends Service {
   final int operation=m.what,request=m.arg1;final Messenger target=m.replyTo;
   // Main-thread watchdog remains responsive while native inference blocks the worker thread.
   Runnable timeout=()->android.os.Process.killProcess(android.os.Process.myPid());
-  main.postDelayed(timeout,operation==PREPARE||operation==OPEN?60000:8000);
+  // Embed/feed deadline raised 8s -> 12s. STRICTLY ADDITIVE: a successful embedding returns in
+  // well under a second, so this never changes a wake that works today. It only affects the
+  // case where a cold, throttled or busy device exceeds the old 8s budget - which currently
+  // kills this process and fails the wake attempt outright. The watchdog still exists, so a
+  // genuinely hung native model is still terminated; it just gets a little longer first.
+  // Kept strictly below the client's own timeout (see VoiceWorkerClient) so the worker is
+  // always the side that gives up first and the client never reports a false success.
+  main.postDelayed(timeout,operation==PREPARE||operation==OPEN?60000:12000);
   worker.execute(()->{
    Bundle out=new Bundle();String error="";short[] pcm=in.getShortArray("pcm");
    try{

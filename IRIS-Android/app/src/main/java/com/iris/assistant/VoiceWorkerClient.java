@@ -22,7 +22,11 @@ final class VoiceWorkerClient implements AutoCloseable {
   data.putString("client",client);data.putInt("parentPid",android.os.Process.myPid());
   ModelReplyGate.Ticket<Bundle> ticket=gate.begin();
   Message message=Message.obtain(null,op,ticket.id,0);message.replyTo=replies;message.setData(data);
-  try{remote.send(message);Bundle out=ticket.result.get(op==VoiceWorkerService.PREPARE||op==VoiceWorkerService.OPEN?65000:10000,TimeUnit.MILLISECONDS);
+  // Client timeout raised 10s -> 14s to stay strictly ABOVE the worker's own 12s embed
+  // watchdog (VoiceWorkerService), preserving the existing invariant that the worker always
+  // gives up first. If the client timed out earlier than the worker, a slow-but-successful
+  // embedding could be discarded while the worker was still about to answer.
+  try{remote.send(message);Bundle out=ticket.result.get(op==VoiceWorkerService.PREPARE||op==VoiceWorkerService.OPEN?65000:14000,TimeUnit.MILLISECONDS);
    if(!out.getString("error","").isEmpty())throw new IllegalStateException(out.getString("error"));return out;
   }catch(Exception e){broken=true;abort();throw e;}finally{gate.expire(ticket.id);}
  }

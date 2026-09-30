@@ -102,3 +102,13 @@ javac -encoding UTF-8 -d "$test_dir/history" \
   tests/ReferentTest.java
 java -cp "$test_dir/history" com.iris.assistant.PhoneHistoryQueryTest
 java -cp "$test_dir/history" com.iris.assistant.ReferentTest
+
+# Assistant policy classes: quiet hours, notification summary grouping, proactive suggestion
+# restraint (cooldown / quiet-hours silence / priority order). All pure, no Android.
+mkdir -p "$test_dir/policy"
+javac -encoding UTF-8 -d "$test_dir/policy" \
+  app/src/main/java/com/iris/assistant/CallTiming.java \
+  app/src/main/java/com/iris/assistant/NotificationSummary.java \
+  app/src/main/java/com/iris/assistant/ProactiveSuggestion.java \
+  tests/AssistantPolicyTest.java
+java -cp "$test_dir/policy" com.iris.assistant.AssistantPolicyTest
