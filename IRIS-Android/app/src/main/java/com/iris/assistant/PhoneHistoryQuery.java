@@ -81,32 +81,48 @@ public final class PhoneHistoryQuery {
             + "|(?:who|what)\\s+(?:has|have)\\s+been\\s+calling(?:\\s+me)?)$",
             Pattern.CASE_INSENSITIVE);
 
-    // Named sender first: "read the last text from Ana", "any messages from Ana",
-    // "what did Ana text me". Checked before the un-named variants below.
+    // ── SMS inbox phrasings ──
+    //
+    // CRITICAL ROUTING CONSTRAINT. IrisListeningService.NOTIFICATION_PATTERN already owns
+    // every natural "read my messages" phrasing:
+    //     .*\b(how many|any|check|latest|last|read|unread|new)\b.*\b(message|messages|text|texts|whatsapp|sms)\b.*
+    //     .*\b(message|messages|text|texts)\s+from\b.*
+    // and it is dispatched AFTER this class. An earlier version of these patterns therefore
+    // silently STOLE "read my last text", "read my messages", "any new messages" and
+    // "message from X" from the notification handler - which reads captured notifications from
+    // every app (WhatsApp, Slack, SMS) and needs no READ_SMS permission. That was a real
+    // regression: a WhatsApp message the owner meant would be missed, and without READ_SMS the
+    // owner got a permission nag for a command that used to work.
+    //
+    // So the SMS-inbox kinds now REQUIRE the word "inbox", which NOTIFICATION_PATTERN does not
+    // match (it has no "inbox" noun). That makes these phrasings collision-free by
+    // construction, and leaves the notification handler owning everything it owned before.
+    private static final String INBOX = "(?:sms\\s+|text\\s+|message\\s+)?inbox";
+
     private static final Pattern FROM_SENDER = Pattern.compile(
-            "^(?:(?:please\\s+)?read\\s+)?(?:me\\s+)?(?:the\\s+|my\\s+)?(?:last|latest|new)?\\s*"
-            + "(?:text|message|sms)e?s?\\s+from\\s+(.+?)$",
+            "^(?:(?:please\\s+)?(?:read|check|open)\\s+)?(?:me\\s+)?(?:my\\s+|the\\s+)?" + INBOX
+            + "\\s+(?:for\\s+|from\\s+)(.+?)$",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern FROM_SENDER_ALT = Pattern.compile(
-            "^(?:any\\s+)?(?:new\\s+)?(?:texts?|messages?|sms)\\s+from\\s+(.+?)$",
+            "^(?:is\\s+there\\s+|any\\s+)?anything\\s+in\\s+(?:my\\s+|the\\s+)?" + INBOX
+            + "\\s+from\\s+(.+?)$",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern WHAT_DID_SAY = Pattern.compile(
-            "^what\\s+did\\s+(.+?)\\s+(?:text|message)\\s*(?:me)?$",
+            "^what\\s+did\\s+(.+?)\\s+send\\s+(?:to\\s+)?my\\s+" + INBOX + "$",
             Pattern.CASE_INSENSITIVE);
 
-    // Un-named: "read my last text", "read my messages", "any new texts".
-    // Deliberately requires a text/message/sms word so it never competes with the existing
-    // "read my notifications" command.
     private static final Pattern LAST_TEXT = Pattern.compile(
-            "^(?:(?:please\\s+)?read\\s+)?(?:me\\s+)?(?:my\\s+|the\\s+)?(?:last|latest|newest|new)?\\s*"
-            + "(?:text|message|sms)e?s?(?:\\s+(?:i\\s+got|i\\s+received|received))?$",
+            "^(?:(?:please\\s+)?(?:read|check|open)\\s+)?(?:me\\s+)?(?:my\\s+|the\\s+)?" + INBOX
+            + "$",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern ANY_NEW_TEXT = Pattern.compile(
-            "^(?:do\\s+i\\s+have|are\\s+there|any)\\s+(?:new\\s+|unread\\s+)?"
-            + "(?:texts?|messages?|sms)e?s?(?:\\s+for\\s+me)?$",
+            // what'?s, not what.s: "." requires a character between "what" and "s", so the
+            // plain unapostrophed "whats" that speech-to-text usually produces would not match.
+            "^(?:(?:is\\s+there\\s+|do\\s+i\\s+have\\s+)?anything\\s+(?:new\\s+)?in"
+            + "|what'?s\\s+in)\\s+(?:my\\s+|the\\s+)?" + INBOX + "$",
             Pattern.CASE_INSENSITIVE);
 
     /** Classify a spoken/typed command. Never throws; returns NONE when unrecognised. */

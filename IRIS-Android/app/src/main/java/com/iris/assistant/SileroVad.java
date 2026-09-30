@@ -75,6 +75,10 @@ final class SileroVad {
                         boolean bundled = false;
                         try { bundled = copyAsset(app, MODEL_FILE_NAME, target); } catch (Exception ignored) { }
                         if (!bundled) {
+                            // Offline-only mode promises no IRIS feature reaches the network.
+                            // Fail with a clear reason rather than downloading a model silently.
+                            if (new AppSettings(app).offlineOnly())
+                                throw new java.io.IOException("Offline-only mode is on, so the voice activity model cannot be downloaded. Turn it off in Settings to install it.");
                             File tmp = new File(app.getCacheDir(), MODEL_FILE_NAME + ".part");
                             try {
                                 downloadFile(MODEL_URL, tmp);

@@ -112,6 +112,11 @@ public final class VoskEngine {
                         File stage=new File(captureContext.getFilesDir(),"owner-english-stage");deleteRecursive(stage);
                         boolean bundled=false;try{bundled=unzipAsset(captureContext,"model-en-us.zip",stage);}catch(Exception ignored){}
                         if(!bundled){
+                            // Offline-only mode promises that no IRIS feature reaches the
+                            // network, so fail with a clear reason instead of quietly
+                            // downloading a model behind the owner's back.
+                            if(new AppSettings(captureContext).offlineOnly())
+                                throw new java.io.IOException("Offline-only mode is on, so the English voice pack cannot be downloaded. Turn it off in Settings to install it.");
                             File zip=new File(captureContext.getCacheDir(),"owner-english.zip");
                             try{downloadFile("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",zip);deleteRecursive(stage);unzip(zip,stage);}finally{zip.delete();}
                         }

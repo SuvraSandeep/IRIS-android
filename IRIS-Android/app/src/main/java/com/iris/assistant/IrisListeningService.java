@@ -4833,9 +4833,14 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
         LogStore.append(this, "PHONE_HISTORY", query.kind.toString());
-        speak(answer);
-        broadcastMessage(answer);
-        rearmAfterAction();
+        // Must be speakThenRun, NOT speak() followed by an immediate rearm: rearmAfterAction()
+        // calls replyCompletion.cancel(), which invalidates the token speak() just started. On
+        // the server-TTS path the async result is gated on replyCompletion.pending(token), so
+        // rearming synchronously meant the answer was never spoken at all; on local TTS it
+        // re-armed the microphone while IRIS was still talking, letting it transcribe itself.
+        // Every other one-shot spoken answer in this file uses this idiom for that reason.
+        broadcastMessageEphemeral(answer);
+        speakThenRun(answer, this::rearmAfterAction);
     }
 
     /** Act on a pronoun follow-up ("call him back", "text her") using the most recently
@@ -6232,6 +6237,18 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void broadcastMessage(String text) {
         CommandHistory.reply(this,historyId,text);
+        if (text != null) sendBroadcast(new Intent(EVENT_MESSAGE).setPackage(getPackageName()).putExtra(EXTRA_TEXT, text));
+    }
+
+    /** Show a reply on-screen WITHOUT writing it to command history.
+     *
+     *  For answers that contain content read out of the phone's own call log or SMS inbox.
+     *  broadcastMessage() persists every reply through CommandHistory, so using it for those
+     *  answers would copy message bodies and caller numbers into command-history.json - which
+     *  contradicts the "read it out, never store it" contract PhoneHistoryReader documents.
+     *  (Command history is opt-in and encrypted, so this was bounded rather than a leak, but
+     *  the contract should hold regardless of that toggle.) Everything else is identical. */
+    private void broadcastMessageEphemeral(String text) {
         if (text != null) sendBroadcast(new Intent(EVENT_MESSAGE).setPackage(getPackageName()).putExtra(EXTRA_TEXT, text));
     }
 

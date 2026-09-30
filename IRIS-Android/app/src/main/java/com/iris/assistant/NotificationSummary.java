@@ -73,7 +73,10 @@ public final class NotificationSummary {
         if (remainingApps > 0) {
             int remainingCount = 0;
             for (int i = named; i < ordered.size(); i++) remainingCount += ordered.get(i).getValue();
-            sb.append(", and ").append(remainingCount).append(" from ")
+            // "N more from M other apps". The previous wording jammed two different numbers
+            // together as "N from M other apps", which read as the nonsensical
+            // "1 from 1 other app"; "more" makes clear the two numbers mean different things.
+            sb.append(", and ").append(remainingCount).append(" more from ")
               .append(remainingApps).append(remainingApps == 1 ? " other app" : " other apps");
         }
         sb.append('.');
@@ -111,13 +114,15 @@ public final class NotificationSummary {
         if (raw == null) return false;
         String s = raw.trim().toLowerCase(Locale.ROOT).replaceAll("[?.!]+$", "")
                 .replaceAll("\\s+", " ").trim();
-        return s.matches("^(?:(?:give\\s+me\\s+|what.s\\s+)?(?:a\\s+)?"
+        // what'?s rather than what.s: "." would require a character between "what" and "s",
+        // so the plain unapostrophed "whats" that speech-to-text usually produces would miss.
+        return s.matches("^(?:(?:give\\s+me\\s+|what'?s\\s+)?(?:a\\s+)?"
                 + "(?:summary|summarise|summarize|overview|recap)"
                 + "(?:\\s+of)?(?:\\s+(?:my|the))?\\s+notifications?"
                 + "|notification\\s+(?:summary|overview|recap)"
                 + "|summari[sz]e\\s+(?:my\\s+)?notifications?"
                 + "|what\\s+(?:have\\s+)?i\\s+missed"
                 + "|what\\s+did\\s+i\\s+miss"
-                + "|(?:anything|what).s\\s+waiting)$");
+                + "|(?:anything|what'?s)\\s+waiting)$");
     }
 }

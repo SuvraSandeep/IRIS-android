@@ -73,31 +73,39 @@ public class PhoneHistoryQueryTest {
     }
 
     private static void lastSms() {
-        kind("read my last text", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("read my last message", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("read my messages", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("read my texts", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("last text", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("latest message", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("read the last sms", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("any new messages", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("any new texts", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("do i have new messages", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("any unread messages", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("read me my last text", PhoneHistoryQuery.Kind.LAST_SMS);
-        kind("please read my last message", PhoneHistoryQuery.Kind.LAST_SMS);
+        // SMS-inbox reads REQUIRE the word "inbox" so they cannot collide with
+        // NOTIFICATION_PATTERN, which owns every "read my messages" phrasing and is dispatched
+        // after this class. See the routing note in PhoneHistoryQuery.
+        kind("read my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("check my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("open my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("read my sms inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("read my text inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("read my message inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("read me my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("please read my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("Read My Inbox?", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("anything in my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("anything new in my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("is there anything in my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("do i have anything in my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("what's in my inbox", PhoneHistoryQuery.Kind.LAST_SMS);
+        kind("whats in my sms inbox", PhoneHistoryQuery.Kind.LAST_SMS);
     }
 
     private static void smsFromSender() {
-        sender("read the last text from ana", "ana");
-        sender("read the last message from ana maria", "ana maria");
-        sender("any messages from tony", "tony");
-        sender("any new texts from tony", "tony");
-        sender("messages from mom", "mom");
-        sender("what did ana text me", "ana");
-        sender("what did ana message", "ana");
-        sender("read my last text from ana please", "ana");
-        sender("sms from dad", "dad");
+        sender("read my inbox from ana", "ana");
+        sender("read my inbox for ana", "ana");
+        sender("check my inbox from ana maria", "ana maria");
+        sender("my inbox from tony", "tony");
+        sender("read my sms inbox from dad", "dad");
+        sender("anything in my inbox from mom", "mom");
+        sender("is there anything in my inbox from mom", "mom");
+        sender("what did ana send to my inbox", "ana");
+        sender("what did ana send my inbox", "ana");
+        sender("read my inbox from ana please", "ana");
     }
 
     /** Regression guard: existing, working commands must stay unmatched here. */
@@ -113,6 +121,33 @@ public class PhoneHistoryQueryTest {
         // Notification reading is a separate existing feature.
         kind("read my notifications", PhoneHistoryQuery.Kind.NONE);
         kind("any new notifications", PhoneHistoryQuery.Kind.NONE);
+        // REGRESSION GUARD (this was a real bug). IrisListeningService.NOTIFICATION_PATTERN
+        // owns all of these and is dispatched AFTER this class, so an earlier version of the
+        // SMS patterns silently stole them from the notification handler - which reads captured
+        // notifications from every app and needs no READ_SMS. They must stay NONE here.
+        kind("read my last text", PhoneHistoryQuery.Kind.NONE);
+        kind("read my last message", PhoneHistoryQuery.Kind.NONE);
+        kind("read my messages", PhoneHistoryQuery.Kind.NONE);
+        kind("read my texts", PhoneHistoryQuery.Kind.NONE);
+        kind("read the last sms", PhoneHistoryQuery.Kind.NONE);
+        kind("last text", PhoneHistoryQuery.Kind.NONE);
+        kind("latest message", PhoneHistoryQuery.Kind.NONE);
+        kind("any new messages", PhoneHistoryQuery.Kind.NONE);
+        kind("any new texts", PhoneHistoryQuery.Kind.NONE);
+        kind("any unread messages", PhoneHistoryQuery.Kind.NONE);
+        kind("do i have new messages", PhoneHistoryQuery.Kind.NONE);
+        kind("message from john", PhoneHistoryQuery.Kind.NONE);
+        kind("messages from mom", PhoneHistoryQuery.Kind.NONE);
+        kind("any message from the office", PhoneHistoryQuery.Kind.NONE);
+        kind("read the last text from ana", PhoneHistoryQuery.Kind.NONE);
+        kind("what did ana text me", PhoneHistoryQuery.Kind.NONE);
+        kind("who texted me", PhoneHistoryQuery.Kind.NONE);
+        kind("what did i miss", PhoneHistoryQuery.Kind.NONE);
+        // Bare nouns must not trigger an SMS read or a permission nag on their own.
+        kind("messages", PhoneHistoryQuery.Kind.NONE);
+        kind("texts", PhoneHistoryQuery.Kind.NONE);
+        kind("sms", PhoneHistoryQuery.Kind.NONE);
+        kind("message", PhoneHistoryQuery.Kind.NONE);
         // Sending, calling and unrelated commands.
         kind("call my mother", PhoneHistoryQuery.Kind.NONE);
         kind("text my brother i am late", PhoneHistoryQuery.Kind.NONE);
@@ -128,9 +163,9 @@ public class PhoneHistoryQueryTest {
         check(!PhoneHistoryQuery.parse("who called me").needsSms(), "who-called does not need sms");
         check(PhoneHistoryQuery.parse("any missed calls").needsCallLog(), "missed needs call log");
         check(PhoneHistoryQuery.parse("recent calls").needsCallLog(), "recent needs call log");
-        check(PhoneHistoryQuery.parse("read my last text").needsSms(), "last sms needs sms");
-        check(!PhoneHistoryQuery.parse("read my last text").needsCallLog(), "last sms no call log");
-        check(PhoneHistoryQuery.parse("messages from ana").needsSms(), "sms-from needs sms");
+        check(PhoneHistoryQuery.parse("read my inbox").needsSms(), "last sms needs sms");
+        check(!PhoneHistoryQuery.parse("read my inbox").needsCallLog(), "last sms no call log");
+        check(PhoneHistoryQuery.parse("read my inbox from ana").needsSms(), "sms-from needs sms");
         check(!PhoneHistoryQuery.parse("what time is it").needsCallLog(), "no-match needs nothing");
         check(!PhoneHistoryQuery.parse("what time is it").needsSms(), "no-match needs nothing");
         check(!PhoneHistoryQuery.parse("what time is it").matched(), "no-match not matched");

@@ -165,24 +165,22 @@ public final class PhoneHistoryReader {
     private static String smsFrom(Context context, String name) {
         if (!canReadSms(context)) return needSms();
         if (name == null || name.trim().isEmpty()) return lastSms(context);
-        // Match on the stored address; a contact name is resolved to its number(s) first so
-        // "messages from mom" works even though the SMS table only stores addresses.
+        // Telephony.Sms.ADDRESS holds a phone number or short code, essentially never a contact
+        // name. An earlier version fell back to a LIKE on ADDRESS using the spoken name, which
+        // therefore reported "no messages from X" almost every time even when messages existed
+        // -- a confidently wrong answer. If the name cannot be resolved to a number, say that
+        // instead of running a query that cannot succeed.
         String number = lookupNumber(context, name);
-        String[] cols = { Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE };
-        String where = null;
-        String[] args = null;
-        if (number != null && number.length() >= 4) {
-            // Compare on the last digits so formatting differences do not break the match.
-            String tail = number.replaceAll("[^0-9]", "");
-            if (tail.length() > 7) tail = tail.substring(tail.length() - 7);
-            where = Telephony.Sms.ADDRESS + " LIKE ?";
-            args = new String[] { "%" + tail };
-        } else {
-            where = Telephony.Sms.ADDRESS + " LIKE ?";
-            args = new String[] { "%" + name.trim() + "%" };
+        if (number == null || number.replaceAll("[^0-9]", "").length() < 4) {
+            return "I could not find a number for " + name + ", so I cannot check for messages from them.";
         }
+        // Compare on the last digits so formatting differences do not break the match.
+        String tail = number.replaceAll("[^0-9]", "");
+        if (tail.length() > 7) tail = tail.substring(tail.length() - 7);
+        String[] cols = { Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE };
         try (Cursor c = context.getContentResolver().query(Telephony.Sms.Inbox.CONTENT_URI, cols,
-                where, args, Telephony.Sms.DATE + " DESC")) {
+                Telephony.Sms.ADDRESS + " LIKE ?", new String[] { "%" + tail },
+                Telephony.Sms.DATE + " DESC")) {
             if (c == null || !c.moveToFirst()) return "No messages from " + name + ".";
             return "From " + name + ", " + ActionLedger.ago(c.getLong(2)) + ": "
                     + trim(c.getString(1));
@@ -218,20 +216,33 @@ public final class PhoneHistoryReader {
         return null;
     }
 
-    /** First phone number for a contact name, or null. */
+    /** First phone number for a contact name, or null.
+     *
+     *  The name is a spoken string, so LIKE wildcards in it must be escaped: an unescaped "%"
+     *  or "_" would turn the owner's words into pattern metacharacters and match the wrong
+     *  contact. Results are ordered so the same name always resolves to the same number rather
+     *  than depending on whatever row the provider happens to return first. */
     private static String lookupNumber(Context context, String name) {
         try {
             if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS)
                     != PackageManager.PERMISSION_GRANTED) return null;
+            String safe = escapeLike(name.trim());
             try (Cursor c = context.getContentResolver().query(
                     ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                     new String[] { ContactsContract.CommonDataKinds.Phone.NUMBER },
-                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ?",
-                    new String[] { "%" + name.trim() + "%" }, null)) {
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ? ESCAPE '\\'",
+                    new String[] { "%" + safe + "%" },
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC, "
+                            + ContactsContract.CommonDataKinds.Phone._ID + " ASC")) {
                 if (c != null && c.moveToFirst()) return c.getString(0);
             }
         } catch (Exception ignored) { }
         return null;
+    }
+
+    /** Escape LIKE metacharacters so a spoken name is matched literally. */
+    private static String escapeLike(String raw) {
+        return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     private static String trim(String body) {
