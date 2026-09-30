@@ -58,7 +58,17 @@ public final class SpeechText {
                 else if (alias.length() == length && !entry.getKey().equals(best)) ambiguous = true;
             }
         }
-        return best == null || ambiguous ? text : best + text.substring(length);
+        if (best == null || ambiguous) return text;
+        // Substring math above only measured `length` against the lowercased copy, and only
+        // as far as the matched alias itself (not including the separating whitespace before
+        // the rest of the command). Slicing the ORIGINAL-case text at that same offset leaves
+        // whatever whitespace followed the alias untouched -- for a single space this looks
+        // fine ("volume on"), but multiple spaces/tabs after the alias (e.g. "vibe   on") were
+        // preserved verbatim ("vibrate_mode   on") instead of being normalized like every other
+        // token boundary this class produces. Trim + collapse so canonicalize() always returns
+        // single-space-separated tokens regardless of how much whitespace the user/ASR left.
+        String rest = text.substring(length).replaceAll("^\\s+", "");
+        return rest.isEmpty() ? best : best + " " + rest;
     }
 
     /** Information questions only, not "text Dad the battery is low" or "remind me ... time". */

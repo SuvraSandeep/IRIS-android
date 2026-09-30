@@ -518,10 +518,7 @@ public class MainActivity extends Activity {
                 continuousBtn.setEnabled(!s.irisPowerSaver());
             }
         };
-        if (readOnceBtn != null) readOnceBtn.setOnClickListener(v -> {
-            telemetry.refreshNow();
-            renderDeck(telemetry.latest());
-        });
+        if (readOnceBtn != null) readOnceBtn.setOnClickListener(v -> telemetry.refreshNow(() -> renderDeck(telemetry.latest())));
         if (continuousBtn != null) continuousBtn.setOnClickListener(v -> {
             if (s.irisPowerSaver()) { toast("Continuous read is off while IRIS battery saver is on."); return; }
             boolean nowOn = !s.deckContinuousRead();
@@ -4595,7 +4592,15 @@ public class MainActivity extends Activity {
     private void authenticateThen(String title, Runnable action) {
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         if (keyguard == null || !keyguard.isDeviceSecure()) {
-            action.run();
+            // Real security gap this replaces: running the protected action unconditionally
+            // when the device has no PIN/pattern/password means every authenticateThen()
+            // call site (owner-voice training, contact training, profile export, etc.) is
+            // effectively unauthenticated on an unsecured phone -- anyone with physical access
+            // could trigger any of them with no prompt at all. authenticateOwner() already
+            // fails closed the same way for owner-identity changes specifically; this brings
+            // every other authenticateThen() caller in line with that same fail-closed
+            // contract instead of silently granting access.
+            toast("Set a device PIN, pattern or password before using "+title+".");
             return;
         }
         if (Build.VERSION.SDK_INT >= 28) {

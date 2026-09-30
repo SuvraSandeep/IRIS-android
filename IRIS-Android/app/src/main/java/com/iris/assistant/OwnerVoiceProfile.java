@@ -178,7 +178,17 @@ final class OwnerVoiceProfile {
         if(similarity<Math.max(.55,threshold()-.10)||similarity>=threshold())
             throw new IllegalArgumentException("This needs fresh voice examples, not a small feedback correction");
         // A weighted average must not hide one model strongly disagreeing about the speaker.
-        if(dual&&(WakePolicy.cosine(ecapaSample,oldEcapa)<.55||WakePolicy.cosine(speaker,oldVosk)<.35))
+        // Real gap this closes: the Vosk floor was .35, far looser than ECAPA's .55 floor
+        // despite finalScore() weighting ECAPA 0.8/Vosk 0.2 specifically because BOTH models
+        // are meant to broadly agree, not just the higher-weighted one. A sample that only
+        // just clears .35 on Vosk could still pass this single-correction guard every time,
+        // and though validateAdaptation()'s cumulative .97 anchor check does eventually catch
+        // repeated worst-case drift, simulation showed it only trips on the 6th (last allowed)
+        // correction -- by which point 5 prior adversarial-floor corrections had already been
+        // accepted and the centroid had already drifted to cosine(anchor,centroid)~=0.971.
+        // Matching Vosk's floor to ECAPA's (.55) closes that gap at the per-correction level
+        // instead of relying solely on the cumulative anchor check to catch it late.
+        if(dual&&(WakePolicy.cosine(ecapaSample,oldEcapa)<.55||WakePolicy.cosine(speaker,oldVosk)<.55))
             throw new IllegalArgumentException("Speaker models disagree; record fresh owner examples");
         JSONObject j=new JSONObject(data.toString());JSONObject route=useHeadset?j.getJSONObject("headset"):j;
         int corrections=route.optInt("ownerCorrections",0);

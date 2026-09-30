@@ -103,24 +103,33 @@ public final class SystemTelemetryController {
 
     public boolean isRunning() { return running; }
 
-    /** Rebuild the snapshot. {@code full} also refreshes the slower/expensive sources. */
-    private void rebuild(boolean full) {
-        if (!running || !collecting.compareAndSet(false, true)) return;
+    /** Rebuild the snapshot. {@code full} also refreshes the slower/expensive sources.
+     *  {@code oneShot} allows a single collection to run even when continuous polling
+     *  (start()/stop()) is not active -- see refreshNow()'s doc for why this distinction
+     *  matters: a fresh, never-started controller (e.g. IrisListeningService's per-question
+     *  phone-facts probe) previously could never collect at all, silently answering from an
+     *  empty TelemetrySnapshot forever, since this guard treated "not currently polling" as
+     *  "do nothing" unconditionally. */
+    private void rebuild(boolean full) { rebuild(full, false); }
+    private void rebuild(boolean full, boolean oneShot) {
+        if ((!running && !oneShot) || !collecting.compareAndSet(false, true)) return;
         final long token = generation;
         collector.execute(() -> {
             try {
                 network.sampleTraffic();
                 TelemetrySnapshot snapshot = collect(full);
                 main.post(() -> {
-                    if (!running || token != generation) return;
+                    if ((!running && !oneShot) || token != generation) return;
                     latest = snapshot;
                     events.add(TelemetryEventLog.Category.WAKE, snapshot.display("wake_ready"));
                     events.add(TelemetryEventLog.Category.SENSOR, snapshot.display("active_sensors"));
                     if (listener != null) listener.onTelemetry(snapshot);
+                    if (onOneShotComplete != null) { Runnable cb = onOneShotComplete; onOneShotComplete = null; cb.run(); }
                 });
             } finally { collecting.set(false); }
         });
     }
+    private volatile Runnable onOneShotComplete;
 
     private TelemetrySnapshot collect(boolean full) {
         TelemetrySnapshot.Builder b = TelemetrySnapshot.builder(SystemClock.elapsedRealtime());
@@ -185,7 +194,32 @@ public final class SystemTelemetryController {
         }
     }
 
-    /** Force a full refresh (e.g. the user opened a panel). */
-    public void refreshNow() { rebuild(true); }
+    /** Force a full refresh (e.g. the user opened a panel). Fire-and-forget: the caller must
+     *  read latest() from the listener callback or a subsequent event, not immediately after
+     *  this call returns, since collection always happens on a background thread. */
+    public void refreshNow() { rebuild(true, true); }
+
+    /** One-shot refresh that reports back via {@code onComplete} once the snapshot is ready,
+     *  for callers that need to read latest() right after refreshing (e.g. a phone-facts voice
+     *  answer) rather than merely re-rendering a listener-driven view. Works even when
+     *  start()/stop() polling was never engaged -- see rebuild(boolean,boolean)'s doc for the
+     *  real bug this fixes: a fresh, never-started controller previously could never collect
+     *  at all via refreshNow(), so latest() stayed TelemetrySnapshot.empty() forever.
+     *  If a collection is already in flight, onComplete still runs (on the current latest()),
+     *  rather than being silently dropped, since compareAndSet would otherwise reject this
+     *  request outright with no signal to the caller. */
+    public void refreshNow(Runnable onComplete) {
+        if (onComplete == null) { refreshNow(); return; }
+        if (!collecting.compareAndSet(false, true)) {
+            // A collection is already in flight; it will report to whichever caller started
+            // it, not to us. Still notify this caller rather than leaving it silently
+            // unanswered -- see this method's doc for why that matters.
+            main.post(onComplete);
+            return;
+        }
+        collecting.set(false); // release the probe CAS above; rebuild(...) takes it again itself
+        onOneShotComplete = onComplete;
+        rebuild(true, true);
+    }
 }
 

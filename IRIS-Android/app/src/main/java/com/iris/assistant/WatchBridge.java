@@ -25,7 +25,16 @@ final class WatchBridge implements AutoCloseable {
    while(!closed){try(Socket socket=s.accept()){client=socket;socket.setSoTimeout(1500);serve(socket);}catch(Exception e){if(!closed)VoiceHealth.event("WATCH_REQUEST","Rejected or disconnected");}finally{client=null;}}
   }catch(Exception e){if(!closed)state="Unavailable: local port could not open";}
  },"IRIS-WatchBridge").start();}
- private static String line(InputStream in,long deadline)throws IOException{StringBuilder s=new StringBuilder();for(int i=0;i<2048;i++){if(SystemClock.elapsedRealtime()>deadline)throw new IOException("Request timeout");int b=in.read();if(b<0)throw new EOFException();if(b==10)return s.toString().replace("\r","");s.append((char)b);}throw new IOException("Header too long");}
+ private static String line(InputStream in,long deadline)throws IOException{StringBuilder s=new StringBuilder();for(int i=0;i<2048;i++){if(SystemClock.elapsedRealtime()>deadline)throw new IOException("Request timeout");int b=in.read();if(b<0)throw new EOFException();if(b==10)return s.toString().replace("\r","");
+  // HTTP request/header lines here are only ever expected to be pure ASCII (method, path,
+  // header names, the 64-hex-char bearer token, decimal lengths/timestamps). Casting each
+  // byte directly to char treats the stream as Latin-1, silently mangling any byte with the
+  // high bit set instead of decoding it -- and a byte-at-a-time reader cannot correctly
+  // decode a multi-byte UTF-8 sequence one byte at a time anyway. Reject non-ASCII outright
+  // rather than attempt a decode this loop structure can't do correctly; every legitimate
+  // request this bridge accepts is pure ASCII, so this never rejects real traffic.
+  if(b>0x7F)throw new IOException("Non-ASCII byte in request");
+  s.append((char)b);}throw new IOException("Header too long");}
  private void serve(Socket socket)throws Exception{
   InputStream in=socket.getInputStream();long readDeadline=SystemClock.elapsedRealtime()+2000;String[] request=line(in,readDeadline).split(" ");if(request.length!=3){respond(socket,400,"Bad request");return;}
   String auth=null;long sentAt=0;boolean origin=false;int length=0,total=0;boolean end=false;

@@ -169,7 +169,16 @@ final class ContinuousVoiceSession implements AutoCloseable {
     }
     void commands(VoskEngine commandEngine,VoskEngine.SttListener listener){
         final long token;
-        synchronized(lock){if(mode==Mode.CLOSED)return;boolean handoff=mode==Mode.READY;generation++;token=generation;mode=Mode.COMMAND;lastAnalysisAt=SystemClock.elapsedRealtime();commandListener=listener;commandCursor=handoff?commandStart:ring.end();wakeCursor=commandCursor;detector=null;phrase=null;}
+        synchronized(lock){if(mode==Mode.CLOSED)return;boolean handoff=mode==Mode.READY;generation++;token=generation;mode=Mode.COMMAND;lastAnalysisAt=SystemClock.elapsedRealtime();commandListener=listener;
+            // Real bug this clamp fixes: on a slow spoken greeting/reply, the ring can advance
+            // past commandStart (recorded at OWNER_ACCEPTED time, match.end) before this
+            // handoff runs. AudioRing.slice() THROWS IllegalStateException when asked to read
+            // before ring.first() -- so drainCommand()'s very next slice(commandCursor,...)
+            // call would crash the analysis loop instead of just reading stale/wrong data.
+            // hasBufferedCommand() already clamps the same way (Math.max(ring.first(),...))
+            // when just checking for voiced audio; the handoff path must clamp identically
+            // before actually slicing.
+            commandCursor=handoff?Math.max(ring.first(),commandStart):ring.end();wakeCursor=commandCursor;detector=null;phrase=null;}
         execute(()->{
             closeDecoder();if(!current(token,Mode.COMMAND))return;
             try{preparing=true;if(modelWorker!=null)remoteDecoder=modelWorker.openCommand();else decoder=commandEngine.decoder();preparing=false;lastAnalysisAt=SystemClock.elapsedRealtime();commandGain=new QuietAudioProcessor();lastPartial="";lastPartialAt=0;

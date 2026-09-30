@@ -12,7 +12,7 @@ final class RoutineStore {
  static String key(String s){return WakePolicy.normalize(s);}
  static JSONObject match(Context c,String phrase){JSONArray a=all(c);for(int i=0;i<a.length();i++){JSONObject r=a.optJSONObject(i);if(r!=null&&key(r.optString("phrase")).equals(key(phrase)))return r;}return null;}
  static synchronized void save(Context c,int index,String phrase,String commands)throws Exception{
-  phrase=phrase.trim();commands=commands.trim();String[] steps=commands.split("\n");
+  phrase=phrase.trim();commands=commands.trim();String[] steps=commands.split("\r?\n");
   if(key(phrase).isEmpty()||phrase.length()>80||commands.length()>1500||steps.length<1||steps.length>6)throw new IllegalArgumentException("Use a phrase up to 80 characters and 1–6 commands.");
   for(String step:steps)if(step.trim().isEmpty()||key(step).equals(key(phrase)))throw new IllegalArgumentException("Each step needs a command different from the routine phrase.");
   JSONArray a=all(c);if(a.length()>=20&&index<0)throw new IllegalArgumentException("Keep at most 20 routines.");

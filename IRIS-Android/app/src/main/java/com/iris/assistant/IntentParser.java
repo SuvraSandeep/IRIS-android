@@ -135,8 +135,20 @@ public final class IntentParser {
             if (rest.isEmpty()) {
                 return b.missing("recipient").confidence(0.85f).build();
             }
-            // Use the original casing for the name, not the lower-cased copy.
-            String name = tailOf(s, rest);
+            // Use the original casing for the name, not the lower-cased copy. Anchored on the
+            // regex match's own captured-group start offset (call.start(1)) instead of
+            // re-searching the whole utterance for `rest` via lastIndexOf -- a lastIndexOf
+            // search picks the LAST occurrence of the fragment anywhere in the string, so a
+            // name that repeats a stripped word elsewhere in the utterance (e.g. "call to tony
+            // to confirm") could resolve to the wrong span. toLowerCase(Locale.ROOT) does not
+            // change character offsets for this parser's English ASCII input, so group(1)'s
+            // start position in `low` is exactly its start position in `s`; re-apply the same
+            // "to"/"up" strip to the ORIGINAL-case slice instead of computing a manual length
+            // delta, so the two strips can never drift out of sync with each other.
+            String name = call.start(1) >= 0
+                ? s.substring(call.start(1)).trim().replaceFirst("(?i)^(?:to|up)\\s+", "").trim()
+                : tailOf(s, rest);
+            if (name.isEmpty()) name = tailOf(s, rest);
             return b.entity("recipient", name)
                     .step(ToolCall.of("call_contact", "name", name))
                     .confidence(0.9f).build();

@@ -451,6 +451,9 @@ public class IrisListeningService extends Service implements RecognitionListener
     private Runnable commandTimeout;
     private Runnable confirmTimeout;
     private PowerManager.WakeLock wakeLock;
+    /** Tracks the in-flight requestFreshLocation() listener so onDestroy() can unregister it
+     *  even if the Service is torn down mid-request -- see requestFreshLocation()'s doc. */
+    private volatile android.location.LocationListener activeLocationListener;
     private android.hardware.SensorManager sensorManager;
     private android.hardware.SensorEventListener shakeListener;
     private long lastShakeAt;
@@ -714,6 +717,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 microphoneLabel = configureAudioRoute();
                 registerAudioChanges();
             }
+            acquireListeningWakeLock();
             triggerTalk(intent.getStringExtra(EXTRA_TEXT));
             return START_STICKY;
         }
@@ -754,6 +758,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 microphoneLabel = configureAudioRoute();
                 registerAudioChanges();
             }
+            acquireListeningWakeLock();
             // A reviewed typed retry starts a fresh command, never supplies an answer to
             // an old SMS/contact/clarification flow or races its recognition callback.
             commandEpoch++;phoneQuestionGeneration++;
@@ -789,11 +794,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             recognitionLabel = resolveRecognitionLabel();
             microphoneLabel = configureAudioRoute();
             registerAudioChanges();
-            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            if (pm != null) {
-                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "iris:listening");
-                wakeLock.acquire(60 * 60 * 1000L); // 1 hour max
-            }
+            acquireListeningWakeLock();
             LogStore.append(this, "START", settings.listeningMode() + " mode through " + microphoneLabel);
             // Diagnostic breadcrumb for RAM reports: which speech model is active and current
             // process memory, so a "high RAM" report can actually be traced to a cause instead
@@ -817,6 +818,22 @@ public class IrisListeningService extends Service implements RecognitionListener
         String mode = settings.listeningMode();
         if (AppSettings.MODE_WAKE.equals(mode)) startWakeDetection();
         else startCommandRecognition();
+    }
+
+    /** Idempotent: acquires the listening wake lock if it isn't already held. Centralized here
+     *  because ACTION_START, ACTION_TALK and ACTION_PROCESS_TEXT can each be the FIRST action
+     *  to transition isRunning to true (each has its own `if (!isRunning) { isRunning = true;
+     *  ... }` block), but only ACTION_START's fallthrough path used to acquire the wake lock.
+     *  A session started via ACTION_TALK or ACTION_PROCESS_TEXT previously ran with NO wake
+     *  lock at all -- wake detection could be doZed off by the system while "running". Calling
+     *  this from all three entry points (instead of only one) fixes that without changing the
+     *  existing release paths (stopIris()/onDestroy() already guard with wakeLock.isHeld()). */
+    private void acquireListeningWakeLock() {
+        if (wakeLock != null && wakeLock.isHeld()) return;
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        if (pm == null) return;
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "iris:listening");
+        wakeLock.acquire(60 * 60 * 1000L); // 1 hour max
     }
 
     private String resolveRecognitionLabel() {
@@ -1313,18 +1330,21 @@ public class IrisListeningService extends Service implements RecognitionListener
             final long question = phoneQuestionGeneration;
             // Snapshot collection has no external lookup or sensor subscriptions.
             final SystemTelemetryController probe = new SystemTelemetryController(this);
-            probe.refreshNow();
-            boolean rateQuestion = false;
-            for (PhoneFacts.Field field : phoneFields)
-                if (field.key.equals("iris_rx_rate") || field.key.equals("iris_tx_rate")) rateQuestion = true;
-            if (rateQuestion) {
-                broadcastMessage("Measuring IRIS traffic for one second…");
-                handler.postDelayed(() -> {
+            probe.refreshNow(() -> {
+                boolean rate = false;
+                for (PhoneFacts.Field field : phoneFields)
+                    if (field.key.equals("iris_rx_rate") || field.key.equals("iris_tx_rate")) rate = true;
+                if (rate) {
+                    broadcastMessage("Measuring IRIS traffic for one second…");
+                    handler.postDelayed(() -> {
+                        if (!isRunning || question != phoneQuestionGeneration) return;
+                        probe.refreshNow(() -> reply(PhoneFacts.answer(phoneFields, probe.latest())));
+                    }, 1100);
+                } else {
                     if (!isRunning || question != phoneQuestionGeneration) return;
-                    probe.refreshNow();
                     reply(PhoneFacts.answer(phoneFields, probe.latest()));
-                }, 1100);
-            } else reply(PhoneFacts.answer(phoneFields, probe.latest()));
+                }
+            });
             return;
         }
 
@@ -4507,18 +4527,27 @@ public class IrisListeningService extends Service implements RecognitionListener
                     if (done[0]) return;
                     done[0] = true;
                     try { lm.removeUpdates(this); } catch (Exception ignored) { }
+                    activeLocationListener = null;
                     handler.post(() -> cb.accept(location));
                 }
                 @Override public void onProviderDisabled(String p) { }
                 @Override public void onProviderEnabled(String p) { }
                 @Override public void onStatusChanged(String p, int s, Bundle e) { }
             };
+            // Real leak this field fixes: if the Service is destroyed inside the 8s window
+            // below, onDestroy()'s handler.removeCallbacksAndMessages(null) cancels the
+            // timeout Runnable that would otherwise call lm.removeUpdates(listener) -- so
+            // removeUpdates() is never called at all, leaking this LocationListener (and the
+            // Service instance it anonymously holds) until the LocationManager itself decides
+            // to drop it, if ever. onDestroy() now unregisters this explicitly.
+            activeLocationListener = listener;
             lm.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper());
             // Timeout after 8 seconds → fall back to last-known or null
             handler.postDelayed(() -> {
                 if (done[0]) return;
                 done[0] = true;
                 try { lm.removeUpdates(listener); } catch (Exception ignored) { }
+                activeLocationListener = null;
                 cb.accept(lastKnownLocation());
             }, 8000);
         } catch (Exception e) {
@@ -6167,9 +6196,23 @@ public class IrisListeningService extends Service implements RecognitionListener
     public void onDestroy() {
         if(watchBridge!=null)watchBridge.close();
         if (phoneFinder != null) phoneFinder.stop();
+        // Real leak this fixes: if the Service is destroyed mid-memo (a voice memo recording
+        // in progress), the recorder/ParcelFileDescriptor/mic previously kept running until
+        // MediaMemoRecorder's own delayed autoStop callback eventually fired on its private
+        // Handler -- which has nothing to do with this Service's lifecycle and could outlive
+        // it by the remainder of the recording's configured duration. stop() is a safe no-op
+        // when nothing is recording.
+        if (memoRecorder != null) memoRecorder.stop();
         isRunning = false;
         replyCompletion.cancel();
         serviceStartedAt = 0; wakeReadiness = "Service stopped"; phoneQuestionGeneration++;
+        if (activeLocationListener != null) {
+            try {
+                android.location.LocationManager lm = (android.location.LocationManager) getSystemService(LOCATION_SERVICE);
+                if (lm != null) lm.removeUpdates(activeLocationListener);
+            } catch (Exception ignored) { }
+            activeLocationListener = null;
+        }
         handler.removeCallbacksAndMessages(null);
         teardownTriggers();
         abandonSpeechFocus();
