@@ -9,7 +9,7 @@
 
   The inner shape carries android:id="@android:id/background" so ThemeManager can still
   reach the GradientDrawable underneath and retint it for the accent colour exactly as it
-  did when this file was a bare <shape> -- see ThemeManager.fillDrawable().
+  did when this file was a bare shape element. See ThemeManager.fillDrawable().
 -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
     android:color="@color/ripple_deck">

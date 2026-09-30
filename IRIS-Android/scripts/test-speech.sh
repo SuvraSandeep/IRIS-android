@@ -56,6 +56,10 @@ java tests/ParseSources.java app/src/main/java
 
 java -cp "$test_dir" com.iris.assistant.OwnerTrainingStageTest
 python3 tests/check-training-layout.py
+# Parse every resource XML the way AAPT will. ParseSources.java only covers Java, so a
+# malformed resource (e.g. "--" used as a dash inside an XML comment, which is illegal XML)
+# previously got all the way to CI and failed :app:mergeDebugResources.
+python3 tests/check-xml.py
 mkdir -p "$test_dir/recorder"
 javac -encoding UTF-8 -d "$test_dir/recorder" \
   $(find tests/recorder-stubs -name '*.java') \
