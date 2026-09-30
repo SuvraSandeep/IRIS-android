@@ -280,11 +280,11 @@ public class MainActivity extends Activity {
         tabLogs = findViewById(R.id.tabLogs);
         tabMemory = findViewById(R.id.tabMemory);
         tabSettings = findViewById(R.id.tabSettings);
-        tabAssistant.setOnClickListener(v -> showAssistant());
-        tabTraining.setOnClickListener(v -> showTraining());
-        tabLogs.setOnClickListener(v -> showLogs());
-        tabMemory.setOnClickListener(v -> showMemory());
-        tabSettings.setOnClickListener(v -> showSettings());
+        tabAssistant.setOnClickListener(v -> { tap(v); showAssistant(); });
+        tabTraining.setOnClickListener(v -> { tap(v); showTraining(); });
+        tabLogs.setOnClickListener(v -> { tap(v); showLogs(); });
+        tabMemory.setOnClickListener(v -> { tap(v); showMemory(); });
+        tabSettings.setOnClickListener(v -> { tap(v); showSettings(); });
         showTabByIndex(getSharedPreferences("iris_ui", MODE_PRIVATE).getInt("last_tab", 0));
         handleLaunchIntent(getIntent());
     }
@@ -358,6 +358,33 @@ public class MainActivity extends Activity {
             case 3: showMemory(); break;
             case 4: showSettings(); break;
             default: showAssistant();
+        }
+    }
+
+    /** Light haptic tick for a control press. Honours the system haptic setting automatically
+     *  (performHapticFeedback is a no-op when the user has haptics off). UI-only. */
+    private void tap(View v) {
+        if (v != null) v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+    }
+
+    /** Subtle crossfade when a tab's content is swapped into contentHost. Respects the
+     *  reduce-motion accessibility setting (no animation when it is on). Purely visual. */
+    private void fadeInContent() {
+        if (contentHost == null) return;
+        if (new AppSettings(this).reduceMotion()) { contentHost.setAlpha(1f); return; }
+        contentHost.setAlpha(0f);
+        contentHost.animate().alpha(1f).setDuration(180).start();
+    }
+
+    /** Set a telemetry tile's text, with a brief fade-in pulse only when the value actually
+     *  changes, so a live update catches the eye. Null-safe; respects reduce-motion. Visual only. */
+    private void setTileAnimated(TextView tv, String value) {
+        if (tv == null || value == null) return;
+        boolean changed = !value.contentEquals(tv.getText());
+        tv.setText(value);
+        if (changed && !new AppSettings(this).reduceMotion()) {
+            tv.setAlpha(0.35f);
+            tv.animate().alpha(1f).setDuration(240).start();
         }
     }
 
@@ -555,10 +582,10 @@ public class MainActivity extends Activity {
             deckServiceState.setText(up ? "ACTIVE" : "OFFLINE");
             deckServiceState.setTextColor(getColor(up ? R.color.positive : R.color.deck_text_dim));
         }
-        if (deckTileBattery != null) deckTileBattery.setText(snap.display(ResourceTelemetryCollector.K_BATTERY));
-        if (deckTileRam != null) deckTileRam.setText(snap.display(ResourceTelemetryCollector.K_RAM_FREE));
-        if (deckTileNetwork != null) deckTileNetwork.setText(snap.display(NetworkTelemetryCollector.K_TRANSPORT));
-        if (deckTileDevices != null) deckTileDevices.setText(snap.display(BluetoothTelemetryCollector.K_BT_SUMMARY));
+        setTileAnimated(deckTileBattery, snap.display(ResourceTelemetryCollector.K_BATTERY));
+        setTileAnimated(deckTileRam, snap.display(ResourceTelemetryCollector.K_RAM_FREE));
+        setTileAnimated(deckTileNetwork, snap.display(NetworkTelemetryCollector.K_TRANSPORT));
+        setTileAnimated(deckTileDevices, snap.display(BluetoothTelemetryCollector.K_BT_SUMMARY));
 
         if (deckSparkline != null && telemetry != null) {
             deckSparkline.update(telemetry.networkCollector().rxMeter());
@@ -842,6 +869,7 @@ public class MainActivity extends Activity {
         contentHost.removeAllViews();
         View view = LayoutInflater.from(this).inflate(R.layout.view_assistant, contentHost, false);
         contentHost.addView(view);
+        fadeInContent();
         irisOrb = view.findViewById(R.id.irisOrb);
         statusText = view.findViewById(R.id.statusText);
         subStatusText = view.findViewById(R.id.subStatusText);
@@ -863,7 +891,7 @@ public class MainActivity extends Activity {
         if (subStatusText != null) {
             subStatusText.setOnClickListener(v -> copyToClipboard(subStatusText.getText().toString(), "Reply copied \u2713"));
         }
-        irisOrb.setOnClickListener(v -> toggleIris());
+        irisOrb.setOnClickListener(v -> { tap(v); toggleIris(); });
         // Apply appearance to the orb
         AppSettings appearance = new AppSettings(this);
         irisOrb.setAccent(ThemeManager.accent(appearance));
@@ -879,7 +907,25 @@ public class MainActivity extends Activity {
             sendTextCommand(text);
             commandInput.setText("");
         };
-        sendCommandButton.setOnClickListener(v -> sendTyped.run());
+        // The action button reflects intent: a send arrow when there is text to send, otherwise
+        // the mic glyph (tap to talk, same as tapping the orb). This is a pure UI affordance --
+        // the typed-send path (sendTextCommand) and the voice path (toggleIris) are both the
+        // existing, unchanged flows; nothing in wake/recognition logic is touched.
+        Runnable syncSendIcon = () -> {
+            boolean hasText = commandInput.getText().toString().trim().length() > 0;
+            sendCommandButton.setText(hasText ? "\u2191" : "\uD83C\uDF99");
+        };
+        syncSendIcon.run();
+        commandInput.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            public void onTextChanged(CharSequence s, int a, int b, int c) { syncSendIcon.run(); }
+            public void afterTextChanged(android.text.Editable s) {}
+        });
+        sendCommandButton.setOnClickListener(v -> {
+            tap(v);
+            if (commandInput.getText().toString().trim().isEmpty()) toggleIris();
+            else sendTyped.run();
+        });
         commandInput.setOnEditorActionListener((tv, actionId, e) -> { sendTyped.run(); return true; });
 
         // Customizable quick-action chips
@@ -1086,6 +1132,7 @@ public class MainActivity extends Activity {
         contentHost.removeAllViews();
         View view = LayoutInflater.from(this).inflate(R.layout.view_training, contentHost, false);
         contentHost.addView(view);
+        fadeInContent();
 
         // Wake phrase section
         wakePhraseInput = view.findViewById(R.id.wakePhraseInput);
@@ -1266,6 +1313,7 @@ public class MainActivity extends Activity {
         contentHost.removeAllViews();
         View view = LayoutInflater.from(this).inflate(R.layout.view_logs, contentHost, false);
         contentHost.addView(view);
+        fadeInContent();
         TextView logText = view.findViewById(R.id.logText);
         logText.setText("Loading activity…");
         LinearLayout filterRow = view.findViewById(R.id.logFilterRow);
@@ -1719,6 +1767,7 @@ public class MainActivity extends Activity {
         contentHost.removeAllViews();
         View view = LayoutInflater.from(this).inflate(R.layout.view_memory, contentHost, false);
         contentHost.addView(view);
+        fadeInContent();
 
         TextView memorySummary = view.findViewById(R.id.memorySummary);
         LinearLayout suggestionsHost = view.findViewById(R.id.suggestionsHost);
@@ -2269,6 +2318,7 @@ public class MainActivity extends Activity {
         contentHost.removeAllViews();
         View view = LayoutInflater.from(this).inflate(R.layout.view_settings, contentHost, false);
         contentHost.addView(view);
+        fadeInContent();
         AppSettings settings = new AppSettings(this);
         wireAppearance(view, settings);
         view.findViewById(R.id.enduranceSetup).setOnClickListener(v->VoiceEndurance.show(this));
