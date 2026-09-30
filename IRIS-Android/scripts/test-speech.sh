@@ -116,3 +116,14 @@ javac -encoding UTF-8 -d "$test_dir/policy" \
   app/src/main/java/com/iris/assistant/ProactiveSuggestion.java \
   tests/AssistantPolicyTest.java
 java -cp "$test_dir/policy" com.iris.assistant.AssistantPolicyTest
+
+# Permission dashboard catalogue. Pure (no Android) by design: the real Manifest.permission
+# constants are mapped in MainActivity so the compiler checks them, leaving the catalogue to hold
+# only the owner-facing copy. These checks pin that every capability has a row, that "core" keeps
+# meaning "IRIS cannot work without it", and that notification access stays SPECIAL rather than
+# RUNTIME (it cannot be granted by a dialog, so a RUNTIME label would render a dead Allow action).
+mkdir -p "$test_dir/permissions"
+javac -encoding UTF-8 -d "$test_dir/permissions" \
+  app/src/main/java/com/iris/assistant/PermissionCatalog.java \
+  tests/PermissionCatalogTest.java
+java -cp "$test_dir/permissions" com.iris.assistant.PermissionCatalogTest

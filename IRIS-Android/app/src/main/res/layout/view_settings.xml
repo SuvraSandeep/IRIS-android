@@ -300,6 +300,13 @@
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="SERVER MODE (ONLINE BRAIN)" android:textColor="@color/cyan"
                 android:textSize="11sp" android:textStyle="bold" />
+            <Switch android:id="@+id/offlineOnlySwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="8dp" android:minHeight="48dp"
+                android:text="Offline-only mode" android:textColor="@color/text_primary" android:textSize="14sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Master switch. When on, IRIS never reaches the network: no server replies, no server transcription or voice, no weather lookups, and no model downloads. It overrides everything below. Android system speech is a separate setting under Microphone."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
             <Switch android:id="@+id/serverModeSwitch" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="8dp"
                 android:text="Use my server when online" android:textColor="@color/text_primary" android:textSize="14sp" />
@@ -365,6 +372,36 @@
                 android:text="Voice replies" android:textColor="@color/text_primary" />
             <Switch android:id="@+id/hapticsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="Haptic feedback" android:textColor="@color/text_primary" />
+            <Switch android:id="@+id/proactiveSuggestionsSwitch" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:minHeight="48dp"
+                android:text="Let IRIS speak up first" android:textColor="@color/text_primary" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Off by default. When on, the greeting may add one short note about missed calls, waiting notifications or a low battery. At most one note, never more than once every 90 minutes, and it stays quiet between 22:00 and 08:00."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="11dp" android:background="@drawable/bg_card" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="WHAT IRIS CAN ACCESS" android:textColor="@color/mint" android:textSize="11sp" android:textStyle="bold" />
+            <TextView android:id="@+id/permissionSummary" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="6dp"
+                android:text="Checking\u2026" android:textColor="@color/text_primary" android:textSize="13sp" />
+            <TextView android:id="@+id/permissionCoreWarning" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="4dp"
+                android:textColor="@color/danger" android:textSize="12sp" android:visibility="gone" />
+            <LinearLayout android:id="@+id/permissionList" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="vertical" />
+            <Button android:id="@+id/openAppPermissionsButton" android:layout_width="match_parent"
+                android:layout_height="48dp" android:layout_marginTop="10dp"
+                android:background="@drawable/bg_button_secondary"
+                android:text="Open Android app permissions" android:textAllCaps="false"
+                android:textColor="@color/text_primary" android:textSize="13sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Everything here is optional except the essentials. IRIS only uses each one while carrying out a command you gave, and turning any of them off simply makes IRIS decline that command instead of failing silently."
+                android:textColor="@color/text_muted" android:textSize="11sp" />
         </LinearLayout>
 
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"

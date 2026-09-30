@@ -59,6 +59,7 @@ public class MainActivity extends Activity {
     private static final int PERMISSION_START = 100;
     private static final int PERMISSION_TRAIN = 101;
     private static final int PERMISSION_SMS = 102;
+    private static final int PERMISSION_DASHBOARD = 103;
     private static final int PICK_CONTACT = 200;
     private static final int EXPORT_PROFILE = 201;
     private static final int IMPORT_PROFILE = 202;
@@ -2406,6 +2407,7 @@ public class MainActivity extends Activity {
         fadeInContent();
         AppSettings settings = new AppSettings(this);
         wireAppearance(view, settings);
+        renderPermissionDashboard(view);
         view.findViewById(R.id.enduranceSetup).setOnClickListener(v->VoiceEndurance.show(this));
         view.findViewById(R.id.reliabilityDashboard).setOnClickListener(v->ReliabilityTools.dashboard(this,this::recordFeedbackVariation));
         view.findViewById(R.id.recognitionSetup).setOnClickListener(v->RecognitionSetup.show(this));
@@ -2748,12 +2750,22 @@ public class MainActivity extends Activity {
         if (serverSttSwitch != null) serverSttSwitch.setChecked(settings.serverStt());
         if (serverUrlInput != null && !settings.serverUrl().isEmpty()) serverUrlInput.setText(settings.serverUrl());
         if (serverTokenInput != null && !settings.serverToken().isEmpty()) serverTokenInput.setText(settings.serverToken());
-        if (serverStatus != null) serverStatus.setText(settings.serverModeEnabled()
-                ? (settings.serverUrl().isEmpty() ? "On, but no URL set." : "On \u2022 " + settings.serverUrl())
-                : "Off (offline).");
+        if (serverStatus != null) serverStatus.setText(serverStatusText(settings));
+        Switch offlineOnlySwitch = view.findViewById(R.id.offlineOnlySwitch);
+        if (offlineOnlySwitch != null) {
+            offlineOnlySwitch.setChecked(settings.offlineOnly());
+            offlineOnlySwitch.setOnCheckedChangeListener((b, checked) -> {
+                settings.setOfflineOnly(checked);
+                if (serverStatus != null) serverStatus.setText(serverStatusText(settings));
+                toast(checked
+                        ? "Offline-only mode on. IRIS will not use the network."
+                        : "Offline-only mode off.");
+            });
+        }
         if (serverModeSwitch != null) {
             serverModeSwitch.setOnCheckedChangeListener((b, checked) -> {
                 settings.setServerModeEnabled(checked);
+                if (serverStatus != null) serverStatus.setText(serverStatusText(settings));
                 toast(checked ? "Server mode on — falls back offline automatically." : "Server mode off.");
             });
         }
@@ -2819,6 +2831,16 @@ public class MainActivity extends Activity {
         Switch haptics = view.findViewById(R.id.hapticsSwitch);
         haptics.setChecked(settings.haptics());
         haptics.setOnCheckedChangeListener((button, checked) -> settings.setHaptics(checked));
+        Switch proactive = view.findViewById(R.id.proactiveSuggestionsSwitch);
+        if (proactive != null) {
+            proactive.setChecked(settings.proactiveSuggestions());
+            proactive.setOnCheckedChangeListener((button, checked) -> {
+                settings.setProactiveSuggestions(checked);
+                toast(checked
+                        ? "IRIS may add one short note to its greeting."
+                        : "IRIS will only answer what you ask.");
+            });
+        }
         Switch requireUnlock = view.findViewById(R.id.requireUnlockSwitch);
         requireUnlock.setChecked(settings.requireUnlock());
         requireUnlock.setOnCheckedChangeListener((button, checked) -> settings.setRequireUnlock(checked));
@@ -4936,6 +4958,13 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_DASHBOARD) {
+            // Re-render so the row flips immediately. contentHost holds whichever tab is showing,
+            // so findViewById inside renderPermissionDashboard returns null and it no-ops if the
+            // owner has already navigated away from Settings.
+            if (contentHost != null) renderPermissionDashboard(contentHost);
+            return;
+        }
         if(requestCode==PERMISSION_SMS){toast(hasPermission(Manifest.permission.SEND_SMS)?"SMS permission allowed. Sending still requires confirmation.":"SMS is not allowed. You can enable it in Android app permissions.");return;}
         if (requestCode == PERMISSION_START) {
             if (hasPermission(Manifest.permission.RECORD_AUDIO)) startListeningService();
@@ -5048,6 +5077,167 @@ public class MainActivity extends Activity {
 
     private boolean hasPermission(String permission) {
         return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /**
+     * The server card's one-line state.
+     *
+     * Offline-only deliberately wins over server mode here, because it overrides server mode at
+     * the enforcement point (ConnectivityMonitor.shouldUseServer checks it first). Reporting
+     * "On" while offline-only is set would tell the owner the server is in use when in fact
+     * every server request, transcription and voice call is being blocked.
+     */
+    private String serverStatusText(AppSettings settings) {
+        if (settings.offlineOnly()) return "Blocked by offline-only mode.";
+        if (!settings.serverModeEnabled()) return "Off (offline).";
+        return settings.serverUrl().isEmpty() ? "On, but no URL set." : "On \u2022 " + settings.serverUrl();
+    }
+
+    /**
+     * Map a catalogue capability to the real platform permission string.
+     *
+     * This mapping lives here, not in PermissionCatalog, so the compiler checks every constant.
+     * If the strings were duplicated in the catalogue a typo would compile cleanly and then show
+     * a row that is permanently "not allowed" and silently impossible to grant.
+     *
+     * Returns "" for capabilities that are not runtime permissions: NOTIFICATION_ACCESS is a
+     * special access, and POST_NOTIFICATIONS only exists from API 33.
+     */
+    private String permissionFor(PermissionCatalog.Capability capability) {
+        switch (capability) {
+            case MICROPHONE: return Manifest.permission.RECORD_AUDIO;
+            case CONTACTS: return Manifest.permission.READ_CONTACTS;
+            case PHONE_CALLS: return Manifest.permission.CALL_PHONE;
+            case SMS_SEND: return Manifest.permission.SEND_SMS;
+            case CALL_LOG: return Manifest.permission.READ_CALL_LOG;
+            case SMS_READ: return Manifest.permission.READ_SMS;
+            case CAMERA: return Manifest.permission.CAMERA;
+            case LOCATION: return Manifest.permission.ACCESS_COARSE_LOCATION;
+            case SHOW_NOTIFICATIONS:
+                return Build.VERSION.SDK_INT >= 33 ? Manifest.permission.POST_NOTIFICATIONS : "";
+            default:
+                return "";
+        }
+    }
+
+    /** Whether IRIS can actually use a capability right now. */
+    private boolean capabilityGranted(PermissionCatalog.Entry entry) {
+        if (entry.capability == PermissionCatalog.Capability.NOTIFICATION_ACCESS) {
+            return notificationAccessGranted();
+        }
+        if (entry.capability == PermissionCatalog.Capability.SHOW_NOTIFICATIONS) {
+            // areNotificationsEnabled() is the honest answer on every API level. It also catches
+            // the owner switching IRIS notifications off in system settings while the runtime
+            // permission is still granted, which checkSelfPermission alone would report as fine.
+            try {
+                android.app.NotificationManager manager =
+                        (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                return manager != null && manager.areNotificationsEnabled();
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        String permission = permissionFor(entry.capability);
+        // An empty string means there is no runtime gate on this device, so it is available.
+        return permission.isEmpty() || hasPermission(permission);
+    }
+
+    /** What happens when the owner taps a capability that is not allowed yet. */
+    private void requestCapability(PermissionCatalog.Entry entry) {
+        if (entry.kind == PermissionCatalog.Kind.SPECIAL) {
+            // No runtime dialog exists for notification access, so the dedicated Settings screen
+            // is the only route. Showing a permission dialog here would silently do nothing.
+            try {
+                Intent intent = new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+                startActivity(intent);
+                toast("Find IRIS in the list and switch it on.");
+            } catch (Exception e) {
+                toast("Open Settings \u2192 Notifications \u2192 Notification access and allow IRIS.");
+            }
+            return;
+        }
+        String permission = permissionFor(entry.capability);
+        if (permission.isEmpty() || hasPermission(permission)) {
+            // Reported off but there is nothing left to request. Only SHOW_NOTIFICATIONS reaches
+            // this, when notifications are switched off for IRIS in system settings.
+            openAppSettingsPage(entry.label);
+            return;
+        }
+        requestPermissions(new String[]{permission}, PERMISSION_DASHBOARD);
+    }
+
+    private void openAppSettingsPage(String label) {
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(android.net.Uri.fromParts("package", getPackageName(), null));
+            startActivity(intent);
+        } catch (Exception e) {
+            toast("Open Settings \u2192 Apps \u2192 IRIS \u2192 Permissions to change " + label + ".");
+        }
+    }
+
+    /**
+     * Build the "what IRIS can access" rows.
+     *
+     * Called when Settings opens and again after any permission result, so the list can never
+     * show a stale state. Rows are built in code rather than in the layout because the catalogue
+     * is the single source of truth: adding a capability must not require editing XML too.
+     */
+    private void renderPermissionDashboard(View root) {
+        LinearLayout list = root.findViewById(R.id.permissionList);
+        if (list == null) return;
+        TextView summary = root.findViewById(R.id.permissionSummary);
+        TextView coreWarning = root.findViewById(R.id.permissionCoreWarning);
+        Button openSettings = root.findViewById(R.id.openAppPermissionsButton);
+        list.removeAllViews();
+
+        java.util.List<PermissionCatalog.Entry> entries = PermissionCatalog.all();
+        int granted = 0;
+        int missingCore = 0;
+        for (PermissionCatalog.Entry entry : entries) {
+            boolean allowed = capabilityGranted(entry);
+            if (allowed) granted++;
+            else if (entry.core) missingCore++;
+            list.addView(permissionRow(entry, allowed));
+        }
+
+        if (summary != null) summary.setText(PermissionCatalog.summary(granted, entries.size()));
+        if (coreWarning != null) {
+            String warning = PermissionCatalog.coreWarning(missingCore);
+            coreWarning.setText(warning);
+            coreWarning.setVisibility(warning.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+        if (openSettings != null) openSettings.setOnClickListener(v -> openAppSettingsPage("permissions"));
+    }
+
+    /** One dashboard row. Tappable only when the capability still needs granting. */
+    private View permissionRow(PermissionCatalog.Entry entry, boolean granted) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(7), 0, dp(7));
+
+        TextView head = new TextView(this);
+        head.setText((granted ? "\u2705  " : "\u26A0\uFE0F  ") + entry.label
+                + (entry.core ? "  \u00B7 essential" : ""));
+        head.setTextSize(13f);
+        head.setTextColor(getColor(granted ? R.color.text_primary : R.color.danger));
+        row.addView(head);
+
+        TextView detail = new TextView(this);
+        detail.setText(granted ? entry.enables : entry.withoutIt + " Tap to allow.");
+        detail.setTextSize(11f);
+        detail.setTextColor(getColor(R.color.text_muted));
+        row.addView(detail);
+
+        if (granted) {
+            row.setContentDescription(entry.label + ": allowed. " + entry.enables);
+        } else {
+            // Only give the row a touch target and a click when tapping it can achieve something.
+            row.setMinimumHeight(dp(48));
+            row.setContentDescription(entry.label + ": not allowed. " + entry.withoutIt + " Tap to allow.");
+            row.setOnClickListener(v -> requestCapability(entry));
+        }
+        return row;
     }
 
     private int dp(int value) {
