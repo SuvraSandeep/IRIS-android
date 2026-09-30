@@ -136,7 +136,10 @@ public final class TelemetryTest {
 
         log.clear();
         check(log.size() == 0, "clear");
-        check(log.render(10, null).equals("No events yet."), "empty render");
+        // The empty render now carries a short line of guidance after the headline, so assert the
+        // real invariant (an empty log reports "No events yet.") rather than pinning the exact
+        // guidance copy, which is presentation text and expected to be reworded.
+        check(log.render(10, null).startsWith("No events yet."), "empty render");
     }
 
     private static void formatRules() {

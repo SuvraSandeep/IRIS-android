@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#00000000" />
-    <corners android:radius="14dp" />
-</shape>
+<!-- Inactive bottom tab: transparent, but still gives a press ripple so every tab
+     responds to touch identically. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/ripple_deck">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <solid android:color="#00000000" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+</ripple>

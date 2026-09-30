@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <gradient android:angle="135" android:startColor="#7C3AED" android:endColor="#06B6D4" />
-    <corners android:radius="14dp" />
-</shape>
+<!-- Active bottom tab: violet→cyan gradient with a press ripple. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/ripple_neutral">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <gradient android:angle="135" android:startColor="#7C3AED" android:endColor="#06B6D4" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+</ripple>

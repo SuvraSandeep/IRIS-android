@@ -32,6 +32,17 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <!--
+      Answering "who called me", "any missed calls" and "read my last text" needs read access
+      to the system call log and SMS inbox. Both are requested at RUNTIME only the first time
+      such a question is actually asked - never at startup - and a denial is answered with a
+      spoken explanation rather than failing. Message bodies and caller numbers are read to
+      speak them back on request and are never written to logs, telemetry or storage.
+      Note: these are Google Play restricted permissions. That does not affect a sideloaded
+      personal build, but a Play listing would require an approved use-case declaration.
+    -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- Required to create/dismiss clock alarms and timers without opening the UI -->

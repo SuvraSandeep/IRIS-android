@@ -51,4 +51,9 @@
     <color name="deck_text_dim">#93ABB5</color>
     <color name="deck_grid">#1119343D</color>
     <color name="deck_inactive">#3D4E56</color>
+
+    <!-- Press-state ripples. Subtle accent-tinted washes so a tap reads as a press on the
+         dark deck surfaces without flashing bright. Alpha is deliberately low (~20%). -->
+    <color name="ripple_deck">#3335D9F4</color>
+    <color name="ripple_neutral">#26FFFFFF</color>
 </resources>

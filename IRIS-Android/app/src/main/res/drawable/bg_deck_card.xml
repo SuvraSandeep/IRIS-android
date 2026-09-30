@@ -1,8 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Command Deck panel: dark blue-black fill, thin illuminated border, slightly rounded. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/deck_card" />
-    <stroke android:width="1dp" android:color="@color/deck_border" />
-    <corners android:radius="10dp" />
-</shape>
+<!--
+  Command Deck panel: dark blue-black fill, thin illuminated border, slightly rounded.
+
+  Wrapped in a ripple so interactive deck surfaces (READ ONCE, CONTINUOUS, the command bar
+  button, chips built from this drawable) give press feedback. On non-clickable views that
+  share this background (tiles, panels, the transcript block) the ripple simply never
+  triggers, because a ripple only draws on the pressed state.
+
+  The inner shape carries android:id="@android:id/background" so ThemeManager can still
+  reach the GradientDrawable underneath and retint it for the accent colour exactly as it
+  did when this file was a bare <shape> -- see ThemeManager.fillDrawable().
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/ripple_deck">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/deck_card" />
+            <stroke android:width="1dp" android:color="@color/deck_border" />
+            <corners android:radius="10dp" />
+        </shape>
+    </item>
+</ripple>

@@ -29,6 +29,26 @@ public final class ThemeManager {
             {"Rose", "#FB7185"},
     };
 
+    /** Material You: the wallpaper-derived system accent, or 0 when unavailable.
+     *
+     *  Android 12 (API 31) is the first release that exposes the extracted wallpaper palette as
+     *  framework colour resources. Returns 0 on anything older, and on any device where the
+     *  resource cannot be resolved, so callers can simply omit the option instead of showing a
+     *  swatch that would silently fall back to the default. */
+    public static int dynamicAccent(android.content.Context context) {
+        if (context == null || android.os.Build.VERSION.SDK_INT < 31) return 0;
+        try {
+            return context.getColor(android.R.color.system_accent1_200);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** Hex string for a colour, in the "#RRGGBB" form the accent setting stores. */
+    public static String toHex(int color) {
+        return String.format(java.util.Locale.ROOT, "#%06X", color & 0xFFFFFF);
+    }
+
     /** Resolve the user's accent colour to an int, falling back to cyan. */
     public static int accent(AppSettings settings) {
         try {
@@ -62,13 +82,40 @@ public final class ThemeManager {
         }
     }
 
+    /** Resolve the tintable fill of a background drawable.
+     *
+     *  Interactive backgrounds (bg_deck_card, bg_chip, bg_tab_*) are &lt;ripple&gt; wrappers so a
+     *  tap gives press feedback. A RippleDrawable is NOT a GradientDrawable, so the accent
+     *  tinting below would silently stop working (and primaryButton would no-op, dropping the
+     *  command-bar button's accent fill) if it only checked for GradientDrawable. Each ripple
+     *  tags its inner shape with @android:id/background, so look through the wrapper and return
+     *  the real fill. Returns null when there is nothing tintable, and callers keep their
+     *  previous fallback behaviour in that case. */
+    private static GradientDrawable fillDrawable(android.graphics.drawable.Drawable d) {
+        if (d == null) return null;
+        if (d instanceof GradientDrawable) return (GradientDrawable) d.mutate();
+        if (d instanceof android.graphics.drawable.RippleDrawable) {
+            android.graphics.drawable.RippleDrawable ripple =
+                    (android.graphics.drawable.RippleDrawable) d.mutate();
+            android.graphics.drawable.Drawable inner =
+                    ripple.findDrawableByLayerId(android.R.id.background);
+            if (inner instanceof GradientDrawable) return (GradientDrawable) inner;
+            for (int i = 0; i < ripple.getNumberOfLayers(); i++) {
+                if (ripple.getDrawable(i) instanceof GradientDrawable) {
+                    return (GradientDrawable) ripple.getDrawable(i);
+                }
+            }
+        }
+        return null;
+    }
+
     /** Tint a view's background drawable with the accent (rounded fills stay rounded). */
     public static void tintBackground(View v, int color) {
         if (v == null) return;
-        if (v.getBackground() instanceof GradientDrawable) {
-            GradientDrawable gd = (GradientDrawable) v.getBackground().mutate();
-            gd.setColor(color);
-        } else {
+        GradientDrawable fill = fillDrawable(v.getBackground());
+        if (fill != null) {
+            fill.setColor(color);
+        } else if (v.getBackground() != null) {
             v.getBackground().mutate().setColorFilter(color, PorterDuff.Mode.SRC_IN);
         }
     }
@@ -81,8 +128,7 @@ public final class ThemeManager {
     /** Style a button as the primary accent action. */
     public static void primaryButton(Button b, int accent) {
         if (b == null) return;
-        if (b.getBackground() instanceof GradientDrawable) {
-            ((GradientDrawable) b.getBackground().mutate()).setColor(accent);
-        }
+        GradientDrawable fill = fillDrawable(b.getBackground());
+        if (fill != null) fill.setColor(accent);
     }
 }

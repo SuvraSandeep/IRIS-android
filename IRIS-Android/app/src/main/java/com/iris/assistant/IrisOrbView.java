@@ -165,13 +165,19 @@ public class IrisOrbView extends View {
 
     public void setPhase(String phase) {
         String next = phase == null ? PHASE_OFF : phase;
-        if (PHASE_ERROR.equals(next) && !PHASE_ERROR.equals(this.phase)) errorAt = System.currentTimeMillis();
+        boolean enteringError = PHASE_ERROR.equals(next) && !PHASE_ERROR.equals(this.phase);
+        if (enteringError) errorAt = System.currentTimeMillis();
         this.phase = next;
         this.active = !PHASE_OFF.equals(next);
         if (!PHASE_CONFIRM.equals(next)) contactImage = null;
         setContentDescription(describe(next));
         applyAnimators();
         invalidate();
+        // The error ring is drawn thick for the first 900ms and thin afterwards, but no
+        // animator runs in the error state, so without scheduling this redraw the initial
+        // thick outline stayed on screen indefinitely instead of settling into the stable
+        // error state the class documents. One delayed invalidate, no continuous animation.
+        if (enteringError) postInvalidateDelayed(950);
     }
 
     public String phase() { return phase; }

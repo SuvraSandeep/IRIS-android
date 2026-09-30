@@ -64,12 +64,15 @@
                         android:textSize="10sp" />
                 </LinearLayout>
 
-                <!-- Collapsed orb indicator: shown when the deck is scrolled down -->
+                <!-- Collapsed orb indicator: shown when the deck is scrolled down. Purely
+                     decorative (the orb's own label already describes the control), so it is
+                     hidden from screen readers rather than announced as a stray bullet. -->
                 <TextView
                     android:id="@+id/headerOrbDot"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="8dp"
+                    android:importantForAccessibility="no"
                     android:text="●"
                     android:textColor="@color/deck_inactive"
                     android:textSize="14sp"
@@ -97,7 +100,7 @@
                         android:fontFamily="monospace"
                         android:text="no data"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -118,13 +121,15 @@
                     android:layout_weight="1"
                     android:layout_marginEnd="6dp"
                     android:background="@drawable/bg_deck_card"
+                    android:contentDescription="Read phone telemetry once"
                     android:fontFamily="monospace"
                     android:gravity="center"
                     android:letterSpacing="0.08"
+                    android:minHeight="48dp"
                     android:padding="10dp"
                     android:text="\u21BB READ ONCE"
                     android:textColor="@color/deck_text"
-                    android:textSize="11sp" />
+                    android:textSize="12sp" />
 
                 <TextView
                     android:id="@+id/deckContinuousToggle"
@@ -132,13 +137,15 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:background="@drawable/bg_deck_card"
+                    android:contentDescription="Toggle continuous telemetry reading"
                     android:fontFamily="monospace"
                     android:gravity="center"
                     android:letterSpacing="0.08"
+                    android:minHeight="48dp"
                     android:padding="10dp"
                     android:text="\u25CF CONTINUOUS: OFF"
                     android:textColor="@color/deck_text_dim"
-                    android:textSize="11sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <!-- ── Hero: reactive orb (size customisable in Settings) ── -->
@@ -213,6 +220,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:importantForAccessibility="no"
                     android:paddingStart="6dp"
                     android:paddingEnd="6dp"
                     android:text="•"
@@ -266,7 +274,7 @@
                         android:letterSpacing="0.08"
                         android:text="BATTERY"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
 
                     <TextView
                         android:id="@+id/tileBattery"
@@ -295,7 +303,7 @@
                         android:letterSpacing="0.08"
                         android:text="FREE RAM"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
 
                     <TextView
                         android:id="@+id/tileRam"
@@ -331,7 +339,7 @@
                         android:letterSpacing="0.08"
                         android:text="NETWORK"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
 
                     <TextView
                         android:id="@+id/tileNetwork"
@@ -360,7 +368,7 @@
                         android:letterSpacing="0.08"
                         android:text="DEVICES"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
 
                     <TextView
                         android:id="@+id/tileDevices"
@@ -407,7 +415,7 @@
                         android:fontFamily="monospace"
                         android:text="● LIVE"
                         android:textColor="@color/positive"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
                 </LinearLayout>
 
                 <!-- Tabs -->
@@ -427,7 +435,7 @@
                         android:paddingTop="14dp"
                         android:text="OVERVIEW"
                         android:textColor="@color/accent"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
 
                     <TextView
                         android:id="@+id/tabNetwork"
@@ -439,7 +447,7 @@
                         android:paddingTop="14dp"
                         android:text="NETWORK"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
 
                     <TextView
                         android:id="@+id/tabDevices"
@@ -451,7 +459,7 @@
                         android:paddingTop="14dp"
                         android:text="DEVICES"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
 
                     <TextView
                         android:id="@+id/tabSensors"
@@ -463,7 +471,7 @@
                         android:paddingTop="14dp"
                         android:text="SENSORS"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
 
                     <TextView
                         android:id="@+id/tabResources"
@@ -475,7 +483,7 @@
                         android:paddingTop="14dp"
                         android:text="POWER"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
                 </LinearLayout>
 
                 <View
@@ -551,23 +559,25 @@
                         android:id="@+id/activityPause"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:contentDescription="Pause the activity stream"
                         android:minWidth="48dp"
                         android:minHeight="48dp"
                         android:gravity="center"
                         android:text="PAUSE"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
 
                     <TextView
                         android:id="@+id/activityClear"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:contentDescription="Clear the activity stream"
                         android:minWidth="48dp"
                         android:minHeight="48dp"
                         android:gravity="center"
                         android:text="CLEAR"
                         android:textColor="@color/deck_text_dim"
-                        android:textSize="9sp" />
+                        android:textSize="10sp" />
                 </LinearLayout>
 
                 <HorizontalScrollView
@@ -590,9 +600,9 @@
                     android:layout_marginTop="6dp"
                     android:fontFamily="monospace"
                     android:lineSpacingExtra="2dp"
-                    android:text="No events yet."
+                    android:text="No events yet.\nWake checks, commands and audio routing appear here as they happen."
                     android:textColor="@color/deck_text_dim"
-                    android:textSize="10sp" />
+                    android:textSize="11sp" />
             </LinearLayout>
 
             <!-- Quick chips + frequent contacts (existing behaviour preserved).
@@ -621,6 +631,17 @@
                 android:textSize="11sp" />
         </LinearLayout>
     </ScrollView>
+
+    <!-- Scroll-edge divider: fades in while there is more deck content below the fold, so the
+         fixed command bar reads as sitting above scrolling content rather than floating.
+         Alpha is driven from the deck scroll listener and respects reduce-motion. -->
+    <View
+        android:id="@+id/commandBarDivider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:alpha="0"
+        android:importantForAccessibility="no"
+        android:background="@color/deck_border" />
 
     <!-- ═══ Fixed command bar ═══ -->
     <LinearLayout

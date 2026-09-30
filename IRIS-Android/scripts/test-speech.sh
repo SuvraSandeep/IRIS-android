@@ -90,3 +90,15 @@ javac -encoding UTF-8 -cp "$test_dir/recorded" -d "$test_dir/recorded" app/src/m
 java -cp "$test_dir/recorded" com.iris.assistant.StreamingWakeTest
 javac -encoding UTF-8 -d "$test_dir/recorded" app/src/main/java/com/iris/assistant/ReplyCompletionGate.java app/src/main/java/com/iris/assistant/CommandLoadGate.java tests/ReplyCompletionTest.java
 java -cp "$test_dir/recorded" com.iris.assistant.ReplyCompletionTest
+
+# Phone-history question classifier + pronoun follow-ups. Both are pure (no Android), so the
+# regression guards that stop them stealing commands from the existing outgoing-call history
+# and redial handlers run offline here.
+mkdir -p "$test_dir/history"
+javac -encoding UTF-8 -d "$test_dir/history" \
+  app/src/main/java/com/iris/assistant/PhoneHistoryQuery.java \
+  app/src/main/java/com/iris/assistant/Referent.java \
+  tests/PhoneHistoryQueryTest.java \
+  tests/ReferentTest.java
+java -cp "$test_dir/history" com.iris.assistant.PhoneHistoryQueryTest
+java -cp "$test_dir/history" com.iris.assistant.ReferentTest

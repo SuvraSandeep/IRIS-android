@@ -115,7 +115,7 @@ public final class TelemetryEventLog {
         List<Event> newestFirst = recent(limit, filter);
         StringBuilder sb = new StringBuilder();
         for (int i = newestFirst.size() - 1; i >= 0; i--) sb.append(newestFirst.get(i).line()).append('\n');
-        if (sb.length() == 0) return "No events yet.";
+        if (sb.length() == 0) return "No events yet.\nWake checks, commands and audio routing appear here as they happen.";
         return sb.toString().trim();
     }
 }

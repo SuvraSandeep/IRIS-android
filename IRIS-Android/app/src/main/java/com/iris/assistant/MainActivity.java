@@ -367,6 +367,35 @@ public class MainActivity extends Activity {
         if (v != null) v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
     }
 
+    /** Wide screens (>= 600dp available width, i.e. tablets and most landscape phones) get all
+     *  four telemetry tiles in a single row instead of a 2x2 grid, using the horizontal space
+     *  the narrow grid wastes. The tile views are moved, not recreated, so every id that
+     *  MainActivity binds (tileBattery / tileRam / tileNetwork / tileDevices) still resolves.
+     *  A no-op on narrow screens and when the tiles section is switched off. Visual only. */
+    private void applyWideTileRow(View root, AppSettings s) {
+        if (root == null || !s.deckTiles()) return;
+        try {
+            LinearLayout first = root.findViewById(R.id.deckTiles);
+            LinearLayout second = root.findViewById(R.id.deckTiles2);
+            if (first == null || second == null) return;
+            boolean wide = getResources().getConfiguration().smallestScreenWidthDp >= 600
+                    || getResources().getConfiguration().screenWidthDp >= 600;
+            if (!wide || second.getChildCount() == 0) return;
+            while (second.getChildCount() > 0) {
+                View tile = second.getChildAt(0);
+                second.removeViewAt(0);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                lp.setMarginStart(Math.round(8 * getResources().getDisplayMetrics().density));
+                tile.setLayoutParams(lp);
+                first.addView(tile);
+            }
+            second.setVisibility(View.GONE);
+        } catch (Exception ignored) {
+            // Layout adaptation is cosmetic; never let it stop the deck from being shown.
+        }
+    }
+
     /** Subtle crossfade when a tab's content is swapped into contentHost. Respects the
      *  reduce-motion accessibility setting (no animation when it is on). Purely visual. */
     private void fadeInContent() {
@@ -377,11 +406,14 @@ public class MainActivity extends Activity {
     }
 
     /** Set a telemetry tile's text, with a brief fade-in pulse only when the value actually
-     *  changes, so a live update catches the eye. Null-safe; respects reduce-motion. Visual only. */
-    private void setTileAnimated(TextView tv, String value) {
+     *  changes, so a live update catches the eye. Also keeps an accessibility label in sync so
+     *  a screen reader announces "Battery: 85%" rather than just the bare number, which is
+     *  meaningless out of visual context. Null-safe; respects reduce-motion. Visual only. */
+    private void setTileAnimated(TextView tv, String label, String value) {
         if (tv == null || value == null) return;
         boolean changed = !value.contentEquals(tv.getText());
         tv.setText(value);
+        tv.setContentDescription(label + ": " + value);
         if (changed && !new AppSettings(this).reduceMotion()) {
             tv.setAlpha(0.35f);
             tv.animate().alpha(1f).setDuration(240).start();
@@ -419,6 +451,15 @@ public class MainActivity extends Activity {
             View orb = view.findViewById(R.id.irisOrb);
             if (orb != null) {
                 int px = Math.round(s.deckOrbSize() * getResources().getDisplayMetrics().density);
+                // Responsive cap: in landscape (or any short viewport) a 200dp+ orb eats the
+                // whole visible deck and pushes the tiles and telemetry off-screen. Cap it to a
+                // third of the available height there. Portrait is unaffected, and the user's
+                // chosen size is still respected whenever it fits, so this never shrinks the orb
+                // on a normal phone in portrait.
+                android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+                boolean landscape = getResources().getConfiguration().orientation
+                        == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+                if (landscape) px = Math.min(px, Math.round(dm.heightPixels / 3f));
                 orb.getLayoutParams().width = px;
                 orb.getLayoutParams().height = px;
                 orb.requestLayout();
@@ -436,6 +477,14 @@ public class MainActivity extends Activity {
         toggleVisible(view, R.id.activitySection, s.deckActivityStream());
         toggleVisible(view, R.id.deckTiles, s.deckTiles());
         toggleVisible(view, R.id.deckTiles2, s.deckTiles());
+        // Wide-screen deck: on a tablet or landscape phone the 2x2 tile grid leaves a lot of
+        // empty horizontal space, so move the second row's tiles up into the first row and all
+        // four sit side by side. Done by reparenting the existing tile views rather than by
+        // shipping a duplicate landscape layout -- a second copy of this ~600-line layout would
+        // have to keep every one of the IDs MainActivity binds in sync, and a single missed id
+        // would be a null view at runtime in that configuration only. Every id is preserved
+        // here because these are the same view objects, just in a different parent.
+        applyWideTileRow(view, s);
 
         deckBody = view.findViewById(R.id.telemetryBody);
         EditText detailSearch=view.findViewById(R.id.phoneDetailSearch);
@@ -486,7 +535,7 @@ public class MainActivity extends Activity {
         TextView clear = view.findViewById(R.id.activityClear);
         if (clear != null) clear.setOnClickListener(v -> {
             if (telemetry != null) telemetry.events().clear();
-            if (deckActivity != null) deckActivity.setText("No events yet.");
+            if (deckActivity != null) deckActivity.setText("Cleared.\nNew events will appear here as IRIS works.");
         });
 
         // Category filters (§5). ALL plus the categories that actually produce events.
@@ -520,12 +569,20 @@ public class MainActivity extends Activity {
         final View orbHolder = view.findViewById(R.id.orbHolder);
         final View headerDot = view.findViewById(R.id.headerOrbDot);
         final ScrollView scroll = view.findViewById(R.id.deckScroll);
+        final View barDivider = view.findViewById(R.id.commandBarDivider);
         if (scroll != null && orbHolder != null && headerDot != null) {
             scroll.getViewTreeObserver().addOnScrollChangedListener(() -> {
                 boolean collapsed = scroll.getScrollY() > orbHolder.getHeight() / 2;
                 orbHolder.setAlpha(collapsed ? 0f : 1f);
                 headerDot.setVisibility(collapsed ? View.VISIBLE : View.GONE);
+                // Scroll-edge affordance: show the divider above the fixed command bar only
+                // while deck content actually continues below the fold.
+                if (barDivider != null) barDivider.setAlpha(scroll.canScrollVertically(1) ? 1f : 0f);
             });
+        }
+        // Set the initial divider state once the deck has been measured (before any scroll).
+        if (scroll != null && barDivider != null) {
+            scroll.post(() -> barDivider.setAlpha(scroll.canScrollVertically(1) ? 1f : 0f));
         }
 
         if (telemetry == null) telemetry = new SystemTelemetryController(this);
@@ -582,10 +639,10 @@ public class MainActivity extends Activity {
             deckServiceState.setText(up ? "ACTIVE" : "OFFLINE");
             deckServiceState.setTextColor(getColor(up ? R.color.positive : R.color.deck_text_dim));
         }
-        setTileAnimated(deckTileBattery, snap.display(ResourceTelemetryCollector.K_BATTERY));
-        setTileAnimated(deckTileRam, snap.display(ResourceTelemetryCollector.K_RAM_FREE));
-        setTileAnimated(deckTileNetwork, snap.display(NetworkTelemetryCollector.K_TRANSPORT));
-        setTileAnimated(deckTileDevices, snap.display(BluetoothTelemetryCollector.K_BT_SUMMARY));
+        setTileAnimated(deckTileBattery, "Battery", snap.display(ResourceTelemetryCollector.K_BATTERY));
+        setTileAnimated(deckTileRam, "Free RAM", snap.display(ResourceTelemetryCollector.K_RAM_FREE));
+        setTileAnimated(deckTileNetwork, "Network", snap.display(NetworkTelemetryCollector.K_TRANSPORT));
+        setTileAnimated(deckTileDevices, "Devices", snap.display(BluetoothTelemetryCollector.K_BT_SUMMARY));
 
         if (deckSparkline != null && telemetry != null) {
             deckSparkline.update(telemetry.networkCollector().rxMeter());
@@ -914,6 +971,9 @@ public class MainActivity extends Activity {
         Runnable syncSendIcon = () -> {
             boolean hasText = commandInput.getText().toString().trim().length() > 0;
             sendCommandButton.setText(hasText ? "\u2191" : "\uD83C\uDF99");
+            // The glyph alone is meaningless to a screen reader, and its meaning changes with
+            // the field's contents, so keep the spoken label in sync with the actual action.
+            sendCommandButton.setContentDescription(hasText ? "Send command" : "Talk to IRIS");
         };
         syncSendIcon.run();
         commandInput.addTextChangedListener(new android.text.TextWatcher() {
@@ -1094,6 +1154,31 @@ public class MainActivity extends Activity {
                 sw.setContentDescription(preset[0] + " accent"
                         + (color == current ? ", selected" : ""));
                 final String hex = preset[1];
+                sw.setOnClickListener(v -> { settings.setAccentColor(hex); recreate(); });
+                accentRow.addView(sw);
+            }
+            // Material You: one extra swatch carrying the wallpaper-derived system accent.
+            // Only offered on Android 12+ where the palette actually exists, so there is never
+            // a swatch that quietly does nothing. The resolved colour is stored as a normal hex
+            // accent, which means every existing consumer of accentColor() keeps working
+            // untouched; the trade-off is that it is a snapshot, so changing wallpaper later
+            // needs a re-pick to follow it.
+            int dynamic = ThemeManager.dynamicAccent(this);
+            if (dynamic != 0) {
+                View sw = new View(this);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(44), dp(44));
+                lp.rightMargin = dp(10);
+                sw.setLayoutParams(lp);
+                android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+                gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                gd.setColor(dynamic);
+                boolean selected = dynamic == current;
+                if (selected) gd.setStroke(dp(3), 0xFFFFFFFF);
+                else gd.setStroke(dp(1), 0xFF93ABB5);
+                sw.setBackground(gd);
+                sw.setContentDescription("Wallpaper colour accent (Material You)"
+                        + (selected ? ", selected" : ""));
+                final String hex = ThemeManager.toHex(dynamic);
                 sw.setOnClickListener(v -> { settings.setAccentColor(hex); recreate(); });
                 accentRow.addView(sw);
             }
@@ -1404,7 +1489,7 @@ public class MainActivity extends Activity {
                 if (upper.contains(tag)) { sb.append(line).append("\n"); break; }
             }
         }
-        return sb.length() == 0 ? "Nothing here yet." : sb.toString().trim();
+        return sb.length() == 0 ? "No matching log lines yet.\nTry a different filter, or use IRIS and come back." : sb.toString().trim();
     }
 
     // ── Voice picker + self-test ──
@@ -2774,10 +2859,21 @@ public class MainActivity extends Activity {
 
     private void updateTabs() {
         Button[] tabs = {tabAssistant, tabTraining, tabLogs, tabMemory, tabSettings};
+        boolean animate = !new AppSettings(this).reduceMotion();
         for (int i = 0; i < tabs.length; i++) {
-            tabs[i].setBackgroundResource(i == selectedTab
+            boolean active = i == selectedTab;
+            tabs[i].setBackgroundResource(active
                     ? R.drawable.bg_tab_active : R.drawable.bg_tab_inactive);
-            tabs[i].setTextColor(i == selectedTab ? Color.WHITE : getColor(R.color.text_muted));
+            tabs[i].setTextColor(active ? Color.WHITE : getColor(R.color.text_muted));
+            // Small scale bump on the active tab so the selection reads as movement, not just
+            // a colour swap. Inactive tabs settle back to 1f. Visual only; respects reduce-motion.
+            if (animate) {
+                tabs[i].animate().scaleX(active ? 1.06f : 1f).scaleY(active ? 1.06f : 1f)
+                        .setDuration(160).start();
+            } else {
+                tabs[i].setScaleX(1f);
+                tabs[i].setScaleY(1f);
+            }
         }
     }
 

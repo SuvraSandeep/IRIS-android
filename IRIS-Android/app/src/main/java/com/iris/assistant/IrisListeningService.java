@@ -1431,6 +1431,15 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
+        // 3b. System call-log / SMS questions ("who called me", "any missed calls",
+        // "read my last text"). Deliberately AFTER HISTORY_PATTERN above so every outgoing-call
+        // phrasing that already worked keeps its existing handler and answer.
+        PhoneHistoryQuery history = PhoneHistoryQuery.parse(normalized);
+        if (history.matched()) {
+            handlePhoneHistory(history);
+            return;
+        }
+
         // 4. Quick actions (time, battery, stop, help) — lenient matching so
         // "tell me the time", "what's the time", "time now" all work
         if (isQuickAction(normalized)) {
@@ -1441,6 +1450,15 @@ public class IrisListeningService extends Service implements RecognitionListener
         // 5. Redial / call back
         if (REDIAL_PATTERN.matcher(normalized).matches()) {
             handleRedial(store);
+            return;
+        }
+
+        // 5a. Pronoun follow-ups ("call him back", "text her"). AFTER redial so the bare
+        // "redial"/"call back" phrasings keep their existing handler; this adds only pronouns
+        // and the ability to act on the last contact with a different verb.
+        Referent referent = Referent.parse(normalized);
+        if (referent.matched()) {
+            handleReferent(referent, store);
             return;
         }
 
@@ -4727,6 +4745,43 @@ public class IrisListeningService extends Service implements RecognitionListener
         ProfileStore.Entry last = recent.get(0);
         LogStore.append(this, "REDIAL", last.contactName);
         requestCallConfirmation(last.contactName, last.phoneNumber);
+    }
+
+    /** Answer a system call-log / SMS question. The reader handles its own permission checks
+     *  and returns a spoken explanation when access is missing, so a denial is never a crash.
+     *  Only the KIND of question is logged - caller names, numbers and message bodies are
+     *  deliberately never written to LogStore or telemetry. */
+    private void handlePhoneHistory(PhoneHistoryQuery query) {
+        String answer = PhoneHistoryReader.answer(this, query);
+        if (answer == null || answer.trim().isEmpty()) {
+            broadcastMessage("I could not read that from the phone.");
+            rearmAfterAction();
+            return;
+        }
+        LogStore.append(this, "PHONE_HISTORY", query.kind.toString());
+        speak(answer);
+        broadcastMessage(answer);
+        rearmAfterAction();
+    }
+
+    /** Act on a pronoun follow-up ("call him back", "text her") using the most recently
+     *  called contact. Calls still go through the normal confirmation prompt and texts still
+     *  go through the normal compose flow, so this only resolves WHO - it never sends or dials
+     *  anything without the existing confirmation step. */
+    private void handleReferent(Referent referent, ProfileStore store) {
+        ProfileStore.Entry last = store.lastCalled();
+        if (last == null || last.phoneNumber == null || last.phoneNumber.trim().isEmpty()) {
+            broadcastMessage("I\u2019m not sure who you mean yet. Say the name once and I\u2019ll remember it.");
+            LogStore.append(this, "REFERENT", "No recent contact to resolve");
+            rearmAfterAction();
+            return;
+        }
+        LogStore.append(this, "REFERENT", referent.action + " \u2192 " + last.contactName);
+        if (referent.action == Referent.Action.TEXT) {
+            beginSms(last.contactName, null);
+        } else {
+            requestCallConfirmation(last.contactName, last.phoneNumber);
+        }
     }
 
     private void handleRemember(String statement) {
