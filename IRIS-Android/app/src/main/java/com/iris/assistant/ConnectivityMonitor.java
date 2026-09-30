@@ -37,6 +37,10 @@ final class ConnectivityMonitor {
     /** True only when server mode is on, configured, online, breaker closed, and not "too slow". */
     boolean shouldUseServer(AppSettings s) {
         if (s == null || !s.serverModeEnabled() || s.serverUrl().isEmpty()) return false;
+        // Offline-only is a hard local override, checked before anything else: when the owner
+        // has switched it on, no IRIS feature reaches the network regardless of how server mode
+        // is configured. Placing it first means a single switch is genuinely sufficient.
+        if (s.offlineOnly()) return false;
         if (!online) return false;
         if (System.currentTimeMillis() < circuitOpenUntil) return false;
         if (s.autoOfflineWhenSlow() && lastLatencyMs > s.serverSlowMs()) return false;

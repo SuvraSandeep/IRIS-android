@@ -63,6 +63,24 @@ public final class PhoneHistoryReader {
         }
     }
 
+    /** Count of NEW (unacknowledged) missed calls, or 0 when the permission is absent.
+     *
+     *  Returns a count rather than text because the proactive-suggestion policy needs a number.
+     *  Returning 0 (rather than throwing or -1) when access is missing is deliberate: a caller
+     *  deciding whether to volunteer a suggestion should simply find nothing to say, not have
+     *  to special-case a permission state. */
+    public static int missedCallCount(Context context) {
+        if (!canReadCallLog(context)) return 0;
+        String where = CallLog.Calls.TYPE + " = " + CallLog.Calls.MISSED_TYPE + " AND "
+                + CallLog.Calls.NEW + " = 1";
+        try (Cursor c = context.getContentResolver().query(CallLog.Calls.CONTENT_URI,
+                new String[] { CallLog.Calls._ID }, where, null, null)) {
+            return c == null ? 0 : c.getCount();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     // ───────────────────────────── call log ─────────────────────────────
 
     private static String whoCalledMe(Context context) {

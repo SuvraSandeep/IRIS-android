@@ -895,7 +895,10 @@ public class IrisListeningService extends Service implements RecognitionListener
                 } else {
                     if (voiceSession != null) voiceSession.pause();
                     phase=PHASE_COMMAND;currentPhase=phase;broadcastState(true,phase);
-                    String greeting="Hello"+butlerAddress()+".";broadcastMessage(greeting);nextOutputMinor=false;
+                    String greeting="Hello"+butlerAddress()+".";
+                    String suggestion=proactiveSuggestionLine();
+                    if(suggestion!=null)greeting=greeting+" "+suggestion;
+                    broadcastMessage(greeting);nextOutputMinor=false;
                     wakeAckPending=true;mirrorToWatch(greeting,true);
                     // A wake acknowledgement never waits for a server voice download.
                     speakThenRunLocal(greeting,IrisListeningService.this::startCommandRecognition);
@@ -1495,6 +1498,14 @@ public class IrisListeningService extends Service implements RecognitionListener
             broadcastMessage(msg);
             speakThenRun(msg, this::rearmAfterAction);
             LogStore.append(this, "NOTIF", "Cleared (system dismissed=" + dismissed + ")");
+            return;
+        }
+        // 5b-summary. Notification SUMMARY ("summarise my notifications", "what did I miss").
+        // Checked BEFORE the full read-out below so a summary request is not answered by
+        // reciting every notification, and phrased narrowly enough that "read my
+        // notifications" still reaches its existing handler.
+        if (NotificationSummary.isSummaryRequest(normalized)) {
+            handleNotificationSummary();
             return;
         }
         if (NOTIFICATION_PATTERN.matcher(normalized).matches() && !containsCallVerb(normalized)) {
@@ -2343,6 +2354,16 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Speak weather/forecast for the current location via free Open-Meteo. */
     private void handleWeather(String normalized) {
+        // Offline-only mode is a hard promise that nothing reaches the network, and weather is
+        // inherently a network lookup - so say so plainly instead of appearing to try and then
+        // failing with a confusing error.
+        if (settings.offlineOnly()) {
+            String msg = "Offline-only mode is on, so I can't fetch the weather. Turn it off in Settings to allow that.";
+            broadcastMessage(msg);
+            speakThenRun(msg, this::rearmAfterAction);
+            LogStore.append(this, "WEATHER", "Blocked by offline-only mode");
+            return;
+        }
         if (!hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
                 && !hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
             String msg = "I need location permission for weather. Open the IRIS app and grant location access.";
@@ -4747,6 +4768,59 @@ public class IrisListeningService extends Service implements RecognitionListener
         requestCallConfirmation(last.contactName, last.phoneNumber);
     }
 
+    /** Spoken summary of waiting notifications, grouped by app instead of recited one by one.
+     *  The store keeps the data; NotificationSummary does the pure grouping/phrasing, and the
+     *  two-field adaptation happens here so that policy class stays Android-free and testable. */
+    private void handleNotificationSummary() {
+        java.util.List<NotificationSummary.Entry> entries = new java.util.ArrayList<>();
+        for (NotificationStore.Item it : NotificationStore.recent(this, 100)) {
+            if (it != null) entries.add(new NotificationSummary.Entry(it.appLabel, it.title));
+        }
+        String summary = NotificationSummary.summarize(entries);
+        LogStore.append(this, "NOTIF", "Summary of " + entries.size());
+        broadcastMessage(summary);
+        speakThenRun(summary, this::rearmAfterAction);
+    }
+
+    /** One opt-in proactive suggestion to append to the wake greeting, or null.
+     *
+     *  Off unless the owner enabled it. The decision itself lives in the pure, tested
+     *  ProactiveSuggestion policy (at most one item, priority-ordered, silent during quiet
+     *  hours, cooldown-respecting); this method only gathers the facts and records when
+     *  something was actually said so the cooldown advances. Every lookup is wrapped so a
+     *  missing permission or an unavailable service can never stop IRIS greeting the owner. */
+    private String proactiveSuggestionLine() {
+        try {
+            AppSettings s = new AppSettings(this);
+            if (!s.proactiveSuggestions()) return null;
+            ProactiveSuggestion.Context c = new ProactiveSuggestion.Context();
+            c.hourOfDay = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+            long last = s.lastSuggestionAt();
+            c.minutesSinceLast = last <= 0 ? -1
+                    : (int) Math.min(Integer.MAX_VALUE, (System.currentTimeMillis() - last) / 60_000L);
+            c.pendingNotifications = NotificationStore.total(this);
+            try {
+                android.os.BatteryManager bm =
+                        (android.os.BatteryManager) getSystemService(BATTERY_SERVICE);
+                if (bm != null) {
+                    c.batteryPercent = bm.getIntProperty(
+                            android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
+                    c.charging = bm.isCharging();
+                }
+            } catch (Exception ignored) { }
+            // Missed calls come from the system log and need READ_CALL_LOG; without it this
+            // simply stays 0 and the policy falls through to its other options.
+            c.missedCalls = PhoneHistoryReader.missedCallCount(this);
+            ProactiveSuggestion suggestion = ProactiveSuggestion.decide(c);
+            if (!suggestion.any()) return null;
+            s.setLastSuggestionAt(System.currentTimeMillis());
+            LogStore.append(this, "SUGGEST", suggestion.kind.toString());
+            return suggestion.text;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** Answer a system call-log / SMS question. The reader handles its own permission checks
      *  and returns a spoken explanation when access is missing, so a denial is never a crash.
      *  Only the KIND of question is logged - caller names, numbers and message bodies are
@@ -5213,8 +5287,22 @@ public class IrisListeningService extends Service implements RecognitionListener
                 }
             }
             if (!launched) {
+                // After-failed-call follow-up (INTELLIGENCE-ROADMAP §4.2). A dead-end apology
+                // leaves the owner with nothing to do, so offer the text fallback and hand
+                // straight to the EXISTING guided compose flow, which already asks what to say
+                // and can be cancelled. Done this way deliberately rather than by adding a
+                // second yes/no state machine to the call-confirmation path above, which is
+                // delicate and already handles candidates, retries and timeouts.
                 broadcastMessage("This device blocked the call. Tap the notification to dial.");
-                speakThenRun("I couldn't start the call.", this::rearmAfterAction);
+                final String who = (name != null && !name.trim().isEmpty()) ? name.trim()
+                        : (number != null && !number.trim().isEmpty() ? number.trim() : null);
+                if (who != null) {
+                    speakThenRun("I couldn't start the call. I'll text " + who
+                            + " instead \u2014 say cancel if you'd rather not.",
+                            () -> beginSms(who, null));
+                } else {
+                    speakThenRun("I couldn't start the call.", this::rearmAfterAction);
+                }
                 return;
             }
             // Now it is safe to stand down.

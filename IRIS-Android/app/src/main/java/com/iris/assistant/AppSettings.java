@@ -151,6 +151,21 @@ public final class AppSettings {
     /** Orb diameter in dp (spec suggests 190–210 on a normal phone). */
     public int deckOrbSize() { return prefs.getInt("deck_orb_size", 200); }
     public void setDeckOrbSize(int dp) { prefs.edit().putInt("deck_orb_size", Math.max(120, Math.min(260, dp))).apply(); }
+
+    /** Proactive suggestions: let IRIS volunteer one useful thing with its wake greeting
+     *  (a missed call, a low battery, a notification pile). OFF by default -- an assistant
+     *  that speaks up uninvited has to be opted into, not opted out of. */
+    public boolean proactiveSuggestions() { return prefs.getBoolean("proactive_suggestions", false); }
+    public void setProactiveSuggestions(boolean v) { prefs.edit().putBoolean("proactive_suggestions", v).apply(); }
+    /** Timestamp of the last volunteered suggestion, for the cooldown. */
+    public long lastSuggestionAt() { return prefs.getLong("last_suggestion_at", 0L); }
+    public void setLastSuggestionAt(long t) { prefs.edit().putLong("last_suggestion_at", t).apply(); }
+
+    /** Offline-only mode: never use the optional server for chat, speech-to-text or voice.
+     *  A hard local override -- when this is on, no IRIS feature reaches the network. */
+    public boolean offlineOnly() { return prefs.getBoolean("offline_only", false); }
+    public void setOfflineOnly(boolean v) { prefs.edit().putBoolean("offline_only", v).apply(); }
+
     /** Battery-saving visual mode: no continuous animation, static rings. */
     public boolean deckBatterySaver() { return prefs.getBoolean("deck_battery_saver", false); }
     public void setDeckBatterySaver(boolean v) { prefs.edit().putBoolean("deck_battery_saver", v).apply(); }
