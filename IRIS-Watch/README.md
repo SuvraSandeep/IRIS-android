@@ -4,7 +4,7 @@ This is a Zepp OS mini-app source project, not an Android APK for the watch. It 
 
 ## Pair and test
 
-1. Install IRIS 12.0.0 on Android. In Settings → T-Rex 3 remote, authenticate, enable the bridge, and obtain the pairing secret. Keep IRIS running.
+1. Install IRIS 13.0.0 on Android. In Settings → T-Rex 3 remote, authenticate, enable the bridge, and obtain the pairing secret. Keep IRIS running.
 2. In this directory run `npm install`, then use the official Zepp Zeus CLI to build/preview (`zeus build`, `zeus preview`). The development app ID is 20001; obtain your own Zepp app ID before distribution. Use the T-Rex 3 target (480 × 480).
 3. Install via Zepp developer preview. Open the mini-app settings in Zepp on the same Android phone and paste the secret. Do not send the secret to anyone.
 4. Press Phone status, Ring phone, Stop ringing, and Request talk. Test screen-on/off and reconnect, then silent mode and your actual DND modes. DND must allow alarms.

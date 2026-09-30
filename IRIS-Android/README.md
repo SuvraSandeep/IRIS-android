@@ -1,6 +1,6 @@
 > Current release: **13.0.0**. See [release notes](RELEASE-13.0.0.md) for the current eight-take training flow, reliability tools and known device-testing limits. Some historical setup sections below describe earlier releases. The experimental T-Rex 3 source project is in `../IRIS-Watch`.
 
-# IRIS v0.2.2
+# IRIS v13.0.0
 
 **Intelligent Responsive Interaction System**
 
@@ -84,13 +84,13 @@ The Android speech-recognition provider may still use a remote service when the 
 ## Build directly from the ZIP with GitHub Actions
 
 1. Create an empty GitHub repository.
-2. Upload `IRIS-Android-v0.2.2-source.zip` to the repository root without extracting it.
+2. Upload `IRIS-Android-v13.0.0-source.zip` to the repository root without extracting it.
 3. Save the supplied standalone YAML as `.github/workflows/build-apk.yml`.
 4. Open the repository's **Actions** tab.
 5. Choose **Build IRIS Android APK** and select **Run workflow**.
 6. The workflow automatically extracts the ZIP and builds the correct project directory.
-7. Download the `IRIS-v0.2.2-debug-apk` artifact when the run succeeds.
-8. Extract and install `IRIS-v0.2.2-debug.apk`.
+7. Download the `IRIS-v13.0.0-debug-apk` artifact when the run succeeds.
+8. Extract and install `IRIS-v13.0.0-debug.apk`.
 
 The same workflow also supports repositories where the project was already extracted. The standalone `build-iris-apk.yml` supplied beside the ZIP is identical to the workflow included inside the source archive.
 
