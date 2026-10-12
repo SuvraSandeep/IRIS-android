@@ -4882,7 +4882,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     .putExtra(MainActivity.EXTRA_OPEN_ARCHIVE, true));
         } catch (Exception e) {
-            reply = "I could not open the app. The archive is under Activity, deleted and unsent messages.";
+            reply = "I could not open the app. The archive is under Activity, notification archive.";
         }
         speakThenRun(reply, this::rearmAfterAction);
     }

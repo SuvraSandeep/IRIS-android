@@ -462,6 +462,9 @@ public class MainActivity extends Activity {
         AppSettings settings = new AppSettings(this);
         settings.setLastDeletedCheckAt(System.currentTimeMillis());
         maybeShowArchiveNotice(settings);
+        // Capture is event-driven, so a freshly ticked app shows nothing until its next
+        // notification. Pulling in what is on screen now gives immediate evidence it is working.
+        IrisNotificationListener.captureVisibleNow();
 
         EditText search = view.findViewById(R.id.archiveSearch);
         Switch flaggedOnly = view.findViewById(R.id.archiveFlaggedOnly);
@@ -470,7 +473,9 @@ public class MainActivity extends Activity {
         if (back != null) back.setOnClickListener(v -> showLogs());
 
         View apps = view.findViewById(R.id.archiveAppsButton);
-        if (apps != null) apps.setOnClickListener(v -> ArchiveAppPicker.show(this));
+        if (apps != null) {
+            apps.setOnClickListener(v -> ArchiveAppPicker.show(this, () -> renderArchive(view)));
+        }
 
         View export = view.findViewById(R.id.archiveExportButton);
         if (export != null) export.setOnClickListener(v -> exportArchive());
@@ -575,6 +580,21 @@ public class MainActivity extends Activity {
             boolean show = usage == ArchiveSchema.Usage.CRITICAL || usage == ArchiveSchema.Usage.FULL;
             warning.setText(show ? NotificationArchive.usageMessage(this) : "");
             warning.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+
+        // Capture health. Every failure path in the archive is deliberately silent so it cannot
+        // crash the notification listener, which made an empty list ambiguous: not switched on, no
+        // apps ticked, access not granted, reader not bound, or a storage fault all looked the
+        // same. This says which, so the owner is not left guessing.
+        TextView status = root.findViewById(R.id.archiveStatus);
+        if (status != null) {
+            String report = NotificationArchive.statusReport(this,
+                    notificationAccessGranted(), IrisNotificationListener.isConnected());
+            status.setText(report);
+            boolean problem = report.contains("NOT granted") || report.contains("not connected")
+                    || report.contains("switched OFF") || report.contains("No apps are ticked")
+                    || report.contains("Capture is failing");
+            status.setTextColor(getColor(problem ? R.color.danger : R.color.text_muted));
         }
 
         list.removeAllViews();
@@ -1659,7 +1679,7 @@ public class MainActivity extends Activity {
             // though capturing never does. Capture while locked is the whole point; display is the
             // part that needs a gate.
             archiveOpen.setOnClickListener(v ->
-                    authenticateThen("View deleted and unsent messages", this::showArchive));
+                    authenticateThen("View the notification archive", this::showArchive));
         }
         view.findViewById(R.id.crashReportButton).setOnClickListener(v->authenticateThen("View crash and wake report",()->{
             new Thread(()->{String report=CrashDiagnostics.report(getApplicationContext());
@@ -4970,7 +4990,7 @@ public class MainActivity extends Activity {
         if (intent.getBooleanExtra(EXTRA_OPEN_ARCHIVE, false)) {
             intent.removeExtra(EXTRA_OPEN_ARCHIVE);
             // Authenticate before showing intercepted messages, matching the in-app entry point.
-            handler.post(() -> authenticateThen("View deleted and unsent messages", this::showArchive));
+            handler.post(() -> authenticateThen("View the notification archive", this::showArchive));
             return;
         }
         if(intent.hasExtra("routinePreview")){String phrase=intent.getStringExtra("routinePreview");intent.removeExtra("routinePreview");ReliabilityTools.preview(this,RoutineStore.match(this,phrase),this::runReviewedCommand);return;}

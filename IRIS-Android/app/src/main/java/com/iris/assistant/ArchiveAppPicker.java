@@ -54,6 +54,14 @@ public final class ArchiveAppPicker {
     }
 
     public static void show(final Activity activity) {
+        show(activity, null);
+    }
+
+    /**
+     * @param onSaved run after the owner saves, so the caller can re-capture and refresh. Without
+     *                it, ticking an app appears to do nothing until the next notification arrives.
+     */
+    public static void show(final Activity activity, final Runnable onSaved) {
         if (activity == null) return;
         final AppSettings settings = new AppSettings(activity);
 
@@ -64,7 +72,8 @@ public final class ArchiveAppPicker {
 
         TextView blurb = new TextView(activity);
         blurb.setText("Only ticked apps are saved to the archive. Notifications from everything "
-                + "else are ignored entirely.");
+                + "else are ignored entirely.\n\nTap Save to apply. Saving only affects "
+                + "notifications that arrive from now on \u2014 past ones cannot be recovered.");
         blurb.setTextSize(12f);
         root.addView(blurb);
 
@@ -108,10 +117,14 @@ public final class ArchiveAppPicker {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save", (d, w) -> {
                     settings.setArchivedApps(ticked);
+                    // Pull in anything already on screen from the newly ticked apps, so the choice
+                    // has a visible effect instead of appearing to do nothing.
+                    IrisNotificationListener.captureVisibleNow();
                     Toast.makeText(activity, ticked.isEmpty()
                             ? "No apps ticked, so nothing will be archived."
                             : "Archiving " + ticked.size() + (ticked.size() == 1 ? " app." : " apps."),
                             Toast.LENGTH_LONG).show();
+                    if (onSaved != null) onSaved.run();
                 })
                 .create();
         dialog.show();

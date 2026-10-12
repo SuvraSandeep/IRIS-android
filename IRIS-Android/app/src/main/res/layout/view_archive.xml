@@ -8,7 +8,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Deleted and unsent"
+        android:text="Notification archive"
         android:textColor="@color/text_primary"
         android:textSize="24sp"
         android:textStyle="bold" />
@@ -17,7 +17,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="Notifications from the apps you chose, kept on this phone only. Messages a sender later took back stay visible here, with the original text."
+        android:text="Every notification from the apps you tick, kept on this phone only. Anything a sender later deleted or unsent stays visible here, with the original text."
         android:textColor="@color/text_muted"
         android:textSize="13sp" />
 
@@ -29,6 +29,14 @@
         android:text="Loading\u2026"
         android:textColor="@color/text_primary"
         android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/archiveStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="@color/text_muted"
+        android:textSize="12sp" />
 
     <TextView
         android:id="@+id/archiveWarning"
@@ -90,7 +98,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:minHeight="48dp"
-        android:text="Only deleted or unsent"
+        android:text="Show only deleted or unsent"
         android:textColor="@color/text_primary"
         android:textSize="14sp" />
 

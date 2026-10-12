@@ -70,6 +70,42 @@ public class IrisNotificationListener extends NotificationListenerService {
 
     private BroadcastReceiver screenWatcher;
 
+    /**
+     * Whether the system has the notification reader bound.
+     *
+     * Reported in the archive UI because a lost binding is the most common reason capture silently
+     * stops after an app update, and it is otherwise indistinguishable from "no notifications have
+     * arrived".
+     */
+    public static boolean isConnected() { return instance != null; }
+
+    /**
+     * Archive whatever is currently showing in the notification shade.
+     *
+     * Capture is event-driven, so ticking an app only affects notifications that arrive AFTER that
+     * point. Opening the archive straight after choosing apps would therefore show an empty list
+     * even though everything is working, which reads as a bug. This pulls in what is on screen now
+     * so there is immediate evidence capture is live. Duplicate suppression makes it safe to call
+     * repeatedly.
+     *
+     * @return how many notifications were offered to the archive, not how many were new
+     */
+    public static int captureVisibleNow() {
+        IrisNotificationListener service = instance;
+        if (service == null) return 0;
+        int offered = 0;
+        try {
+            StatusBarNotification[] active = service.getActiveNotifications();
+            if (active != null) {
+                for (StatusBarNotification sbn : active) {
+                    service.onNotificationPosted(sbn);
+                    offered++;
+                }
+            }
+        } catch (Throwable ignored) { }
+        return offered;
+    }
+
     /** Active notifications only; cached history must never be used to send a reply. */
     public static StatusBarNotification[] activeForReply() {
         IrisNotificationListener service = instance;

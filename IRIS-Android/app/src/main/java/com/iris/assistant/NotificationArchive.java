@@ -38,7 +38,33 @@ public final class NotificationArchive {
 
     private static Helper helper;
 
+    /**
+     * Last storage failure, kept so the UI can show WHY nothing is being captured.
+     *
+     * Every method here swallows exceptions to keep the notification listener alive, which is
+     * correct but was also making a broken database indistinguishable from "no notifications have
+     * arrived yet". Recording the reason turns an invisible failure into a reportable one.
+     */
+    private static volatile String lastError = "";
+    private static volatile long lastRecordedAt;
+    private static volatile int recordedThisSession;
+
     private NotificationArchive() { }
+
+    /** Human-readable reason capture is failing, or empty when healthy. */
+    public static String lastError() { return lastError; }
+
+    /** When a row was last successfully written, or 0 if never in this process. */
+    public static long lastRecordedAt() { return lastRecordedAt; }
+
+    /** Rows written since the process started, to distinguish "never ran" from "nothing arrived". */
+    public static int recordedThisSession() { return recordedThisSession; }
+
+    private static void noteError(String where, Throwable error) {
+        String reason = error == null ? "unknown" : error.getClass().getSimpleName()
+                + (error.getMessage() == null ? "" : ": " + error.getMessage());
+        lastError = where + " \u2014 " + reason;
+    }
 
     // ─── Value types ───
 
@@ -125,8 +151,14 @@ public final class NotificationArchive {
 
                 long id = db.insertWithOnConflict(ArchiveSchema.TABLE, null, values,
                         SQLiteDatabase.CONFLICT_IGNORE);
+                if (id > 0) {
+                    lastRecordedAt = System.currentTimeMillis();
+                    recordedThisSession++;
+                    lastError = "";
+                }
                 return id <= 0 ? RESULT_DUPLICATE : id;
             } catch (Throwable t) {
+                noteError("saving a notification", t);
                 return RESULT_ERROR;
             }
         }
@@ -577,16 +609,75 @@ public final class NotificationArchive {
             // A corrupted or unreadable store must not wedge capture forever. Drop it and start
             // again: losing history is bad, but a listener that can never archive anything again
             // is worse, and the owner's export is the designated backup.
+            noteError("opening the archive database", first);
             try {
                 context.getApplicationContext().deleteDatabase(ArchiveSchema.DB_NAME);
                 synchronized (LOCK) {
                     helper = new Helper(context.getApplicationContext());
                 }
-                return helper.getWritableDatabase();
+                SQLiteDatabase db = helper.getWritableDatabase();
+                lastError = "";
+                return db;
             } catch (Throwable second) {
+                // Both attempts failed, so the schema itself is almost certainly at fault. Keep the
+                // reason: without it this is indistinguishable from no notifications arriving.
+                noteError("recreating the archive database", second);
                 return null;
             }
         }
+    }
+
+    /**
+     * Why capture may not be working, in the owner's terms.
+     *
+     * Exists because every failure path here is deliberately silent to protect the notification
+     * listener, which made an empty archive ambiguous: not switched on, no apps ticked, access not
+     * granted, listener not bound, or a storage fault all looked identical. This reports which.
+     */
+    public static String statusReport(Context context, boolean accessGranted, boolean listenerBound) {
+        if (context == null) return "Status unavailable.";
+        AppSettings settings = new AppSettings(context);
+        StringBuilder out = new StringBuilder();
+
+        if (!settings.notificationArchive()) {
+            return "Archiving is switched OFF, so nothing is being saved.";
+        }
+        if (!accessGranted) {
+            return "Notification access is NOT granted, so IRIS cannot see any notifications. "
+                    + "Grant it under What IRIS can access, then reopen this screen.";
+        }
+        if (!listenerBound) {
+            return "Notification access is granted but the reader is not connected. This usually "
+                    + "happens after an app update: switch notification access off and on again "
+                    + "for IRIS.";
+        }
+
+        int tickedCount;
+        if (settings.archivedAppsChosen()) {
+            tickedCount = settings.archivedApps().size();
+            if (tickedCount == 0) {
+                return "No apps are ticked, so nothing is being saved. Tap Choose apps.";
+            }
+        } else {
+            tickedCount = ArchiveAppTargets.defaultTargets().length;
+            out.append("Using the default app list \u2014 tap Choose apps to pick your own. ");
+        }
+
+        if (!lastError.isEmpty()) {
+            return "Capture is failing: " + lastError + ". Try Delete archive to rebuild it.";
+        }
+
+        out.append("Watching ").append(tickedCount)
+                .append(tickedCount == 1 ? " app." : " apps.");
+        if (recordedThisSession > 0) {
+            out.append(" Saved ").append(recordedThisSession)
+                    .append(recordedThisSession == 1 ? " notification" : " notifications")
+                    .append(" since IRIS started.");
+        } else {
+            out.append(" Nothing captured yet since IRIS started \u2014 only notifications that "
+                    + "actually appear, from the ticked apps, are saved.");
+        }
+        return out.toString();
     }
 
     /** Visible for the listener so a fresh process re-reads the file rather than a stale handle. */
