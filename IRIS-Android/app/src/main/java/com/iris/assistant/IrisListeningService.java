@@ -4712,11 +4712,24 @@ public class IrisListeningService extends Service implements RecognitionListener
         return null; // fall back to raw word
     }
 
+    /** See MainActivity.notificationAccessGranted: a bound listener is the conclusive signal. */
     private boolean notificationAccessGranted() {
+        if (IrisNotificationListener.isConnected()) return true;
+        if (Build.VERSION.SDK_INT >= 27) {
+            try {
+                NotificationManager nm = (NotificationManager)
+                        getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null && nm.isNotificationListenerAccessGranted(
+                        new android.content.ComponentName(this, IrisNotificationListener.class))) {
+                    return true;
+                }
+            } catch (Exception ignored) { }
+        }
         try {
-            String flat = android.provider.Settings.Secure.getString(
-                    getContentResolver(), "enabled_notification_listeners");
-            return flat != null && flat.contains(getPackageName());
+            return PermissionCatalog.listenerEnabledIn(
+                    android.provider.Settings.Secure.getString(
+                            getContentResolver(), "enabled_notification_listeners"),
+                    getPackageName());
         } catch (Exception e) {
             return false;
         }

@@ -642,7 +642,7 @@ public final class NotificationArchive {
         if (!settings.notificationArchive()) {
             return "Archiving is switched OFF, so nothing is being saved.";
         }
-        if (!accessGranted) {
+        if (!accessGranted && !listenerBound) {
             return "Notification access is NOT granted, so IRIS cannot see any notifications. "
                     + "Grant it under What IRIS can access, then reopen this screen.";
         }

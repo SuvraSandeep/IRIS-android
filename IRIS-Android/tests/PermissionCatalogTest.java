@@ -36,6 +36,7 @@ public class PermissionCatalogTest {
         summaryClampsNonsenseCounts();
         coreWarningReadsCorrectly();
         listIsDefensivelyCopied();
+        listenerSettingIsParsedExactly();
         System.out.println("Passed " + checks + " permission catalogue checks");
     }
 
@@ -145,5 +146,46 @@ public class PermissionCatalogTest {
         int size = first.size();
         first.clear();
         check(PermissionCatalog.all().size() == size, "clearing a returned list does not affect the catalogue");
+    }
+
+    /**
+     * Pins the parsing of the enabled-notification-listeners setting.
+     *
+     * Written after access was granted on the device but reported missing in the app. The old check
+     * was a bare contains() on the package name, so these cases are the ones that must not regress.
+     */
+    private static void listenerSettingIsParsedExactly() {
+        String me = "com.iris.assistant";
+
+        check(PermissionCatalog.listenerEnabledIn(
+                "com.iris.assistant/com.iris.assistant.IrisNotificationListener", me),
+                "our own flattened component is recognised");
+        check(PermissionCatalog.listenerEnabledIn(
+                "com.other.app/.Listener:com.iris.assistant/.IrisNotificationListener", me),
+                "recognised when listed after another app");
+        check(PermissionCatalog.listenerEnabledIn(
+                "com.iris.assistant/.A:com.other/.B", me),
+                "recognised when listed first");
+        check(PermissionCatalog.listenerEnabledIn("com.iris.assistant/.A ", me),
+                "surrounding whitespace is tolerated");
+        check(PermissionCatalog.listenerEnabledIn("com.iris.assistant", me),
+                "a bare package with no class still counts");
+
+        // The false positives the old contains() check allowed.
+        check(!PermissionCatalog.listenerEnabledIn("com.iris.assistant.pro/.Listener", me),
+                "a different app whose package extends ours is NOT us");
+        check(!PermissionCatalog.listenerEnabledIn("com.evil.app/com.iris.assistant.Faker", me),
+                "our name inside another app's class name is NOT us");
+
+        // Denial and unreadable-setting cases must both be false, but for the caller's benefit the
+        // listener-bound check runs first precisely because null here does not prove denial.
+        check(!PermissionCatalog.listenerEnabledIn(null, me), "null setting is not a grant");
+        check(!PermissionCatalog.listenerEnabledIn("", me), "empty setting is not a grant");
+        check(!PermissionCatalog.listenerEnabledIn("::", me), "separators only is not a grant");
+        check(!PermissionCatalog.listenerEnabledIn("com.other/.L", me), "another app alone is not a grant");
+        check(!PermissionCatalog.listenerEnabledIn("com.iris.assistant/.A", null),
+                "a null package name cannot match");
+        check(!PermissionCatalog.listenerEnabledIn("com.iris.assistant/.A", ""),
+                "an empty package name cannot match");
     }
 }

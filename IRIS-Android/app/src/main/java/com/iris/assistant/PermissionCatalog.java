@@ -155,4 +155,34 @@ public final class PermissionCatalog {
         if (missingCore == 1) return "1 essential permission is missing, so IRIS is limited.";
         return missingCore + " essential permissions are missing, so IRIS is limited.";
     }
+
+    /**
+     * Whether our notification listener appears in the system's enabled-listeners setting.
+     *
+     * The setting is a colon-separated list of flattened ComponentNames, for example
+     * "com.a/com.a.Svc:com.b/.Listener". The previous check was
+     * {@code flatList.contains(getPackageName())}, which is wrong in both directions: it matches a
+     * different app whose package merely starts with ours ("com.iris.assistant" matches a
+     * hypothetical "com.iris.assistant.pro"), and it matches our package appearing anywhere in
+     * another entry's class name. Comparing the package half of each entry exactly removes both.
+     *
+     * Note this setting is also not fully reliable: on some ROMs it reads back null or empty for a
+     * non-system app even when access is granted. Callers must therefore treat a bound listener as
+     * the stronger signal and only fall back to this.
+     *
+     * @param flatList raw setting value, may be null
+     * @param packageName our package name
+     */
+    public static boolean listenerEnabledIn(String flatList, String packageName) {
+        if (flatList == null || flatList.isEmpty()) return false;
+        if (packageName == null || packageName.isEmpty()) return false;
+        for (String entry : flatList.split(":")) {
+            String trimmed = entry.trim();
+            if (trimmed.isEmpty()) continue;
+            int slash = trimmed.indexOf('/');
+            String pkg = slash < 0 ? trimmed : trimmed.substring(0, slash);
+            if (pkg.equals(packageName)) return true;
+        }
+        return false;
+    }
 }

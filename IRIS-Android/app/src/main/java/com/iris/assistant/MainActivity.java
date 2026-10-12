@@ -1859,10 +1859,35 @@ public class MainActivity extends Activity {
     private String testRow(String label, boolean ok) { return (ok ? "\u2705 " : "\u274C ") + label + "\n"; }
     private String testLine(String label, String value) { return "\u2022 " + label + ": " + value + "\n"; }
 
+    /**
+     * Whether IRIS is allowed to read notifications.
+     *
+     * Layered deliberately, after a report of access being granted on the device but shown as
+     * missing in the app. The old check read the "enabled_notification_listeners" secure setting
+     * and called {@code contains(getPackageName())} on it, which fails whenever that setting is
+     * not readable by a non-system app: some ROMs return null, and null was reported as denial.
+     *
+     * A bound listener is checked first because it is conclusive -- the system does not bind one
+     * without the grant -- and because telling the owner access is missing while notifications are
+     * actively being captured is the worst possible answer.
+     */
     private boolean notificationAccessGranted() {
+        if (IrisNotificationListener.isConnected()) return true;
+        if (Build.VERSION.SDK_INT >= 27) {
+            try {
+                android.app.NotificationManager nm = (android.app.NotificationManager)
+                        getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null && nm.isNotificationListenerAccessGranted(
+                        new android.content.ComponentName(this, IrisNotificationListener.class))) {
+                    return true;
+                }
+            } catch (Exception ignored) { }
+        }
         try {
-            String s = android.provider.Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
-            return s != null && s.contains(getPackageName());
+            return PermissionCatalog.listenerEnabledIn(
+                    android.provider.Settings.Secure.getString(
+                            getContentResolver(), "enabled_notification_listeners"),
+                    getPackageName());
         } catch (Exception e) { return false; }
     }
 
