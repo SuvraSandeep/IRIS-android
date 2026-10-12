@@ -208,6 +208,23 @@ javac -encoding UTF-8 -d "$test_dir/archive" \
   tests/MessageRollupTest.java
 java -cp "$test_dir/archive" com.iris.assistant.MessageRollupTest
 
+# Image sizing and budget. Images are orders of magnitude larger than text rows, so the budget is a
+# fraction of the ceiling: a vault full of photos must never be the reason a deleted message goes
+# uncaptured. Sample size is computed from dimensions alone, before decoding, so a camera photo is
+# never fully loaded in the notification listener process.
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/ArchiveImagePolicy.java \
+  tests/ArchiveImagePolicyTest.java
+java -cp "$test_dir/archive" com.iris.assistant.ArchiveImagePolicyTest
+
+# Swipe-to-delete thresholds. Two opposing failures: claiming gestures too eagerly makes the list
+# impossible to scroll, dismissing too eagerly deletes evidence that cannot be recovered. The bias
+# is toward scrolling throughout, and these checks stop a later tweak reversing that.
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/SwipeDecision.java \
+  tests/SwipeDecisionTest.java
+java -cp "$test_dir/archive" com.iris.assistant.SwipeDecisionTest
+
 # The append-only guarantee is enforced by SQLite triggers, not by Java, so it cannot be covered by
 # the Java suites above (SQLiteOpenHelper is Android-only and Robolectric is unavailable offline).
 # Python ships a real SQLite engine, so the DDL is extracted from ArchiveSchema.java and actually

@@ -473,7 +473,11 @@ public class MainActivity extends Activity {
         Switch flaggedOnly = view.findViewById(R.id.archiveFlaggedOnly);
 
         View back = view.findViewById(R.id.archiveBackButton);
-        if (back != null) back.setOnClickListener(v -> showLogs());
+        if (back != null) {
+            // Leaving commits any queued deletes: the owner swiped deliberately, so navigating
+            // away confirms that intent rather than silently cancelling it.
+            back.setOnClickListener(v -> { flushArchiveDeletes(); showLogs(); });
+        }
 
         View apps = view.findViewById(R.id.archiveAppsButton);
         if (apps != null) {
@@ -573,6 +577,245 @@ public class MainActivity extends Activity {
             toast("Settings \u2192 Notifications \u2192 Notification access \u2192 allow IRIS.");
         }
     }
+
+    /**
+     * Full-size viewer for one captured photo, with the only route out of the archive.
+     *
+     * The export is text-only by the owner's decision, so saving here is deliberately per-image
+     * and explicit: a picture leaves app-private storage only when asked for by name.
+     */
+    private void showArchiveImage(final ArchiveRow row) {
+        android.graphics.Bitmap full = ArchiveImages.full(this, row.imagePath);
+        if (full == null) {
+            toast("That photo is gone. I had it, and now I don't.");
+            return;
+        }
+        android.widget.ImageView view = new android.widget.ImageView(this);
+        view.setImageBitmap(full);
+        view.setAdjustViewBounds(true);
+        view.setBackgroundColor(getColor(R.color.deck_bg));
+
+        new AlertDialog.Builder(this)
+                .setTitle(ContactResolver.display(this, row.displayName()))
+                .setView(view)
+                .setNeutralButton("Save a copy", (d, w) -> {
+                    pendingImageRow = row;
+                    try {
+                        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                                .addCategory(Intent.CATEGORY_OPENABLE)
+                                .setType("image/jpeg")
+                                .putExtra(Intent.EXTRA_TITLE, "iris-" + row.imagePath);
+                        startActivityForResult(save, SAVE_ARCHIVE_IMAGE);
+                    } catch (Exception e) {
+                        toast("No app on this phone can save a file.");
+                    }
+                })
+                .setPositiveButton("Close", null)
+                .show();
+    }
+
+    /** The row whose image is being saved, held across the file-picker round trip. */
+    private ArchiveRow pendingImageRow;
+
+    /** Write the chosen image to the location the owner picked. */
+    private void writeArchiveImage(Uri destination) {
+        ArchiveRow row = pendingImageRow;
+        pendingImageRow = null;
+        if (row == null || destination == null) return;
+        try (java.io.OutputStream out = getContentResolver().openOutputStream(destination)) {
+            boolean ok = ArchiveImages.copyTo(this, row.imagePath, out);
+            toast(ok ? "Saved. Do what you like with it."
+                     : "Could not save that one, which is embarrassing for both of us.");
+        } catch (Exception e) {
+            toast("Could not save that one, which is embarrassing for both of us.");
+        }
+    }
+
+    /**
+     * Attach swipe-to-delete to one archive row.
+     *
+     * Replaces long-press as the primary delete route, which the owner found a chore. Implemented
+     * directly rather than with ItemTouchHelper because the list is a LinearLayout in a ScrollView
+     * and a RecyclerView would mean a new dependency; the thresholds live in SwipeDecision and are
+     * covered offline.
+     *
+     * The delete is NOT immediate. The row leaves the list at once so the gesture feels decisive,
+     * but the database write waits behind an undo window, because a deleted message cannot be
+     * recovered from anywhere and an accidental flick would otherwise destroy the one copy.
+     */
+    private void attachSwipeToDelete(final View card, final ArchiveRow row, final View root) {
+        final float[] start = new float[2];
+        final long[] startedAt = new long[1];
+        final boolean[] claimed = new boolean[1];
+
+        card.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    start[0] = event.getRawX();
+                    start[1] = event.getRawY();
+                    startedAt[0] = System.currentTimeMillis();
+                    claimed[0] = false;
+                    return true;
+
+                case android.view.MotionEvent.ACTION_MOVE: {
+                    float dx = event.getRawX() - start[0];
+                    float dy = event.getRawY() - start[1];
+                    if (!claimed[0] && SwipeDecision.claimsGesture(dx, dy)) {
+                        claimed[0] = true;
+                        // Stop the ScrollView stealing the gesture back mid-swipe.
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                    }
+                    if (claimed[0]) {
+                        v.setTranslationX(dx);
+                        v.setAlpha(SwipeDecision.dragAlpha(dx, v.getWidth()));
+                    }
+                    return true;
+                }
+
+                case android.view.MotionEvent.ACTION_UP: {
+                    float dx = event.getRawX() - start[0];
+                    float dy = event.getRawY() - start[1];
+                    long elapsed = Math.max(1, System.currentTimeMillis() - startedAt[0]);
+                    float velocity = dx / elapsed * 1000f;
+
+                    if (!claimed[0]) {
+                        // Never became a swipe. A still finger is a tap, which opens the photo if
+                        // there is one; any real movement was the list scrolling.
+                        v.setTranslationX(0);
+                        v.setAlpha(1f);
+                        if (Math.abs(dx) < SwipeDecision.CLAIM_SLOP_PX
+                                && Math.abs(dy) < SwipeDecision.CLAIM_SLOP_PX
+                                && row.hasImage()) {
+                            showArchiveImage(row);
+                        }
+                        return true;
+                    }
+
+                    if (SwipeDecision.dismisses(dx, velocity, v.getWidth())) {
+                        swipeAwayAndQueueDelete(v, row, root, dx >= 0);
+                    } else {
+                        v.animate().translationX(0).alpha(1f).setDuration(140).start();
+                    }
+                    return true;
+                }
+
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    v.animate().translationX(0).alpha(1f).setDuration(140).start();
+                    return true;
+
+                default:
+                    return false;
+            }
+        });
+    }
+
+    /** Slide the row out, drop it from the list, and start the undo window. */
+    private void swipeAwayAndQueueDelete(final View card, final ArchiveRow row,
+                                         final View root, boolean toTheRight) {
+        int distance = Math.max(card.getWidth(), dp(320));
+        card.animate()
+                .translationX(toTheRight ? distance : -distance)
+                .alpha(0f)
+                .setDuration(160)
+                .withEndAction(() -> {
+                    LinearLayout list = root.findViewById(R.id.archiveList);
+                    if (list != null) list.removeView(card);
+                    queueArchiveDelete(row, root);
+                })
+                .start();
+    }
+
+    /**
+     * Hold a delete for a few seconds so it can be undone, then commit it.
+     *
+     * Deferred rather than confirmed with a dialog: a dialog would reintroduce exactly the friction
+     * the owner asked to remove. Nothing is written to the database until the window expires, so an
+     * undo is a cancelled timer rather than a re-insert, and the archive's append-only history is
+     * never actually disturbed.
+     */
+    private void queueArchiveDelete(final ArchiveRow row, final View root) {
+        pendingDeletes.add(row);
+        final Runnable commit = () -> {
+            if (!pendingDeletes.remove(row)) return;
+            NotificationArchive.deleteRow(this, row.id);
+            if (pendingDeletes.isEmpty()) hideUndoBar(root);
+            renderArchiveSummaryOnly(root);
+        };
+        pendingDeleteCommits.put(row, commit);
+        handler.postDelayed(commit, UNDO_WINDOW_MS);
+        showUndoBar(root, row);
+    }
+
+    /** Cancel every queued delete that has not yet committed. */
+    private void undoArchiveDeletes(final View root) {
+        for (Runnable commit : pendingDeleteCommits.values()) handler.removeCallbacks(commit);
+        pendingDeleteCommits.clear();
+        int restored = pendingDeletes.size();
+        pendingDeletes.clear();
+        hideUndoBar(root);
+        renderArchive(root);
+        toast(restored == 1 ? "Kept it. Close call."
+                            : "Kept all " + restored + " of them. Close call.");
+    }
+
+    /**
+     * Commit any queued deletes immediately.
+     *
+     * Called when the Vault closes. The owner swiped deliberately, so leaving the screen confirms
+     * the intent rather than cancelling it; the alternative would be a delete that silently never
+     * happened.
+     */
+    private void flushArchiveDeletes() {
+        for (Runnable commit : pendingDeleteCommits.values()) handler.removeCallbacks(commit);
+        pendingDeleteCommits.clear();
+        for (ArchiveRow row : pendingDeletes) {
+            try { NotificationArchive.deleteRow(this, row.id); } catch (Throwable ignored) { }
+        }
+        pendingDeletes.clear();
+    }
+
+    private void showUndoBar(final View root, ArchiveRow row) {
+        View bar = root.findViewById(R.id.archiveUndoBar);
+        TextView label = root.findViewById(R.id.archiveUndoLabel);
+        View button = root.findViewById(R.id.archiveUndoButton);
+        if (bar == null || label == null || button == null) return;
+        int count = pendingDeletes.size();
+        label.setText(count == 1
+                ? "Deleted \u201c" + shortened(row.body) + "\u201d"
+                : count + " deleted");
+        bar.setVisibility(View.VISIBLE);
+        button.setOnClickListener(v -> undoArchiveDeletes(root));
+    }
+
+    private void hideUndoBar(View root) {
+        View bar = root.findViewById(R.id.archiveUndoBar);
+        if (bar != null) bar.setVisibility(View.GONE);
+    }
+
+    private String shortened(String text) {
+        if (text == null || text.isEmpty()) return "that one";
+        String flat = text.replace('\n', ' ').trim();
+        return flat.length() <= 24 ? flat : flat.substring(0, 24) + "\u2026";
+    }
+
+    /** Refresh only the counters, so a committed delete does not rebuild the whole list. */
+    private void renderArchiveSummaryOnly(View root) {
+        TextView summary = root.findViewById(R.id.archiveSummary);
+        if (summary == null) return;
+        int total = NotificationArchive.totalMessages(this);
+        int flagged = NotificationArchive.totalFlagged(this);
+        summary.setText(total + " LOGGED \u00b7 " + flagged + " INCRIMINATING \u00b7 "
+                + ArchiveSchema.readableSize(NotificationArchive.sizeBytes(this)));
+    }
+
+    /** Rows swiped away but not yet committed to the database. */
+    private final java.util.Set<ArchiveRow> pendingDeletes =
+            new java.util.LinkedHashSet<>();
+    private final java.util.Map<ArchiveRow, Runnable> pendingDeleteCommits =
+            new java.util.LinkedHashMap<>();
+
+    /** How long a swiped row can be recovered. Long enough to react, short enough not to linger. */
+    private static final long UNDO_WINDOW_MS = 5000L;
 
     /** One-time explanation of what the archive keeps. Informational, not a gate. */
     private void maybeShowArchiveNotice(AppSettings settings) {
@@ -746,6 +989,34 @@ public class MainActivity extends Activity {
         body.setPadding(0, dp(4), 0, 0);
         card.addView(body);
 
+        // A captured photo. Decoded at thumbnail size rather than full size: a list of twenty
+        // full-resolution bitmaps would exhaust memory, and this runs on the main thread.
+        if (row.hasImage()) {
+            android.graphics.Bitmap thumb = ArchiveImages.thumbnail(this, row.imagePath, dp(220));
+            if (thumb != null) {
+                android.widget.ImageView shot = new android.widget.ImageView(this);
+                LinearLayout.LayoutParams shotParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(160));
+                shotParams.topMargin = dp(6);
+                shot.setLayoutParams(shotParams);
+                shot.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+                shot.setImageBitmap(thumb);
+                shot.setContentDescription("Captured photo. Tap to open.");
+                shot.setOnClickListener(v -> showArchiveImage(row));
+                card.addView(shot);
+            } else {
+                // The row says there is an image but the file is gone. Said plainly rather than
+                // leaving a blank gap, because a silent absence looks like a rendering bug.
+                TextView missing = new TextView(this);
+                missing.setText("[ photo recorded but the file is missing ]");
+                missing.setTextSize(10f);
+                missing.setTypeface(android.graphics.Typeface.MONOSPACE);
+                missing.setTextColor(getColor(R.color.deck_text_dim));
+                missing.setPadding(0, dp(6), 0, 0);
+                card.addView(missing);
+            }
+        }
+
         if (confidence != DeletedMessageRules.Confidence.NONE) {
             TextView status = new TextView(this);
             status.setText(DeletedMessageRules.statusLabel(
@@ -767,16 +1038,20 @@ public class MainActivity extends Activity {
         card.setContentDescription((confidence == DeletedMessageRules.Confidence.CONFIRMED
                 ? "Unsent message from " : "Message from ") + who + ": " + row.body);
 
-        // Long-press is the ONLY route to removing an entry, matching the append-only contract.
+        // Swipe sideways to delete, which replaced long-press-and-confirm at the owner's request.
+        // Long-press is kept as a secondary route with its confirmation intact, so there is still
+        // a deliberate, unmistakable way to remove an entry that cannot be triggered by accident.
+        attachSwipeToDelete(card, row, root);
+
         card.setOnLongClickListener(v -> {
             new AlertDialog.Builder(this)
                     .setTitle("Delete this entry?")
                     .setMessage("This removes it permanently. The archive never deletes anything on "
-                            + "its own, so this is the only way an entry goes away.")
+                            + "its own, so this only happens because you asked.")
                     .setNegativeButton("Keep it", null)
                     .setPositiveButton("Delete", (d, w) -> {
                         if (NotificationArchive.deleteRow(this, row.id)) {
-                            toast("Entry deleted.");
+                            toast("Gone. I never saw it.");
                             renderArchive(root);
                         } else {
                             toast("Could not delete that entry.");
@@ -2690,6 +2965,8 @@ public class MainActivity extends Activity {
     private static final int IMPORT_MEMORY = 206;
     private static final int EXPORT_ARCHIVE_CSV = 207;
     private static final int EXPORT_ARCHIVE_TEXT = 208;
+    /** Saving one captured photo. The export itself stays text-only by the owner's decision. */
+    private static final int SAVE_ARCHIVE_IMAGE = 209;
 
     private void createMemoryDocument() {
         startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
@@ -5340,6 +5617,8 @@ public class MainActivity extends Activity {
                         runOnUiThread(() -> toast("Activity log exported."));
                     } catch (Exception error) { runOnUiThread(() -> toast("Activity export failed.")); }
                 }, "IRIS-ExportLogs").start();
+            } else if (requestCode == SAVE_ARCHIVE_IMAGE) {
+                writeArchiveImage(uri);
             } else if (requestCode == EXPORT_ARCHIVE_CSV || requestCode == EXPORT_ARCHIVE_TEXT) {
                 final boolean csv = requestCode == EXPORT_ARCHIVE_CSV;
                 new Thread(() -> {

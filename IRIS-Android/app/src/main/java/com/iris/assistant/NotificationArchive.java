@@ -437,7 +437,13 @@ public final class NotificationArchive {
 
     // ─── Size ───
 
-    /** On-disk size, including the write-ahead log and shared-memory sidecars. */
+    /**
+     * On-disk size, including the write-ahead log and shared-memory sidecars, plus stored images.
+     *
+     * Images are counted here because they are by far the largest part of the archive once photo
+     * capture is on, and the 1GB ceiling would otherwise only govern the text. A vault reporting
+     * 4MB while holding 600MB of photos would be actively misleading.
+     */
     public static long sizeBytes(Context context) {
         if (context == null) return 0L;
         try {
@@ -445,6 +451,11 @@ public final class NotificationArchive {
             long total = length(base);
             total += length(new File(base.getPath() + "-wal"));
             total += length(new File(base.getPath() + "-shm"));
+            long images = ArchiveImages.bytesUsed(context);
+            // -1 means the image measurement failed. Adding it would shrink the reported total
+            // and could let capture continue past the ceiling, so it is treated as zero here and
+            // handled by the image policy, which refuses on a failed measurement.
+            if (images > 0) total += images;
             return total;
         } catch (Throwable t) {
             return 0L;
@@ -504,13 +515,41 @@ public final class NotificationArchive {
     }
 
     /**
+     * Delete image files no row points at any more.
+     *
+     * Run after every authorised delete, which covers a single row, a date range and a full wipe
+     * from one place rather than needing each to remember. Without it, image files would outlive
+     * their rows and occupy storage permanently with nothing referencing them -- and they would
+     * still count toward the ceiling, so the archive would slowly refuse new captures over space
+     * held by photos the owner had already deleted.
+     */
+    private static void sweepOrphanImages(Context context) {
+        try {
+            ArchiveImages.deleteOrphans(context, referencedImageNames(context));
+        } catch (Throwable ignored) { }
+    }
+
+    /**
+     * Delete rows, then clean up any image files left without a row.
+     *
+     * The sweep deliberately runs AFTER the transaction has committed, not inside it. Deleting
+     * files while the delete could still roll back would leave surviving rows pointing at images
+     * that no longer exist -- a row that claims to have a photo and cannot show it.
+     */
+    private static int authorisedDelete(Context context, String where, String[] args) {
+        int removed = deleteRowsAuthorised(context, where, args);
+        if (removed > 0) sweepOrphanImages(context);
+        return removed;
+    }
+
+    /**
      * Perform a delete with the owner-authorisation flag raised.
      *
      * Without the flag the BEFORE DELETE trigger aborts, which is what stops any automated or
      * accidental purge. The flag is lowered again in a finally block so authorisation cannot leak
      * past this call even if the delete throws.
      */
-    private static int authorisedDelete(Context context, String where, String[] args) {
+    private static int deleteRowsAuthorised(Context context, String where, String[] args) {
         if (context == null) return 0;
         synchronized (LOCK) {
             SQLiteDatabase db;
@@ -568,6 +607,15 @@ public final class NotificationArchive {
         row.deleted = c.getInt(c.getColumnIndexOrThrow(ArchiveSchema.COL_IS_DELETED)) == 1;
         row.suspected = c.getInt(c.getColumnIndexOrThrow(ArchiveSchema.COL_IS_SUSPECTED)) == 1;
         row.deletionTime = c.getLong(c.getColumnIndexOrThrow(ArchiveSchema.COL_DELETION_TIME));
+        // Tolerant lookup: a database created before images existed and not yet migrated would
+        // have no such column, and an unreadable image name must not stop the row being listed.
+        try {
+            int index = c.getColumnIndex(ArchiveSchema.COL_IMAGE_PATH);
+            if (index >= 0) {
+                String name = c.getString(index);
+                row.imagePath = name == null ? "" : name;
+            }
+        } catch (Throwable ignored) { }
         return row;
     }
 
@@ -700,6 +748,78 @@ public final class NotificationArchive {
         return new Status(out.toString(), false);
     }
 
+    /**
+     * Fill in a row's image filename after a background copy.
+     *
+     * The only content-bearing column the archive allows to be written after insert, and the
+     * schema enforces that with its own write-once trigger. The concession exists because
+     * decoding a photo takes long enough to stall the notification thread, so the row is stored
+     * immediately and the image follows. A second attempt with a different name is rejected by
+     * the trigger, not by this method.
+     */
+    public static boolean setImagePath(Context context, long rowId, String storedName) {
+        if (context == null || rowId <= 0) return false;
+        if (storedName == null || storedName.trim().isEmpty()) return false;
+        synchronized (LOCK) {
+            try {
+                SQLiteDatabase db = database(context);
+                if (db == null) return false;
+                ContentValues values = new ContentValues();
+                values.put(ArchiveSchema.COL_IMAGE_PATH, storedName.trim());
+                int updated = db.update(ArchiveSchema.TABLE, values,
+                        ArchiveSchema.COL_ID + " = ?", new String[]{String.valueOf(rowId)});
+                return updated > 0;
+            } catch (Throwable t) {
+                // Expected when the trigger refuses a second write. Not an error worth surfacing:
+                // the first image is already stored and is the one that counts.
+                return false;
+            }
+        }
+    }
+
+    /** The fingerprint of a stored row, used to name its image file. Empty if not found. */
+    public static String fingerprintOf(Context context, long rowId) {
+        if (context == null || rowId <= 0) return "";
+        synchronized (LOCK) {
+            try {
+                SQLiteDatabase db = database(context);
+                if (db == null) return "";
+                try (Cursor cursor = db.query(ArchiveSchema.TABLE,
+                        new String[]{ArchiveSchema.COL_FINGERPRINT},
+                        ArchiveSchema.COL_ID + " = ?", new String[]{String.valueOf(rowId)},
+                        null, null, null)) {
+                    if (!cursor.moveToFirst()) return "";
+                    String value = cursor.getString(0);
+                    return value == null ? "" : value;
+                }
+            } catch (Throwable ignored) {
+                return "";
+            }
+        }
+    }
+
+    /** Every stored image filename still referenced by a row, for orphan cleanup. */
+    public static java.util.Set<String> referencedImageNames(Context context) {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        if (context == null) return names;
+        synchronized (LOCK) {
+            try {
+                SQLiteDatabase db = database(context);
+                if (db == null) return names;
+                try (Cursor cursor = db.query(ArchiveSchema.TABLE,
+                        new String[]{ArchiveSchema.COL_IMAGE_PATH},
+                        ArchiveSchema.COL_IMAGE_PATH + " != ''",
+                        null, null, null, null)) {
+                    while (cursor.moveToNext()) {
+                        String name = cursor.getString(0);
+                        if (name != null && !name.isEmpty()) names.add(name);
+                    }
+                }
+            } catch (Throwable ignored) { }
+        }
+        return names;
+    }
+
     /** Visible for the listener so a fresh process re-reads the file rather than a stale handle. */
     static void resetForTest() {
         synchronized (LOCK) { helper = null; }
@@ -715,10 +835,23 @@ public final class NotificationArchive {
         }
 
         @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-            // Version 1 is the first release, so there is nothing to migrate yet. When a migration
-            // is eventually needed it must ADD columns or tables only: dropping and recreating
-            // would destroy the archive, which is precisely what the append-only triggers exist to
-            // prevent. Deliberately a no-op rather than a destructive default.
+            // ADD only. Rebuilding a table would mean copying rows out and back, and a failure
+            // halfway would destroy exactly the content the append-only triggers exist to protect.
+            // That rule was documented here from version 1 and this, the first real migration,
+            // keeps it: one ALTER TABLE ADD COLUMN and one new trigger, nothing dropped.
+            //
+            // Each step is attempted independently rather than inside one all-or-nothing
+            // transaction, because the realistic failure is a column or trigger that already
+            // exists from a partly applied upgrade. Aborting the whole migration in that case
+            // would leave the archive permanently unopenable, which is far worse than a
+            // redundant statement failing.
+            try {
+                if (oldVersion < 2) {
+                    for (String statement : ArchiveSchema.MIGRATE_1_TO_2) {
+                        try { db.execSQL(statement); } catch (Throwable ignored) { }
+                    }
+                }
+            } catch (Throwable ignored) { }
         }
 
         @Override public void onOpen(SQLiteDatabase db) {

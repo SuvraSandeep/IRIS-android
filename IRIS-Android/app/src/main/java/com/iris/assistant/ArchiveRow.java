@@ -33,6 +33,17 @@ public final class ArchiveRow {
     public boolean suspected;
     public long deletionTime;
 
+    /**
+     * Filename of the captured image, or empty.
+     *
+     * A bare name, not a path: ArchiveImages resolves it against the archive directory and
+     * re-sanitises it on the way, so a value read back from the database can never point outside.
+     */
+    public String imagePath = "";
+
+    /** Whether this row has a stored picture to show. */
+    public boolean hasImage() { return imagePath != null && !imagePath.isEmpty(); }
+
     /** Confidence that this message was taken back by its sender. */
     public DeletedMessageRules.Confidence confidence() {
         if (deleted) return DeletedMessageRules.Confidence.CONFIRMED;

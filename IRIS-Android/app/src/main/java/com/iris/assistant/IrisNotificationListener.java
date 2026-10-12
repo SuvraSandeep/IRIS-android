@@ -214,6 +214,12 @@ public class IrisNotificationListener extends NotificationListenerService {
 
     @Override public void onDestroy() {
         stopScreenWatch();
+        if (imageWorker != null) {
+            // Queued copies are abandoned rather than awaited: the rows are already saved, and
+            // blocking service teardown on image decoding would risk an ANR.
+            try { imageWorker.shutdownNow(); } catch (Throwable ignored) { }
+            imageWorker = null;
+        }
         if (instance == this) instance = null;
         super.onDestroy();
     }
@@ -403,10 +409,63 @@ public class IrisNotificationListener extends NotificationListenerService {
             // one-to-one chat presents.
             String group = groupName.equalsIgnoreCase(sender) ? "" : groupName;
 
-            recordOne(context, settings, sbn, pkg, appLabel, key, extras,
+            long rowId = recordOne(context, settings, sbn, pkg, appLabel, key, extras,
                     parsed.rawTitle, sender, group, body, when);
+
+            // An attached photo, confirmed present on this device by the PROBE diagnostic:
+            // WhatsApp supplies a content URI into its own media provider. The read permission
+            // granted with a notification is narrow and short-lived, so the bytes are copied now
+            // rather than the link being stored for later.
+            if (rowId > 0) captureImage(context, msg, rowId);
         }
     }
+
+    /**
+     * Copy an attached image on a background thread, then record its filename.
+     *
+     * Off-thread because decoding even a downscaled photo is slow enough to stall notification
+     * delivery, and this runs inside onNotificationPosted. The row is already saved by this point,
+     * so a failed or slow copy costs the picture and never the message.
+     */
+    private void captureImage(final Context context, Bundle msg, final long rowId) {
+        final Object uriValue = msg.get("uri");
+        if (!(uriValue instanceof android.net.Uri)) return;
+        final String mime = msg.getString("type");
+        if (!ArchiveImagePolicy.isStorableImage(mime)) return;
+
+        final String fingerprint = NotificationArchive.fingerprintOf(context, rowId);
+        if (fingerprint.isEmpty()) return;
+
+        imageWorker().execute(new Runnable() {
+            @Override public void run() {
+                try {
+                    String stored = ArchiveImages.store(
+                            context, (android.net.Uri) uriValue, mime, fingerprint);
+                    if (!stored.isEmpty()) {
+                        NotificationArchive.setImagePath(context, rowId, stored);
+                    }
+                } catch (Throwable ignored) {
+                    // Losing a photo must never take down the notification listener.
+                }
+            }
+        });
+    }
+
+    /**
+     * Single-threaded worker for image copies.
+     *
+     * One thread on purpose: a burst of photo messages should copy them one after another rather
+     * than decoding several large bitmaps at once, which is how this process would get killed for
+     * memory. Created lazily so a text-only install never starts a thread at all.
+     */
+    private synchronized java.util.concurrent.ExecutorService imageWorker() {
+        if (imageWorker == null) {
+            imageWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        }
+        return imageWorker;
+    }
+
+    private java.util.concurrent.ExecutorService imageWorker;
 
     /**
      * Every per-message bundle in EXTRA_MESSAGES, oldest first.
@@ -428,8 +487,12 @@ public class IrisNotificationListener extends NotificationListenerService {
         return out;
     }
 
-    /** Writes one archive row and updates the tracking state used by deletion detection. */
-    private void recordOne(Context context, AppSettings settings, StatusBarNotification sbn,
+    /**
+     * Writes one archive row and updates the tracking state used by deletion detection.
+     *
+     * @return the new row id, 0 if nothing was written (a duplicate, a full archive, or an error)
+     */
+    private long recordOne(Context context, AppSettings settings, StatusBarNotification sbn,
                            String pkg, String appLabel, String key, Bundle extras,
                            String rawTitle, String sender, String group, String body, long when) {
         NotificationArchive.Capture capture = new NotificationArchive.Capture();
@@ -455,6 +518,7 @@ public class IrisNotificationListener extends NotificationListenerService {
                 state.screenOffAtPost = !isScreenInteractive();
             }
         }
+        return id > 0 ? id : 0;
     }
 
     /**

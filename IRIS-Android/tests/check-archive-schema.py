@@ -21,6 +21,8 @@ from pathlib import Path
 SCHEMA_JAVA = Path("app/src/main/java/com/iris/assistant/ArchiveSchema.java")
 BEGIN = "---SQL-BEGIN---"
 END = "---SQL-END---"
+MIGRATE_BEGIN = "---MIGRATE-1-2-BEGIN---"
+MIGRATE_END = "---MIGRATE-1-2-END---"
 
 checks = 0
 failures = []
@@ -33,20 +35,152 @@ def check(condition, what):
         failures.append(what)
 
 
-def extract_statements():
-    """Pull the single-line SQL string literals out of the marked region of ArchiveSchema.java."""
+def extract_marked(begin, end, label):
+    """Pull the single-line SQL string literals out of a marked region of ArchiveSchema.java."""
     if not SCHEMA_JAVA.exists():
         print(f"FAILED: {SCHEMA_JAVA} not found (run from the IRIS-Android directory)")
         sys.exit(1)
     text = SCHEMA_JAVA.read_text(encoding="utf-8")
-    if BEGIN not in text or END not in text:
-        print("FAILED: SQL markers missing from ArchiveSchema.java")
+    if begin not in text or end not in text:
+        print(f"FAILED: {label} markers missing from ArchiveSchema.java")
         sys.exit(1)
-    region = text.split(BEGIN, 1)[1].split(END, 1)[0]
+    region = text.split(begin, 1)[1].split(end, 1)[0]
     # Each statement is one double-quoted literal on its own line, by convention documented in the
     # Java file precisely so this extraction stays simple and reliable.
     statements = re.findall(r'"((?:[^"\\]|\\.)*)"', region)
     return [s.replace('\\"', '"') for s in statements if s.strip()]
+
+
+def extract_statements():
+    return extract_marked(BEGIN, END, "SQL")
+
+
+def extract_migration():
+    return extract_marked(MIGRATE_BEGIN, MIGRATE_END, "migration")
+
+
+# Frozen copy of the version 1 table definition. Deliberately duplicated here rather than derived
+# from the current schema: this is the historical state a real device upgrading from an older build
+# actually has on disk, and the whole point is to prove the migration works against it. Deriving it
+# from the live DDL would mean the test could never detect a migration that forgot to account for
+# what version 1 really looked like.
+V1_TABLE = (
+    "CREATE TABLE notifications (_id INTEGER PRIMARY KEY AUTOINCREMENT, pkg TEXT NOT NULL "
+    "DEFAULT '', app_label TEXT NOT NULL DEFAULT '', account_label TEXT NOT NULL DEFAULT '', "
+    "user_handle INTEGER NOT NULL DEFAULT 0, notif_key TEXT NOT NULL DEFAULT '', raw_title TEXT "
+    "NOT NULL DEFAULT '', sender TEXT NOT NULL DEFAULT '', group_name TEXT NOT NULL DEFAULT '', "
+    "body TEXT NOT NULL DEFAULT '', post_time INTEGER NOT NULL DEFAULT 0, captured_time INTEGER "
+    "NOT NULL DEFAULT 0, fingerprint TEXT NOT NULL DEFAULT '', row_kind INTEGER NOT NULL "
+    "DEFAULT 0, is_deleted INTEGER NOT NULL DEFAULT 0, is_suspected INTEGER NOT NULL DEFAULT 0, "
+    "deletion_time INTEGER NOT NULL DEFAULT 0)"
+)
+
+
+def build_version_1():
+    """A database as it exists on a device that installed before images were captured."""
+    # Substitute the historical table definition FIRST, then drop anything still mentioning the
+    # image column. Filtering first would discard the CREATE TABLE itself, since the current
+    # definition names image_path, and leave nothing to substitute into.
+    statements = [V1_TABLE if s.startswith("CREATE TABLE notifications") else s
+                  for s in extract_statements()]
+    statements = [s for s in statements
+                  if s is V1_TABLE or ("image_path" not in s and "ADD COLUMN" not in s)]
+    connection = sqlite3.connect(":memory:")
+    for statement in statements:
+        connection.execute(statement)
+    connection.commit()
+    return connection
+
+
+def verify_migration():
+    """
+    Run the real version 1 to 2 migration against a real version 1 database.
+
+    This is the test that matters most in this file. A broken migration does not fail loudly: it
+    throws inside getWritableDatabase, which NotificationArchive catches by deleting and recreating
+    the database. An owner upgrading the app would silently lose their entire archive, which is the
+    one outcome the whole append-only design exists to prevent.
+    """
+    connection = build_version_1()
+
+    # Content that must survive the upgrade untouched.
+    insert_row(connection, "fp-legacy", body="kept across the upgrade")
+    check(column_names(connection).count("image_path") == 0,
+          "the version 1 database genuinely has no image column before migrating")
+
+    for statement in extract_migration():
+        connection.execute(statement)
+    connection.commit()
+
+    columns = column_names(connection)
+    check("image_path" in columns, "migration adds the image column")
+    check(len(columns) == 18, "migration adds exactly one column and removes none")
+
+    row = connection.execute(
+        "SELECT body, image_path FROM notifications WHERE fingerprint = 'fp-legacy'").fetchone()
+    check(row is not None, "the pre-existing row still exists after migrating")
+    check(row[0] == "kept across the upgrade", "pre-existing content is unchanged by the migration")
+    check(row[1] == "", "pre-existing rows default to no image rather than null")
+
+    # The append-only guarantees must still hold after an upgrade, not just on a fresh install.
+    try:
+        connection.execute(
+            "UPDATE notifications SET body = 'tampered' WHERE fingerprint = 'fp-legacy'")
+        check(False, "content is still immutable after migrating")
+    except sqlite3.Error:
+        check(True, "content is still immutable after migrating")
+
+    try:
+        connection.execute("DELETE FROM notifications WHERE fingerprint = 'fp-legacy'")
+        check(False, "unauthorised delete is still refused after migrating")
+    except sqlite3.Error:
+        check(True, "unauthorised delete is still refused after migrating")
+
+    verify_write_once_image(connection, "fp-legacy")
+    connection.close()
+
+
+def verify_write_once_image(connection, fingerprint):
+    """
+    image_path must accept exactly one empty-to-value transition and refuse every later change.
+
+    Looser than the other content columns on purpose: the row is inserted from the notification
+    thread and the path filled in by a background copy moments later, so one write has to be
+    allowed. These checks are what stop that concession becoming a way to swap a stored image for
+    a different one after the fact.
+    """
+    connection.execute(
+        "UPDATE notifications SET image_path = 'a.jpg' WHERE fingerprint = ?", (fingerprint,))
+    stored = connection.execute(
+        "SELECT image_path FROM notifications WHERE fingerprint = ?", (fingerprint,)).fetchone()[0]
+    check(stored == "a.jpg", "an image path can be set once on a row that had none")
+
+    try:
+        connection.execute(
+            "UPDATE notifications SET image_path = 'b.jpg' WHERE fingerprint = ?", (fingerprint,))
+        check(False, "a stored image path cannot be replaced")
+    except sqlite3.Error:
+        check(True, "a stored image path cannot be replaced")
+
+    try:
+        connection.execute(
+            "UPDATE notifications SET image_path = '' WHERE fingerprint = ?", (fingerprint,))
+        check(False, "a stored image path cannot be cleared")
+    except sqlite3.Error:
+        check(True, "a stored image path cannot be cleared")
+
+    # Writing the identical value is not a change, so it must not be treated as tampering: a
+    # retried background copy landing twice is harmless and must not raise.
+    try:
+        connection.execute(
+            "UPDATE notifications SET image_path = 'a.jpg' WHERE fingerprint = ?", (fingerprint,))
+        check(True, "rewriting the same image path is allowed, so a retried copy cannot error")
+    except sqlite3.Error:
+        check(False, "rewriting the same image path is allowed, so a retried copy cannot error")
+
+
+def column_names(connection):
+    return [row[1] for row in connection.execute("PRAGMA table_info(notifications)").fetchall()]
 
 
 def build(statements):
@@ -208,6 +342,20 @@ def main():
         "SELECT name FROM sqlite_master WHERE type='trigger'")}
     check("archive_content_is_immutable" in triggers, "immutability trigger created")
     check("archive_delete_needs_owner" in triggers, "delete-guard trigger created")
+    check("archive_image_is_write_once" in triggers, "image write-once trigger created")
+
+    # A fresh install must end up with exactly the same shape an upgraded one does, or the two
+    # populations diverge and only one of them is ever really tested.
+    check("image_path" in column_names(connection), "fresh install has the image column")
+    # Isolated connection: the shared one has later checks asserting an exact row count, so
+    # adding a row to it would break them rather than test anything.
+    fresh = build(statements)
+    insert_row(fresh, "fp-image-fresh")
+    verify_write_once_image(fresh, "fp-image-fresh")
+    fresh.close()
+
+    # The upgrade path, against a genuine version 1 database.
+    verify_migration()
 
     indexes = {r[0] for r in connection.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'")}

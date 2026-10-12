@@ -219,6 +219,44 @@
             android:orientation="vertical" />
     </ScrollView>
 
+    <!-- Undo window for a swiped row. The delete is held, not yet written, so undo cancels a
+         timer rather than re-inserting: the append-only history is never actually disturbed. -->
+    <LinearLayout
+        android:id="@+id/archiveUndoBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_cyber_panel"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="8dp"
+        android:paddingLeft="13dp"
+        android:paddingRight="8dp"
+        android:paddingTop="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/archiveUndoLabel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:fontFamily="monospace"
+            android:textColor="@color/deck_text_dim"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/archiveUndoButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.1"
+            android:minWidth="96dp"
+            android:text="UNDO"
+            android:textAllCaps="false"
+            android:textColor="@color/magenta"
+            android:textSize="11sp" />
+    </LinearLayout>
+
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
