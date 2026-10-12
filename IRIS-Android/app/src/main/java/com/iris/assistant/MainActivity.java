@@ -462,6 +462,9 @@ public class MainActivity extends Activity {
         AppSettings settings = new AppSettings(this);
         settings.setLastDeletedCheckAt(System.currentTimeMillis());
         maybeShowArchiveNotice(settings);
+        // Repair a dropped binding before reporting status, so using the app is enough to recover
+        // capture instead of the owner having to toggle notification access by hand.
+        IrisNotificationListener.ensureConnected(this);
         // Capture is event-driven, so a freshly ticked app shows nothing until its next
         // notification. Pulling in what is on screen now gives immediate evidence it is working.
         IrisNotificationListener.captureVisibleNow();

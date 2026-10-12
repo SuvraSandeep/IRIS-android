@@ -151,6 +151,34 @@ public class IrisNotificationListener extends NotificationListenerService {
                 "Notification capture stopped. Messages arriving now are not being saved.");
         stopScreenWatch();
         if (instance == this) instance = null;
+        // Ask the system to bind us again. Android drops listeners on low memory, on app update
+        // and during some OEM battery sweeps, and without this the binding can stay dead until the
+        // owner manually toggles notification access -- which is exactly the silent-stop failure
+        // the gap markers above were only able to record after the fact.
+        //
+        // Safe if access was revoked: the system ignores a rebind request from an unapproved
+        // listener, so this cannot recover access the owner deliberately withdrew.
+        requestRebindSafely(this);
+    }
+
+    /**
+     * Ask the system to rebind the listener if it is not currently connected.
+     *
+     * Called when the archive screen opens, so a dropped binding is repaired by using the app
+     * rather than requiring the owner to find the notification access screen and toggle it. The
+     * rebind is asynchronous, so capture resumes shortly after rather than immediately.
+     */
+    public static void ensureConnected(Context context) {
+        if (instance != null) return;
+        requestRebindSafely(context);
+    }
+
+    private static void requestRebindSafely(Context context) {
+        if (context == null) return;
+        try {
+            requestRebind(new android.content.ComponentName(
+                    context.getApplicationContext(), IrisNotificationListener.class));
+        } catch (Throwable ignored) { }
     }
 
     @Override public void onDestroy() {

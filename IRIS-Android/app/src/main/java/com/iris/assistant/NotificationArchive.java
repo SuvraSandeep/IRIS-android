@@ -647,9 +647,10 @@ public final class NotificationArchive {
                     + "Grant it under What IRIS can access, then reopen this screen.";
         }
         if (!listenerBound) {
-            return "Notification access is granted but the reader is not connected. This usually "
-                    + "happens after an app update: switch notification access off and on again "
-                    + "for IRIS.";
+            return "Notification access is granted but the reader is not connected. A reconnect "
+                    + "has just been requested \u2014 leave this screen and come back in a moment. "
+                    + "If it stays disconnected, switch notification access off and on again for "
+                    + "IRIS, and make sure IRIS is excluded from battery optimisation.";
         }
 
         int tickedCount;
