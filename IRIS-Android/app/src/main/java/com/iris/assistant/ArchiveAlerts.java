@@ -53,10 +53,10 @@ public final class ArchiveAlerts {
             String who = sender == null || sender.trim().isEmpty() ? "Someone" : sender.trim();
             String app = appLabel == null || appLabel.trim().isEmpty() ? "an app" : appLabel.trim();
 
-            String title = confirmed ? "Message unsent" : "Message possibly unsent";
+            String title = confirmed ? "Caught one" : "Suspicious disappearance";
             String body = confirmed
-                    ? who + " took back a message on " + app + ". The original is saved."
-                    : who + "'s message on " + app + " disappeared unread. Possibly unsent.";
+                    ? who + " deleted a message on " + app + ". Too slow. I already have it."
+                    : who + "'s message on " + app + " vanished before you read it. I have a theory.";
 
             Intent open = new Intent(context, MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -97,7 +97,7 @@ public final class ArchiveAlerts {
         if (Build.VERSION.SDK_INT < 26) return;
         try {
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID,
-                    "Unsent message alerts", NotificationManager.IMPORTANCE_LOW);
+                    "Caught deleting", NotificationManager.IMPORTANCE_LOW);
             channel.setDescription(
                     "Silent notice when a message is caught being deleted or unsent by its sender.");
             channel.setSound(null, null);

@@ -71,9 +71,9 @@ public final class ArchiveAppPicker {
         root.setPadding(pad, pad, pad, 0);
 
         TextView blurb = new TextView(activity);
-        blurb.setText("Only ticked apps are saved to the archive. Notifications from everything "
-                + "else are ignored entirely.\n\nTap Save to apply. Saving only affects "
-                + "notifications that arrive from now on \u2014 past ones cannot be recovered.");
+        blurb.setText("Tick an app and I watch it. Leave it unticked and I am gloriously "
+                + "indifferent to it.\n\nSave to commit. This only applies to notifications that "
+                + "arrive from now on \u2014 I cannot retrieve what I was never shown, STG.");
         blurb.setTextSize(12f);
         root.addView(blurb);
 
@@ -121,8 +121,8 @@ public final class ArchiveAppPicker {
                     // has a visible effect instead of appearing to do nothing.
                     IrisNotificationListener.captureVisibleNow();
                     Toast.makeText(activity, ticked.isEmpty()
-                            ? "No apps ticked, so nothing will be archived."
-                            : "Archiving " + ticked.size() + (ticked.size() == 1 ? " app." : " apps."),
+                            ? "Nothing ticked. I shall watch nothing, intently."
+                            : "Now watching " + ticked.size() + (ticked.size() == 1 ? " app." : " apps."),
                             Toast.LENGTH_LONG).show();
                     if (onSaved != null) onSaved.run();
                 })

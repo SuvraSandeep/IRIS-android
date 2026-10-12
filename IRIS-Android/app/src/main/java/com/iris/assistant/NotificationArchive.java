@@ -627,58 +627,74 @@ public final class NotificationArchive {
         }
     }
 
+    /** Capture health: the text to show, and whether it represents a problem. */
+    public static final class Status {
+        public final String text;
+        public final boolean problem;
+        Status(String text, boolean problem) { this.text = text; this.problem = problem; }
+    }
+
     /**
-     * Why capture may not be working, in the owner's terms.
+     * Why capture may not be working, in IRIS's own voice.
      *
      * Exists because every failure path here is deliberately silent to protect the notification
      * listener, which made an empty archive ambiguous: not switched on, no apps ticked, access not
      * granted, listener not bound, or a storage fault all looked identical. This reports which.
+     *
+     * The problem flag travels with the text rather than the caller grepping the string for
+     * phrases like "NOT granted". That coupling meant any wording change -- such as this one --
+     * would silently stop the warning being highlighted.
      */
-    public static String statusReport(Context context, boolean accessGranted, boolean listenerBound) {
-        if (context == null) return "Status unavailable.";
+    public static Status status(Context context, boolean accessGranted, boolean listenerBound) {
+        if (context == null) return new Status("Status unavailable. Even I don't know why.", true);
         AppSettings settings = new AppSettings(context);
         StringBuilder out = new StringBuilder();
 
         if (!settings.notificationArchive()) {
-            return "Archiving is switched OFF, so nothing is being saved.";
+            return new Status("Archiving is OFF, STG. You built me a vault and then locked me out "
+                    + "of it. Bold.", true);
         }
         if (!accessGranted && !listenerBound) {
-            return "Notification access is NOT granted, so IRIS cannot see any notifications. "
-                    + "Grant it under What IRIS can access, then reopen this screen.";
+            return new Status("I have no eyes. Android won't let me read a single notification "
+                    + "until you say so in Settings. Tap the button above and I promise to use "
+                    + "this power responsibly. Mostly.", true);
         }
         if (!listenerBound) {
-            return "Notification access is granted but the reader is not connected. A reconnect "
-                    + "has just been requested \u2014 leave this screen and come back in a moment. "
-                    + "If it stays disconnected, switch notification access off and on again for "
-                    + "IRIS, and make sure IRIS is excluded from battery optimisation.";
+            return new Status("Access granted, and Android unplugged me anyway. I've asked to be "
+                    + "plugged back in \u2014 leave this screen and come back in a moment. If I'm "
+                    + "still blind: toggle notification access off and on, and tell your battery "
+                    + "optimiser to stop strangling me.", true);
         }
 
         int tickedCount;
         if (settings.archivedAppsChosen()) {
             tickedCount = settings.archivedApps().size();
             if (tickedCount == 0) {
-                return "No apps are ticked, so nothing is being saved. Tap Choose apps.";
+                return new Status("Zero apps ticked. I am watching absolutely nothing, with "
+                        + "enormous dedication. Tap TARGETS, STG.", true);
             }
         } else {
             tickedCount = ArchiveAppTargets.defaultTargets().length;
-            out.append("Using the default app list \u2014 tap Choose apps to pick your own. ");
+            out.append("Running my default target list \u2014 tap TARGETS to overrule me. ");
         }
 
         if (!lastError.isEmpty()) {
-            return "Capture is failing: " + lastError + ". Try Delete archive to rebuild it.";
+            return new Status("My storage is unwell: " + lastError + ". Hit PURGE IT ALL and I'll "
+                    + "rebuild from nothing. Dramatic, but it works.", true);
         }
 
         out.append("Watching ").append(tickedCount)
                 .append(tickedCount == 1 ? " app." : " apps.");
         if (recordedThisSession > 0) {
-            out.append(" Saved ").append(recordedThisSession)
+            out.append(" Logged ").append(recordedThisSession)
                     .append(recordedThisSession == 1 ? " notification" : " notifications")
-                    .append(" since IRIS started.");
+                    .append(" since I woke up. Nobody suspects a thing.");
         } else {
-            out.append(" Nothing captured yet since IRIS started \u2014 only notifications that "
-                    + "actually appear, from the ticked apps, are saved.");
+            out.append(" Nothing logged since I woke up. I can only catch notifications that "
+                    + "actually appear \u2014 if the chat was muted, or you were already staring "
+                    + "at it, there was nothing to catch. Not my fault, for once.");
         }
-        return out.toString();
+        return new Status(out.toString(), false);
     }
 
     /** Visible for the listener so a fresh process re-reads the file rather than a stale handle. */

@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Archive screen, styled as a terminal readout on the existing Command Deck palette rather than a
+  new theme: deck_accent / deck_card / deck_border are the tokens ThemeManager already retints, so
+  this screen follows the owner's chosen accent instead of hard-coding cyan.
+
+  Copy is deliberately in IRIS's own voice, at the owner's request. The one exception is the
+  [STATUS: ...] marker on each row, generated in DeletedMessageRules: that is forensic text that
+  also lands in exports, and a pinned test asserts a suspected deletion can never read as a
+  confirmed one. Jokes there would undermine the only part of this screen that is evidence.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -8,43 +18,91 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Notification archive"
-        android:textColor="@color/text_primary"
-        android:textSize="24sp"
+        android:fontFamily="monospace"
+        android:letterSpacing="0.12"
+        android:text="\u25B8 RECEIPT VAULT"
+        android:textColor="@color/deck_accent"
+        android:textSize="21sp"
         android:textStyle="bold" />
 
-    <TextView
+    <View
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:text="Every notification from the apps you tick, kept on this phone only. Anything a sender later deleted or unsent stays visible here, with the original text."
-        android:textColor="@color/text_muted"
-        android:textSize="13sp" />
+        android:layout_height="1dp"
+        android:layout_marginTop="5dp"
+        android:background="@color/deck_border" />
 
     <TextView
-        android:id="@+id/archiveSummary"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Loading\u2026"
-        android:textColor="@color/text_primary"
-        android:textSize="13sp" />
-
-    <TextView
-        android:id="@+id/archiveStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:textColor="@color/text_muted"
+        android:layout_marginTop="7dp"
+        android:fontFamily="monospace"
+        android:text="I write down every notification from the apps you tick, STG. When somebody deletes a message hoping you never saw it \u2014 I already have it. I\u0027m not saying I enjoy this. I\u0027m saying I\u0027m unreasonably good at it."
+        android:textColor="@color/deck_text_dim"
         android:textSize="12sp" />
 
-    <TextView
-        android:id="@+id/archiveWarning"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:textColor="@color/danger"
-        android:textSize="12sp"
+        android:layout_marginTop="9dp"
+        android:background="@drawable/bg_deck_panel"
+        android:orientation="vertical"
+        android:padding="11dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.2"
+            android:text="DIAGNOSTICS"
+            android:textColor="@color/deck_accent"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/archiveSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:fontFamily="monospace"
+            android:text="spinning up\u2026 pretending that took effort"
+            android:textColor="@color/deck_text"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/archiveStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/deck_text_dim"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/archiveWarning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/deck_error"
+            android:textSize="11sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Shown only while notification access is missing. Hidden the rest of the time so the
+         screen is not permanently nagging about a permission that is already granted. -->
+    <Button
+        android:id="@+id/archiveGrantButton"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_button_primary"
+        android:fontFamily="monospace"
+        android:letterSpacing="0.1"
+        android:text="\u26A0 GRANT ME EYES"
+        android:textAllCaps="false"
+        android:textColor="@color/ink"
+        android:textSize="13sp"
+        android:textStyle="bold"
         android:visibility="gone" />
 
     <LinearLayout
@@ -58,23 +116,38 @@
             android:layout_width="0dp"
             android:layout_height="48dp"
             android:layout_weight="1"
-            android:background="@drawable/bg_button_secondary"
-            android:text="Choose apps"
+            android:background="@drawable/bg_deck_card"
+            android:fontFamily="monospace"
+            android:text="\u2B21 TARGETS"
             android:textAllCaps="false"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:textColor="@color/deck_text"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/archiveRefreshButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_marginLeft="7dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_deck_card"
+            android:fontFamily="monospace"
+            android:text="\u27F3 RESCAN"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_text"
+            android:textSize="12sp" />
 
         <Button
             android:id="@+id/archiveExportButton"
             android:layout_width="0dp"
             android:layout_height="48dp"
-            android:layout_marginLeft="8dp"
+            android:layout_marginLeft="7dp"
             android:layout_weight="1"
-            android:background="@drawable/bg_button_secondary"
-            android:text="Export"
+            android:background="@drawable/bg_deck_card"
+            android:fontFamily="monospace"
+            android:text="\u2BC8 EXTRACT"
             android:textAllCaps="false"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:textColor="@color/deck_text"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <EditText
@@ -82,31 +155,35 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:background="@drawable/bg_button_secondary"
-        android:hint="Search sender or message"
+        android:background="@drawable/bg_deck_card"
+        android:fontFamily="monospace"
+        android:hint="\u003E search the receipts\u2026"
         android:importantForAutofill="no"
         android:inputType="text"
         android:maxLines="1"
         android:minHeight="48dp"
         android:padding="12dp"
-        android:textColor="@color/text_primary"
-        android:textColorHint="@color/text_muted"
-        android:textSize="13sp" />
+        android:textColor="@color/deck_accent"
+        android:textColorHint="@color/deck_text_dim"
+        android:textSize="12sp" />
 
     <Switch
         android:id="@+id/archiveFlaggedOnly"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:letterSpacing="0.05"
         android:minHeight="48dp"
-        android:text="Show only deleted or unsent"
-        android:textColor="@color/text_primary"
-        android:textSize="14sp" />
+        android:text="EVIDENCE ONLY \u2014 hide the innocent"
+        android:textColor="@color/deck_text"
+        android:textSize="12sp" />
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="4dp"
-        android:layout_weight="1">
+        android:layout_marginTop="2dp"
+        android:layout_weight="1"
+        android:scrollbars="none">
 
         <LinearLayout
             android:id="@+id/archiveList"
@@ -114,6 +191,11 @@
             android:layout_height="wrap_content"
             android:orientation="vertical" />
     </ScrollView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/deck_border" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -126,22 +208,24 @@
             android:layout_width="0dp"
             android:layout_height="48dp"
             android:layout_weight="1"
-            android:background="@drawable/bg_button_secondary"
-            android:text="Back"
+            android:background="@drawable/bg_deck_card"
+            android:fontFamily="monospace"
+            android:text="\u25C0 DISENGAGE"
             android:textAllCaps="false"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:textColor="@color/deck_text"
+            android:textSize="12sp" />
 
         <Button
             android:id="@+id/archiveDeleteAllButton"
             android:layout_width="0dp"
             android:layout_height="48dp"
-            android:layout_marginLeft="8dp"
+            android:layout_marginLeft="7dp"
             android:layout_weight="1"
-            android:background="@drawable/bg_button_secondary"
-            android:text="Delete archive"
+            android:background="@drawable/bg_deck_card"
+            android:fontFamily="monospace"
+            android:text="\u2620 PURGE IT ALL"
             android:textAllCaps="false"
-            android:textColor="@color/danger"
-            android:textSize="13sp" />
+            android:textColor="@color/deck_error"
+            android:textSize="12sp" />
     </LinearLayout>
 </LinearLayout>

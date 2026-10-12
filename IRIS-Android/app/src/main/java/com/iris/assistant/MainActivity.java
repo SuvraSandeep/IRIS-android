@@ -483,17 +483,39 @@ public class MainActivity extends Activity {
         View export = view.findViewById(R.id.archiveExportButton);
         if (export != null) export.setOnClickListener(v -> exportArchive());
 
+        // Capture is push-based, so the list does not update itself while the screen sits open.
+        // Switching tabs and returning worked only because that rebuilt the view; an explicit
+        // rescan is the honest version of that.
+        View refresh = view.findViewById(R.id.archiveRefreshButton);
+        if (refresh != null) {
+            refresh.setOnClickListener(v -> {
+                IrisNotificationListener.ensureConnected(this);
+                IrisNotificationListener.captureVisibleNow();
+                renderArchive(view);
+                toast("Rescanned. Everything you see, I saw first.");
+            });
+        }
+
+        // Only route to notification access: there is no runtime permission dialog for it, so a
+        // request dialog here would silently do nothing. Hidden unless access is actually missing.
+        View grant = view.findViewById(R.id.archiveGrantButton);
+        if (grant != null) {
+            grant.setOnClickListener(v -> openNotificationAccessSettings());
+        }
+
         View deleteAll = view.findViewById(R.id.archiveDeleteAllButton);
         if (deleteAll != null) {
             deleteAll.setOnClickListener(v -> new AlertDialog.Builder(this)
-                    .setTitle("Delete the whole archive?")
-                    .setMessage("This permanently removes every saved notification, including the "
-                            + "messages that were taken back. It cannot be undone, and the archive "
-                            + "is never included in a phone backup.\n\nExport first if you want a copy.")
-                    .setNegativeButton("Keep it", null)
-                    .setPositiveButton("Delete everything", (d, w) -> {
+                    .setTitle("Burn it all down?")
+                    .setMessage("This wipes every notification I ever saved for you, STG \u2014 "
+                            + "including the ones somebody tried to take back. No undo. No backup. "
+                            + "The archive is deliberately excluded from your phone backup, so "
+                            + "once it's gone it is properly gone.\n\nExport first if you'd like "
+                            + "to keep the evidence.")
+                    .setNegativeButton("On reflection, no", null)
+                    .setPositiveButton("Erase everything", (d, w) -> {
                         int removed = NotificationArchive.deleteEverything(this);
-                        toast(removed + " entries deleted.");
+                        toast(removed + " entries gone. I remember nothing. Allegedly.");
                         renderArchive(view);
                     }).show());
         }
@@ -511,19 +533,38 @@ public class MainActivity extends Activity {
         renderArchive(view);
     }
 
+    /**
+     * The only route to notification access: no runtime permission dialog exists for it, so a
+     * permission request here would silently do nothing. Shared by the permission dashboard and
+     * the archive screen's grant button.
+     */
+    private void openNotificationAccessSettings() {
+        try {
+            startActivity(new Intent(
+                    android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+            toast("Find IRIS in that list and switch me on. I'll wait.");
+        } catch (Exception e) {
+            toast("Settings \u2192 Notifications \u2192 Notification access \u2192 allow IRIS.");
+        }
+    }
+
     /** One-time explanation of what the archive keeps. Informational, not a gate. */
     private void maybeShowArchiveNotice(AppSettings settings) {
         if (settings.archiveNoticeShown()) return;
         settings.setArchiveNoticeShown(true);
         new AlertDialog.Builder(this)
-                .setTitle("About this archive")
-                .setMessage("IRIS saves notifications from the apps you choose so that a message "
-                        + "deleted by its sender can still be read here.\n\n"
-                        + "\u2022 It stays on this phone and is never uploaded or included in a backup.\n"
-                        + "\u2022 Nothing is ever edited or deleted automatically; only you can remove entries.\n"
-                        + "\u2022 Clearing app data or uninstalling destroys it, so export if you want a copy.\n"
-                        + "\u2022 If a message never raised a notification, it cannot be captured.")
-                .setPositiveButton("Got it", null)
+                .setTitle("So, about this vault")
+                .setMessage("I keep notifications from the apps you pick, STG, so that when "
+                        + "somebody deletes a message you can still read exactly what they "
+                        + "wrote. Yes, this is a little sinister. You asked for it.\n\n"
+                        + "\u2022 It never leaves this phone. No cloud, no backup, no exceptions.\n"
+                        + "\u2022 I cannot edit or quietly delete entries \u2014 the database "
+                        + "physically refuses. Only you can remove things.\n"
+                        + "\u2022 Clearing app data or uninstalling me destroys all of it. Export "
+                        + "if you want it to survive my death.\n"
+                        + "\u2022 If a message never raised a notification, I never saw it. I'm "
+                        + "nosy, not omniscient.")
+                .setPositiveButton("Understood, continue being creepy", null)
                 .show();
     }
 
@@ -574,8 +615,8 @@ public class MainActivity extends Activity {
         int total = NotificationArchive.totalMessages(this);
         int flagged = NotificationArchive.totalFlagged(this);
         if (summary != null) {
-            summary.setText(total + (total == 1 ? " message saved \u00b7 " : " messages saved \u00b7 ")
-                    + flagged + " taken back \u00b7 " + ArchiveSchema.readableSize(
+            summary.setText(total + (total == 1 ? " LOGGED \u00b7 " : " LOGGED \u00b7 ")
+                    + flagged + " INCRIMINATING \u00b7 " + ArchiveSchema.readableSize(
                     NotificationArchive.sizeBytes(this)));
         }
         if (warning != null) {
@@ -589,25 +630,31 @@ public class MainActivity extends Activity {
         // crash the notification listener, which made an empty list ambiguous: not switched on, no
         // apps ticked, access not granted, reader not bound, or a storage fault all looked the
         // same. This says which, so the owner is not left guessing.
+        boolean accessGranted = notificationAccessGranted();
+        NotificationArchive.Status health = NotificationArchive.status(
+                this, accessGranted, IrisNotificationListener.isConnected());
         TextView status = root.findViewById(R.id.archiveStatus);
         if (status != null) {
-            String report = NotificationArchive.statusReport(this,
-                    notificationAccessGranted(), IrisNotificationListener.isConnected());
-            status.setText(report);
-            boolean problem = report.contains("NOT granted") || report.contains("not connected")
-                    || report.contains("switched OFF") || report.contains("No apps are ticked")
-                    || report.contains("Capture is failing");
-            status.setTextColor(getColor(problem ? R.color.danger : R.color.text_muted));
+            status.setText(health.text);
+            status.setTextColor(getColor(health.problem ? R.color.deck_error : R.color.deck_text_dim));
         }
+
+        // Offer the grant button only while access is actually missing, so the screen is not
+        // permanently nagging about a permission that is already in place.
+        View grant = root.findViewById(R.id.archiveGrantButton);
+        if (grant != null) grant.setVisibility(accessGranted ? View.GONE : View.VISIBLE);
 
         list.removeAllViews();
         if (rows.isEmpty()) {
             TextView empty = new TextView(this);
             empty.setText(total == 0
-                    ? "Nothing saved yet. Notifications from the apps you tick will appear here."
-                    : "No entries match this search.");
-            empty.setTextColor(getColor(R.color.text_muted));
-            empty.setTextSize(13f);
+                    ? "Nothing in the vault yet. Tick some apps and let people incriminate "
+                      + "themselves at their own pace."
+                    : "Nothing matches that. Either your search is wrong or everyone's "
+                      + "suspiciously well behaved.");
+            empty.setTextColor(getColor(R.color.deck_text_dim));
+            empty.setTextSize(12f);
+            empty.setTypeface(android.graphics.Typeface.MONOSPACE);
             empty.setPadding(0, dp(16), 0, dp(16));
             list.addView(empty);
             return;
@@ -630,35 +677,36 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         params.topMargin = dp(6);
         card.setLayoutParams(params);
-        card.setBackgroundResource(R.drawable.bg_card);
+        card.setBackgroundResource(R.drawable.bg_deck_card);
 
         DeletedMessageRules.Confidence confidence = row.confidence();
         boolean marker = !row.isMessage();
 
         TextView head = new TextView(this);
         String who = row.sender.isEmpty() ? row.rawTitle : row.sender;
-        if (who.isEmpty()) who = "Unknown sender";
+        if (who.isEmpty()) who = "Someone who left no name";
         String where = row.accountLabel.isEmpty() ? row.appLabel : row.accountLabel;
         head.setText(marker ? "\u2014 " + where : who + (row.group.isEmpty() ? "" : " \u00b7 " + row.group));
-        head.setTextSize(14f);
-        head.setTypeface(null, android.graphics.Typeface.BOLD);
+        head.setTextSize(13f);
+        head.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         head.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
-                ? R.color.danger : R.color.text_primary));
+                ? R.color.deck_error : R.color.deck_accent));
         card.addView(head);
 
         if (!marker) {
             TextView meta = new TextView(this);
             meta.setText(where + " \u00b7 " + DeletedMessageRules.formatTime(
                     row.postTime, java.util.TimeZone.getDefault()));
-            meta.setTextSize(11f);
-            meta.setTextColor(getColor(R.color.text_muted));
+            meta.setTextSize(10f);
+            meta.setTypeface(android.graphics.Typeface.MONOSPACE);
+            meta.setTextColor(getColor(R.color.deck_text_dim));
             card.addView(meta);
         }
 
         TextView body = new TextView(this);
-        body.setText(row.body.isEmpty() ? "(no text in this notification)" : row.body);
+        body.setText(row.body.isEmpty() ? "(no text \u2014 just vibes)" : row.body);
         body.setTextSize(13f);
-        body.setTextColor(getColor(R.color.text_primary));
+        body.setTextColor(getColor(R.color.deck_text));
         body.setPadding(0, dp(4), 0, 0);
         card.addView(body);
 
@@ -1682,7 +1730,7 @@ public class MainActivity extends Activity {
             // though capturing never does. Capture while locked is the whole point; display is the
             // part that needs a gate.
             archiveOpen.setOnClickListener(v ->
-                    authenticateThen("View the notification archive", this::showArchive));
+                    authenticateThen("Open the receipt vault", this::showArchive));
         }
         view.findViewById(R.id.crashReportButton).setOnClickListener(v->authenticateThen("View crash and wake report",()->{
             new Thread(()->{String report=CrashDiagnostics.report(getApplicationContext());
@@ -5018,7 +5066,7 @@ public class MainActivity extends Activity {
         if (intent.getBooleanExtra(EXTRA_OPEN_ARCHIVE, false)) {
             intent.removeExtra(EXTRA_OPEN_ARCHIVE);
             // Authenticate before showing intercepted messages, matching the in-app entry point.
-            handler.post(() -> authenticateThen("View the notification archive", this::showArchive));
+            handler.post(() -> authenticateThen("Open the receipt vault", this::showArchive));
             return;
         }
         if(intent.hasExtra("routinePreview")){String phrase=intent.getStringExtra("routinePreview");intent.removeExtra("routinePreview");ReliabilityTools.preview(this,RoutineStore.match(this,phrase),this::runReviewedCommand);return;}
@@ -5515,13 +5563,7 @@ public class MainActivity extends Activity {
         if (entry.kind == PermissionCatalog.Kind.SPECIAL) {
             // No runtime dialog exists for notification access, so the dedicated Settings screen
             // is the only route. Showing a permission dialog here would silently do nothing.
-            try {
-                Intent intent = new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-                startActivity(intent);
-                toast("Find IRIS in the list and switch it on.");
-            } catch (Exception e) {
-                toast("Open Settings \u2192 Notifications \u2192 Notification access and allow IRIS.");
-            }
+            openNotificationAccessSettings();
             return;
         }
         String permission = permissionFor(entry.capability);
