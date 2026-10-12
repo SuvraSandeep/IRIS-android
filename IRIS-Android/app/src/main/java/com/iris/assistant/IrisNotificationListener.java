@@ -117,6 +117,22 @@ public class IrisNotificationListener extends NotificationListenerService {
         return offered;
     }
 
+    /**
+     * Live notifications, for the diagnostic inspector only.
+     *
+     * Separate from activeForReply because that method's contract is specifically about never
+     * using cached history to send a reply. Keeping the inspector on its own entry point means
+     * that guarantee is not quietly widened by a diagnostic.
+     */
+    public static StatusBarNotification[] snapshotForInspection() {
+        IrisNotificationListener service = instance;
+        if (service == null) return new StatusBarNotification[0];
+        try {
+            StatusBarNotification[] items = service.getActiveNotifications();
+            return items == null ? new StatusBarNotification[0] : items;
+        } catch (Exception e) { return new StatusBarNotification[0]; }
+    }
+
     /** Active notifications only; cached history must never be used to send a reply. */
     public static StatusBarNotification[] activeForReply() {
         IrisNotificationListener service = instance;

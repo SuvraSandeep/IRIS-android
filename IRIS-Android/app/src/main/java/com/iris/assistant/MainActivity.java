@@ -503,6 +503,32 @@ public class MainActivity extends Activity {
             grant.setOnClickListener(v -> openNotificationAccessSettings());
         }
 
+        // Diagnostic: dumps what the live notifications actually contain on THIS device, which is
+        // the only reliable way to answer what can and cannot be captured. The report includes
+        // message text, so it is shown and copyable but never written to LogStore.
+        View probe = view.findViewById(R.id.archiveInspectButton);
+        if (probe != null) {
+            probe.setOnClickListener(v -> {
+                IrisNotificationListener.ensureConnected(this);
+                String report = NotificationInspector.report(this);
+                new AlertDialog.Builder(this)
+                        .setTitle("What I can actually see")
+                        .setMessage(report)
+                        .setNeutralButton("Copy", (d, w) -> {
+                            android.content.ClipboardManager clip =
+                                    (android.content.ClipboardManager)
+                                            getSystemService(CLIPBOARD_SERVICE);
+                            if (clip != null) {
+                                clip.setPrimaryClip(android.content.ClipData.newPlainText(
+                                        "IRIS notification probe", report));
+                                toast("Copied. Send it to whoever is debugging me.");
+                            }
+                        })
+                        .setPositiveButton("Fine", null)
+                        .show();
+            });
+        }
+
         View deleteAll = view.findViewById(R.id.archiveDeleteAllButton);
         if (deleteAll != null) {
             deleteAll.setOnClickListener(v -> new AlertDialog.Builder(this)

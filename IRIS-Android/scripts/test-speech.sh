@@ -192,6 +192,14 @@ javac -encoding UTF-8 -d "$test_dir/archive" \
   tests/ContactNumberTest.java
 java -cp "$test_dir/archive" com.iris.assistant.ContactNumberTest
 
+# Image-capture verdict. Pins the mistake already made once: concluding "no images" from
+# EXTRA_PICTURE alone while never examining the MessagingStyle data URI a smartwatch uses. Also
+# pins the worse opposite error, reporting images available because a sender avatar was found.
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/NotificationImageSupport.java \
+  tests/NotificationImageSupportTest.java
+java -cp "$test_dir/archive" com.iris.assistant.NotificationImageSupportTest
+
 # The append-only guarantee is enforced by SQLite triggers, not by Java, so it cannot be covered by
 # the Java suites above (SQLiteOpenHelper is Android-only and Robolectric is unavailable offline).
 # Python ships a real SQLite engine, so the DDL is extracted from ArchiveSchema.java and actually
