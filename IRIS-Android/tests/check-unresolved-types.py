@@ -37,6 +37,7 @@ DEFAULT_TARGETS = [
     "ListenerWatchdog.java",
     "NotificationImageSupport.java",
     "ContactNumber.java",
+    "MessageRollup.java",
     "ArchiveAlerts.java",
     "ArchiveAppPicker.java",
     "ArchiveAppTargets.java",

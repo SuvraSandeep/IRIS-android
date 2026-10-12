@@ -200,6 +200,14 @@ javac -encoding UTF-8 -d "$test_dir/archive" \
   tests/NotificationImageSupportTest.java
 java -cp "$test_dir/archive" com.iris.assistant.NotificationImageSupportTest
 
+# Roll-up detection. An on-device probe showed WhatsApp posts "14 messages from 3 chats" as a
+# summary, which would otherwise be archived as a message whose content is a number. The
+# false-positive direction is weighted heavily: discarding a real message is permanent.
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/MessageRollup.java \
+  tests/MessageRollupTest.java
+java -cp "$test_dir/archive" com.iris.assistant.MessageRollupTest
+
 # The append-only guarantee is enforced by SQLite triggers, not by Java, so it cannot be covered by
 # the Java suites above (SQLiteOpenHelper is Android-only and Robolectric is unavailable offline).
 # Python ships a real SQLite engine, so the DDL is extracted from ArchiveSchema.java and actually

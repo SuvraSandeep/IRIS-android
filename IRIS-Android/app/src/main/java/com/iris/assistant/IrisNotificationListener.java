@@ -365,6 +365,73 @@ public class IrisNotificationListener extends NotificationListenerService {
             return;
         }
 
+        // Per-message capture. An on-device probe proved the archive was losing most messages:
+        // a notification holding seven messages from one chat put only the LAST of them in
+        // EXTRA_TEXT, so six were silently dropped. The full set lives in EXTRA_MESSAGES, with a
+        // real sender and timestamp per message, which is also better attribution than parsing a
+        // sender out of the title.
+        java.util.List<Bundle> messages = messageBundles(extras);
+
+        if (messages.isEmpty()) {
+            // No per-message detail. Skip a pure roll-up ("14 messages from 3 chats"), which
+            // would otherwise become a row whose entire content is a number, then fall back to
+            // single-row capture so non-messaging apps still archive normally.
+            if (MessageRollup.isSummaryOnly(text, 0)) return;
+            recordOne(context, settings, sbn, pkg, appLabel, key, extras,
+                    parsed.rawTitle, parsed.sender, parsed.group, parsed.body, sbn.getPostTime());
+            return;
+        }
+
+        String groupName = MessageRollup.groupFromTitle(title);
+        for (Bundle msg : messages) {
+            String body = charSeq(msg.getCharSequence("text"));
+            String sender = charSeq(msg.getCharSequence("sender"));
+            if (body == null) body = "";
+            if (sender == null) sender = "";
+            if (body.isEmpty() && sender.isEmpty()) continue;
+
+            // Each message keeps its own timestamp, which is what makes the existing unique
+            // fingerprint index do the deduplication for free: when the same chat posts again
+            // with one more message, the ones already stored collide and only the new one is
+            // inserted. Falling back to the notification's time would make every message in a
+            // burst share one timestamp and collapse into a single row.
+            long when = msg.getLong("time", 0L);
+            if (when <= 0) when = sbn.getPostTime();
+
+            // The group is whatever is left of the title once the count and latest-sender
+            // decoration is stripped. Cleared when it just repeats the sender, which is how a
+            // one-to-one chat presents.
+            String group = groupName.equalsIgnoreCase(sender) ? "" : groupName;
+
+            recordOne(context, settings, sbn, pkg, appLabel, key, extras,
+                    parsed.rawTitle, sender, group, body, when);
+        }
+    }
+
+    /**
+     * Every per-message bundle in EXTRA_MESSAGES, oldest first.
+     *
+     * Returns an empty list rather than null for anything unexpected, so the caller's fallback to
+     * single-row capture is the natural path when an app does not use MessagingStyle at all.
+     */
+    private java.util.List<Bundle> messageBundles(Bundle extras) {
+        java.util.List<Bundle> out = new java.util.ArrayList<>();
+        try {
+            android.os.Parcelable[] raw = extras.getParcelableArray(Notification.EXTRA_MESSAGES);
+            if (raw == null) return out;
+            for (android.os.Parcelable item : raw) {
+                if (item instanceof Bundle) out.add((Bundle) item);
+            }
+        } catch (Throwable ignored) {
+            // A malformed extras bundle must not stop the notification being archived at all.
+        }
+        return out;
+    }
+
+    /** Writes one archive row and updates the tracking state used by deletion detection. */
+    private void recordOne(Context context, AppSettings settings, StatusBarNotification sbn,
+                           String pkg, String appLabel, String key, Bundle extras,
+                           String rawTitle, String sender, String group, String body, long when) {
         NotificationArchive.Capture capture = new NotificationArchive.Capture();
         capture.pkg = pkg;
         capture.appLabel = appLabel;
@@ -372,11 +439,11 @@ public class IrisNotificationListener extends NotificationListenerService {
         capture.accountLabel = ArchiveAppTargets.accountLabel(
                 pkg, appLabel, capture.userHandle, charSeq(extras.getCharSequence(Notification.EXTRA_SUB_TEXT)));
         capture.notifKey = key;
-        capture.rawTitle = parsed.rawTitle;
-        capture.sender = parsed.sender;
-        capture.group = parsed.group;
-        capture.body = parsed.body;
-        capture.postTime = sbn.getPostTime();
+        capture.rawTitle = rawTitle;
+        capture.sender = sender;
+        capture.group = group;
+        capture.body = body;
+        capture.postTime = when;
 
         long id = NotificationArchive.record(context, capture);
         if (id > 0) {
@@ -384,7 +451,7 @@ public class IrisNotificationListener extends NotificationListenerService {
             synchronized (tracked) {
                 Tracked state = tracked.get(key);
                 if (state == null) { state = new Tracked(); tracked.put(key, state); }
-                state.postTime = sbn.getPostTime();
+                state.postTime = when;
                 state.screenOffAtPost = !isScreenInteractive();
             }
         }
