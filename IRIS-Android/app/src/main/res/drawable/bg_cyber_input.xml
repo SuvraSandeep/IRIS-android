@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Search field: a terminal prompt rather than a text box. Dark well, magenta underline only.
+
+  Only the bottom edge is drawn, by insetting a full-bleed magenta rectangle so just a 1dp sliver
+  shows beneath the fill. A full outline here competed with the button row directly above it.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/magenta" />
+        </shape>
+    </item>
+
+    <item android:bottom="1dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/deck_bg" />
+        </shape>
+    </item>
+</layer-list>

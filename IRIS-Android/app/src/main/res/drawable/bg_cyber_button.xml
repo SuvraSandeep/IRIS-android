@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Hollow neon button: almost no fill, hard cyan outline, near-square corners.
+
+  Outline rather than filled so a row of these reads as a control panel instead of a stack of
+  material buttons. The ripple is what confirms a press, since there is no raised surface to
+  depress.
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/ripple_deck">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/deck_bg" />
+            <stroke android:width="1dp" android:color="@color/deck_accent" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+</ripple>

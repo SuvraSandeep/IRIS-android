@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Destructive variant of the hollow neon button, outlined in the error colour.
+
+  Used only for WIPE ALL. Carries no @android:id/background, so ThemeManager cannot retint this one
+  to the owner's accent: a button that erases the entire archive must stay visibly dangerous even
+  if the chosen accent happens to be a friendly green.
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/ripple_neutral">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/deck_bg" />
+            <stroke android:width="1dp" android:color="@color/deck_error" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+</ripple>

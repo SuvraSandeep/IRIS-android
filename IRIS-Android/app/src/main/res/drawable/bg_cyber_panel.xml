@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cyberpunk panel: near-black fill, thin cyan edge, and a solid magenta bar down the left side.
+
+  Corners are deliberately almost square (2dp) rather than the 10dp used elsewhere in the app. The
+  rounded deck cards read as "friendly dashboard"; the Vault is meant to read as instrumentation,
+  and sharp corners plus a hard neon edge do most of that work on their own.
+
+  Unlike bg_deck_card this is NOT wrapped in a ripple and carries no
+  android:id="@android:id/background", so ThemeManager leaves it alone. That is intentional: the
+  cyan edge is the accent token and still follows the owner's chosen colour, while the magenta bar
+  stays fixed as the Vault's own signature.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/deck_card" />
+            <stroke android:width="1dp" android:color="@color/deck_accent" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+
+    <!-- Left neon bar. Drawn over the border so it reads as an illuminated edge. -->
+    <item android:width="3dp" android:gravity="left|fill_vertical">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/magenta" />
+        </shape>
+    </item>
+</layer-list>

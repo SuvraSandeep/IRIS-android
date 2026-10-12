@@ -677,10 +677,17 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         params.topMargin = dp(6);
         card.setLayoutParams(params);
-        card.setBackgroundResource(R.drawable.bg_deck_card);
 
         DeletedMessageRules.Confidence confidence = row.confidence();
         boolean marker = !row.isMessage();
+
+        // A deleted or unsent message is the whole reason this screen exists, so it gets its own
+        // edge strip rather than relying on text colour. Confirmed and suspected deliberately
+        // share one style: that distinction is carried by the [STATUS] line, which is worded so a
+        // guess cannot read as a fact, and encoding it in colour too would invite reading a colour
+        // as proof.
+        card.setBackgroundResource(confidence == DeletedMessageRules.Confidence.NONE
+                ? R.drawable.bg_cyber_row : R.drawable.bg_cyber_row_flagged);
 
         TextView head = new TextView(this);
         String who = row.sender.isEmpty() ? row.rawTitle : row.sender;
