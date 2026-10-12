@@ -176,6 +176,22 @@ javac -encoding UTF-8 -d "$test_dir/archive" \
   tests/DeletedQueryTest.java
 java -cp "$test_dir/archive" com.iris.assistant.DeletedQueryTest
 
+# The listener watchdog. Android reports a clean disconnect, but a process killed outright by an OEM
+# battery manager reports nothing, so the watchdog is the only thing that notices. Its decisions are
+# pure timing and state, including a clock that moves backwards, so they are all checkable here.
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/ListenerWatchdog.java \
+  tests/ListenerWatchdogTest.java
+java -cp "$test_dir/archive" com.iris.assistant.ListenerWatchdogTest
+
+# Phone-number recognition for contact name resolution. The false-positive direction is the risk:
+# a name misread as a number would be looked up in contacts and, on a match, replace a name the
+# messaging app already supplied correctly. A false negative only leaves a number unresolved.
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/ContactNumber.java \
+  tests/ContactNumberTest.java
+java -cp "$test_dir/archive" com.iris.assistant.ContactNumberTest
+
 # The append-only guarantee is enforced by SQLite triggers, not by Java, so it cannot be covered by
 # the Java suites above (SQLiteOpenHelper is Android-only and Robolectric is unavailable offline).
 # Python ships a real SQLite engine, so the DDL is extracted from ArchiveSchema.java and actually

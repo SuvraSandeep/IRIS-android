@@ -51,6 +51,9 @@ public final class ArchiveAlerts {
 
             boolean confirmed = confidence == DeletedMessageRules.Confidence.CONFIRMED;
             String who = sender == null || sender.trim().isEmpty() ? "Someone" : sender.trim();
+            // A bare number read "Someone +919876543210 deleted a message". Resolved here too so
+            // the alert names a person when the number is in contacts.
+            who = ContactResolver.display(context, who);
             String app = appLabel == null || appLabel.trim().isEmpty() ? "an app" : appLabel.trim();
 
             String title = confirmed ? "Caught one" : "Suspicious disappearance";

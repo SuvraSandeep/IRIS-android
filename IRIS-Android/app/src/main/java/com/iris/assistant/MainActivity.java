@@ -685,6 +685,9 @@ public class MainActivity extends Activity {
         TextView head = new TextView(this);
         String who = row.sender.isEmpty() ? row.rawTitle : row.sender;
         if (who.isEmpty()) who = "Someone who left no name";
+        // Resolved at read time, never stored: the table is append-only, and looking up late means
+        // a contact saved today also names rows captured weeks ago.
+        who = ContactResolver.display(this, who);
         String where = row.accountLabel.isEmpty() ? row.appLabel : row.accountLabel;
         head.setText(marker ? "\u2014 " + where : who + (row.group.isEmpty() ? "" : " \u00b7 " + row.group));
         head.setTextSize(13f);

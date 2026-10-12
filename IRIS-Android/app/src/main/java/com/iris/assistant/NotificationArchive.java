@@ -660,6 +660,9 @@ public final class NotificationArchive {
                     + "this power responsibly. Mostly.", true);
         }
         if (!listenerBound) {
+            String blind = ListenerWatchdog.blindMessage(
+                    IrisNotificationListener.blindSince(), System.currentTimeMillis());
+            if (!blind.isEmpty()) return new Status(blind, true);
             return new Status("Access granted, and Android unplugged me anyway. I've asked to be "
                     + "plugged back in \u2014 leave this screen and come back in a moment. If I'm "
                     + "still blind: toggle notification access off and on, and tell your battery "

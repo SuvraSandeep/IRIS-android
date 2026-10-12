@@ -80,6 +80,17 @@ public class IrisNotificationListener extends NotificationListenerService {
     public static boolean isConnected() { return instance != null; }
 
     /**
+     * When capture went down, or 0 if it is up or has never been up.
+     *
+     * Zero rather than "now" on first start on purpose: before the very first connection there is
+     * nothing to complain about, and claiming hours of blindness the moment the app installs would
+     * be a lie.
+     */
+    public static long blindSince() { return instance != null ? 0L : blindSince; }
+
+    private static volatile long blindSince;
+
+    /**
      * Archive whatever is currently showing in the notification shade.
      *
      * Capture is event-driven, so ticking an app only affects notifications that arrive AFTER that
@@ -132,6 +143,7 @@ public class IrisNotificationListener extends NotificationListenerService {
 
     @Override public void onListenerConnected() {
         instance = this;
+        blindSince = 0L;
         startScreenWatch();
         // Records that capture resumed. A gap between a disconnect marker and this one is a window
         // the archive genuinely did not see, which the owner can then judge for themselves rather
@@ -151,6 +163,9 @@ public class IrisNotificationListener extends NotificationListenerService {
                 "Notification capture stopped. Messages arriving now are not being saved.");
         stopScreenWatch();
         if (instance == this) instance = null;
+        // Stamped only on the first disconnect of a run, so repeated failed rebinds report the
+        // true total outage rather than resetting the clock each attempt.
+        if (blindSince == 0L) blindSince = System.currentTimeMillis();
         // Ask the system to bind us again. Android drops listeners on low memory, on app update
         // and during some OEM battery sweeps, and without this the binding can stay dead until the
         // owner manually toggles notification access -- which is exactly the silent-stop failure

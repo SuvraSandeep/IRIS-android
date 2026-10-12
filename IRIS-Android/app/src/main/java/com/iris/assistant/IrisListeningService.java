@@ -476,6 +476,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         try { new ProfileStore(this).seedDefaultWakePhrase(); } catch (Throwable ignored) { }
         try { new ProfileStore(this).seedHardcodedVoiceprint(); } catch (Throwable ignored) { }
         createNotificationChannels();
+        startListenerWatchdog();
         watchBridge=new WatchBridge(this,path->{
             if(!isRunning)return "Start IRIS on your phone first";
             if(path.equals("/status"))return "IRIS: "+phase+"; "+chargingStatusText();
@@ -4712,6 +4713,43 @@ public class IrisListeningService extends Service implements RecognitionListener
         return null; // fall back to raw word
     }
 
+    /**
+     * Periodic check that the notification reader is still bound.
+     *
+     * Android calls onListenerDisconnected for a clean disconnect, and that path already asks for a
+     * rebind. A process killed outright by an OEM battery manager reports nothing at all, so
+     * without this the binding could stay dead until the owner happened to open the Vault. The
+     * decision logic lives in ListenerWatchdog and is covered offline; this only supplies the clock
+     * and performs the rebind.
+     */
+    private void startListenerWatchdog() {
+        handler.removeCallbacks(listenerWatchdogTick);
+        handler.postDelayed(listenerWatchdogTick, ListenerWatchdog.CHECK_INTERVAL_MS);
+    }
+
+    private final Runnable listenerWatchdogTick = new Runnable() {
+        @Override public void run() {
+            try {
+                boolean connected = IrisNotificationListener.isConnected();
+                if (connected) {
+                    listenerRebindFailures = 0;
+                } else if (ListenerWatchdog.decide(false, notificationAccessGranted(),
+                        System.currentTimeMillis(), lastListenerRebindAt, listenerRebindFailures)
+                        == ListenerWatchdog.Action.REQUEST_REBIND) {
+                    IrisNotificationListener.ensureConnected(IrisListeningService.this);
+                    lastListenerRebindAt = System.currentTimeMillis();
+                    if (listenerRebindFailures < Integer.MAX_VALUE) listenerRebindFailures++;
+                }
+            } catch (Throwable ignored) {
+                // The watchdog must never be the reason the service dies.
+            }
+            handler.postDelayed(this, ListenerWatchdog.CHECK_INTERVAL_MS);
+        }
+    };
+
+    private long lastListenerRebindAt;
+    private int listenerRebindFailures;
+
     /** See MainActivity.notificationAccessGranted: a bound listener is the conclusive signal. */
     private boolean notificationAccessGranted() {
         if (IrisNotificationListener.isConnected()) return true;
@@ -4840,6 +4878,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         java.util.List<String> senders = new java.util.ArrayList<>();
         for (ArchiveRow row : flagged) {
             String who = row.sender.isEmpty() ? row.rawTitle : row.sender;
+            // Spoken aloud, so an unresolved number would be read out digit by digit. Resolved at
+            // read time rather than stored, matching how the Vault displays it.
+            who = ContactResolver.display(this, who);
             if (!who.isEmpty() && !senders.contains(who)) senders.add(who);
         }
         String answer = DeletedQuery.found(flagged.size(), senders);
@@ -6483,6 +6524,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     @Override
     public void onDestroy() {
+        handler.removeCallbacks(listenerWatchdogTick);
         if(watchBridge!=null)watchBridge.close();
         if (phoneFinder != null) phoneFinder.stop();
         // Real leak this fixes: if the Service is destroyed mid-memo (a voice memo recording
