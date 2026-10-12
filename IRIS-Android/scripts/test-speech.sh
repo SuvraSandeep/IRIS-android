@@ -127,3 +127,49 @@ javac -encoding UTF-8 -d "$test_dir/permissions" \
   app/src/main/java/com/iris/assistant/PermissionCatalog.java \
   tests/PermissionCatalogTest.java
 java -cp "$test_dir/permissions" com.iris.assistant.PermissionCatalogTest
+
+# Notification-archive decision rules (deleted / unsent message detection). Pure by design: the
+# Android REASON_* constants are mapped to an enum in IrisNotificationListener so the compiler
+# checks them, leaving the judgement calls here where they are cheap to test. The false-positive
+# guards matter most -- owner dismissal, owner taps and the owner's own deletions must never be
+# reported as somebody taking a message back.
+mkdir -p "$test_dir/archive"
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/DeletedMessageRules.java \
+  tests/DeletedMessageRulesTest.java
+java -cp "$test_dir/archive" com.iris.assistant.DeletedMessageRulesTest
+
+# Archive size policy (pure arithmetic and capture decisions).
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/ArchiveSchema.java \
+  tests/ArchiveSchemaTest.java
+java -cp "$test_dir/archive" com.iris.assistant.ArchiveSchemaTest
+
+# Archive app targeting: which apps are pre-ticked, clone vs work-profile labelling.
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/ArchiveAppTargets.java \
+  tests/ArchiveAppTargetsTest.java
+java -cp "$test_dir/archive" com.iris.assistant.ArchiveAppTargetsTest
+
+# Export formatting. The CSV escaping cases matter most: the export is the only copy of the archive
+# that survives a factory reset or a new phone, so a message containing a comma must not shift
+# every later column and corrupt the owner's only backup.
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/ArchiveRow.java \
+  app/src/main/java/com/iris/assistant/ArchiveExport.java \
+  tests/ArchiveExportTest.java
+java -cp "$test_dir/archive" com.iris.assistant.ArchiveExportTest
+
+# Deleted-message voice query. The regression guards are the point: this classifier is dispatched
+# BEFORE the existing notification reader, so any phrasing it wrongly claims is one the notification
+# reader silently stops serving. That mistake has already shipped once in this project.
+javac -encoding UTF-8 -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/DeletedQuery.java \
+  tests/DeletedQueryTest.java
+java -cp "$test_dir/archive" com.iris.assistant.DeletedQueryTest
+
+# The append-only guarantee is enforced by SQLite triggers, not by Java, so it cannot be covered by
+# the Java suites above (SQLiteOpenHelper is Android-only and Robolectric is unavailable offline).
+# Python ships a real SQLite engine, so the DDL is extracted from ArchiveSchema.java and actually
+# executed: edits to captured content and unauthorised deletes must both be refused by the engine.
+python3 tests/check-archive-schema.py

@@ -166,6 +166,71 @@ public final class AppSettings {
     public boolean offlineOnly() { return prefs.getBoolean("offline_only", false); }
     public void setOfflineOnly(boolean v) { prefs.edit().putBoolean("offline_only", v).apply(); }
 
+    // ─── Notification archive (deleted / unsent message detection) ───
+
+    /** Master switch for archiving notifications from the selected apps. ON by default at the
+     *  owner's explicit request; a first-run notice states the behaviour once rather than leaving
+     *  it silent. */
+    public boolean notificationArchive() { return prefs.getBoolean("notif_archive", true); }
+    public void setNotificationArchive(boolean v) { prefs.edit().putBoolean("notif_archive", v).apply(); }
+
+    /** Post a silent notification the moment a deleted message is caught, as well as answering
+     *  when asked. Silent by design: an archive marker should not buzz the phone at 3am. */
+    public boolean archiveAlerts() { return prefs.getBoolean("notif_archive_alerts", true); }
+    public void setArchiveAlerts(boolean v) { prefs.edit().putBoolean("notif_archive_alerts", v).apply(); }
+
+    /** Whether the one-time explanation of what the archive stores has been shown. */
+    public boolean archiveNoticeShown() { return prefs.getBoolean("notif_archive_notice", false); }
+    public void setArchiveNoticeShown(boolean v) { prefs.edit().putBoolean("notif_archive_notice", v).apply(); }
+
+    /** When the owner last asked whether anything had been deleted, so "since you last checked"
+     *  means something. */
+    public long lastDeletedCheckAt() { return prefs.getLong("notif_archive_checked_at", 0L); }
+    public void setLastDeletedCheckAt(long t) { prefs.edit().putLong("notif_archive_checked_at", t).apply(); }
+
+    /** Export bookkeeping. The archive is never backed up, so an export is the only copy that can
+     *  survive a factory reset, a new phone, or clearing app data. */
+    public long lastArchiveExportAt() { return prefs.getLong("notif_archive_export_at", 0L); }
+    public void setLastArchiveExportAt(long t) { prefs.edit().putLong("notif_archive_export_at", t).apply(); }
+    public int archiveRowsSinceExport() { return prefs.getInt("notif_archive_rows_since_export", 0); }
+    public void setArchiveRowsSinceExport(int n) {
+        prefs.edit().putInt("notif_archive_rows_since_export", Math.max(0, n)).apply();
+    }
+
+    /**
+     * Packages whose notifications are archived. Stored newline-delimited rather than as a
+     * StringSet because SharedPreferences string sets have no defined ordering and are awkward to
+     * diff; the app picker writes the whole list at once anyway.
+     *
+     * An empty set means archive nothing, which is honoured literally: untick everything and
+     * capture genuinely stops, rather than silently falling back to "all apps".
+     */
+    public java.util.Set<String> archivedApps() {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        String raw = prefs.getString("notif_archive_apps", null);
+        if (raw == null) return out;
+        for (String line : raw.split("\n")) {
+            String trimmed = line.trim();
+            if (!trimmed.isEmpty()) out.add(trimmed);
+        }
+        return out;
+    }
+
+    public void setArchivedApps(java.util.Collection<String> packages) {
+        StringBuilder joined = new StringBuilder();
+        if (packages != null) {
+            for (String pkg : packages) {
+                if (pkg == null || pkg.trim().isEmpty()) continue;
+                if (joined.length() > 0) joined.append('\n');
+                joined.append(pkg.trim());
+            }
+        }
+        prefs.edit().putString("notif_archive_apps", joined.toString()).apply();
+    }
+
+    /** True once the owner has made a choice, so defaults are only applied on first run. */
+    public boolean archivedAppsChosen() { return prefs.contains("notif_archive_apps"); }
+
     /** Battery-saving visual mode: no continuous animation, static rings. */
     public boolean deckBatterySaver() { return prefs.getBoolean("deck_battery_saver", false); }
     public void setDeckBatterySaver(boolean v) { prefs.edit().putBoolean("deck_battery_saver", v).apply(); }

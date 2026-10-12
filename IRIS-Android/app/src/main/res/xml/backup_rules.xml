@@ -3,4 +3,13 @@
     <include domain="sharedpref" path="." />
     <exclude domain="file" path="iris_profile_v2.enc" />
     <exclude domain="file" path="iris_activity_v2.enc" />
+    <!--
+      The notification archive holds other people's intercepted private messages and must never
+      leave the device. Databases are already outside the include list above, so this is defence in
+      depth: if an include for the file or database domain is ever added, this exclude still stops
+      the archive being swept into a cloud backup.
+    -->
+    <exclude domain="database" path="iris_notification_archive.db" />
+    <exclude domain="database" path="iris_notification_archive.db-wal" />
+    <exclude domain="database" path="iris_notification_archive.db-shm" />
 </full-backup-content>

@@ -1500,6 +1500,25 @@ public class IrisListeningService extends Service implements RecognitionListener
             LogStore.append(this, "NOTIF", "Cleared (system dismissed=" + dismissed + ")");
             return;
         }
+        // 5b-deleted-reply. A pending "want me to open the log?" offer takes the next yes or no.
+        // Checked before any pattern so a bare "yes" is not interpreted as an unrelated command.
+        // Anything that is not clearly yes or no drops the offer and routes normally, so a stale
+        // offer cannot swallow the owner's next real instruction.
+        if (consumeArchiveOpenReply(normalized)) return;
+
+        // 5b-deleted. Deleted / unsent message questions. Dispatched AFTER the clear-notifications
+        // command above (which owns "delete my notifications") and BEFORE the summary and
+        // read-out handlers below, because NOTIFICATION_PATTERN would otherwise swallow
+        // "any deleted messages" via its generic any+messages alternative.
+        //
+        // Safe by construction, not by luck: every DeletedQuery pattern requires the word
+        // "deleted", "unsent" or "unsend", and DeletedQueryTest asserts that none of the existing
+        // notification or clear phrasings match it. That guard exists because this exact collision
+        // class has already broken a working command once in this project.
+        if (DeletedQuery.matched(normalized)) {
+            handleDeletedQuery(DeletedQuery.parse(normalized));
+            return;
+        }
         // 5b-summary. Notification SUMMARY ("summarise my notifications", "what did I miss").
         // Checked BEFORE the full read-out below so a summary request is not answered by
         // reciting every notification, and phrased narrowly enough that "read my
@@ -4771,6 +4790,103 @@ public class IrisListeningService extends Service implements RecognitionListener
     /** Spoken summary of waiting notifications, grouped by app instead of recited one by one.
      *  The store keeps the data; NotificationSummary does the pure grouping/phrasing, and the
      *  two-field adaptation happens here so that policy class stays Android-free and testable. */
+    /**
+     * Answer "any deleted messages?" and offer to open the archive.
+     *
+     * Counts and sender names are spoken; message bodies never are. The body is the sensitive part
+     * and the owner may not be alone, so it stays on screen behind the unlock gate.
+     *
+     * The window is "since you last asked", recorded when the archive screen is opened or when this
+     * question is answered, so repeating the question does not keep reporting the same deletions.
+     */
+    private void handleDeletedQuery(DeletedQuery.Kind kind) {
+        if (kind == DeletedQuery.Kind.OPEN_LOG) {
+            openDeletedArchive();
+            return;
+        }
+        AppSettings settings = new AppSettings(this);
+        if (!settings.notificationArchive()) {
+            String off = "The message archive is switched off, so I am not watching for deleted messages.";
+            broadcastMessageEphemeral(off);
+            speakThenRun(off, this::rearmAfterAction);
+            return;
+        }
+
+        long since = settings.lastDeletedCheckAt();
+        java.util.List<ArchiveRow> flagged = NotificationArchive.flaggedSince(this, since);
+        settings.setLastDeletedCheckAt(System.currentTimeMillis());
+
+        if (flagged.isEmpty()) {
+            String none = DeletedQuery.nothingFound(since > 0);
+            broadcastMessageEphemeral(none);
+            speakThenRun(none, this::rearmAfterAction);
+            LogStore.append(this, "ARCHIVE", "Deleted-message query: none since last check");
+            return;
+        }
+
+        java.util.List<String> senders = new java.util.ArrayList<>();
+        for (ArchiveRow row : flagged) {
+            String who = row.sender.isEmpty() ? row.rawTitle : row.sender;
+            if (!who.isEmpty() && !senders.contains(who)) senders.add(who);
+        }
+        String answer = DeletedQuery.found(flagged.size(), senders);
+        // Only the count is logged. Senders and bodies are never written to the activity log, which
+        // would otherwise copy intercepted message content into a second store.
+        LogStore.append(this, "ARCHIVE", "Deleted-message query: " + flagged.size() + " found");
+        broadcastMessageEphemeral(answer);
+        // Arm the follow-up so a plain "yes" opens the log.
+        awaitingArchiveOpen = true;
+        speakThenRun(answer, this::rearmAfterAction);
+    }
+
+    /** True while IRIS has offered to open the archive and is waiting for yes or no. */
+    private boolean awaitingArchiveOpen;
+
+    /**
+     * Handle the reply to "want me to open the log?".
+     *
+     * Returns true only when the reply was clearly yes or no. Anything else falls through to normal
+     * command handling, so an unrelated follow-up is not swallowed by a stale offer.
+     */
+    private boolean consumeArchiveOpenReply(String normalized) {
+        if (!awaitingArchiveOpen) return false;
+        if (DeletedQuery.isYes(normalized)) {
+            awaitingArchiveOpen = false;
+            openDeletedArchive();
+            return true;
+        }
+        if (DeletedQuery.isNo(normalized)) {
+            awaitingArchiveOpen = false;
+            String fine = "Alright, it is there when you want it.";
+            broadcastMessageEphemeral(fine);
+            speakThenRun(fine, this::rearmAfterAction);
+            return true;
+        }
+        // Not an answer to the offer; drop the offer and let the command route normally.
+        awaitingArchiveOpen = false;
+        return false;
+    }
+
+    /**
+     * Open the archive screen.
+     *
+     * The screen itself requires device authentication, which is handled in MainActivity: capture
+     * works while locked (that is when it matters most) but displaying other people's intercepted
+     * messages does not.
+     */
+    private void openDeletedArchive() {
+        String reply = "Opening the message archive.";
+        broadcastMessageEphemeral(reply);
+        try {
+            startActivity(new Intent(this, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(MainActivity.EXTRA_OPEN_ARCHIVE, true));
+        } catch (Exception e) {
+            reply = "I could not open the app. The archive is under Activity, deleted and unsent messages.";
+        }
+        speakThenRun(reply, this::rearmAfterAction);
+    }
+
     private void handleNotificationSummary() {
         java.util.List<NotificationSummary.Entry> entries = new java.util.ArrayList<>();
         for (NotificationStore.Item it : NotificationStore.recent(this, 100)) {

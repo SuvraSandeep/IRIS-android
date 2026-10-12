@@ -1,10 +1,18 @@
 package com.iris.assistant;
 
 import android.app.Notification;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Captures posted notifications so IRIS can read them back by voice.
@@ -13,10 +21,54 @@ import android.service.notification.StatusBarNotification;
  *
  * Filters out ongoing/system-noise notifications (foreground services,
  * media transport, IRIS's own listening notification).
+ *
+ * TWO INDEPENDENT CONSUMERS, deliberately kept separate:
+ *  1. {@link NotificationStore} -- the original rolling 100-item store that backs voice read-out,
+ *     notification summaries and proactive suggestions. Its behaviour is unchanged.
+ *  2. {@link NotificationArchive} -- the append-only archive that can flag messages a sender later
+ *     deleted. Opt-outable, limited to apps the owner ticked, and additive: if archiving fails or
+ *     is switched off, path 1 behaves exactly as it always has.
+ * Archive work is wrapped so that a storage failure can never stop a notification reaching
+ * NotificationStore, because this service is system-bound and a crash here would take out
+ * notification capture entirely.
  */
 public class IrisNotificationListener extends NotificationListenerService {
 
     private static volatile IrisNotificationListener instance;
+
+    /**
+     * Per-notification state needed to judge a later removal.
+     *
+     * Bounded, because a long-lived listener would otherwise accumulate an entry for every
+     * notification the phone has ever shown. The oldest entries are dropped; losing them only
+     * costs the ability to classify a removal as suspected, which fails safe to "not a deletion".
+     */
+    private static final int TRACKED_MAX = 300;
+
+    private static final class Tracked {
+        long postTime;
+        boolean screenOffAtPost;
+        /** When a deletion placeholder was last seen for this conversation, 0 if never. */
+        long placeholderAt;
+    }
+
+    private final Map<String, Tracked> tracked =
+            new LinkedHashMap<String, Tracked>(16, 0.75f, false) {
+                @Override protected boolean removeEldestEntry(Map.Entry<String, Tracked> eldest) {
+                    return size() > TRACKED_MAX;
+                }
+            };
+
+    /**
+     * Last time the screen became interactive or the device was unlocked.
+     *
+     * This is what separates a usable deletion signal from noise: an app withdrawing its own
+     * notification also happens when the owner reads the message, so a removal only counts as a
+     * suspected deletion if the screen never came on while the notification was showing.
+     */
+    private volatile long lastInteractiveAt;
+
+    private BroadcastReceiver screenWatcher;
 
     /** Active notifications only; cached history must never be used to send a reply. */
     public static StatusBarNotification[] activeForReply() {
@@ -44,6 +96,11 @@ public class IrisNotificationListener extends NotificationListenerService {
 
     @Override public void onListenerConnected() {
         instance = this;
+        startScreenWatch();
+        // Records that capture resumed. A gap between a disconnect marker and this one is a window
+        // the archive genuinely did not see, which the owner can then judge for themselves rather
+        // than being shown an apparently continuous record.
+        archiveMark(ArchiveSchema.KIND_LISTENER_CONNECTED, "Notification capture started.");
         // Seed with notifications already showing in the shade
         try {
             StatusBarNotification[] active = getActiveNotifications();
@@ -52,8 +109,73 @@ public class IrisNotificationListener extends NotificationListenerService {
             }
         } catch (Exception ignored) { }
     }
-    @Override public void onListenerDisconnected() { if (instance == this) instance = null; }
-    @Override public void onDestroy() { if (instance == this) instance = null; super.onDestroy(); }
+
+    @Override public void onListenerDisconnected() {
+        archiveMark(ArchiveSchema.KIND_LISTENER_DISCONNECTED,
+                "Notification capture stopped. Messages arriving now are not being saved.");
+        stopScreenWatch();
+        if (instance == this) instance = null;
+    }
+
+    @Override public void onDestroy() {
+        stopScreenWatch();
+        if (instance == this) instance = null;
+        super.onDestroy();
+    }
+
+    /**
+     * Watch for the screen coming on.
+     *
+     * ACTION_SCREEN_ON cannot be declared in the manifest, so it is registered dynamically for as
+     * long as the listener is connected. Without it the suspected-deletion heuristic would have to
+     * guess from two point-in-time samples and would misread "the owner woke the phone, read the
+     * message and locked it again" as a deletion.
+     */
+    private void startScreenWatch() {
+        if (screenWatcher != null) return;
+        try {
+            if (isScreenInteractive()) lastInteractiveAt = System.currentTimeMillis();
+            screenWatcher = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    lastInteractiveAt = System.currentTimeMillis();
+                }
+            };
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(Intent.ACTION_SCREEN_ON);
+            filter.addAction(Intent.ACTION_USER_PRESENT);
+            registerReceiver(screenWatcher, filter);
+        } catch (Exception e) {
+            // Without the watcher the heuristic simply never fires, because lastInteractiveAt stays
+            // put and cannot prove the screen was off. Failing closed is correct here: no false
+            // "suspected" flags is better than guessing.
+            screenWatcher = null;
+        }
+    }
+
+    private void stopScreenWatch() {
+        if (screenWatcher == null) return;
+        try { unregisterReceiver(screenWatcher); } catch (Exception ignored) { }
+        screenWatcher = null;
+    }
+
+    private boolean isScreenInteractive() {
+        try {
+            android.os.PowerManager power =
+                    (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (power == null) return true;
+            boolean on = power.isInteractive();
+            if (!on) return false;
+            // An interactive screen still showing the lock screen means the message could not have
+            // been read in the app, so it counts as unseen.
+            android.app.KeyguardManager keyguard =
+                    (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+            return keyguard == null || !keyguard.isKeyguardLocked();
+        } catch (Exception e) {
+            // Unknown screen state must not manufacture evidence: report interactive so the
+            // heuristic stays silent.
+            return true;
+        }
+    }
 
     /** Dismiss all clearable system notifications, if access is granted. Returns true if attempted. */
     public static boolean dismissAll() {
@@ -88,11 +210,213 @@ public class IrisNotificationListener extends NotificationListenerService {
 
             String appLabel = resolveAppLabel(pkg);
             NotificationStore.add(getApplicationContext(), pkg, appLabel, title, text, sbn.getPostTime());
+
+            // Archiving is strictly additive and runs AFTER the store above, so a failure here
+            // cannot stop a notification reaching the existing read-out and summary features.
+            try {
+                archive(sbn, pkg, appLabel, title, text, extras);
+            } catch (Throwable ignored) { }
         } catch (Exception ignored) { }
     }
 
+    /**
+     * Archive a notification, and flag an earlier message if this one is a deletion placeholder.
+     *
+     * The placeholder itself is never stored as a message: the owner asked for the original text to
+     * be preserved and the placeholder is pure noise. It is used only to flag, and to record the
+     * moment the deletion was detected.
+     */
+    private void archive(StatusBarNotification sbn, String pkg, String appLabel,
+                         String title, String text, Bundle extras) {
+        Context context = getApplicationContext();
+        AppSettings settings = new AppSettings(context);
+        if (!settings.notificationArchive()) return;
+
+        Set<String> targets = settings.archivedApps();
+        if (!settings.archivedAppsChosen()) {
+            // First run: fall back to the known messaging apps rather than archiving everything.
+            if (!ArchiveAppTargets.shouldPreTick(pkg)) return;
+        } else if (!targets.contains(pkg)) {
+            return;
+        }
+
+        String key = sbn.getKey() == null ? pkg + "|" + title : sbn.getKey();
+        long now = System.currentTimeMillis();
+
+        boolean groupHint = extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false);
+        DeletedMessageRules.Parsed parsed = DeletedMessageRules.parseSender(title, text, groupHint);
+
+        // A deletion placeholder flags an existing row instead of becoming one.
+        if (DeletedMessageRules.isAnyDeletionPlaceholder(text)) {
+            synchronized (tracked) {
+                Tracked state = tracked.get(key);
+                if (state == null) { state = new Tracked(); tracked.put(key, state); }
+                state.placeholderAt = now;
+            }
+            // The owner's own deletions are recognised so the placeholder is not archived as a
+            // message, but they are never reported as somebody taking a message back.
+            if (!DeletedMessageRules.isSenderDeletion(text)) return;
+
+            String who = parsed.sender.isEmpty() ? parsed.rawTitle : parsed.sender;
+            long flagged = NotificationArchive.flagMostRecentFromSender(
+                    context, pkg, who, DeletedMessageRules.Confidence.CONFIRMED, now);
+            if (flagged <= 0) {
+                // Nothing to flag: the original predates capture or arrived during a gap. Recorded
+                // rather than dropped, so a real deletion does not vanish without trace.
+                NotificationArchive.recordOrphanDeletion(context, appLabel, who, now);
+            }
+            ArchiveAlerts.deletionCaught(context, appLabel, who, now,
+                    DeletedMessageRules.Confidence.CONFIRMED);
+            return;
+        }
+
+        NotificationArchive.Capture capture = new NotificationArchive.Capture();
+        capture.pkg = pkg;
+        capture.appLabel = appLabel;
+        capture.userHandle = userIdOf(sbn);
+        capture.accountLabel = ArchiveAppTargets.accountLabel(
+                pkg, appLabel, capture.userHandle, charSeq(extras.getCharSequence(Notification.EXTRA_SUB_TEXT)));
+        capture.notifKey = key;
+        capture.rawTitle = parsed.rawTitle;
+        capture.sender = parsed.sender;
+        capture.group = parsed.group;
+        capture.body = parsed.body;
+        capture.postTime = sbn.getPostTime();
+
+        long id = NotificationArchive.record(context, capture);
+        if (id > 0) {
+            settings.setArchiveRowsSinceExport(settings.archiveRowsSinceExport() + 1);
+            synchronized (tracked) {
+                Tracked state = tracked.get(key);
+                if (state == null) { state = new Tracked(); tracked.put(key, state); }
+                state.postTime = sbn.getPostTime();
+                state.screenOffAtPost = !isScreenInteractive();
+            }
+        }
+    }
+
+    /**
+     * Whether the notification arrived on a different Android profile than IRIS itself.
+     *
+     * Returns 0 for our own profile and 1 for any other. This is the only way to tell a
+     * work-profile app from the personal one, because they share a package name.
+     *
+     * Implemented by comparing UserHandles rather than reading a numeric id: getUserId() is
+     * deprecated in favour of getUser(), and UserHandle.getIdentifier() is not public API. The
+     * label logic only needs "same profile or not", so a boolean-as-int avoids depending on
+     * anything hidden.
+     */
+    private int userIdOf(StatusBarNotification sbn) {
+        try {
+            android.os.UserHandle user = sbn.getUser();
+            if (user == null) return 0;
+            return user.equals(android.os.Process.myUserHandle()) ? 0 : 1;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private void archiveMark(int kind, String note) {
+        try {
+            Context context = getApplicationContext();
+            if (!new AppSettings(context).notificationArchive()) return;
+            NotificationArchive.mark(context, kind, note);
+        } catch (Throwable ignored) { }
+    }
+
+    /**
+     * A notification left the shade.
+     *
+     * The reason code is what makes this usable: it tells us whether the OWNER removed it (swipe
+     * or tap, in which case they saw it and it is not a deletion) or whether the APP withdrew it,
+     * which is what an unsend looks like. Mapping happens here against the real compiler-checked
+     * REASON_* constants, so {@link DeletedMessageRules} never has to hardcode their numeric values.
+     */
     @Override
-    public void onNotificationRemoved(StatusBarNotification sbn) { }
+    public void onNotificationRemoved(StatusBarNotification sbn, RankingMap rankingMap, int reason) {
+        try {
+            super.onNotificationRemoved(sbn, rankingMap, reason);
+        } catch (Throwable ignored) { }
+        try {
+            handleRemoval(sbn, classify(reason));
+        } catch (Throwable ignored) { }
+    }
+
+    private DeletedMessageRules.Removal classify(int reason) {
+        if (reason == REASON_CLICK) return DeletedMessageRules.Removal.USER_CLICKED;
+        if (reason == REASON_CANCEL || reason == REASON_CANCEL_ALL
+                || reason == REASON_LISTENER_CANCEL || reason == REASON_LISTENER_CANCEL_ALL) {
+            return DeletedMessageRules.Removal.USER_DISMISSED;
+        }
+        if (reason == REASON_APP_CANCEL || reason == REASON_APP_CANCEL_ALL) {
+            return DeletedMessageRules.Removal.APP_CANCELLED;
+        }
+        return DeletedMessageRules.Removal.OTHER;
+    }
+
+    /**
+     * Decide whether a removal was probably a sender unsending a message.
+     *
+     * This is the Instagram path: it posts no "unsent" placeholder, so the only available evidence
+     * is that the app withdrew its own notification while the owner could not have been reading it.
+     * The result is always recorded as SUSPECTED and shown differently from a confirmed deletion.
+     */
+    private void handleRemoval(StatusBarNotification sbn, DeletedMessageRules.Removal removal) {
+        if (sbn == null) return;
+        String pkg = sbn.getPackageName();
+        if (pkg == null || pkg.equals(getPackageName())) return;
+
+        Context context = getApplicationContext();
+        AppSettings settings = new AppSettings(context);
+        if (!settings.notificationArchive()) return;
+        if (settings.archivedAppsChosen()) {
+            if (!settings.archivedApps().contains(pkg)) return;
+        } else if (!ArchiveAppTargets.shouldPreTick(pkg)) {
+            return;
+        }
+
+        String key = sbn.getKey();
+        if (key == null) return;
+
+        Tracked state;
+        synchronized (tracked) { state = tracked.get(key); }
+        // No record of it being posted means it predates this listener session, so there is no
+        // basis for judging the removal. Silence is the correct answer.
+        if (state == null || state.postTime <= 0) return;
+
+        long now = System.currentTimeMillis();
+        boolean screenOffThroughout = state.screenOffAtPost && lastInteractiveAt < state.postTime;
+        long msSincePlaceholder = state.placeholderAt > 0 ? now - state.placeholderAt : -1L;
+
+        DeletedMessageRules.Confidence confidence = DeletedMessageRules.classifyRemoval(
+                removal, screenOffThroughout, now - state.postTime, msSincePlaceholder);
+        if (confidence != DeletedMessageRules.Confidence.SUSPECTED) return;
+
+        Bundle extras = sbn.getNotification() == null ? null : sbn.getNotification().extras;
+        String title = extras == null ? "" : charSeq(extras.getCharSequence(Notification.EXTRA_TITLE));
+        boolean groupHint = extras != null
+                && extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false);
+        DeletedMessageRules.Parsed parsed = DeletedMessageRules.parseSender(
+                title, extras == null ? "" : charSeq(extras.getCharSequence(Notification.EXTRA_TEXT)),
+                groupHint);
+        String who = parsed.sender.isEmpty() ? parsed.rawTitle : parsed.sender;
+
+        long flagged = NotificationArchive.flagMostRecentFromSender(
+                context, pkg, who, DeletedMessageRules.Confidence.SUSPECTED, now);
+        if (flagged > 0) {
+            ArchiveAlerts.deletionCaught(context, resolveAppLabel(pkg), who, now,
+                    DeletedMessageRules.Confidence.SUSPECTED);
+        }
+    }
+
+    /** Older platforms route here; forwarded so one code path handles removals. */
+    @Override
+    public void onNotificationRemoved(StatusBarNotification sbn) {
+        // Deliberately does nothing. Without a reason code there is no way to tell an owner
+        // dismissal from an app withdrawal, and guessing would produce exactly the false
+        // "suspected deletion" noise the reason code exists to avoid. The three-argument overload
+        // above is available from API 26 and minSdk is 26, so this is never the only callback.
+    }
 
     private String resolveAppLabel(String pkg) {
         try {

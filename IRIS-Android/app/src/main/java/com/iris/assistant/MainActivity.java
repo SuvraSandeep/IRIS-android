@@ -56,6 +56,8 @@ import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
+    /** Launch extra: open the notification archive directly, used by the unsent-message alert. */
+    public static final String EXTRA_OPEN_ARCHIVE = "openArchive";
     private static final int PERMISSION_START = 100;
     private static final int PERMISSION_TRAIN = 101;
     private static final int PERMISSION_SMS = 102;
@@ -437,6 +439,245 @@ public class MainActivity extends Activity {
             setter.accept(checked);
             toast("Saved. Open Home to see it.");
         });
+    }
+
+    /**
+     * The notification archive: notifications captured from the chosen apps, with any that a
+     * sender later took back flagged and still showing their original text.
+     *
+     * Kept inside the Activity tab rather than given a sixth bottom tab: five tab labels already
+     * sit at 11sp because "Training" nearly truncates, and a sixth would force truncation.
+     * selectedTab stays 2 so the Activity tab remains highlighted while this is open.
+     */
+    private void showArchive() {
+        selectedTab = 2;
+        if (ownerTrainingActive) cancelWakeTraining();
+        contentHost.removeAllViews();
+        View view = LayoutInflater.from(this).inflate(R.layout.view_archive, contentHost, false);
+        contentHost.addView(view);
+        fadeInContent();
+        updateTabs();
+        ArchiveAlerts.clear(this);
+
+        AppSettings settings = new AppSettings(this);
+        settings.setLastDeletedCheckAt(System.currentTimeMillis());
+        maybeShowArchiveNotice(settings);
+
+        EditText search = view.findViewById(R.id.archiveSearch);
+        Switch flaggedOnly = view.findViewById(R.id.archiveFlaggedOnly);
+
+        View back = view.findViewById(R.id.archiveBackButton);
+        if (back != null) back.setOnClickListener(v -> showLogs());
+
+        View apps = view.findViewById(R.id.archiveAppsButton);
+        if (apps != null) apps.setOnClickListener(v -> ArchiveAppPicker.show(this));
+
+        View export = view.findViewById(R.id.archiveExportButton);
+        if (export != null) export.setOnClickListener(v -> exportArchive());
+
+        View deleteAll = view.findViewById(R.id.archiveDeleteAllButton);
+        if (deleteAll != null) {
+            deleteAll.setOnClickListener(v -> new AlertDialog.Builder(this)
+                    .setTitle("Delete the whole archive?")
+                    .setMessage("This permanently removes every saved notification, including the "
+                            + "messages that were taken back. It cannot be undone, and the archive "
+                            + "is never included in a phone backup.\n\nExport first if you want a copy.")
+                    .setNegativeButton("Keep it", null)
+                    .setPositiveButton("Delete everything", (d, w) -> {
+                        int removed = NotificationArchive.deleteEverything(this);
+                        toast(removed + " entries deleted.");
+                        renderArchive(view);
+                    }).show());
+        }
+
+        if (search != null) {
+            search.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+                @Override public void afterTextChanged(android.text.Editable s) { renderArchive(view); }
+            });
+        }
+        if (flaggedOnly != null) {
+            flaggedOnly.setOnCheckedChangeListener((b, checked) -> renderArchive(view));
+        }
+        renderArchive(view);
+    }
+
+    /** One-time explanation of what the archive keeps. Informational, not a gate. */
+    private void maybeShowArchiveNotice(AppSettings settings) {
+        if (settings.archiveNoticeShown()) return;
+        settings.setArchiveNoticeShown(true);
+        new AlertDialog.Builder(this)
+                .setTitle("About this archive")
+                .setMessage("IRIS saves notifications from the apps you choose so that a message "
+                        + "deleted by its sender can still be read here.\n\n"
+                        + "\u2022 It stays on this phone and is never uploaded or included in a backup.\n"
+                        + "\u2022 Nothing is ever edited or deleted automatically; only you can remove entries.\n"
+                        + "\u2022 Clearing app data or uninstalling destroys it, so export if you want a copy.\n"
+                        + "\u2022 If a message never raised a notification, it cannot be captured.")
+                .setPositiveButton("Got it", null)
+                .show();
+    }
+
+    /** Re-read the archive and rebuild the card list against the current filters. */
+    private void renderArchive(View root) {
+        LinearLayout list = root.findViewById(R.id.archiveList);
+        TextView summary = root.findViewById(R.id.archiveSummary);
+        TextView warning = root.findViewById(R.id.archiveWarning);
+        EditText search = root.findViewById(R.id.archiveSearch);
+        Switch flaggedOnly = root.findViewById(R.id.archiveFlaggedOnly);
+        if (list == null) return;
+
+        NotificationArchive.Filter filter = new NotificationArchive.Filter();
+        if (search != null) {
+            String term = search.getText().toString().trim();
+            if (!term.isEmpty()) { filter.sender = term; filter.text = term; }
+        }
+        filter.flaggedOnly = flaggedOnly != null && flaggedOnly.isChecked();
+        // Markers are shown only in the unfiltered view, where the gaps they mark are meaningful.
+        filter.includeMarkers = !filter.flaggedOnly;
+        filter.limit = 300;
+
+        // A free-text term should match EITHER sender or body, but the query ANDs its fields. Run
+        // both and merge, rather than silently searching only one of them.
+        java.util.List<ArchiveRow> rows;
+        if (filter.sender != null) {
+            NotificationArchive.Filter bySender = new NotificationArchive.Filter();
+            bySender.sender = filter.sender;
+            bySender.flaggedOnly = filter.flaggedOnly;
+            bySender.includeMarkers = false;
+            bySender.limit = filter.limit;
+
+            NotificationArchive.Filter byText = new NotificationArchive.Filter();
+            byText.text = filter.text;
+            byText.flaggedOnly = filter.flaggedOnly;
+            byText.includeMarkers = false;
+            byText.limit = filter.limit;
+
+            java.util.LinkedHashMap<Long, ArchiveRow> merged = new java.util.LinkedHashMap<>();
+            for (ArchiveRow row : NotificationArchive.query(this, bySender)) merged.put(row.id, row);
+            for (ArchiveRow row : NotificationArchive.query(this, byText)) merged.put(row.id, row);
+            rows = new java.util.ArrayList<>(merged.values());
+            java.util.Collections.sort(rows, (a, b) -> Long.compare(b.postTime, a.postTime));
+        } else {
+            rows = NotificationArchive.query(this, filter);
+        }
+
+        int total = NotificationArchive.totalMessages(this);
+        int flagged = NotificationArchive.totalFlagged(this);
+        if (summary != null) {
+            summary.setText(total + (total == 1 ? " message saved \u00b7 " : " messages saved \u00b7 ")
+                    + flagged + " taken back \u00b7 " + ArchiveSchema.readableSize(
+                    NotificationArchive.sizeBytes(this)));
+        }
+        if (warning != null) {
+            ArchiveSchema.Usage usage = NotificationArchive.usage(this);
+            boolean show = usage == ArchiveSchema.Usage.CRITICAL || usage == ArchiveSchema.Usage.FULL;
+            warning.setText(show ? NotificationArchive.usageMessage(this) : "");
+            warning.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+
+        list.removeAllViews();
+        if (rows.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText(total == 0
+                    ? "Nothing saved yet. Notifications from the apps you tick will appear here."
+                    : "No entries match this search.");
+            empty.setTextColor(getColor(R.color.text_muted));
+            empty.setTextSize(13f);
+            empty.setPadding(0, dp(16), 0, dp(16));
+            list.addView(empty);
+            return;
+        }
+        for (ArchiveRow row : rows) list.addView(archiveCard(row, root));
+    }
+
+    /**
+     * One archive entry.
+     *
+     * A flagged card is tinted and carries the status line; the original text stays fully visible,
+     * which is the entire point. A suspected flag is styled distinctly from a confirmed one so a
+     * guess can never be mistaken for a fact.
+     */
+    private View archiveCard(final ArchiveRow row, final View root) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(6);
+        card.setLayoutParams(params);
+        card.setBackgroundResource(R.drawable.bg_card);
+
+        DeletedMessageRules.Confidence confidence = row.confidence();
+        boolean marker = !row.isMessage();
+
+        TextView head = new TextView(this);
+        String who = row.sender.isEmpty() ? row.rawTitle : row.sender;
+        if (who.isEmpty()) who = "Unknown sender";
+        String where = row.accountLabel.isEmpty() ? row.appLabel : row.accountLabel;
+        head.setText(marker ? "\u2014 " + where : who + (row.group.isEmpty() ? "" : " \u00b7 " + row.group));
+        head.setTextSize(14f);
+        head.setTypeface(null, android.graphics.Typeface.BOLD);
+        head.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
+                ? R.color.danger : R.color.text_primary));
+        card.addView(head);
+
+        if (!marker) {
+            TextView meta = new TextView(this);
+            meta.setText(where + " \u00b7 " + DeletedMessageRules.formatTime(
+                    row.postTime, java.util.TimeZone.getDefault()));
+            meta.setTextSize(11f);
+            meta.setTextColor(getColor(R.color.text_muted));
+            card.addView(meta);
+        }
+
+        TextView body = new TextView(this);
+        body.setText(row.body.isEmpty() ? "(no text in this notification)" : row.body);
+        body.setTextSize(13f);
+        body.setTextColor(getColor(R.color.text_primary));
+        body.setPadding(0, dp(4), 0, 0);
+        card.addView(body);
+
+        if (confidence != DeletedMessageRules.Confidence.NONE) {
+            TextView status = new TextView(this);
+            status.setText(DeletedMessageRules.statusLabel(
+                    confidence, row.deletionTime, java.util.TimeZone.getDefault()));
+            status.setTextSize(12f);
+            status.setTypeface(null, android.graphics.Typeface.BOLD);
+            status.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
+                    ? R.color.danger : R.color.magenta));
+            status.setPadding(0, dp(6), 0, 0);
+            card.addView(status);
+
+            TextView caveat = new TextView(this);
+            caveat.setText(DeletedMessageRules.flagCaveat(confidence));
+            caveat.setTextSize(11f);
+            caveat.setTextColor(getColor(R.color.text_muted));
+            card.addView(caveat);
+        }
+
+        card.setContentDescription((confidence == DeletedMessageRules.Confidence.CONFIRMED
+                ? "Unsent message from " : "Message from ") + who + ": " + row.body);
+
+        // Long-press is the ONLY route to removing an entry, matching the append-only contract.
+        card.setOnLongClickListener(v -> {
+            new AlertDialog.Builder(this)
+                    .setTitle("Delete this entry?")
+                    .setMessage("This removes it permanently. The archive never deletes anything on "
+                            + "its own, so this is the only way an entry goes away.")
+                    .setNegativeButton("Keep it", null)
+                    .setPositiveButton("Delete", (d, w) -> {
+                        if (NotificationArchive.deleteRow(this, row.id)) {
+                            toast("Entry deleted.");
+                            renderArchive(root);
+                        } else {
+                            toast("Could not delete that entry.");
+                        }
+                    }).show();
+            return true;
+        });
+        return card;
     }
 
     /** Bind the Command Deck telemetry to the freshly-inflated assistant view. */
@@ -1412,6 +1653,14 @@ public class MainActivity extends Activity {
                 buildLogFilters(filterRow, logText, logs);
             });
         }, "IRIS-ReadLogs").start();
+        View archiveOpen = view.findViewById(R.id.archiveOpenButton);
+        if (archiveOpen != null) {
+            // The archive holds other people's private messages, so viewing it requires unlock even
+            // though capturing never does. Capture while locked is the whole point; display is the
+            // part that needs a gate.
+            archiveOpen.setOnClickListener(v ->
+                    authenticateThen("View deleted and unsent messages", this::showArchive));
+        }
         view.findViewById(R.id.crashReportButton).setOnClickListener(v->authenticateThen("View crash and wake report",()->{
             new Thread(()->{String report=CrashDiagnostics.report(getApplicationContext());
                 runOnUiThread(()->{if(isFinishing()||isDestroyed())return;
@@ -2307,6 +2556,8 @@ public class MainActivity extends Activity {
 
     private static final int EXPORT_MEMORY = 205;
     private static final int IMPORT_MEMORY = 206;
+    private static final int EXPORT_ARCHIVE_CSV = 207;
+    private static final int EXPORT_ARCHIVE_TEXT = 208;
 
     private void createMemoryDocument() {
         startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
@@ -4716,6 +4967,12 @@ public class MainActivity extends Activity {
     private void handleLaunchIntent(Intent intent) {
         if(intent!=null&&intent.getBooleanExtra("voiceFeedback",false)){intent.removeExtra("voiceFeedback");showTraining();handler.post(this::reviewWakeEvents);return;}
         if (intent == null) return;
+        if (intent.getBooleanExtra(EXTRA_OPEN_ARCHIVE, false)) {
+            intent.removeExtra(EXTRA_OPEN_ARCHIVE);
+            // Authenticate before showing intercepted messages, matching the in-app entry point.
+            handler.post(() -> authenticateThen("View deleted and unsent messages", this::showArchive));
+            return;
+        }
         if(intent.hasExtra("routinePreview")){String phrase=intent.getStringExtra("routinePreview");intent.removeExtra("routinePreview");ReliabilityTools.preview(this,RoutineStore.match(this,phrase),this::runReviewedCommand);return;}
         String act = intent.getAction();
         if (Intent.ACTION_ASSIST.equals(act) || "android.intent.action.VOICE_COMMAND".equals(act)) {
@@ -4951,10 +5208,73 @@ public class MainActivity extends Activity {
                         runOnUiThread(() -> toast("Activity log exported."));
                     } catch (Exception error) { runOnUiThread(() -> toast("Activity export failed.")); }
                 }, "IRIS-ExportLogs").start();
+            } else if (requestCode == EXPORT_ARCHIVE_CSV || requestCode == EXPORT_ARCHIVE_TEXT) {
+                final boolean csv = requestCode == EXPORT_ARCHIVE_CSV;
+                new Thread(() -> {
+                    try {
+                        NotificationArchive.Filter all = new NotificationArchive.Filter();
+                        all.includeMarkers = true;
+                        // Export everything, including capture gaps, so the file is a full record
+                        // rather than a filtered view the owner might later mistake for complete.
+                        all.limit = Integer.MAX_VALUE;
+                        java.util.List<ArchiveRow> rows =
+                                NotificationArchive.query(getApplicationContext(), all);
+                        java.util.TimeZone zone = java.util.TimeZone.getDefault();
+                        String body = csv
+                                ? ArchiveExport.toCsv(rows, zone)
+                                : ArchiveExport.toText(rows, System.currentTimeMillis(), zone);
+                        writeText(uri, body);
+                        AppSettings settings = new AppSettings(getApplicationContext());
+                        settings.setLastArchiveExportAt(System.currentTimeMillis());
+                        settings.setArchiveRowsSinceExport(0);
+                        final int count = rows.size();
+                        runOnUiThread(() -> toast("Exported " + count
+                                + (count == 1 ? " entry." : " entries.")));
+                    } catch (Exception error) {
+                        runOnUiThread(() -> toast("Archive export failed."));
+                    }
+                }, "IRIS-ExportArchive").start();
             }
         } catch (Exception error) { toast("That didn't work: " + error.getMessage()); }
     }
 
+    /**
+     * Export the archive. CSV for filtering in a spreadsheet, plain text for reading.
+     *
+     * Offered as a choice rather than writing both, so the owner picks one destination instead of
+     * being walked through two file pickers in a row.
+     */
+    private void exportArchive() {
+        if (NotificationArchive.totalMessages(this) == 0) {
+            toast("Nothing to export yet.");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Export archive")
+                .setMessage("CSV opens in a spreadsheet and can be sorted and filtered. "
+                        + "Readable text is laid out for reading straight through.\n\n"
+                        + "Either way this is the only copy that survives a reset or a new phone, "
+                        + "because the archive is never included in a backup.")
+                .setNeutralButton("Cancel", null)
+                .setNegativeButton("Readable text", (d, w) -> startArchiveExport(
+                        EXPORT_ARCHIVE_TEXT, "text/plain", "txt"))
+                .setPositiveButton("CSV", (d, w) -> startArchiveExport(
+                        EXPORT_ARCHIVE_CSV, "text/csv", "csv"))
+                .show();
+    }
+
+    private void startArchiveExport(int requestCode, String mimeType, String extension) {
+        try {
+            startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(mimeType)
+                    .putExtra(Intent.EXTRA_TITLE, ArchiveExport.fileName(
+                            extension, System.currentTimeMillis(), java.util.TimeZone.getDefault())),
+                    requestCode);
+        } catch (Exception e) {
+            toast("No file picker available on this phone.");
+        }
+    }
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);

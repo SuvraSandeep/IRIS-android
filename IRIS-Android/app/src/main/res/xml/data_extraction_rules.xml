@@ -4,10 +4,24 @@
         <include domain="sharedpref" path="." />
         <exclude domain="file" path="iris_profile_v2.enc" />
         <exclude domain="file" path="iris_activity_v2.enc" />
+        <!--
+          The notification archive holds other people's intercepted private messages. It must never
+          be uploaded, so it is excluded explicitly as well as being outside the include list.
+        -->
+        <exclude domain="database" path="iris_notification_archive.db" />
+        <exclude domain="database" path="iris_notification_archive.db-wal" />
+        <exclude domain="database" path="iris_notification_archive.db-shm" />
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="." />
         <exclude domain="file" path="iris_profile_v2.enc" />
         <exclude domain="file" path="iris_activity_v2.enc" />
+        <!--
+          Also excluded from device-to-device transfer: the owner's export is the intended way to
+          move the archive, so it is a deliberate action rather than a silent copy.
+        -->
+        <exclude domain="database" path="iris_notification_archive.db" />
+        <exclude domain="database" path="iris_notification_archive.db-wal" />
+        <exclude domain="database" path="iris_notification_archive.db-shm" />
     </device-transfer>
 </data-extraction-rules>

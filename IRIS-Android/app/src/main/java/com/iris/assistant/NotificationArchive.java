@@ -1,0 +1,623 @@
+package com.iris.assistant;
+
+import android.content.ContentValues;
+import android.content.Context;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteOpenHelper;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Append-only store of captured notifications, able to flag messages whose sender later deleted or
+ * unsent them.
+ *
+ * STORAGE GUARANTEE: the append-only rule is enforced by SQLite triggers defined in
+ * {@link ArchiveSchema}, not by this class. Every content column rejects an UPDATE and every DELETE
+ * is refused unless an owner-authorisation flag is set in the same transaction. That means a future
+ * refactor cannot silently purge the archive; the engine itself refuses. The triggers are verified
+ * against a real SQLite engine by tests/check-archive-schema.py.
+ *
+ * WHAT THIS IS NOT: the database is NOT separately encrypted. It lives in app-private storage, so
+ * it is protected by the Android application sandbox and by the device's own full-disk encryption,
+ * and the backup rules exclude it so it never leaves the device. But unlike SecureStore (which
+ * wraps JSON in AES-GCM via AndroidKeyStore) there is no app-level cipher here, because that would
+ * require adding SQLCipher as a native dependency. Do not describe this archive as encrypted.
+ *
+ * FAILURE POLICY: every public method swallows storage errors and returns a safe value. A missing,
+ * cleared or corrupted database must never crash the notification listener, because the listener is
+ * a system-bound service and a crash loop there would take out notification capture entirely. A
+ * corrupted file is deleted and recreated empty rather than retried forever.
+ */
+public final class NotificationArchive {
+
+    /** Guards writes. The delete-authorisation flag is global, so deletes must not interleave. */
+    private static final Object LOCK = new Object();
+
+    private static Helper helper;
+
+    private NotificationArchive() { }
+
+    // ─── Value types ───
+
+    /** A notification to archive. Assembled by the listener; every field is already extracted. */
+    public static final class Capture {
+        public String pkg = "";
+        public String appLabel = "";
+        public String accountLabel = "";
+        public int userHandle;
+        public String notifKey = "";
+        public String rawTitle = "";
+        public String sender = "";
+        public String group = "";
+        public String body = "";
+        public long postTime;
+    }
+
+    /**
+     * An archived row.
+     *
+     * The value type itself lives in {@link ArchiveRow}, outside this class, so that reading rows
+     * does not require the Android SQLite imports above. That is what lets ArchiveExport and its
+     * CSV escaping be tested offline.
+     */
+
+    /** Search criteria. Any field left null or zero is simply not applied. */
+    public static final class Filter {
+        /** Matched against package and app label. */
+        public String app;
+        /** Matched against sender and raw title. */
+        public String sender;
+        /** Free text, matched against the message body. */
+        public String text;
+        public long fromMs;
+        public long toMs;
+        public boolean flaggedOnly;
+        /** Include listener-gap and capture-paused markers alongside messages. */
+        public boolean includeMarkers;
+        public int limit = 200;
+    }
+
+    // ─── Writing ───
+
+    /** Outcome of {@link #record}. */
+    public static final long RESULT_DUPLICATE = -1L;
+    public static final long RESULT_FULL = -2L;
+    public static final long RESULT_ERROR = -3L;
+
+    /**
+     * Archive one notification.
+     *
+     * Duplicates are rejected by the unique fingerprint index rather than by a pre-read, so two
+     * threads racing on the same notification cannot both insert it.
+     *
+     * @return the new row id, or one of the RESULT_ constants
+     */
+    public static long record(Context context, Capture capture) {
+        if (context == null || capture == null) return RESULT_ERROR;
+        synchronized (LOCK) {
+            try {
+                SQLiteDatabase db = database(context);
+                if (db == null) return RESULT_ERROR;
+
+                if (!ArchiveSchema.allowsMessageInsert(usage(context))) {
+                    notePausedOnce(db);
+                    return RESULT_FULL;
+                }
+
+                ContentValues values = new ContentValues();
+                values.put(ArchiveSchema.COL_PKG, safe(capture.pkg));
+                values.put(ArchiveSchema.COL_APP_LABEL, safe(capture.appLabel));
+                values.put(ArchiveSchema.COL_ACCOUNT_LABEL, safe(capture.accountLabel));
+                values.put(ArchiveSchema.COL_USER_HANDLE, capture.userHandle);
+                values.put(ArchiveSchema.COL_NOTIF_KEY, safe(capture.notifKey));
+                values.put(ArchiveSchema.COL_RAW_TITLE, safe(capture.rawTitle));
+                values.put(ArchiveSchema.COL_SENDER, safe(capture.sender));
+                values.put(ArchiveSchema.COL_GROUP, safe(capture.group));
+                values.put(ArchiveSchema.COL_BODY, safe(capture.body));
+                values.put(ArchiveSchema.COL_POST_TIME, capture.postTime);
+                values.put(ArchiveSchema.COL_CAPTURED_TIME, System.currentTimeMillis());
+                values.put(ArchiveSchema.COL_ROW_KIND, ArchiveSchema.KIND_MESSAGE);
+                values.put(ArchiveSchema.COL_FINGERPRINT, DeletedMessageRules.fingerprint(
+                        capture.pkg, capture.notifKey, capture.rawTitle, capture.body, capture.postTime));
+
+                long id = db.insertWithOnConflict(ArchiveSchema.TABLE, null, values,
+                        SQLiteDatabase.CONFLICT_IGNORE);
+                return id <= 0 ? RESULT_DUPLICATE : id;
+            } catch (Throwable t) {
+                return RESULT_ERROR;
+            }
+        }
+    }
+
+    /**
+     * Record a marker row: listener connected, listener lost, capture paused, or a deletion whose
+     * original message was never archived.
+     *
+     * Markers are always accepted regardless of archive size. Suppressing them when full would
+     * hide the very fact that capture had stopped.
+     */
+    public static long mark(Context context, int rowKind, String note) {
+        if (context == null) return RESULT_ERROR;
+        synchronized (LOCK) {
+            try {
+                SQLiteDatabase db = database(context);
+                if (db == null) return RESULT_ERROR;
+                return insertMarker(db, rowKind, note);
+            } catch (Throwable t) {
+                return RESULT_ERROR;
+            }
+        }
+    }
+
+    private static long insertMarker(SQLiteDatabase db, int rowKind, String note) {
+        long now = System.currentTimeMillis();
+        ContentValues values = new ContentValues();
+        values.put(ArchiveSchema.COL_ROW_KIND, rowKind);
+        values.put(ArchiveSchema.COL_BODY, safe(note));
+        values.put(ArchiveSchema.COL_POST_TIME, now);
+        values.put(ArchiveSchema.COL_CAPTURED_TIME, now);
+        // A marker's fingerprint includes the timestamp, so repeated connect/disconnect cycles are
+        // all recorded instead of the unique index collapsing them into one.
+        values.put(ArchiveSchema.COL_FINGERPRINT,
+                DeletedMessageRules.fingerprint("marker", String.valueOf(rowKind), "", safe(note), now));
+        long id = db.insertWithOnConflict(ArchiveSchema.TABLE, null, values,
+                SQLiteDatabase.CONFLICT_IGNORE);
+        return id <= 0 ? RESULT_DUPLICATE : id;
+    }
+
+    /** Record that capture stopped, but only once per full episode, so the archive is not spammed. */
+    private static void notePausedOnce(SQLiteDatabase db) {
+        try {
+            Cursor cursor = db.rawQuery("SELECT " + ArchiveSchema.COL_ROW_KIND + " FROM "
+                    + ArchiveSchema.TABLE + " ORDER BY " + ArchiveSchema.COL_ID + " DESC LIMIT 1", null);
+            try {
+                boolean alreadyNoted = cursor != null && cursor.moveToFirst()
+                        && cursor.getInt(0) == ArchiveSchema.KIND_CAPTURE_PAUSED_FULL;
+                if (!alreadyNoted) {
+                    insertMarker(db, ArchiveSchema.KIND_CAPTURE_PAUSED_FULL,
+                            "Archive full. New messages are no longer being saved.");
+                }
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    // ─── Flagging ───
+
+    /**
+     * Flag the most recent unflagged message from a sender as taken back.
+     *
+     * The platform does not say WHICH message a deletion placeholder refers to, so only the latest
+     * can be flagged -- the UI states this rather than implying precision the platform never gave.
+     *
+     * Choosing the most recent **unflagged** row (rather than simply the most recent) means two
+     * deletions in a row flag two different messages instead of both landing on the same one.
+     *
+     * Flagging is permitted at every archive size: it updates three small columns, adds no rows,
+     * and is the entire point of the feature.
+     *
+     * @return the flagged row id, or {@link #RESULT_ERROR} when there was nothing to flag
+     */
+    public static long flagMostRecentFromSender(Context context, String pkg, String sender,
+                                                DeletedMessageRules.Confidence confidence, long whenMs) {
+        if (context == null || confidence == null
+                || confidence == DeletedMessageRules.Confidence.NONE) return RESULT_ERROR;
+        synchronized (LOCK) {
+            try {
+                SQLiteDatabase db = database(context);
+                if (db == null) return RESULT_ERROR;
+
+                List<String> args = new ArrayList<>();
+                StringBuilder where = new StringBuilder(ArchiveSchema.COL_ROW_KIND + " = "
+                        + ArchiveSchema.KIND_MESSAGE
+                        + " AND " + ArchiveSchema.COL_IS_DELETED + " = 0"
+                        + " AND " + ArchiveSchema.COL_IS_SUSPECTED + " = 0");
+                if (pkg != null && !pkg.isEmpty()) {
+                    where.append(" AND ").append(ArchiveSchema.COL_PKG).append(" = ?");
+                    args.add(pkg);
+                }
+                if (sender != null && !sender.trim().isEmpty()) {
+                    // Match the parsed sender, falling back to the raw title ONLY for one-to-one
+                    // rows, where the title IS the person. In a group the title is the group name,
+                    // so matching it unconditionally would flag a message from the wrong person
+                    // whenever a group happens to be named after someone. A test caught exactly
+                    // that: a message from Bob in a chat titled "Ana" was selected for Ana.
+                    where.append(" AND (").append(ArchiveSchema.COL_SENDER).append(" = ?")
+                            .append(" OR (").append(ArchiveSchema.COL_GROUP).append(" = ''")
+                            .append(" AND ").append(ArchiveSchema.COL_RAW_TITLE).append(" = ?))");
+                    args.add(sender.trim());
+                    args.add(sender.trim());
+                }
+
+                long id = -1;
+                Cursor cursor = db.query(ArchiveSchema.TABLE, new String[]{ArchiveSchema.COL_ID},
+                        where.toString(), args.toArray(new String[0]), null, null,
+                        ArchiveSchema.COL_POST_TIME + " DESC, " + ArchiveSchema.COL_ID + " DESC", "1");
+                try {
+                    if (cursor != null && cursor.moveToFirst()) id = cursor.getLong(0);
+                } finally {
+                    if (cursor != null) cursor.close();
+                }
+                if (id < 0) return RESULT_ERROR;
+
+                ContentValues values = new ContentValues();
+                if (confidence == DeletedMessageRules.Confidence.CONFIRMED) {
+                    values.put(ArchiveSchema.COL_IS_DELETED, 1);
+                } else {
+                    values.put(ArchiveSchema.COL_IS_SUSPECTED, 1);
+                }
+                values.put(ArchiveSchema.COL_DELETION_TIME, whenMs);
+                int updated = db.update(ArchiveSchema.TABLE, values,
+                        ArchiveSchema.COL_ID + " = ?", new String[]{String.valueOf(id)});
+                return updated > 0 ? id : RESULT_ERROR;
+            } catch (Throwable t) {
+                return RESULT_ERROR;
+            }
+        }
+    }
+
+    /**
+     * Record a deletion whose original message is not in the archive.
+     *
+     * Called when flagging finds nothing: the message predates capture, or it arrived while the
+     * listener was disconnected. Storing the event keeps the archive honest -- silently dropping it
+     * would make a real deletion invisible.
+     */
+    public static long recordOrphanDeletion(Context context, String appLabel, String sender, long whenMs) {
+        String who = sender == null || sender.trim().isEmpty() ? "an unknown sender" : sender.trim();
+        String note = "A message from " + who + " was taken back, but the original was not in the "
+                + "archive (it arrived before capture started, or while capture was interrupted).";
+        long id = mark(context, ArchiveSchema.KIND_ORPHAN_DELETION, note);
+        if (id > 0) stampOrphan(context, id, appLabel, sender, whenMs);
+        return id;
+    }
+
+    /** Fill in the orphan's attribution. Separate because only the flag columns stay writable. */
+    private static void stampOrphan(Context context, long id, String appLabel, String sender, long whenMs) {
+        synchronized (LOCK) {
+            try {
+                SQLiteDatabase db = database(context);
+                if (db == null) return;
+                ContentValues values = new ContentValues();
+                values.put(ArchiveSchema.COL_IS_DELETED, 1);
+                values.put(ArchiveSchema.COL_DELETION_TIME, whenMs);
+                db.update(ArchiveSchema.TABLE, values, ArchiveSchema.COL_ID + " = ?",
+                        new String[]{String.valueOf(id)});
+            } catch (Throwable ignored) { }
+        }
+    }
+
+    // ─── Reading ───
+
+    /** Search the archive, newest first. */
+    public static List<ArchiveRow> query(Context context, Filter filter) {
+        List<ArchiveRow> out = new ArrayList<>();
+        if (context == null) return out;
+        Filter f = filter == null ? new Filter() : filter;
+        try {
+            SQLiteDatabase db = database(context);
+            if (db == null) return out;
+
+            List<String> args = new ArrayList<>();
+            StringBuilder where = new StringBuilder("1 = 1");
+
+            if (!f.includeMarkers) {
+                where.append(" AND ").append(ArchiveSchema.COL_ROW_KIND).append(" = ")
+                        .append(ArchiveSchema.KIND_MESSAGE);
+            }
+            if (f.flaggedOnly) {
+                where.append(" AND (").append(ArchiveSchema.COL_IS_DELETED).append(" = 1 OR ")
+                        .append(ArchiveSchema.COL_IS_SUSPECTED).append(" = 1)");
+            }
+            if (f.app != null && !f.app.trim().isEmpty()) {
+                where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_APP_LABEL).append(" LIKE ? ESCAPE '\\')");
+                String like = contains(f.app);
+                args.add(like);
+                args.add(like);
+            }
+            if (f.sender != null && !f.sender.trim().isEmpty()) {
+                where.append(" AND (").append(ArchiveSchema.COL_SENDER).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_RAW_TITLE).append(" LIKE ? ESCAPE '\\')");
+                String like = contains(f.sender);
+                args.add(like);
+                args.add(like);
+            }
+            if (f.text != null && !f.text.trim().isEmpty()) {
+                where.append(" AND ").append(ArchiveSchema.COL_BODY).append(" LIKE ? ESCAPE '\\'");
+                args.add(contains(f.text));
+            }
+            if (f.fromMs > 0) {
+                where.append(" AND ").append(ArchiveSchema.COL_POST_TIME).append(" >= ?");
+                args.add(String.valueOf(f.fromMs));
+            }
+            if (f.toMs > 0) {
+                where.append(" AND ").append(ArchiveSchema.COL_POST_TIME).append(" <= ?");
+                args.add(String.valueOf(f.toMs));
+            }
+
+            int limit = f.limit <= 0 ? 200 : f.limit;
+            Cursor cursor = db.query(ArchiveSchema.TABLE, null, where.toString(),
+                    args.toArray(new String[0]), null, null,
+                    ArchiveSchema.COL_POST_TIME + " DESC, " + ArchiveSchema.COL_ID + " DESC",
+                    String.valueOf(limit));
+            try {
+                while (cursor != null && cursor.moveToNext()) out.add(readRow(cursor));
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+        } catch (Throwable ignored) { }
+        return out;
+    }
+
+    /** Flagged messages discovered since a point in time, newest first. */
+    public static List<ArchiveRow> flaggedSince(Context context, long sinceMs) {
+        List<ArchiveRow> out = new ArrayList<>();
+        if (context == null) return out;
+        try {
+            SQLiteDatabase db = database(context);
+            if (db == null) return out;
+            Cursor cursor = db.query(ArchiveSchema.TABLE, null,
+                    "(" + ArchiveSchema.COL_IS_DELETED + " = 1 OR " + ArchiveSchema.COL_IS_SUSPECTED
+                            + " = 1) AND " + ArchiveSchema.COL_DELETION_TIME + " > ?",
+                    new String[]{String.valueOf(Math.max(0, sinceMs))}, null, null,
+                    ArchiveSchema.COL_DELETION_TIME + " DESC", "50");
+            try {
+                while (cursor != null && cursor.moveToNext()) out.add(readRow(cursor));
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+        } catch (Throwable ignored) { }
+        return out;
+    }
+
+    /** Count of message rows, markers excluded. */
+    public static int totalMessages(Context context) {
+        return countWhere(context, ArchiveSchema.COL_ROW_KIND + " = " + ArchiveSchema.KIND_MESSAGE);
+    }
+
+    /** Count of flagged rows. */
+    public static int totalFlagged(Context context) {
+        return countWhere(context, ArchiveSchema.COL_IS_DELETED + " = 1 OR "
+                + ArchiveSchema.COL_IS_SUSPECTED + " = 1");
+    }
+
+    private static int countWhere(Context context, String where) {
+        if (context == null) return 0;
+        try {
+            SQLiteDatabase db = database(context);
+            if (db == null) return 0;
+            Cursor cursor = db.rawQuery("SELECT COUNT(*) FROM " + ArchiveSchema.TABLE
+                    + " WHERE " + where, null);
+            try {
+                return cursor != null && cursor.moveToFirst() ? cursor.getInt(0) : 0;
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    // ─── Size ───
+
+    /** On-disk size, including the write-ahead log and shared-memory sidecars. */
+    public static long sizeBytes(Context context) {
+        if (context == null) return 0L;
+        try {
+            File base = context.getDatabasePath(ArchiveSchema.DB_NAME);
+            long total = length(base);
+            total += length(new File(base.getPath() + "-wal"));
+            total += length(new File(base.getPath() + "-shm"));
+            return total;
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
+
+    private static long length(File file) {
+        try { return file != null && file.exists() ? file.length() : 0L; }
+        catch (Throwable t) { return 0L; }
+    }
+
+    public static ArchiveSchema.Usage usage(Context context) {
+        return ArchiveSchema.usageFor(sizeBytes(context), ArchiveSchema.MAX_BYTES);
+    }
+
+    public static String usageMessage(Context context) {
+        long bytes = sizeBytes(context);
+        return ArchiveSchema.usageMessage(ArchiveSchema.usageFor(bytes, ArchiveSchema.MAX_BYTES),
+                bytes, ArchiveSchema.MAX_BYTES);
+    }
+
+    // ─── Deletion: only ever from an explicit owner action ───
+
+    /**
+     * Delete one row. The caller must be acting on a direct owner instruction (the long-press
+     * action in the archive list).
+     *
+     * The authorisation flag is cleared in a finally block, so a failure mid-delete cannot leave
+     * the archive unguarded.
+     */
+    public static boolean deleteRow(Context context, long id) {
+        return authorisedDelete(context, ArchiveSchema.COL_ID + " = ?",
+                new String[]{String.valueOf(id)}) > 0;
+    }
+
+    /**
+     * Delete a date range, used when the archive is full and the owner picks what to clear.
+     *
+     * @param keepFlagged when true, messages flagged as taken back are preserved even inside the
+     *                    range. They are the reason the archive exists, so clearing space should
+     *                    not be the thing that destroys them.
+     */
+    public static int deleteRange(Context context, long fromMs, long toMs, boolean keepFlagged) {
+        StringBuilder where = new StringBuilder(ArchiveSchema.COL_POST_TIME + " >= ? AND "
+                + ArchiveSchema.COL_POST_TIME + " <= ?");
+        if (keepFlagged) {
+            where.append(" AND ").append(ArchiveSchema.COL_IS_DELETED).append(" = 0 AND ")
+                    .append(ArchiveSchema.COL_IS_SUSPECTED).append(" = 0");
+        }
+        return authorisedDelete(context, where.toString(),
+                new String[]{String.valueOf(fromMs), String.valueOf(toMs)});
+    }
+
+    /** Delete everything, including flagged rows. Only from the explicit confirmed-dialog action. */
+    public static int deleteEverything(Context context) {
+        return authorisedDelete(context, "1 = 1", new String[0]);
+    }
+
+    /**
+     * Perform a delete with the owner-authorisation flag raised.
+     *
+     * Without the flag the BEFORE DELETE trigger aborts, which is what stops any automated or
+     * accidental purge. The flag is lowered again in a finally block so authorisation cannot leak
+     * past this call even if the delete throws.
+     */
+    private static int authorisedDelete(Context context, String where, String[] args) {
+        if (context == null) return 0;
+        synchronized (LOCK) {
+            SQLiteDatabase db;
+            try {
+                db = database(context);
+                if (db == null) return 0;
+            } catch (Throwable t) {
+                return 0;
+            }
+            try {
+                db.beginTransaction();
+                try {
+                    setDeleteAllowed(db, true);
+                    int removed = db.delete(ArchiveSchema.TABLE, where, args);
+                    setDeleteAllowed(db, false);
+                    db.setTransactionSuccessful();
+                    return removed;
+                } finally {
+                    // Belt and braces: clear the flag even if the delete threw, then end the
+                    // transaction. An uncommitted transaction rolls the flag back anyway, but
+                    // leaving it raised must not be possible by any path.
+                    try { setDeleteAllowed(db, false); } catch (Throwable ignored) { }
+                    db.endTransaction();
+                }
+            } catch (Throwable t) {
+                return 0;
+            }
+        }
+    }
+
+    private static void setDeleteAllowed(SQLiteDatabase db, boolean allowed) {
+        ContentValues values = new ContentValues();
+        values.put("v", allowed ? 1 : 0);
+        db.update(ArchiveSchema.CONTROL, values, "k = ?",
+                new String[]{ArchiveSchema.KEY_DELETE_ALLOWED});
+    }
+
+    // ─── Plumbing ───
+
+    private static ArchiveRow readRow(Cursor c) {
+        ArchiveRow row = new ArchiveRow();
+        row.id = c.getLong(c.getColumnIndexOrThrow(ArchiveSchema.COL_ID));
+        row.pkg = str(c, ArchiveSchema.COL_PKG);
+        row.appLabel = str(c, ArchiveSchema.COL_APP_LABEL);
+        row.accountLabel = str(c, ArchiveSchema.COL_ACCOUNT_LABEL);
+        row.userHandle = c.getInt(c.getColumnIndexOrThrow(ArchiveSchema.COL_USER_HANDLE));
+        row.notifKey = str(c, ArchiveSchema.COL_NOTIF_KEY);
+        row.rawTitle = str(c, ArchiveSchema.COL_RAW_TITLE);
+        row.sender = str(c, ArchiveSchema.COL_SENDER);
+        row.group = str(c, ArchiveSchema.COL_GROUP);
+        row.body = str(c, ArchiveSchema.COL_BODY);
+        row.postTime = c.getLong(c.getColumnIndexOrThrow(ArchiveSchema.COL_POST_TIME));
+        row.capturedTime = c.getLong(c.getColumnIndexOrThrow(ArchiveSchema.COL_CAPTURED_TIME));
+        row.rowKind = c.getInt(c.getColumnIndexOrThrow(ArchiveSchema.COL_ROW_KIND));
+        row.deleted = c.getInt(c.getColumnIndexOrThrow(ArchiveSchema.COL_IS_DELETED)) == 1;
+        row.suspected = c.getInt(c.getColumnIndexOrThrow(ArchiveSchema.COL_IS_SUSPECTED)) == 1;
+        row.deletionTime = c.getLong(c.getColumnIndexOrThrow(ArchiveSchema.COL_DELETION_TIME));
+        return row;
+    }
+
+    private static String str(Cursor c, String column) {
+        String value = c.getString(c.getColumnIndexOrThrow(column));
+        return value == null ? "" : value;
+    }
+
+    /**
+     * Wrap a value for a LIKE containment match, escaping the wildcards.
+     *
+     * Without this, a sender or search term containing % or _ would behave as a pattern: "100%"
+     * would match everything. This exact defect shipped once in PhoneHistoryReader, so it is
+     * handled up front here.
+     */
+    private static String contains(String raw) {
+        return "%" + escapeLike(raw.trim()) + "%";
+    }
+
+    private static String escapeLike(String raw) {
+        StringBuilder out = new StringBuilder(raw.length() + 8);
+        for (int i = 0; i < raw.length(); i++) {
+            char ch = raw.charAt(i);
+            if (ch == '\\' || ch == '%' || ch == '_') out.append('\\');
+            out.append(ch);
+        }
+        return out.toString();
+    }
+
+    private static String safe(String value) { return value == null ? "" : value; }
+
+    private static SQLiteDatabase database(Context context) {
+        synchronized (LOCK) {
+            if (helper == null) helper = new Helper(context.getApplicationContext());
+        }
+        try {
+            return helper.getWritableDatabase();
+        } catch (Throwable first) {
+            // A corrupted or unreadable store must not wedge capture forever. Drop it and start
+            // again: losing history is bad, but a listener that can never archive anything again
+            // is worse, and the owner's export is the designated backup.
+            try {
+                context.getApplicationContext().deleteDatabase(ArchiveSchema.DB_NAME);
+                synchronized (LOCK) {
+                    helper = new Helper(context.getApplicationContext());
+                }
+                return helper.getWritableDatabase();
+            } catch (Throwable second) {
+                return null;
+            }
+        }
+    }
+
+    /** Visible for the listener so a fresh process re-reads the file rather than a stale handle. */
+    static void resetForTest() {
+        synchronized (LOCK) { helper = null; }
+    }
+
+    private static final class Helper extends SQLiteOpenHelper {
+        Helper(Context context) {
+            super(context, ArchiveSchema.DB_NAME, null, ArchiveSchema.DB_VERSION);
+        }
+
+        @Override public void onCreate(SQLiteDatabase db) {
+            for (String statement : ArchiveSchema.CREATE_STATEMENTS) db.execSQL(statement);
+        }
+
+        @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+            // Version 1 is the first release, so there is nothing to migrate yet. When a migration
+            // is eventually needed it must ADD columns or tables only: dropping and recreating
+            // would destroy the archive, which is precisely what the append-only triggers exist to
+            // prevent. Deliberately a no-op rather than a destructive default.
+        }
+
+        @Override public void onOpen(SQLiteDatabase db) {
+            super.onOpen(db);
+            try {
+                // The delete guard reads this flag. If a process died mid-delete the stored value
+                // could still be 1, which would leave the archive unguarded for the next caller.
+                db.execSQL("UPDATE " + ArchiveSchema.CONTROL + " SET v = 0 WHERE k = '"
+                        + ArchiveSchema.KEY_DELETE_ALLOWED + "'");
+            } catch (Throwable ignored) { }
+        }
+    }
+}
