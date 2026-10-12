@@ -154,7 +154,15 @@ java -cp "$test_dir/archive" com.iris.assistant.ArchiveAppTargetsTest
 # Export formatting. The CSV escaping cases matter most: the export is the only copy of the archive
 # that survives a factory reset or a new phone, so a message containing a comma must not shift
 # every later column and corrupt the owner's only backup.
-javac -encoding UTF-8 -d "$test_dir/archive" \
+#
+# Every source this block needs is listed explicitly rather than relying on classes left behind by
+# the blocks above. ArchiveRow and ArchiveExport both reference DeletedMessageRules and
+# ArchiveSchema, and omitting them here broke CI once even though the suite passed locally, because
+# the local run happened to pass the full file list by hand. A self-contained block cannot be broken
+# by reordering or removing an earlier one.
+javac -encoding UTF-8 -cp "$test_dir/archive" -d "$test_dir/archive" \
+  app/src/main/java/com/iris/assistant/DeletedMessageRules.java \
+  app/src/main/java/com/iris/assistant/ArchiveSchema.java \
   app/src/main/java/com/iris/assistant/ArchiveRow.java \
   app/src/main/java/com/iris/assistant/ArchiveExport.java \
   tests/ArchiveExportTest.java
