@@ -679,7 +679,7 @@ public final class NotificationArchive {
         }
 
         if (!lastError.isEmpty()) {
-            return new Status("My storage is unwell: " + lastError + ". Hit PURGE IT ALL and I'll "
+            return new Status("My storage is unwell: " + lastError + ". Hit WIPE ALL and I'll "
                     + "rebuild from nothing. Dramatic, but it works.", true);
         }
 

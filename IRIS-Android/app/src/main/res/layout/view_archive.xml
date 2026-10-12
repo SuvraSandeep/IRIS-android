@@ -20,7 +20,7 @@
         android:layout_height="wrap_content"
         android:fontFamily="monospace"
         android:letterSpacing="0.12"
-        android:text="\u25B8 RECEIPT VAULT"
+        android:text="// RECEIPT VAULT"
         android:textColor="@color/deck_accent"
         android:textSize="21sp"
         android:textStyle="bold" />
@@ -98,7 +98,7 @@
         android:background="@drawable/bg_button_primary"
         android:fontFamily="monospace"
         android:letterSpacing="0.1"
-        android:text="\u26A0 GRANT ME EYES"
+        android:text="[ ! ] GRANT ME EYES"
         android:textAllCaps="false"
         android:textColor="@color/ink"
         android:textSize="13sp"
@@ -118,7 +118,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_deck_card"
             android:fontFamily="monospace"
-            android:text="\u2B21 TARGETS"
+            android:text="[ TARGETS ]"
             android:textAllCaps="false"
             android:textColor="@color/deck_text"
             android:textSize="12sp" />
@@ -131,7 +131,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_deck_card"
             android:fontFamily="monospace"
-            android:text="\u27F3 RESCAN"
+            android:text="[ RESCAN ]"
             android:textAllCaps="false"
             android:textColor="@color/deck_text"
             android:textSize="12sp" />
@@ -144,7 +144,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_deck_card"
             android:fontFamily="monospace"
-            android:text="\u2BC8 EXTRACT"
+            android:text="[ EXPORT ]"
             android:textAllCaps="false"
             android:textColor="@color/deck_text"
             android:textSize="12sp" />
@@ -174,7 +174,7 @@
         android:fontFamily="monospace"
         android:letterSpacing="0.05"
         android:minHeight="48dp"
-        android:text="EVIDENCE ONLY \u2014 hide the innocent"
+        android:text="EVIDENCE ONLY - hide the innocent"
         android:textColor="@color/deck_text"
         android:textSize="12sp" />
 
@@ -210,7 +210,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_deck_card"
             android:fontFamily="monospace"
-            android:text="\u25C0 DISENGAGE"
+            android:text="&lt; BACK"
             android:textAllCaps="false"
             android:textColor="@color/deck_text"
             android:textSize="12sp" />
@@ -223,7 +223,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_deck_card"
             android:fontFamily="monospace"
-            android:text="\u2620 PURGE IT ALL"
+            android:text="WIPE ALL"
             android:textAllCaps="false"
             android:textColor="@color/deck_error"
             android:textSize="12sp" />

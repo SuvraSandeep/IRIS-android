@@ -26,7 +26,7 @@
         android:textColor="@color/text_primary" android:background="@drawable/bg_button_secondary" />
 
     <Button android:id="@+id/archiveOpenButton" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:minHeight="48dp" android:layout_marginTop="6dp" android:text="&#9656; RECEIPT VAULT" android:textAllCaps="false"
+        android:minHeight="48dp" android:layout_marginTop="6dp" android:text="// RECEIPT VAULT" android:textAllCaps="false"
         android:textColor="@color/text_primary" android:background="@drawable/bg_button_secondary" />
 
     <HorizontalScrollView
