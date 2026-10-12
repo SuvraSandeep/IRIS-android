@@ -181,3 +181,8 @@ java -cp "$test_dir/archive" com.iris.assistant.DeletedQueryTest
 # Python ships a real SQLite engine, so the DDL is extracted from ArchiveSchema.java and actually
 # executed: edits to captured content and unauthorised deletes must both be refused by the engine.
 python3 tests/check-archive-schema.py
+
+# Catch the errors that only the real Android compile would otherwise find: a type used without an
+# import (which parses fine and then fails compilation), and an R.id reference with no matching
+# layout id. Both have cost CI round-trips, and neither is visible to ParseSources.
+python3 tests/check-unresolved-types.py

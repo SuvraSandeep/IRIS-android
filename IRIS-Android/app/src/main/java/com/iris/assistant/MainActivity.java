@@ -491,7 +491,7 @@ public class MainActivity extends Activity {
         }
 
         if (search != null) {
-            search.addTextChangedListener(new TextWatcher() {
+            search.addTextChangedListener(new android.text.TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
                 @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
                 @Override public void afterTextChanged(android.text.Editable s) { renderArchive(view); }
