@@ -1786,10 +1786,60 @@ public class MainActivity extends Activity {
                     reminderScopeLabel(settings.reminderScope()),
                     () -> editReminderScope(settings, view)));
             renderPendingReminders(host, view);
+
+            host.addView(sectionLabel("ACCESS"));
+            addAccessRows(host, view);
         }
 
         renderResponderLog(view);
         startResponderLogWatch(view);
+    }
+
+    /**
+     * One-tap rows for the two permissions the reminders and ring need, which Android only grants
+     * from its own settings screens. Each shows whether it's already granted and deep-links to the
+     * right screen on tap, so the owner never has to hunt through system settings.
+     */
+    private void addAccessRows(LinearLayout host, final View root) {
+        // Exact alarms \u2014 so a reminder fires at the minute, not whenever the OS batches it.
+        boolean exactOk = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            android.app.AlarmManager am =
+                    (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+            exactOk = am != null && am.canScheduleExactAlarms();
+        }
+        host.addView(responderRow("Exact alarms (for reminders)",
+                exactOk ? "granted" : "tap to allow", () -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        try {
+                            startActivity(new android.content.Intent(
+                                    android.provider.Settings
+                                            .ACTION_REQUEST_SCHEDULE_EXACT_ALARM));
+                        } catch (Throwable t) {
+                            toast("Open Settings \u2192 Apps \u2192 IRIS \u2192 Alarms & reminders.");
+                        }
+                    } else {
+                        toast("Already allowed on this Android version.");
+                    }
+                }));
+
+        // Notification-policy access \u2014 so the ring can override Do Not Disturb.
+        boolean dndOk = false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            android.app.NotificationManager nm =
+                    (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            dndOk = nm != null && nm.isNotificationPolicyAccessGranted();
+        }
+        host.addView(responderRow("Override Do Not Disturb (for the ring)",
+                dndOk ? "granted" : "tap to allow", () -> {
+                    try {
+                        startActivity(new android.content.Intent(android.provider.Settings
+                                .ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS));
+                    } catch (Throwable t) {
+                        toast("Open Settings \u2192 Apps \u2192 Special access \u2192 "
+                                + "Do Not Disturb access.");
+                    }
+                }));
     }
 
     private String reminderScopeLabel(ResponderSettings.ReminderScope scope) {

@@ -414,7 +414,8 @@ public final class AutoResponder {
             long dueMs = now + delay * 60_000L;
             if (live) {
                 long id = store.add(task, senderName, dueMs, now);
-                ReminderStore.schedule(context, id, "You asked me to remind " + ReplyTemplates.OWNER + ": " + task);
+                ReminderStore.schedule(context, id,
+                        "You asked me to remind " + ReplyTemplates.OWNER + ": " + task, dueMs);
                 store.clearAwaiting(conversationKey);
             }
             return "Noted \u2014 I'm IRIS, " + ReplyTemplates.OWNER + "'s personal intelligence. I'll remind him "
