@@ -85,6 +85,7 @@ public class ResponderGuardsTest {
         toneDrivenSilence();
         burstProducesOneReplyNotSeven();
         sameTextIsNotAnsweredTwice();
+        familyPriorityBypassesRateLimitsOnly();
         cooldownBlocksAndThenReleases();
         capsBlockIncludingZero();
         loopDetection();
@@ -444,6 +445,51 @@ public class ResponderGuardsTest {
         forced.forceReply = true;
         verdict(forced, policy, ResponderGuards.Verdict.SEND,
                 "a fixed reply answers even the identical text");
+    }
+
+    /**
+     * Family priority skips every rate limit, but none of the safety guards.
+     *
+     * The ring confirm arrives seconds after the offer, so a cooldown would otherwise swallow the
+     * very reply that rings the phone. But a NEVER family contact, the owner's own message, and
+     * the phone being in use must still be respected.
+     */
+    private static void familyPriorityBypassesRateLimitsOnly() {
+        // Cooldown, caps, burst, same-text: all skipped under family priority.
+        ResponderGuards.Policy limited = sendablePolicy();
+        limited.familyPriority = true;
+        limited.cooldownMs = 2 * 60 * 60 * 1000L;
+        limited.lastReplyToConversationMs = limited.nowMs - 1000;
+        limited.burstAlreadyAnswered = true;
+        limited.lastAnsweredText = MessageCategory.normalise("ring");
+        limited.repliesToContactToday = 999;
+        limited.repliesTodayTotal = 999;
+        ResponderGuards.Message m = sendableMessage();
+        m.incomingText = "ring";
+        verdict(m, limited, ResponderGuards.Verdict.SEND,
+                "family priority sends through cooldown, caps, burst and same-text");
+
+        // But NEVER still blocks.
+        ResponderGuards.Policy never = sendablePolicy();
+        never.familyPriority = true;
+        never.contactRule = ResponderGuards.ContactRule.NEVER;
+        verdict(sendableMessage(), never, ResponderGuards.Verdict.CONTACT_BLOCKED,
+                "a NEVER family contact is still refused");
+
+        // The owner's own message still ignored.
+        ResponderGuards.Policy own = sendablePolicy();
+        own.familyPriority = true;
+        ResponderGuards.Message mine = sendableMessage();
+        mine.fromOwner = true;
+        verdict(mine, own, ResponderGuards.Verdict.OWN_MESSAGE,
+                "family priority does not make IRIS answer the owner");
+
+        // Phone in use still defers (no point ringing a phone he's holding).
+        ResponderGuards.Policy inUse = sendablePolicy();
+        inUse.familyPriority = true;
+        inUse.phoneInUse = true;
+        verdict(sendableMessage(), inUse, ResponderGuards.Verdict.PHONE_IN_USE,
+                "family priority still defers when the phone is in use");
     }
 
     private static void cooldownBlocksAndThenReleases() {

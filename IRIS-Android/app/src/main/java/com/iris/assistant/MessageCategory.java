@@ -63,6 +63,14 @@ public final class MessageCategory {
          * and points them back at Suvra.
          */
         TO_IRIS,
+        /**
+         * The sender asked Suvra to remember or be reminded of something.
+         *
+         * Handled specially: IRIS parses out the task and any time, schedules a reminder, and
+         * tells the sender it has noted it. This is the one category that produces an action, not
+         * just a reply.
+         */
+        REMINDER,
         /** Checking whether he is around. */
         CHECK_IN,
         /** A plain hello. */
@@ -162,6 +170,19 @@ public final class MessageCategory {
     private static final List<String> CONGRATS_PHRASES = Arrays.asList(
             "well done", "proud of you", "so proud", "good job", "great job", "nicely done",
             "happy for you", "many congratulations", "hearty congratulations");
+
+    /**
+     * Phrases that mean "set a reminder for Suvra".
+     *
+     * Second-person imperative forms only, so a reminiscence like "remember when we met" or "I'll
+     * always remember this" is NOT read as a request to set an alarm. "remember to" needs the
+     * "to"; a bare "remember" does not trigger. The test pins both directions.
+     */
+    private static final List<String> REMINDER_PHRASES = Arrays.asList(
+            "remind me", "remind him", "remind suvra", "remind stg",
+            "dont forget to", "don t forget to", "do not forget to",
+            "remember to", "please remember", "set a reminder", "make a note to",
+            "note to self", "note that you need to");
 
     /**
      * Phrases that can only be addressing the responder.
@@ -264,6 +285,13 @@ public final class MessageCategory {
         // otherwise be read as a message about a photo.
         if (containsAnyPhrase(flat, MEDIA_PHRASES) && wordCount <= 4) {
             return new Result(Kind.MEDIA_ONLY, "");
+        }
+
+        // A request to remember something, before URGENT, because "don't forget to call, it's
+        // urgent" is a reminder first \u2014 the action (noting it) is what the sender wants, and
+        // the urgency is a property of the reminder, not a separate category.
+        if (containsAnyPhrase(flat, REMINDER_PHRASES)) {
+            return new Result(Kind.REMINDER, "");
         }
 
         if (containsAnyWord(tokens, URGENT_WORDS) || containsAnyPhrase(flat, URGENT_PHRASES)) {

@@ -74,6 +74,9 @@ public class ReplyTemplatesTest {
     /** Anything the tone layer will answer must have something to say. */
     private static void everyAnsweredCategoryHasVariants() {
         for (MessageCategory.Kind category : MessageCategory.Kind.values()) {
+            // REMINDER is answered, but its reply is composed from the parsed task and time by the
+            // responder, not drawn from a template set here, so it legitimately has no variants.
+            if (category == MessageCategory.Kind.REMINDER) continue;
             for (ReplyTone.Tone tone : ReplyTone.Tone.values()) {
                 if (!ReplyTone.answers(category, tone)) continue;
                 check(!ReplyTemplates.variants(category, tone, false).isEmpty(),

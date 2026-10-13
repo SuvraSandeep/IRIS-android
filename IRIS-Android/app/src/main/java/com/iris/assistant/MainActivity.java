@@ -1721,6 +1721,9 @@ public class MainActivity extends Activity {
                     settings.allowlistOnly(), on -> settings.setAllowlistOnly(on), view));
             host.addView(responderSwitch("Answer even while I'm using the phone",
                     settings.replyWhileInUse(), on -> settings.setReplyWhileInUse(on), view));
+            host.addView(responderSwitch("Let family ring my phone when urgent",
+                    settings.familyRingEnabled(),
+                    on -> settings.setFamilyRingEnabled(on), view));
 
             host.addView(sectionLabel("TIMING"));
             host.addView(responderRow("Quiet hours",
@@ -1770,15 +1773,81 @@ public class MainActivity extends Activity {
             host.addView(sectionLabel("WHAT I ANSWER"));
             for (MessageCategory.Kind kind : MessageCategory.Kind.values()) {
                 if (kind == MessageCategory.Kind.NONE) continue;
+                // REMINDER isn't a yes/no reply category; it has its own section below.
+                if (kind == MessageCategory.Kind.REMINDER) continue;
                 final MessageCategory.Kind current = kind;
                 host.addView(responderSwitch(categoryLabel(kind),
                         settings.categoryEnabled(kind, settings.defaultTone()),
                         on -> settings.setCategoryEnabled(current, on), view));
             }
+
+            host.addView(sectionLabel("REMINDERS"));
+            host.addView(responderRow("Who may set reminders",
+                    reminderScopeLabel(settings.reminderScope()),
+                    () -> editReminderScope(settings, view)));
+            renderPendingReminders(host, view);
         }
 
         renderResponderLog(view);
         startResponderLogWatch(view);
+    }
+
+    private String reminderScopeLabel(ResponderSettings.ReminderScope scope) {
+        switch (scope) {
+            case ANYONE: return "anyone who messages";
+            case FAMILY: return "family only";
+            default: return "your contacts";
+        }
+    }
+
+    private void editReminderScope(final ResponderSettings settings, final View root) {
+        final ResponderSettings.ReminderScope[] scopes = ResponderSettings.ReminderScope.values();
+        String[] labels = new String[scopes.length];
+        for (int i = 0; i < scopes.length; i++) labels[i] = reminderScopeLabel(scopes[i]);
+        new AlertDialog.Builder(this)
+                .setTitle("Who may set a reminder?")
+                .setMessage("Someone texting \u201Cremind Suvra to...\u201D sets an alarm on your "
+                        + "phone. Contacts-only is the safe default; a stranger shouldn't be able "
+                        + "to.")
+                .setItems(labels, (d, which) -> {
+                    settings.setReminderScope(scopes[which]);
+                    renderResponder(root);
+                }).show();
+    }
+
+    /** The pending reminders, each with a delete, so the owner sees even undated ones. */
+    private void renderPendingReminders(LinearLayout host, final View root) {
+        java.util.List<ReminderStore.Reminder> pending = new ReminderStore(this).pending();
+        if (pending.isEmpty()) {
+            TextView none = new TextView(this);
+            none.setText("No reminders set. Someone can text \u201Cremind Suvra to...\u201D.");
+            none.setTextSize(11f);
+            none.setTypeface(android.graphics.Typeface.MONOSPACE);
+            none.setTextColor(getColor(R.color.deck_text_dim));
+            none.setPadding(0, dp(6), 0, 0);
+            host.addView(none);
+            return;
+        }
+        for (final ReminderStore.Reminder r : pending) {
+            String when = r.undated() ? "no time set"
+                    : DeletedMessageRules.formatTime(r.dueMs, java.util.TimeZone.getDefault());
+            String who = r.sender == null || r.sender.isEmpty() ? "" : "  \u00b7  from " + r.sender;
+            View row = responderRow(r.task.isEmpty() ? "(reminder)" : r.task, when + who, () -> {});
+            row.setOnLongClickListener(v -> {
+                new AlertDialog.Builder(this)
+                        .setTitle("Delete this reminder?")
+                        .setMessage("\u201C" + r.task + "\u201D")
+                        .setNegativeButton("Keep", null)
+                        .setPositiveButton("Delete", (d, w) -> {
+                            ReminderStore store = new ReminderStore(this);
+                            store.remove(r.id);
+                            ReminderStore.cancel(this, r.id);
+                            renderResponder(root);
+                        }).show();
+                return true;
+            });
+            host.addView(row);
+        }
     }
 
     /** Signature of the decision log as last drawn, so polling can detect a real change. */
@@ -1950,6 +2019,7 @@ public class MainActivity extends Activity {
             case THANKS: return "Thanks, ty, thx";
             case CONGRATS: return "Congratulations, well done, badhai";
             case TO_IRIS: return "When someone's talking to me, not you";
+            case REMINDER: return "Reminders (\u201Cremind me to...\u201D)";
             case OTHER: return "Everything else (answers ordinary messages)";
             case CHECK_IN: return "Are you there?";
             case QUESTION: return "Questions";

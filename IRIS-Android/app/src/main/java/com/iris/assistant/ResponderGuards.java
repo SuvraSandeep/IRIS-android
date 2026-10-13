@@ -159,6 +159,13 @@ public final class ResponderGuards {
         public int contactCapPerDay;
         public int repliesTodayTotal;
         public int dailyCapTotal;
+        /**
+         * A saved family contact in the ring exchange. Bypasses the RATE limits (cooldown, caps,
+         * burst, same-text) because the owner gave family full priority with no limits. It does
+         * NOT bypass the safety guards: a NEVER family contact is still refused, own messages are
+         * still ignored, and the phone being in use still defers.
+         */
+        public boolean familyPriority;
     }
 
     private ResponderGuards() { }
@@ -236,6 +243,11 @@ public final class ResponderGuards {
         }
 
         // ─── Rate limiting ───
+        // Family in the ring exchange bypasses every rate limit below: the owner gave family full
+        // priority with no limits, and the ring confirm arrives seconds after the offer, so a
+        // cooldown would otherwise swallow the very reply that rings the phone.
+        if (policy.familyPriority) return Verdict.SEND;
+
         if (looksLikeLoop(message.incomingText, message.lastSentReply)) {
             return Verdict.LOOP_SUSPECTED;
         }

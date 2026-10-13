@@ -36,6 +36,8 @@ public final class ResponderSettings {
     private static final String K_UNSAVED = "reply_unsaved";
     private static final String K_REPLY_IN_USE = "reply_in_use";
     private static final String K_MODE = "mode";
+    private static final String K_REMINDER_SCOPE = "reminder_scope";
+    private static final String K_FAMILY_RING = "family_ring";
     private static final String K_APPS = "apps";
     private static final String K_QUIET_START = "quiet_start";
     private static final String K_QUIET_END = "quiet_end";
@@ -67,6 +69,7 @@ public final class ResponderSettings {
     private static final String P_CONV_IRIS = "ciris_";
     private static final String P_CONV_TEXT = "ctext_";
     private static final String P_CONV_INTRO = "cintro_";
+    private static final String P_RING_WORD = "cring_";
 
     /** Shipped default auto-disarm, 12 hours. */
     public static final long DISARM_AFTER_DEFAULT_MS = 12L * 60 * 60 * 1000;
@@ -188,6 +191,71 @@ public final class ResponderSettings {
     public void setMode(ResponderMode mode) {
         prefs.edit().putString(K_MODE,
                 (mode == null ? ResponderMode.NONE : mode).name()).apply();
+    }
+
+    /**
+     * Who may set a reminder by texting "remind me / don't forget".
+     *
+     * CONTACTS by default, as the owner chose: a stranger must not be able to put an alarm on the
+     * phone. ANYONE and FAMILY are the other options. Stored as the enum name; a corrupt value
+     * falls back to CONTACTS, the safe middle.
+     */
+    public enum ReminderScope { ANYONE, CONTACTS, FAMILY }
+
+    public ReminderScope reminderScope() {
+        String raw = prefs.getString(K_REMINDER_SCOPE, ReminderScope.CONTACTS.name());
+        try { return ReminderScope.valueOf(raw); }
+        catch (Exception ignored) { return ReminderScope.CONTACTS; }
+    }
+
+    public void setReminderScope(ReminderScope scope) {
+        prefs.edit().putString(K_REMINDER_SCOPE,
+                (scope == null ? ReminderScope.CONTACTS : scope).name()).apply();
+    }
+
+    /** Whether this sender may set a reminder, given the scope and what's known about them. */
+    public boolean reminderAllowed(boolean savedContact, ReplyTone.Relation relation) {
+        switch (reminderScope()) {
+            case ANYONE: return true;
+            case FAMILY: return relation == ReplyTone.Relation.FAMILY;
+            default: return savedContact || relation == ReplyTone.Relation.FAMILY
+                    || relation == ReplyTone.Relation.WORK
+                    || relation == ReplyTone.Relation.FRIEND;
+        }
+    }
+
+    // ─── Family ring ───
+    //
+    // A saved FAMILY contact who marks a message urgent can be given a word to reply that makes
+    // the phone ring loudly, overriding silent and Do Not Disturb. Every family contact can do
+    // this, with no per-day limit, and it is not tied to any mode -- family get full priority, as
+    // the owner asked. The one control is a master switch; when it is off, IRIS tells the sender
+    // to call directly instead.
+
+    /** Whether the family-ring capability is on. Default true. */
+    public boolean familyRingEnabled() { return prefs.getBoolean(K_FAMILY_RING, true); }
+    public void setFamilyRingEnabled(boolean v) {
+        prefs.edit().putBoolean(K_FAMILY_RING, v).apply();
+    }
+
+    /**
+     * The word IRIS is currently waiting for from a conversation to trigger a ring, or empty.
+     *
+     * Set when IRIS offers the ring to a family contact; checked against their next message. The
+     * two-step confirm is what makes the ring safe: a single urgent message never rings, only a
+     * deliberate second reply of the exact word does.
+     */
+    public String pendingRingWord(String conversationKey) {
+        return prefs.getString(P_RING_WORD + safe(conversationKey), "");
+    }
+
+    public void setPendingRingWord(String conversationKey, String word) {
+        prefs.edit().putString(P_RING_WORD + safe(conversationKey),
+                word == null ? "" : word).apply();
+    }
+
+    public void clearPendingRingWord(String conversationKey) {
+        prefs.edit().remove(P_RING_WORD + safe(conversationKey)).apply();
     }
 
     // ─── Apps the responder may speak through ───

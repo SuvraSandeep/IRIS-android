@@ -43,6 +43,7 @@ public class MessageCategoryTest {
         thanksIncludingShortforms();
         congratulationsAreRecognised();
         messagesAimedAtIrisAreRecognised();
+        remindersAreRecognised();
         festivalsMatchByPhraseNotDate();
         birthdaysAndWeekends();
         urgentIsRecognised();
@@ -203,6 +204,30 @@ public class MessageCategoryTest {
         check(MessageCategory.classify("ok", null, true).kind
                         == MessageCategory.Kind.ACKNOWLEDGEMENT,
                 "an acknowledgement is not promoted to a conversation with IRIS");
+    }
+
+    /** Reminder requests, and the reminiscences that must not be mistaken for them. */
+    private static void remindersAreRecognised() {
+        kind("remind me to call you tomorrow", MessageCategory.Kind.REMINDER, "remind me");
+        kind("Please remind Suvra about the meeting", MessageCategory.Kind.REMINDER,
+                "remind suvra");
+        kind("don't forget to send the report", MessageCategory.Kind.REMINDER, "don't forget to");
+        kind("dont forget to bring the keys", MessageCategory.Kind.REMINDER,
+                "dont forget to, no apostrophe");
+        kind("remember to water the plants", MessageCategory.Kind.REMINDER, "remember to");
+        kind("set a reminder for the dentist at 5", MessageCategory.Kind.REMINDER,
+                "set a reminder");
+
+        // Must NOT be reminders: reminiscence, not a request to set one.
+        check(MessageCategory.classify("remember when we went to goa").kind
+                        != MessageCategory.Kind.REMINDER,
+                "'remember when' is reminiscence, not a reminder request");
+        check(MessageCategory.classify("I'll always remember this day").kind
+                        != MessageCategory.Kind.REMINDER,
+                "'I'll remember this' is not a reminder request");
+        check(MessageCategory.classify("that was a forgettable match").kind
+                        != MessageCategory.Kind.REMINDER,
+                "'forgettable' does not contain the trigger");
     }
 
     private static void greetingsIncludingRepeatedLetters() {
