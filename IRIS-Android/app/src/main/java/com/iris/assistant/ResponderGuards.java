@@ -17,6 +17,15 @@ package com.iris.assistant;
  */
 public final class ResponderGuards {
 
+    /**
+     * How many times a day IRIS will explain itself to one conversation.
+     *
+     * One. Enough to answer "is this a bot?" once; not enough to hold a conversation. This is the
+     * only route past the cooldown, so it is the only place a loop could start, and the bound is
+     * what makes the exemption safe to have at all.
+     */
+    public static final int TO_IRIS_PER_DAY = 1;
+
     /** What the responder is allowed to do at all. */
     public enum State {
         /** Not running. */
@@ -77,6 +86,8 @@ public final class ResponderGuards {
         COOLDOWN,
         /** This contact has had their allowance for the day. */
         CONTACT_CAP,
+        /** IRIS has already explained itself to this conversation today. */
+        TO_IRIS_CAP,
         /** The responder has had its allowance for the day. */
         DAILY_CAP
     }
@@ -99,6 +110,12 @@ public final class ResponderGuards {
         public boolean placeholder;
         /** The archive has already flagged this message as deleted by its sender. */
         public boolean flaggedDeleted;
+        /**
+         * The owner set a fixed reply for this sender by name, so a reply is wanted regardless of
+         * what the message says. Bypasses the category-silence guard and nothing else: every
+         * safety guard, the cooldown and the caps still apply.
+         */
+        public boolean forceReply;
     }
 
     /** Settings and counters. All owner-customisable; none are read from storage here. */
@@ -127,6 +144,8 @@ public final class ResponderGuards {
         public boolean burstAlreadyAnswered;
 
         public int repliesToContactToday;
+        /** How many times IRIS has already explained itself to this conversation today. */
+        public int toIrisRepliesToday;
         public int contactCapPerDay;
         public int repliesTodayTotal;
         public int dailyCapTotal;
@@ -198,7 +217,13 @@ public final class ResponderGuards {
         if (!message.savedContact && !policy.replyToUnsaved) return Verdict.UNSAVED_CONTACT;
 
         // ─── Does this category speak in this tone? ───
-        if (!ReplyTone.answers(message.category, message.tone)) return Verdict.CATEGORY_SILENT;
+        // A fixed reply set by name is the owner overriding this specific question: he has said
+        // what to send to this person, so "that kind of message earns no reply" no longer applies.
+        // Every other guard above and below still does.
+        if (!message.forceReply
+                && !ReplyTone.answers(message.category, message.tone)) {
+            return Verdict.CATEGORY_SILENT;
+        }
 
         // ─── Rate limiting ───
         if (looksLikeLoop(message.incomingText, message.lastSentReply)) {
@@ -207,7 +232,18 @@ public final class ResponderGuards {
         // One reply per burst. A single notification held seven messages from one chat on the
         // owner's own phone, so without this the responder would have fired seven times.
         if (policy.burstAlreadyAnswered) return Verdict.BURST_ALREADY_ANSWERED;
-        if (withinCooldown(policy)) return Verdict.COOLDOWN;
+        // Someone talking directly to IRIS gets one acknowledgement even inside the cooldown,
+        // because the cooldown exists to stop IRIS pestering a conversation and this is the one
+        // case where the other person has asked IRIS a direct question. Bounded hard at one per
+        // conversation per day: without that bound, two auto-responders or a persistent human
+        // could keep the exchange going indefinitely.
+        boolean cooldownExempt = message.category == MessageCategory.Kind.TO_IRIS
+                && Math.max(0, policy.toIrisRepliesToday) < TO_IRIS_PER_DAY;
+        if (!cooldownExempt && withinCooldown(policy)) return Verdict.COOLDOWN;
+        if (message.category == MessageCategory.Kind.TO_IRIS
+                && Math.max(0, policy.toIrisRepliesToday) >= TO_IRIS_PER_DAY) {
+            return Verdict.TO_IRIS_CAP;
+        }
         if (atContactCap(policy)) return Verdict.CONTACT_CAP;
         if (atDailyCap(policy)) return Verdict.DAILY_CAP;
 
@@ -315,6 +351,9 @@ public final class ResponderGuards {
                 return "I'd already answered that burst. One reply per flurry, not one per message.";
             case COOLDOWN: return "Too soon after my last reply to them.";
             case CONTACT_CAP: return "They've had their replies for today.";
+            case TO_IRIS_CAP:
+                return "I've already introduced myself to them once today. Twice is a "
+                        + "conversation, and I'm not equipped for one.";
             case DAILY_CAP: return "I've had my replies for today.";
             default: return verdict.name();
         }

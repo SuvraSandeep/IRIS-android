@@ -77,6 +77,7 @@ public class ResponderGuardsTest {
         nonMessagesAreRefused();
         neverOutranksEverything();
         nameRuleCanRefuse();
+        fixedReplyBypassesOnlyCategorySilence();
         allowlistModeExcludesByDefault();
         scopeRules();
         groupMentionsRule();
@@ -269,6 +270,48 @@ public class ResponderGuardsTest {
         check(!clear.nameRuleBlocked, "no name rule blocks by default");
         verdict(sendableMessage(), clear, ResponderGuards.Verdict.SEND,
                 "an unmatched name rule changes nothing");
+    }
+
+    /**
+     * A fixed reply set by name bypasses the category-silence guard, and nothing else.
+     *
+     * The owner has said what to send to this person, so "that kind of message earns no reply"
+     * does not apply. Every safety guard still must.
+     */
+    private static void fixedReplyBypassesOnlyCategorySilence() {
+        // A bare "ok" is ACKNOWLEDGEMENT, silent in the professional tone. Normally refused...
+        ResponderGuards.Message ack = sendableMessage();
+        ack.category = MessageCategory.Kind.ACKNOWLEDGEMENT;
+        ack.tone = ReplyTone.Tone.PROFESSIONAL;
+        verdict(ack, sendablePolicy(), ResponderGuards.Verdict.CATEGORY_SILENT,
+                "a professional-tone acknowledgement is silent without a fixed reply");
+
+        // ...but a fixed reply means the owner wants an answer to this sender regardless.
+        ResponderGuards.Message forced = sendableMessage();
+        forced.category = MessageCategory.Kind.ACKNOWLEDGEMENT;
+        forced.tone = ReplyTone.Tone.PROFESSIONAL;
+        forced.forceReply = true;
+        verdict(forced, sendablePolicy(), ResponderGuards.Verdict.SEND,
+                "a fixed reply overrides category silence");
+
+        // It does not override anything else. A NEVER contact stays silent.
+        ResponderGuards.Policy never = sendablePolicy();
+        never.contactRule = ResponderGuards.ContactRule.NEVER;
+        verdict(forced, never, ResponderGuards.Verdict.CONTACT_BLOCKED,
+                "a fixed reply does not override a NEVER contact");
+
+        // Nor the cooldown.
+        ResponderGuards.Policy cooling = sendablePolicy();
+        cooling.cooldownMs = 60_000;
+        cooling.lastReplyToConversationMs = cooling.nowMs - 1_000;
+        verdict(forced, cooling, ResponderGuards.Verdict.COOLDOWN,
+                "a fixed reply still waits out the cooldown");
+
+        // Nor the phone-in-use guard, when the owner has not opted out of it.
+        ResponderGuards.Policy inUse = sendablePolicy();
+        inUse.phoneInUse = true;
+        verdict(forced, inUse, ResponderGuards.Verdict.PHONE_IN_USE,
+                "a fixed reply still defers to the phone being in use");
     }
 
     /** Allowlist mode excludes by default. */

@@ -194,6 +194,29 @@ public class ReplyToneTest {
         }
         check(!ReplyTone.answers(null, ReplyTone.Tone.SARCASTIC),
                 "a null category is silent rather than throwing");
+
+        // The catch-all exists so the owner CAN answer ordinary messages, and is off until he
+        // says so. IRIS has no language model, so every reply it could give is a generic
+        // acknowledgement that cannot refer to what was said -- acceptable as a choice, never
+        // acceptable as a default.
+        for (ReplyTone.Tone tone : ReplyTone.Tone.values()) {
+            check(!ReplyTone.answers(MessageCategory.Kind.OTHER, tone),
+                    "the catch-all is off by default in " + tone);
+        }
+        // And it must be a real category with real wording, or the switch would do nothing.
+        for (ReplyTone.Tone tone : ReplyTone.Tone.values()) {
+            check(!ReplyTemplates.variants(MessageCategory.Kind.OTHER, tone, false).isEmpty(),
+                    "the catch-all has wording to use in " + tone + " once switched on");
+        }
+        // The owner's real Twilio message, end to end: it reaches the catch-all rather than
+        // falling through to nothing, which is what sent him looking for a bug.
+        MessageCategory.Result twilio = MessageCategory.classify(
+                "Standard auto-reply. You can send outbound messages via the Tryout UI or API, "
+                        + "or customize the reply by configuring a custom webhook in the Tryout UI");
+        equal(twilio.kind, MessageCategory.Kind.OTHER,
+                "the Twilio message lands in the catch-all");
+        check(!ReplyTone.answers(twilio.kind, ReplyTone.Tone.SARCASTIC),
+                "and is still silent until the owner enables it, even in sarcastic");
     }
 
     private static void mediaIsOffByDefault() {
@@ -209,6 +232,7 @@ public class ReplyToneTest {
                 MessageCategory.Kind.FESTIVAL, MessageCategory.Kind.BIRTHDAY,
                 MessageCategory.Kind.TIME_GREETING, MessageCategory.Kind.WEEKEND,
                 MessageCategory.Kind.THANKS, MessageCategory.Kind.CHECK_IN,
+                MessageCategory.Kind.CONGRATS, MessageCategory.Kind.TO_IRIS,
                 MessageCategory.Kind.GREETING, MessageCategory.Kind.QUESTION,
                 MessageCategory.Kind.SHORT
         };

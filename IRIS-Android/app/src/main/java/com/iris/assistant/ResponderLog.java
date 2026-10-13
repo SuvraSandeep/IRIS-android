@@ -91,23 +91,7 @@ public final class ResponderLog {
         List<Entry> entries = all();
         entries.add(entry);
         while (entries.size() > MAX_ENTRIES) entries.remove(0);
-
-        StringBuilder out = new StringBuilder();
-        for (Entry item : entries) {
-            if (out.length() > 0) out.append(RECORD);
-            out.append(item.whenMs).append(FIELD)
-                    .append(clean(item.appLabel)).append(FIELD)
-                    .append(clean(item.sender)).append(FIELD)
-                    .append(item.group ? "1" : "0").append(FIELD)
-                    .append(clean(item.category)).append(FIELD)
-                    .append(clean(item.tone)).append(FIELD)
-                    .append(clean(item.verdict)).append(FIELD)
-                    .append(clean(item.reply)).append(FIELD)
-                    .append(item.dryRun ? "1" : "0").append(FIELD)
-                    .append(clean(item.pkg)).append(FIELD)
-                    .append(clean(item.sendResult));
-        }
-        prefs.edit().putString(KEY, out.toString()).apply();
+        overwrite(entries);
     }
 
     /** Every stored decision, oldest first. */
@@ -183,6 +167,49 @@ public final class ResponderLog {
 
     public void clear() {
         prefs.edit().remove(KEY).apply();
+    }
+
+    /**
+     * Remove one decision, matched on its timestamp and sender.
+     *
+     * The log is a diagnostic, not irreplaceable evidence like the archive, so a delete here is
+     * cheap -- but the UI still offers an undo, so {@link #overwrite} exists to put a snapshot
+     * back. Matching on whenMs plus sender plus verdict is enough: two decisions sharing all three
+     * in the same millisecond would be genuinely indistinguishable and deleting either is fine.
+     */
+    public void deleteOne(long whenMs, String sender, String verdict) {
+        List<Entry> entries = all();
+        for (int i = 0; i < entries.size(); i++) {
+            Entry e = entries.get(i);
+            if (e.whenMs == whenMs
+                    && e.sender.equals(sender == null ? "" : sender)
+                    && e.verdict.equals(verdict == null ? "" : verdict)) {
+                entries.remove(i);
+                overwrite(entries);
+                return;
+            }
+        }
+    }
+
+    /** Replace the whole log with a given list, oldest first. Used to undo a delete. */
+    public void overwrite(List<Entry> entries) {
+        if (entries == null) { clear(); return; }
+        StringBuilder out = new StringBuilder();
+        for (Entry item : entries) {
+            if (out.length() > 0) out.append(RECORD);
+            out.append(item.whenMs).append(FIELD)
+                    .append(clean(item.appLabel)).append(FIELD)
+                    .append(clean(item.sender)).append(FIELD)
+                    .append(item.group ? "1" : "0").append(FIELD)
+                    .append(clean(item.category)).append(FIELD)
+                    .append(clean(item.tone)).append(FIELD)
+                    .append(clean(item.verdict)).append(FIELD)
+                    .append(clean(item.reply)).append(FIELD)
+                    .append(item.dryRun ? "1" : "0").append(FIELD)
+                    .append(clean(item.pkg)).append(FIELD)
+                    .append(clean(item.sendResult));
+        }
+        prefs.edit().putString(KEY, out.toString()).apply();
     }
 
     /**

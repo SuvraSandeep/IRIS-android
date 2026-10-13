@@ -34,6 +34,8 @@ public class ReplyTemplatesTest {
         everyShippedVariantIdentifiesIrisAndSuvra();
         everyAnsweredCategoryHasVariants();
         severalVariantsPerSituation();
+        everyAnswerableSituationHasAtLeastFive();
+        everyModeHasFiveVariantsThatName();
         quietHoursOverrideTheCategory();
         urgentInQuietHoursRedirectsToACall();
         urgentInNormalHoursStillSuggestsCalling();
@@ -93,6 +95,81 @@ public class ReplyTemplatesTest {
         List<String> variants = ReplyTemplates.variants(MessageCategory.Kind.GREETING,
                 ReplyTone.Tone.PROFESSIONAL, false);
         check(!variants.get(0).equals(variants.get(1)), "the variants genuinely differ");
+    }
+
+    /**
+     * The owner's requirement: at least five wordings for every situation IRIS actually answers.
+     *
+     * Sweeps every category, every tone and both quiet states. For each combination that the
+     * policy would speak in, it asserts five or more variants AND that they are all distinct --
+     * five copies of one sentence is not five variants. Combinations the policy never reaches
+     * (a silent category/tone) are skipped, since wording nobody sends need not exist.
+     */
+    private static void everyAnswerableSituationHasAtLeastFive() {
+        for (MessageCategory.Kind kind : MessageCategory.Kind.values()) {
+            for (ReplyTone.Tone tone : ReplyTone.Tone.values()) {
+                for (boolean quiet : new boolean[]{false, true}) {
+                    // In quiet hours the category is overridden by the quiet set (or quietUrgent),
+                    // so the thing actually sent is whatever variants() returns; an empty list
+                    // means the policy stays silent here and there is nothing to require.
+                    List<String> v = ReplyTemplates.variants(kind, tone, quiet);
+                    if (v.isEmpty()) continue;
+                    // Only hold answerable combinations to the bar. OTHER is off by default but is
+                    // real wording once enabled, so it is included; MEDIA_ONLY and a silent
+                    // acknowledgement return empty above and are skipped.
+                    check(v.size() >= 5, kind + "/" + tone + "/" + (quiet ? "quiet" : "normal")
+                            + " has at least five variants (was " + v.size() + ")");
+                    java.util.Set<String> distinct = new java.util.HashSet<>(v);
+                    check(distinct.size() == v.size(),
+                            kind + "/" + tone + "/" + (quiet ? "quiet" : "normal")
+                                    + " variants are all distinct");
+                }
+            }
+        }
+    }
+
+    /**
+     * Every active mode has at least five distinct wordings per tone, each naming IRIS and Suvra,
+     * and the sleeping mode alone redirects an urgent sender to a call.
+     */
+    private static void everyModeHasFiveVariantsThatName() {
+        String ownerLower = ReplyTemplates.OWNER.toLowerCase(java.util.Locale.ROOT);
+        for (ResponderMode mode : ResponderMode.values()) {
+            if (!mode.isActive()) {
+                check(ReplyTemplates.modeVariants(mode, MessageCategory.Kind.OTHER,
+                                ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                        "NONE has no mode wording");
+                continue;
+            }
+            for (ReplyTone.Tone tone : ReplyTone.Tone.values()) {
+                List<String> v = ReplyTemplates.modeVariants(
+                        mode, MessageCategory.Kind.GREETING, tone);
+                check(v.size() >= 5, mode + "/" + tone + " has five mode variants (was "
+                        + v.size() + ")");
+                check(new java.util.HashSet<>(v).size() == v.size(),
+                        mode + "/" + tone + " mode variants are distinct");
+                for (String s : v) {
+                    String lower = s.toLowerCase(java.util.Locale.ROOT);
+                    check(lower.contains("iris") && lower.contains(ownerLower),
+                            mode + "/" + tone + " mode variant names both IRIS and the owner");
+                }
+                // Urgent handling: sleeping redirects to a call, the others answer plainly.
+                List<String> urgent = ReplyTemplates.modeVariants(
+                        mode, MessageCategory.Kind.URGENT, tone);
+                if (mode == ResponderMode.SLEEPING) {
+                    for (String s : urgent) {
+                        String lower = s.toLowerCase(java.util.Locale.ROOT);
+                        check(lower.contains("call") || lower.contains("ring"),
+                                "sleeping mode redirects an urgent sender to a call, in " + tone);
+                    }
+                } else {
+                    // The other modes do not tell a driver or a meeting-goer to take a call.
+                    check(urgent.equals(ReplyTemplates.modeVariants(
+                                    mode, MessageCategory.Kind.GREETING, tone)),
+                            mode + " answers urgent the same as anything else, no call redirect");
+                }
+            }
+        }
     }
 
     /** Quiet hours decide the content, whatever the message said. */

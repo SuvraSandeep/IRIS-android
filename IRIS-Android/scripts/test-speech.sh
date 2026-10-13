@@ -241,6 +241,8 @@ java -cp "$test_dir/responder" com.iris.assistant.MessageCategoryTest
 javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/MessageCategory.java \
   app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/ReplyTemplates.java \
+  app/src/main/java/com/iris/assistant/ResponderMode.java \
   tests/ReplyToneTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ReplyToneTest
 
@@ -276,6 +278,7 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/MessageCategory.java \
   app/src/main/java/com/iris/assistant/ReplyTone.java \
   app/src/main/java/com/iris/assistant/ReplyTemplates.java \
+  app/src/main/java/com/iris/assistant/ResponderMode.java \
   tests/ReplyTemplatesTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ReplyTemplatesTest
 

@@ -513,7 +513,174 @@ public class MainActivity extends Activity {
         }
         View add = view.findViewById(R.id.contactsAddButton);
         if (add != null) add.setOnClickListener(v -> addContactByHand(view));
+        View browse = view.findViewById(R.id.contactsBrowseButton);
+        if (browse != null) browse.setOnClickListener(v -> browsePhoneContacts(view));
         renderContacts(view);
+    }
+
+    /**
+     * Browse the phone's address book, search it, and set a rule or relationship on anyone.
+     *
+     * These are PEOPLE, not conversations: a rule set here is keyed by name and applies whatever
+     * app they message from, which is why it can be set before they have ever messaged. A rule the
+     * owner later sets on a specific conversation still wins over this, being more specific.
+     *
+     * The list is a live query against the system provider filtered by the search box, capped at
+     * DeviceContacts.MAX_RESULTS, so even a very large address book stays responsive and nothing
+     * is copied into the app.
+     */
+    private void browsePhoneContacts(final View root) {
+        if (!DeviceContacts.canRead(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("I can't read your contacts")
+                    .setMessage("Grant contacts access and I can list them here for you to pick "
+                            + "from. Until then, you can still add someone by name with the "
+                            + "button above.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        final LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(8), dp(16), 0);
+
+        final EditText search = new EditText(this);
+        search.setHint("search your contacts");
+        search.setMaxLines(1);
+        box.addView(search);
+
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        final ScrollView scroller = new ScrollView(this);
+        scroller.addView(list);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(360));
+        scroller.setLayoutParams(sp);
+        box.addView(scroller);
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Phone contacts")
+                .setView(box)
+                .setPositiveButton("Done", (d, w) -> renderContacts(root))
+                .create();
+
+        final ResponderSettings settings = new ResponderSettings(this);
+        final Runnable repopulate = () -> {
+            list.removeAllViews();
+            java.util.List<String> names = DeviceContacts.search(
+                    this, search.getText().toString());
+            if (names.isEmpty()) {
+                TextView empty = new TextView(this);
+                empty.setText("No contacts by that name.");
+                empty.setTextSize(11f);
+                empty.setTypeface(android.graphics.Typeface.MONOSPACE);
+                empty.setTextColor(getColor(R.color.deck_text_dim));
+                empty.setPadding(0, dp(10), 0, dp(10));
+                list.addView(empty);
+                return;
+            }
+            for (final String name : names) {
+                list.addView(phoneContactCard(settings, name, root, dialog));
+            }
+        };
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void afterTextChanged(android.text.Editable s) { repopulate.run(); }
+        });
+        repopulate.run();
+        dialog.show();
+    }
+
+    private View phoneContactCard(final ResponderSettings settings, final String name,
+                                  final View root, final AlertDialog browseDialog) {
+        ResponderGuards.ContactRule rule = settings.nameContactRule(name);
+        ReplyTone.Relation relation = settings.nameContactRelation(name);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(11), dp(9), dp(11), dp(9));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(5);
+        card.setLayoutParams(params);
+        card.setBackgroundResource(rule == ResponderGuards.ContactRule.NEVER
+                ? R.drawable.bg_cyber_row_flagged : R.drawable.bg_cyber_row);
+
+        TextView label = new TextView(this);
+        label.setText(name);
+        label.setTextSize(12f);
+        label.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        label.setTextColor(getColor(rule == ResponderGuards.ContactRule.NEVER
+                ? R.color.deck_error : R.color.deck_accent));
+        card.addView(label);
+
+        if (rule != ResponderGuards.ContactRule.INHERIT
+                || relation != ReplyTone.Relation.UNKNOWN) {
+            TextView state = new TextView(this);
+            StringBuilder detail = new StringBuilder();
+            detail.append(rule == ResponderGuards.ContactRule.INHERIT ? "default" : rule.name());
+            if (relation != ReplyTone.Relation.UNKNOWN) {
+                detail.append(" \u00b7 ").append(relation.name());
+            }
+            state.setText(detail.toString());
+            state.setTextSize(10f);
+            state.setTypeface(android.graphics.Typeface.MONOSPACE);
+            state.setTextColor(getColor(R.color.deck_text_dim));
+            state.setPadding(0, dp(3), 0, 0);
+            card.addView(state);
+        }
+
+        card.setOnClickListener(v -> editPhoneContact(settings, name, root, browseDialog));
+        return card;
+    }
+
+    /** Set allow/never and the relationship on a person picked from the phone book. */
+    private void editPhoneContact(final ResponderSettings settings, final String name,
+                                  final View root, final AlertDialog browseDialog) {
+        new AlertDialog.Builder(this)
+                .setTitle(name)
+                .setItems(new String[]{
+                        "ALLOW \u2014 answer them",
+                        "NEVER \u2014 never answer them",
+                        "Default \u2014 follow my general rules",
+                        "They're family",
+                        "They're a work contact",
+                        "They're a friend",
+                        "Clear who they are"
+                }, (d, which) -> {
+                    switch (which) {
+                        case 0:
+                            settings.setNameContactRule(name,
+                                    ResponderGuards.ContactRule.ALLOW);
+                            break;
+                        case 1:
+                            settings.setNameContactRule(name,
+                                    ResponderGuards.ContactRule.NEVER);
+                            toast("Noted. Not a word to " + name + ".");
+                            break;
+                        case 2:
+                            settings.setNameContactRule(name,
+                                    ResponderGuards.ContactRule.INHERIT);
+                            break;
+                        case 3:
+                            settings.setNameContactRelation(name, ReplyTone.Relation.FAMILY);
+                            break;
+                        case 4:
+                            settings.setNameContactRelation(name, ReplyTone.Relation.WORK);
+                            break;
+                        case 5:
+                            settings.setNameContactRelation(name, ReplyTone.Relation.FRIEND);
+                            break;
+                        default:
+                            settings.setNameContactRelation(name, ReplyTone.Relation.UNKNOWN);
+                            break;
+                    }
+                    // The main CONTACTS list reflects the change; the browse list shows it on
+                    // reopen. Both read the same name-level rule, so they cannot disagree.
+                    renderContacts(root);
+                }).show();
     }
 
     /**
@@ -936,8 +1103,12 @@ public class MainActivity extends Activity {
                 new java.util.ArrayList<>(settings.nameRules());
         final String[] labels = new String[rules.size() + 1];
         for (int i = 0; i < rules.size(); i++) {
-            labels[i] = "\"" + rules.get(i).pattern + "\"  \u2192  "
-                    + rules.get(i).actionName();
+            ResponderSettings.NameRule r = rules.get(i);
+            String tail = r.hasReply()
+                    ? "say \u201C" + (r.reply.length() > 40
+                            ? r.reply.substring(0, 40) + "\u2026" : r.reply) + "\u201D"
+                    : r.actionName();
+            labels[i] = "\"" + r.pattern + "\"  \u2192  " + tail;
         }
         labels[rules.size()] = "+ Add a rule";
 
@@ -969,15 +1140,32 @@ public class MainActivity extends Activity {
         pattern.setMaxLines(1);
         if (!adding) pattern.setText(rules.get(index).pattern);
 
-        // The action list is the tones plus an outright refusal, because the owner asked for both
-        // from one place and a name he wants silenced is the same kind of rule as a name he wants
-        // addressed formally.
+        // The action list is the tones, an outright refusal, and a fixed reply, all from one
+        // place: a name he wants silenced, one he wants addressed formally and one he wants
+        // answered with set words are the same kind of rule, keyed off the same name match.
         final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
-        final String[] actions = new String[tones.length + 1];
+        final int neverIndex = tones.length;
+        final int sayIndex = tones.length + 1;
+        final String[] actions = new String[tones.length + 2];
         for (int i = 0; i < tones.length; i++) actions[i] = "Sound " + tones[i].name();
-        actions[tones.length] = "Never reply to them at all";
-        final int[] chosen = {adding || rules.get(index).never ? tones.length : 0};
-        if (!adding && !rules.get(index).never) {
+        actions[neverIndex] = "Never reply to them at all";
+        actions[sayIndex] = "Say exactly this, every time";
+
+        // The reply box, shown only when the SAY action is chosen.
+        final EditText replyText = new EditText(this);
+        replyText.setHint("the exact reply, e.g. I'll call you back shortly \u2014 IRIS, Suvra's "
+                + "assistant");
+        replyText.setMinLines(2);
+        if (!adding) replyText.setText(rules.get(index).reply);
+
+        final int[] chosen = new int[1];
+        if (adding) {
+            chosen[0] = 0;
+        } else if (rules.get(index).never) {
+            chosen[0] = neverIndex;
+        } else if (rules.get(index).hasReply()) {
+            chosen[0] = sayIndex;
+        } else {
             for (int i = 0; i < tones.length; i++) {
                 if (tones[i] == rules.get(index).tone) chosen[0] = i;
             }
@@ -985,11 +1173,14 @@ public class MainActivity extends Activity {
 
         final Button action = new Button(this);
         action.setText(actions[chosen[0]]);
+        final Runnable syncReplyVisibility = () ->
+                replyText.setVisibility(chosen[0] == sayIndex ? View.VISIBLE : View.GONE);
         action.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Do what?")
                 .setItems(actions, (d, which) -> {
                     chosen[0] = which;
                     action.setText(actions[which]);
+                    syncReplyVisibility.run();
                 }).show());
 
         LinearLayout box = new LinearLayout(this);
@@ -997,9 +1188,14 @@ public class MainActivity extends Activity {
         box.setPadding(dp(16), dp(8), dp(16), 0);
         box.addView(pattern);
         box.addView(action);
+        box.addView(replyText);
+        syncReplyVisibility.run();
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle(adding ? "New rule" : "Edit rule")
+                .setMessage("Matched on whole words. \"eric\" catches Eric and Eric Jones, never "
+                        + "Erica or Ericsson. A relationship you've set on a contact still beats "
+                        + "this.")
                 .setView(box)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save", (d, w) -> {
@@ -1008,12 +1204,32 @@ public class MainActivity extends Activity {
                         toast("I need a word to match on.");
                         return;
                     }
-                    boolean never = chosen[0] == tones.length;
+                    boolean never = chosen[0] == neverIndex;
+                    boolean say = chosen[0] == sayIndex;
+                    String reply = say ? replyText.getText().toString().trim() : "";
+                    if (say && reply.isEmpty()) {
+                        toast("Give me the words to say, or pick a different action.");
+                        return;
+                    }
                     ResponderSettings.NameRule built = new ResponderSettings.NameRule(
-                            text, never ? null : tones[chosen[0]], never);
+                            text,
+                            (never || say) ? null : tones[chosen[0]],
+                            never, reply);
                     if (adding) rules.add(built);
                     else rules.set(index, built);
                     settings.setNameRules(rules);
+                    // Transparency warning, non-blocking, same rule as the template editor: a
+                    // fixed reply that names neither IRIS nor Suvra will read as though he typed
+                    // it. His call, saved as written.
+                    if (say && !ReplyTemplates.identifiesIris(reply)) {
+                        new AlertDialog.Builder(this)
+                                .setTitle("Saved, but they'll think it was you")
+                                .setMessage("That reply names neither me nor you, so whoever "
+                                        + "matches this rule will assume you typed it yourself. "
+                                        + "I've saved it exactly as written.")
+                                .setPositiveButton("I know", null)
+                                .show();
+                    }
                     renderResponder(root);
                 });
         if (!adding) {
@@ -1025,6 +1241,89 @@ public class MainActivity extends Activity {
         }
         builder.show();
     }
+    /**
+     * Choose a situational mode, or clear it.
+     *
+     * A mode overrides the time windows and the category content for as long as it's on, so the
+     * list makes clear it's a manual switch the owner is expected to turn off again - unlike quiet
+     * hours, nothing turns it off automatically.
+     */
+    private void editMode(final ResponderSettings settings, final View root) {
+        final ResponderMode[] modes = ResponderMode.values();
+        final String[] labels = new String[modes.length];
+        for (int i = 0; i < modes.length; i++) {
+            labels[i] = modes[i] == ResponderMode.NONE
+                    ? "Off \u2014 normal behaviour"
+                    : modes[i].label()
+                        + (modes[i] == ResponderMode.SLEEPING
+                            ? " (urgent senders told to call)" : "");
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("What are you doing?")
+                .setMessage("While a mode is on, I say the same thing to everyone regardless of "
+                        + "the hour \u2014 it beats quiet hours and the categories. I won't turn "
+                        + "it off for you, so remember you set it.")
+                .setItems(labels, (d, which) -> {
+                    settings.setMode(modes[which]);
+                    toast(modes[which] == ResponderMode.NONE
+                            ? "Mode off. Back to normal."
+                            : modes[which].label() + " \u2014 I'll tell everyone.");
+                    renderResponder(root);
+                })
+                .setNeutralButton("Edit mode wording", (d, w) ->
+                        editModeTemplatePick(settings, root))
+                .show();
+    }
+
+    /** Pick which mode's wording to rewrite. */
+    private void editModeTemplatePick(final ResponderSettings settings, final View root) {
+        final java.util.List<ResponderMode> modes = new java.util.ArrayList<>();
+        for (ResponderMode m : ResponderMode.values()) {
+            if (m.isActive() && m != ResponderMode.SLEEPING) modes.add(m);
+        }
+        final String[] labels = new String[modes.size()];
+        for (int i = 0; i < modes.size(); i++) labels[i] = modes.get(i).label();
+        new AlertDialog.Builder(this)
+                .setTitle("Rewrite which mode?")
+                .setMessage("Sleeping reuses your quiet-hours wording, so edit that under VOICE "
+                        + "instead.")
+                .setItems(labels, (d, which) ->
+                        editModeTemplate(settings, modes.get(which), root))
+                .show();
+    }
+
+    private void editModeTemplate(final ResponderSettings settings, final ResponderMode mode,
+                                  final View root) {
+        final ReplyTone.Tone tone = settings.defaultTone();
+        java.util.List<String> shipped = ReplyTemplates.modeVariants(
+                mode, MessageCategory.Kind.OTHER, tone);
+        final EditText input = new EditText(this);
+        input.setHint(shipped.isEmpty() ? "your reply" : shipped.get(0));
+        input.setText(settings.customModeTemplate(mode, tone));
+        input.setMinLines(3);
+        new AlertDialog.Builder(this)
+                .setTitle(mode.label() + " \u00b7 " + tone.name())
+                .setMessage("Leave empty to use my wording. You can use {name}, {time} and "
+                        + "{part_of_day}.")
+                .setView(input)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (d, w) -> {
+                    String text = input.getText().toString();
+                    settings.setCustomModeTemplate(mode, tone, text);
+                    if (!text.trim().isEmpty() && !ReplyTemplates.identifiesIris(text)) {
+                        new AlertDialog.Builder(this)
+                                .setTitle("Saved, but they'll think it was you")
+                                .setMessage("That wording names neither me nor you, so whoever "
+                                        + "receives it will assume you typed it. Saved as "
+                                        + "written.")
+                                .setPositiveButton("I know", null)
+                                .show();
+                    }
+                    renderResponder(root);
+                }).show();
+    }
+
+
 
     private void editDefaultTone(final ResponderSettings settings, final View root) {
         final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
@@ -1404,6 +1703,10 @@ public class MainActivity extends Activity {
         LinearLayout host = view.findViewById(R.id.responderSettingsHost);
         if (host != null) {
             host.removeAllViews();
+            host.addView(sectionLabel("MODE"));
+            host.addView(responderRow("Situation",
+                    settings.mode().isActive() ? settings.mode().label() : "none",
+                    () -> editMode(settings, view)));
             host.addView(sectionLabel("SCOPE"));
             host.addView(responderSwitch("Answer one-to-one chats",
                     settings.replyToPersonal(), on -> settings.setReplyToPersonal(on), view));
@@ -1614,6 +1917,10 @@ public class MainActivity extends Activity {
                     ? ", standing down in about " + Math.max(1, left / 3600000) + " h."
                     : ". My armed period has run out, so I've stood down.");
         }
+        if (settings.mode().isActive()) {
+            out.append("\nMode: ").append(settings.mode().label())
+                    .append(" \u2014 everyone gets the same reply until you turn it off.");
+        }
         return out.toString();
     }
 
@@ -1641,6 +1948,9 @@ public class MainActivity extends Activity {
             case BIRTHDAY: return "Birthday wishes";
             case WEEKEND: return "Weekend wishes";
             case THANKS: return "Thanks, ty, thx";
+            case CONGRATS: return "Congratulations, well done, badhai";
+            case TO_IRIS: return "When someone's talking to me, not you";
+            case OTHER: return "Everything else (answers ordinary messages)";
             case CHECK_IN: return "Are you there?";
             case QUESTION: return "Questions";
             case URGENT: return "Urgent";
@@ -1762,7 +2072,7 @@ public class MainActivity extends Activity {
             host.addView(empty);
             return;
         }
-        for (ResponderLog.Entry entry : entries) host.addView(responderLogCard(entry));
+        for (ResponderLog.Entry entry : entries) host.addView(responderLogCard(entry, view));
     }
 
     /**
@@ -1771,7 +2081,7 @@ public class MainActivity extends Activity {
      * A silence is shown as prominently as a send, because during a dry run the owner is mostly
      * checking that IRIS declines for sensible reasons.
      */
-    private View responderLogCard(ResponderLog.Entry entry) {
+    private View responderLogCard(ResponderLog.Entry entry, final View root) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(11), dp(9), dp(11), dp(9));
@@ -1848,7 +2158,113 @@ public class MainActivity extends Activity {
                 card.addView(caveat);
             }
         }
+
+        attachSwipeToDeleteLog(card, entry, root);
+        // Long-press jumps straight to a rule for this sender, so an unwanted reply in the log is
+        // one gesture away from "never again". Uses the name-level rule, so it holds whatever app
+        // they next message from -- the same place the phone-book picker writes.
+        final String who2 = entry.sender;
+        card.setOnLongClickListener(v -> {
+            if (who2 == null || who2.trim().isEmpty()) {
+                toast("No name on that one to make a rule from.");
+                return true;
+            }
+            editPhoneContact(new ResponderSettings(this), who2, root, null);
+            return true;
+        });
         return card;
+    }
+
+    /**
+     * Swipe a decision-log row away, with an undo window.
+     *
+     * The same gesture language as the archive, via the same tested SwipeDecision thresholds. The
+     * log is only a diagnostic, not irreplaceable like the archive, so the delete is immediate
+     * rather than deferred \u2014 but a full snapshot is kept so UNDO restores the list exactly,
+     * which matters because the owner may swipe to tidy and change his mind.
+     */
+    private void attachSwipeToDeleteLog(final View card, final ResponderLog.Entry entry,
+                                        final View root) {
+        final float[] start = new float[2];
+        final long[] startedAt = new long[1];
+        final boolean[] claimed = new boolean[1];
+
+        card.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    start[0] = event.getRawX();
+                    start[1] = event.getRawY();
+                    startedAt[0] = System.currentTimeMillis();
+                    claimed[0] = false;
+                    return false; // let long-press still fire when it isn't a swipe
+
+                case android.view.MotionEvent.ACTION_MOVE: {
+                    float dx = event.getRawX() - start[0];
+                    float dy = event.getRawY() - start[1];
+                    if (!claimed[0] && SwipeDecision.claimsGesture(dx, dy)) {
+                        claimed[0] = true;
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                    }
+                    if (claimed[0]) {
+                        v.setTranslationX(dx);
+                        v.setAlpha(SwipeDecision.dragAlpha(dx, v.getWidth()));
+                        return true;
+                    }
+                    return false;
+                }
+
+                case android.view.MotionEvent.ACTION_UP: {
+                    if (!claimed[0]) {
+                        v.setTranslationX(0);
+                        v.setAlpha(1f);
+                        return false;
+                    }
+                    float dx = event.getRawX() - start[0];
+                    long elapsed = Math.max(1, System.currentTimeMillis() - startedAt[0]);
+                    float velocity = dx / elapsed * 1000f;
+                    if (SwipeDecision.dismisses(dx, velocity, v.getWidth())) {
+                        swipeAwayAndDeleteLog(v, entry, root, dx >= 0);
+                    } else {
+                        v.animate().translationX(0).alpha(1f).setDuration(140).start();
+                    }
+                    return true;
+                }
+
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    v.animate().translationX(0).alpha(1f).setDuration(140).start();
+                    return true;
+
+                default:
+                    return false;
+            }
+        });
+    }
+
+    private void swipeAwayAndDeleteLog(final View card, final ResponderLog.Entry entry,
+                                       final View root, boolean toTheRight) {
+        // Snapshot before deleting, so undo restores the exact list including order.
+        final ResponderLog log = new ResponderLog(this);
+        final java.util.List<ResponderLog.Entry> before = log.all();
+        int distance = Math.max(card.getWidth(), dp(320));
+        card.animate()
+                .translationX(toTheRight ? distance : -distance)
+                .alpha(0f)
+                .setDuration(160)
+                .withEndAction(() -> {
+                    LinearLayout host = root.findViewById(R.id.responderLogHost);
+                    if (host != null) host.removeView(card);
+                    log.deleteOne(entry.whenMs, entry.sender, entry.verdict);
+                    responderLogSignature = log.signature();
+                    new AlertDialog.Builder(this)
+                            .setMessage("Removed one decision from the log.")
+                            .setNegativeButton("Undo", (d, w) -> {
+                                log.overwrite(before);
+                                responderLogSignature = log.signature();
+                                renderResponderLog(root);
+                            })
+                            .setPositiveButton("Keep removed", null)
+                            .show();
+                }).start();
     }
 
     /** Tint the active sub-tab. The inactive ones stay dim so the current section is obvious. */

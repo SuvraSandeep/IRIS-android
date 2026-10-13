@@ -151,8 +151,14 @@ public final class ReplyTone {
         if (category == null) return false;
         switch (category) {
             case NONE:
-                // Nothing was recognised, and IRIS cannot compose an answer to an arbitrary
-                // message. Silence is the only honest option.
+                // Nothing was classified at all -- empty text, or text that normalised away.
+                // There is nothing to answer.
+                return false;
+            case OTHER:
+                // An ordinary message that matched no category. Off by default and deliberately
+                // so: IRIS has no language model, so any reply here is a generic acknowledgement
+                // that cannot refer to what was actually said. That is sometimes what the owner
+                // wants and it must never be what he gets without asking.
                 return false;
             case ACKNOWLEDGEMENT:
                 return tone == Tone.SARCASTIC;

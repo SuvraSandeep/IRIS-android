@@ -35,6 +35,7 @@ public final class ResponderSettings {
     private static final String K_REQUIRE_MENTION = "groups_require_mention";
     private static final String K_UNSAVED = "reply_unsaved";
     private static final String K_REPLY_IN_USE = "reply_in_use";
+    private static final String K_MODE = "mode";
     private static final String K_APPS = "apps";
     private static final String K_QUIET_START = "quiet_start";
     private static final String K_QUIET_END = "quiet_end";
@@ -58,8 +59,12 @@ public final class ResponderSettings {
     private static final String P_CONTACT_RELATION = "crel_";
     private static final String P_CONTACT_LABEL = "clabel_";
     private static final String P_CONTACT_TONE = "ctone_";
+    private static final String P_NAME_RULE = "nrule_";
+    private static final String P_NAME_RELATION = "nrel_";
+    private static final String P_NAME_LABEL = "nlabel_";
     private static final String P_CONV_LAST = "clast_";
     private static final String P_CONV_COUNT = "ccount_";
+    private static final String P_CONV_IRIS = "ciris_";
 
     /** Shipped default auto-disarm, 12 hours. */
     public static final long DISARM_AFTER_DEFAULT_MS = 12L * 60 * 60 * 1000;
@@ -165,6 +170,22 @@ public final class ResponderSettings {
     public boolean replyWhileInUse() { return prefs.getBoolean(K_REPLY_IN_USE, false); }
     public void setReplyWhileInUse(boolean v) {
         prefs.edit().putBoolean(K_REPLY_IN_USE, v).apply();
+    }
+
+    /**
+     * The situational mode the owner has switched on, or NONE.
+     *
+     * A mode overrides the category content and the time windows while it is active. Stored by
+     * name and parsed back through ResponderMode.parse, which falls to NONE on anything corrupt,
+     * so a bad value can only ever mean "no mode" and never a wrong one.
+     */
+    public ResponderMode mode() {
+        return ResponderMode.parse(prefs.getString(K_MODE, ResponderMode.NONE.name()));
+    }
+
+    public void setMode(ResponderMode mode) {
+        prefs.edit().putString(K_MODE,
+                (mode == null ? ResponderMode.NONE : mode).name()).apply();
     }
 
     // ─── Apps the responder may speak through ───
@@ -301,30 +322,60 @@ public final class ResponderSettings {
      */
     public static final class NameRule {
         public final String pattern;
-        /** Tone to apply. Ignored when {@link #never} is true. */
+        /** Tone to apply. Ignored when {@link #never} is true or {@link #reply} is set. */
         public final ReplyTone.Tone tone;
         /** Refuse anyone matching this pattern, whatever else is true. */
         public final boolean never;
+        /**
+         * Fixed reply text for anyone matching this pattern, or empty.
+         *
+         * When set, it is the whole reply: category classification and tone are bypassed, because
+         * the owner has said exactly what to send. Transparency is still the owner's to waive --
+         * the editor warns if the text names neither IRIS nor Suvra, but does not refuse it.
+         */
+        public final String reply;
 
         public NameRule(String pattern, ReplyTone.Tone tone) {
-            this(pattern, tone, false);
+            this(pattern, tone, false, "");
         }
 
         public NameRule(String pattern, ReplyTone.Tone tone, boolean never) {
+            this(pattern, tone, never, "");
+        }
+
+        public NameRule(String pattern, ReplyTone.Tone tone, boolean never, String reply) {
             this.pattern = pattern == null ? "" : pattern;
             this.tone = tone == null ? ReplyTone.Tone.PROFESSIONAL : tone;
             this.never = never;
+            // Newlines are collapsed because rules are stored one per line; a stray newline in a
+            // reply would otherwise split one rule into two malformed ones on the next read.
+            this.reply = reply == null ? "" : reply.replace('\n', ' ').replace('\r', ' ').trim();
         }
 
-        /** How this rule is stored and shown. */
-        public String actionName() { return never ? "NEVER" : tone.name(); }
+        public boolean hasReply() { return !reply.isEmpty(); }
+
+        /** How this rule's ACTION is stored and shown. */
+        public String actionName() {
+            if (never) return "NEVER";
+            if (hasReply()) return "SAY";
+            return tone.name();
+        }
     }
+
+    // Separates a rule's pattern, action and optional reply payload in storage. A vertical bar
+    // cannot appear in a tone name or in "NEVER"/"SAY", and the reply payload is the last field so
+    // any bars the owner types in their reply text are preserved intact.
+    private static final String RULE_SAY_PREFIX = "SAY|";
 
     /**
      * Name-pattern rules, in priority order. First match wins.
      *
      * Ships with the owner's rule: a contact whose name contains "eric" as a whole word is an
      * Ericsson colleague and gets the professional tone.
+     *
+     * Line format is {@code pattern|ACTION} where ACTION is a tone name, {@code NEVER}, or
+     * {@code SAY|the reply text}. SAY keeps the reply as the final field so the owner's own text
+     * may contain bars without being mangled.
      */
     public List<NameRule> nameRules() {
         String raw = prefs.getString(K_NAME_PATTERNS, "eric|PROFESSIONAL");
@@ -336,11 +387,17 @@ public final class ResponderSettings {
             if (bar <= 0) continue;
             String pattern = trimmed.substring(0, bar);
             String action = trimmed.substring(bar + 1).trim();
-            // Checked before parseTone, which would otherwise read "NEVER" as an unknown tone and
-            // silently return PROFESSIONAL -- turning a refusal into a reply.
             if ("NEVER".equalsIgnoreCase(action)) {
                 out.add(new NameRule(pattern, null, true));
+            } else if (action.length() >= RULE_SAY_PREFIX.length()
+                    && action.substring(0, RULE_SAY_PREFIX.length())
+                            .equalsIgnoreCase(RULE_SAY_PREFIX)) {
+                out.add(new NameRule(pattern, null, false,
+                        action.substring(RULE_SAY_PREFIX.length())));
             } else {
+                // Checked after NEVER and SAY, which would otherwise be read as unknown tones and
+                // silently return PROFESSIONAL -- turning a refusal or a fixed reply into a plain
+                // professional one.
                 out.add(new NameRule(pattern, ReplyTone.parseTone(action), false));
             }
         }
@@ -353,7 +410,12 @@ public final class ResponderSettings {
             for (NameRule rule : rules) {
                 if (rule == null || rule.pattern.trim().isEmpty()) continue;
                 if (joined.length() > 0) joined.append('\n');
-                joined.append(rule.pattern.trim()).append('|').append(rule.actionName());
+                joined.append(rule.pattern.trim()).append('|');
+                if (rule.hasReply()) {
+                    joined.append(RULE_SAY_PREFIX).append(rule.reply);
+                } else {
+                    joined.append(rule.actionName());
+                }
             }
         }
         prefs.edit().putString(K_NAME_PATTERNS, joined.toString()).apply();
@@ -362,13 +424,13 @@ public final class ResponderSettings {
     /**
      * Tone implied by the first matching name rule, or null.
      *
-     * A refusal rule carries no tone, so it must not be read as one. Returning PROFESSIONAL here
-     * would mean a "never reply" rule quietly became "reply professionally".
+     * A refusal or a fixed-reply rule carries no tone, so neither must be read as one. Returning
+     * PROFESSIONAL here would mean a "never reply" rule quietly became "reply professionally".
      */
     public ReplyTone.Tone toneForName(String contactName) {
         for (NameRule rule : nameRules()) {
             if (!ReplyTone.nameMatches(contactName, rule.pattern)) continue;
-            return rule.never ? null : rule.tone;
+            return (rule.never || rule.hasReply()) ? null : rule.tone;
         }
         return null;
     }
@@ -379,6 +441,21 @@ public final class ResponderSettings {
             if (ReplyTone.nameMatches(contactName, rule.pattern)) return rule.never;
         }
         return false;
+    }
+
+    /**
+     * The fixed reply a name rule dictates for this contact, or empty.
+     *
+     * First match wins, as for tone and refusal. A refusal rule earlier in the list is honoured by
+     * the guards before this is consulted, so a NEVER rule cannot be undone by a later SAY rule.
+     */
+    public String nameRuleReply(String contactName) {
+        for (NameRule rule : nameRules()) {
+            if (ReplyTone.nameMatches(contactName, rule.pattern)) {
+                return rule.never ? "" : rule.reply;
+            }
+        }
+        return "";
     }
 
     /** The pattern that matched, for the decision log. Empty when none did. */
@@ -444,6 +521,42 @@ public final class ResponderSettings {
             return single;
         }
         return ReplyTemplates.variants(kind, tone, quiet);
+    }
+
+    /**
+     * Variants for an active mode: the owner's mode edit if there is one, otherwise the shipped
+     * mode set.
+     *
+     * Mode wording is stored under its own template key (quiet flag false, keyed by the mode name
+     * standing in for the category) so an edit to the driving reply cannot collide with an edit to
+     * any message category.
+     */
+    public List<String> modeVariantsFor(ResponderMode mode, MessageCategory.Kind kind,
+                                        ReplyTone.Tone tone) {
+        if (mode == null || !mode.isActive()) return new ArrayList<>();
+        String custom = prefs.getString(modeTemplateKey(mode, tone), "");
+        if (!custom.isEmpty()) {
+            List<String> single = new ArrayList<>();
+            single.add(custom);
+            return single;
+        }
+        return ReplyTemplates.modeVariants(mode, kind, tone);
+    }
+
+    private static String modeTemplateKey(ResponderMode mode, ReplyTone.Tone tone) {
+        return P_TEMPLATE + "MODE_" + (mode == null ? "NONE" : mode.name()) + "_"
+                + (tone == null ? "PROFESSIONAL" : tone.name());
+    }
+
+    /** The owner's edited mode text, or empty. */
+    public String customModeTemplate(ResponderMode mode, ReplyTone.Tone tone) {
+        return prefs.getString(modeTemplateKey(mode, tone), "");
+    }
+
+    public void setCustomModeTemplate(ResponderMode mode, ReplyTone.Tone tone, String text) {
+        String key = modeTemplateKey(mode, tone);
+        if (text == null || text.trim().isEmpty()) prefs.edit().remove(key).apply();
+        else prefs.edit().putString(key, text.trim()).apply();
     }
 
     /** Remove every edited text, restoring the shipped wording. */
@@ -543,6 +656,79 @@ public final class ResponderSettings {
         return out;
     }
 
+    // ─── Name-level contact rules (app-independent) ───
+    //
+    // Per-conversation rules above are keyed by app AND name, which is right for someone the
+    // responder has actually seen message. The contact PICKER loads the phone book, where a
+    // person has a name but no app yet, so those rules are keyed by name alone. A name-level rule
+    // is the owner's statement about a PERSON ("never reply to my landlord"), independent of which
+    // app they use; a per-conversation rule is about one thread and takes precedence when both
+    // exist, because it is the more specific of the two.
+
+    private String nameKey(String name) {
+        return safe(name);
+    }
+
+    public ResponderGuards.ContactRule nameContactRule(String name) {
+        String raw = prefs.getString(P_NAME_RULE + nameKey(name), null);
+        if (raw == null) return ResponderGuards.ContactRule.INHERIT;
+        try {
+            return ResponderGuards.ContactRule.valueOf(raw);
+        } catch (Exception ignored) {
+            return ResponderGuards.ContactRule.INHERIT;
+        }
+    }
+
+    public void setNameContactRule(String name, ResponderGuards.ContactRule rule) {
+        prefs.edit().putString(P_NAME_RULE + nameKey(name),
+                (rule == null ? ResponderGuards.ContactRule.INHERIT : rule).name()).apply();
+        // Keep a readable label so the picker can show configured contacts that are no longer in
+        // the current search results.
+        prefs.edit().putString(P_NAME_LABEL + nameKey(name), name).apply();
+    }
+
+    public ReplyTone.Relation nameContactRelation(String name) {
+        return ReplyTone.parseRelation(prefs.getString(P_NAME_RELATION + nameKey(name), null));
+    }
+
+    public void setNameContactRelation(String name, ReplyTone.Relation relation) {
+        prefs.edit().putString(P_NAME_RELATION + nameKey(name),
+                (relation == null ? ReplyTone.Relation.UNKNOWN : relation).name()).apply();
+        prefs.edit().putString(P_NAME_LABEL + nameKey(name), name).apply();
+    }
+
+    public String nameContactLabel(String name) {
+        return prefs.getString(P_NAME_LABEL + nameKey(name), "");
+    }
+
+    /** Names the owner has set a rule or relationship about from the picker. */
+    public List<String> knownNameKeys() {
+        List<String> out = new ArrayList<>();
+        for (String key : prefs.getAll().keySet()) {
+            if (key.startsWith(P_NAME_LABEL)) out.add(key.substring(P_NAME_LABEL.length()));
+        }
+        return out;
+    }
+
+    /**
+     * The rule that actually applies to a message: the per-conversation rule if the owner set
+     * one, otherwise the name-level rule, otherwise INHERIT. The specific beats the general.
+     */
+    public ResponderGuards.ContactRule effectiveContactRule(String conversationKey,
+                                                            String resolvedSender) {
+        ResponderGuards.ContactRule specific = contactRule(conversationKey);
+        if (specific != ResponderGuards.ContactRule.INHERIT) return specific;
+        return nameContactRule(resolvedSender);
+    }
+
+    /** As effectiveContactRule, for the relationship that drives tone. */
+    public ReplyTone.Relation effectiveContactRelation(String conversationKey,
+                                                       String resolvedSender) {
+        ReplyTone.Relation specific = contactRelation(conversationKey);
+        if (specific != ReplyTone.Relation.UNKNOWN) return specific;
+        return nameContactRelation(resolvedSender);
+    }
+
     // ─── Counters, reset each day ───
 
     /**
@@ -559,6 +745,7 @@ public final class ResponderSettings {
                 .putInt(K_REPLIES_TODAY, 0);
         for (String key : prefs.getAll().keySet()) {
             if (key.startsWith(P_CONV_COUNT)) editor.remove(key);
+            if (key.startsWith(P_CONV_IRIS)) editor.remove(key);
         }
         editor.apply();
     }
@@ -584,6 +771,31 @@ public final class ResponderSettings {
 
     public long lastReplyTo(String conversationKey) {
         return prefs.getLong(P_CONV_LAST + safe(conversationKey), 0);
+    }
+
+    /**
+     * Whether IRIS was the last to speak in this conversation, within living memory.
+     *
+     * Used to spot a reply aimed at IRIS rather than at Suvra. Thirty minutes, because the signal
+     * is "they are responding to what IRIS just said" -- a message the next morning is a fresh
+     * message, not a continuation.
+     */
+    public boolean irisSpokeLast(String conversationKey, long nowMs) {
+        long last = lastReplyTo(conversationKey);
+        if (last <= 0) return false;
+        long elapsed = nowMs - last;
+        return elapsed >= 0 && elapsed <= 30L * 60 * 1000;
+    }
+
+    public int toIrisRepliesToday(String conversationKey, long nowMs) {
+        rollIfNewDay(nowMs);
+        return prefs.getInt(P_CONV_IRIS + safe(conversationKey), 0);
+    }
+
+    public void recordIrisIntroduction(String conversationKey, long nowMs) {
+        rollIfNewDay(nowMs);
+        String key = P_CONV_IRIS + safe(conversationKey);
+        prefs.edit().putInt(key, prefs.getInt(key, 0) + 1).apply();
     }
 
     /** Record that a reply was sent, for the cooldown and both caps. */

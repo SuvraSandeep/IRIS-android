@@ -81,14 +81,20 @@ public final class AutoResponder {
         // ─── Tone first, because it decides whether some categories speak at all ───
         ReplyTone.Tone tone = ReplyTone.resolve(
                 settings.contactTone(conversationKey),
-                settings.contactRelation(conversationKey),
+                settings.effectiveContactRelation(conversationKey, resolvedSender),
                 settings.toneForName(resolvedSender),
                 ResponderWindow.toneFor(settings.toneWindows(), minuteOfDay),
                 settings.defaultTone());
 
         // ─── Category ───
-        MessageCategory.Result category =
-                MessageCategory.classify(incoming.body, settings.mentionKeywords());
+        MessageCategory.Result category = MessageCategory.classify(
+                incoming.body, settings.mentionKeywords(),
+                settings.irisSpokeLast(conversationKey, now));
+
+        // A fixed reply set for this sender by name. When present it is the whole reply, and the
+        // owner has thereby said a reply is wanted whatever the message, so the category-silence
+        // guard is skipped -- but only when there is real content, never for an empty body.
+        String nameReply = settings.nameRuleReply(resolvedSender);
 
         // ─── Guards ───
         ResponderGuards.Message message = new ResponderGuards.Message();
@@ -107,6 +113,8 @@ public final class AutoResponder {
         message.rollup = incoming.rollup;
         message.placeholder = incoming.placeholder;
         message.flaggedDeleted = false;
+        message.forceReply = !nameReply.isEmpty()
+                && category.kind != MessageCategory.Kind.NONE;
 
         ResponderGuards.Policy policy = new ResponderGuards.Policy();
         policy.state = state;
@@ -119,13 +127,14 @@ public final class AutoResponder {
         policy.replyToPersonal = settings.replyToPersonal();
         policy.groupsRequireMention = settings.groupsRequireMention();
         policy.replyToUnsaved = settings.replyToUnsaved();
-        policy.contactRule = settings.contactRule(conversationKey);
+        policy.contactRule = settings.effectiveContactRule(conversationKey, resolvedSender);
         policy.nameRuleBlocked = settings.nameRuleBlocks(resolvedSender);
         policy.allowlistOnly = settings.allowlistOnly();
         policy.cooldownMs = settings.cooldownMs();
         policy.lastReplyToConversationMs = settings.lastReplyTo(conversationKey);
         policy.burstAlreadyAnswered = alreadyAnswered(incoming.sbn.getKey());
         policy.repliesToContactToday = settings.repliesToContactToday(conversationKey, now);
+        policy.toIrisRepliesToday = settings.toIrisRepliesToday(conversationKey, now);
         policy.contactCapPerDay = settings.contactCapPerDay();
         policy.repliesTodayTotal = settings.repliesToday(now);
         policy.dailyCapTotal = settings.dailyCapTotal();
@@ -133,15 +142,23 @@ public final class AutoResponder {
         ResponderGuards.Verdict verdict = ResponderGuards.evaluate(message, policy);
 
         // An owner override on the category is applied after the guards, so the log still reports
-        // the more fundamental reason when there is one.
+        // the more fundamental reason when there is one. A fixed reply set by name is the owner
+        // overriding exactly this, so it is not re-silenced here.
         if (verdict == ResponderGuards.Verdict.SEND
+                && !message.forceReply
                 && !settings.categoryEnabled(category.kind, tone)) {
             verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
         }
 
         String reply = "";
         if (ResponderGuards.sends(verdict)) {
-            reply = compose(settings, category, tone, resolvedSender, now, minuteOfDay);
+            // A fixed reply set by name is the whole reply: no classification, no template, no
+            // placeholders beyond the standard fill so {name} still works if the owner used it.
+            reply = message.forceReply
+                    ? ReplyTemplates.fill(nameReply, resolvedSender,
+                            ResponderWindow.formatMinute(minuteOfDay),
+                            ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now))
+                    : compose(settings, category, tone, resolvedSender, now, minuteOfDay);
             // A category with no text left to send is a silence, not an empty message.
             if (reply.isEmpty()) verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
         }
@@ -168,6 +185,11 @@ public final class AutoResponder {
             // the same day starts with some allowance already spent, which errs toward fewer
             // messages and is therefore the safe direction.
             settings.recordReply(conversationKey, now);
+            // Counted separately, because this is the one category allowed past the cooldown and
+            // its own bound is the only thing stopping an exchange.
+            if (category.kind == MessageCategory.Kind.TO_IRIS) {
+                settings.recordIrisIntroduction(conversationKey, now);
+            }
             rememberAnswered(incoming.sbn.getKey());
 
             if (state == ResponderGuards.State.LIVE) {
@@ -209,10 +231,23 @@ public final class AutoResponder {
     private static String compose(ResponderSettings settings, MessageCategory.Result category,
                                   ReplyTone.Tone tone, String senderName, long nowMs,
                                   int minuteOfDay) {
-        boolean quiet = ResponderWindow.isQuiet(
-                settings.quietStart(), settings.quietEnd(), minuteOfDay);
-
-        List<String> variants = settings.variantsFor(category.kind, tone, quiet);
+        // An active mode overrides both the time window and the category: the owner has stated
+        // the situation outright, and that beats whatever the hour would otherwise imply. SLEEPING
+        // is handled inside modeVariants by reusing the quiet-hours wording, so the hours-to-wake
+        // placeholder still needs filling for it.
+        ResponderMode mode = settings.mode();
+        boolean quiet;
+        List<String> variants;
+        if (mode.isActive()) {
+            variants = settings.modeVariantsFor(mode, category.kind, tone);
+            // Only the sleeping mode talks about waking, so the hours-until figure is only
+            // meaningful there.
+            quiet = mode == ResponderMode.SLEEPING;
+        } else {
+            quiet = ResponderWindow.isQuiet(
+                    settings.quietStart(), settings.quietEnd(), minuteOfDay);
+            variants = settings.variantsFor(category.kind, tone, quiet);
+        }
         if (variants.isEmpty()) return "";
 
         String chosen = ReplyTemplates.choose(variants, settings.nextRotation());

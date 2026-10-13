@@ -41,6 +41,8 @@ public class MessageCategoryTest {
         greetingsIncludingRepeatedLetters();
         timeGreetingsAndTheirShortforms();
         thanksIncludingShortforms();
+        congratulationsAreRecognised();
+        messagesAimedAtIrisAreRecognised();
         festivalsMatchByPhraseNotDate();
         birthdaysAndWeekends();
         urgentIsRecognised();
@@ -84,8 +86,13 @@ public class MessageCategoryTest {
         }
         // "Bhala laguni" is two words, so SHORT may legitimately claim it. That is acceptable:
         // SHORT produces a neutral "tell me more" reply rather than a wrong-language answer.
-        kind("Mu bujhiparuni kichi bhi", MessageCategory.Kind.NONE,
-                "a four-word Odia message matches nothing at all");
+        //
+        // A longer Odia message now lands in OTHER rather than NONE. The invariant that matters is
+        // unchanged -- it must not be mistaken for an English category, and OTHER is off by
+        // default so nothing is said about it unless the owner asks for that. Asserting NONE here
+        // was pinning the implementation rather than the requirement.
+        kind("Mu bujhiparuni kichi bhi", MessageCategory.Kind.OTHER,
+                "a four-word Odia message is unremarkable, not a recognised category");
     }
 
     /** The owner asked for shortforms; these are the cases that make them safe. */
@@ -104,6 +111,98 @@ public class MessageCategoryTest {
         check(MessageCategory.classify("please send the party photos by gmail tonight").kind
                         != MessageCategory.Kind.TIME_GREETING,
                 "a long sentence containing gmail is not a morning greeting");
+    }
+
+    /** Congratulations, and the things that must not be mistaken for them. */
+    private static void congratulationsAreRecognised() {
+        kind("congrats", MessageCategory.Kind.CONGRATS, "congrats");
+        kind("Congratulations!", MessageCategory.Kind.CONGRATS, "congratulations with punctuation");
+        kind("congo", MessageCategory.Kind.CONGRATS, "the shortform congo");
+        kind("badhai", MessageCategory.Kind.CONGRATS, "badhai");
+        kind("mubarak", MessageCategory.Kind.CONGRATS, "mubarak");
+        kind("well done", MessageCategory.Kind.CONGRATS, "well done");
+        kind("so proud of you", MessageCategory.Kind.CONGRATS, "proud of you");
+        kind("hearty congratulations on the promotion", MessageCategory.Kind.CONGRATS,
+                "a full sentence of congratulation");
+
+        // Congratulations outranks thanks when both appear, which is the common real form.
+        kind("congratulations and thank you so much", MessageCategory.Kind.CONGRATS,
+                "congratulations wins over thanks in the same message");
+
+        // Must not match. "congress" and "mubarak" style substrings are the trap.
+        check(MessageCategory.classify("the congress session is tomorrow").kind
+                        != MessageCategory.Kind.CONGRATS,
+                "congress is not congrats");
+        check(MessageCategory.classify("i will be done in a minute").kind
+                        != MessageCategory.Kind.CONGRATS,
+                "'done' alone is not 'well done'");
+        check(MessageCategory.classify("that went well").kind
+                        != MessageCategory.Kind.CONGRATS,
+                "'went well' is not 'well done'");
+    }
+
+    /**
+     * Recognising that the sender is talking to IRIS, not to Suvra.
+     *
+     * The must-not-match half carries the weight. A first version of the phrase list included
+     * "auto reply" and the owner's own Twilio message -- "Standard auto-reply. You can send
+     * outbound messages..." -- matched it, which would have had IRIS introduce itself to anyone
+     * who mentioned automation.
+     */
+    private static void messagesAimedAtIrisAreRecognised() {
+        kind("iris", MessageCategory.Kind.TO_IRIS, "the name alone");
+        kind("IRIS are you there", MessageCategory.Kind.TO_IRIS, "named, in any case");
+        kind("is this a bot", MessageCategory.Kind.TO_IRIS, "asking whether it is a bot");
+        kind("are you a robot?", MessageCategory.Kind.TO_IRIS, "asking whether it is a robot");
+        kind("am i talking to a machine", MessageCategory.Kind.TO_IRIS, "asking what it is");
+        kind("who am i talking to", MessageCategory.Kind.TO_IRIS, "asking who it is");
+
+        // Being named beats a mention of Suvra, because the sender has worked out what they are
+        // talking to and answering as though the message were for Suvra is plainly wrong.
+        check(MessageCategory.classify("iris tell suvra to call me",
+                        java.util.Arrays.asList("suvra", "stg")).kind
+                        == MessageCategory.Kind.TO_IRIS,
+                "being addressed by name outranks a mention of Suvra");
+
+        // ─── Must NOT match ───
+        check(MessageCategory.classify("Standard auto-reply. You can send outbound messages via "
+                        + "the Tryout UI or API").kind != MessageCategory.Kind.TO_IRIS,
+                "a message ABOUT auto-replies is not a message TO one");
+        check(MessageCategory.classify("i set up an automated reply on my work mail").kind
+                        != MessageCategory.Kind.TO_IRIS,
+                "describing an automated reply is not addressing one");
+        check(MessageCategory.classify("the assistant will send the file").kind
+                        != MessageCategory.Kind.TO_IRIS,
+                "mentioning an assistant is not addressing IRIS");
+        check(MessageCategory.classify("i bought a robot vacuum").kind
+                        != MessageCategory.Kind.TO_IRIS,
+                "a robot vacuum is not a question about being a robot");
+        check(MessageCategory.classify("irish coffee please").kind
+                        != MessageCategory.Kind.TO_IRIS,
+                "irish does not contain iris as a whole word");
+        check(MessageCategory.classify("the iris flowers have opened").kind
+                        == MessageCategory.Kind.TO_IRIS,
+                "the flower is an accepted false positive; the name is too strong a signal to "
+                        + "weaken for it");
+
+        // ─── Someone replying after IRIS spoke, without using the name ───
+        check(MessageCategory.classify("so when will he actually get back to me then",
+                        null, true).kind == MessageCategory.Kind.TO_IRIS,
+                "a follow-up while IRIS spoke last is aimed at IRIS");
+        check(MessageCategory.classify("so when will he actually get back to me then",
+                        null, false).kind == MessageCategory.Kind.OTHER,
+                "the same message is unremarkable when IRIS did not speak last");
+        // A specific category still wins. Who spoke last does not make a festival wish
+        // a conversation with IRIS.
+        check(MessageCategory.classify("happy diwali to you and family", null, true).kind
+                        == MessageCategory.Kind.FESTIVAL,
+                "a festival wish is still a festival wish after IRIS has spoken");
+        check(MessageCategory.classify("thanks", null, true).kind
+                        == MessageCategory.Kind.THANKS,
+                "thanks is still thanks after IRIS has spoken");
+        check(MessageCategory.classify("ok", null, true).kind
+                        == MessageCategory.Kind.ACKNOWLEDGEMENT,
+                "an acknowledgement is not promoted to a conversation with IRIS");
     }
 
     private static void greetingsIncludingRepeatedLetters() {
@@ -267,15 +366,31 @@ public class MessageCategoryTest {
                 "the probe's real one-word poke falls to SHORT");
         kind("oi", MessageCategory.Kind.SHORT, "a two-letter nudge");
         kind("two words", MessageCategory.Kind.SHORT, "two words is still SHORT");
-        kind("now three words here", MessageCategory.Kind.NONE,
-                "four words is beyond SHORT and matches nothing");
+        kind("now three words here", MessageCategory.Kind.OTHER,
+                "four words is beyond SHORT, so it is unremarkable rather than short");
     }
 
+    /**
+     * An ordinary sentence is classified as unremarkable, and still produces silence.
+     *
+     * These used to expect NONE. They now expect OTHER, because the owner asked to be able to
+     * acknowledge ordinary messages and that needs a category to hang the choice on. The
+     * requirement is unchanged and is asserted directly below: by default nothing is said, in any
+     * tone. OTHER is where an opt-in lives, not a change of default.
+     */
     private static void unrecognisedMeansSilence() {
         kind("the quarterly figures came in lower than the forecast we agreed",
-                MessageCategory.Kind.NONE, "an ordinary sentence matches nothing");
+                MessageCategory.Kind.OTHER, "an ordinary sentence is unremarkable");
         kind("i will be at the office by half past nine tomorrow",
-                MessageCategory.Kind.NONE, "a plain statement matches nothing");
+                MessageCategory.Kind.OTHER, "a plain statement is unremarkable");
+        // The real message from the owner's Twilio test, which produced no reply and sent him
+        // looking for a bug. It is now a category he can switch on.
+        kind("Standard auto-reply. You can send outbound messages via the Tryout UI or API, or "
+                        + "customize the reply by configuring a custom webhook in the Tryout UI",
+                MessageCategory.Kind.OTHER, "the Twilio test message is unremarkable, not nothing");
+        // Whether anything is SAID about an unremarkable message is a tone-policy question and is
+        // asserted in ReplyToneTest. This suite deliberately compiles without ReplyTone, so that
+        // the classifier can never acquire a dependency on policy.
     }
 
     private static void edgeInputsFailSafe() {

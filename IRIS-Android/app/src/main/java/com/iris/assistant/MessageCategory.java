@@ -52,6 +52,17 @@ public final class MessageCategory {
         WEEKEND,
         /** Thanks, including ty and thx. */
         THANKS,
+        /** Congratulations, well done, badhai. */
+        CONGRATS,
+        /**
+         * The message is aimed at IRIS rather than at Suvra.
+         *
+         * Either it names IRIS, or it arrived while IRIS was the last to speak in that
+         * conversation. Separated from the rest because the right answer is different in kind:
+         * the sender has worked out they are talking to software, and the useful reply says so
+         * and points them back at Suvra.
+         */
+        TO_IRIS,
         /** Checking whether he is around. */
         CHECK_IN,
         /** A plain hello. */
@@ -61,7 +72,17 @@ public final class MessageCategory {
         /** "ok", "hmm". Recognised specifically so it can be ignored rather than answered. */
         ACKNOWLEDGEMENT,
         /** One or two words that matched nothing else. */
-        SHORT
+        SHORT,
+        /**
+         * An ordinary message that matched nothing.
+         *
+         * Distinct from NONE, which means "no classification". OTHER means "classified as
+         * unremarkable", and it exists so the owner can choose to have such messages acknowledged
+         * generically. It is off by default: IRIS has no language model and cannot answer the
+         * content of an arbitrary message, so the only honest reply is one that does not pretend
+         * to have read it.
+         */
+        OTHER
     }
 
     /** The classification, plus any detail a reply might want to use. */
@@ -101,6 +122,25 @@ public final class MessageCategory {
     private static final Set<String> URGENT_WORDS = words(
             "urgent", "urgently", "asap", "emergency", "immediately", "important");
 
+    /**
+     * Congratulations.
+     *
+     * "badhai" and "abhinandan" are included because the owner's correspondents use them. "gz" is
+     * deliberately excluded: two letters that collide with too much else, the same reason "ga" and
+     * "ge" were rejected for greetings.
+     */
+    private static final Set<String> CONGRATS_WORDS = words(
+            "congrats", "congratulations", "congratulation", "congo", "badhai", "badhaai",
+            "abhinandan", "mubarak");
+
+    /**
+     * Words that mean the sender is addressing IRIS rather than Suvra.
+     *
+     * Only the assistant's own name. Anything looser would misread ordinary messages: "bot" and
+     * "assistant" appear in real conversation often enough to matter.
+     */
+    private static final Set<String> IRIS_WORDS = words("iris");
+
     private static final Set<String> CHECK_IN_WORDS = words(
             "online", "awake", "available", "wyd", "there");
 
@@ -118,6 +158,27 @@ public final class MessageCategory {
 
     private static final List<String> THANKS_PHRASES = Arrays.asList(
             "thank you", "thank u", "thanks a lot", "many thanks", "thanks so much");
+
+    private static final List<String> CONGRATS_PHRASES = Arrays.asList(
+            "well done", "proud of you", "so proud", "good job", "great job", "nicely done",
+            "happy for you", "many congratulations", "hearty congratulations");
+
+    /**
+     * Phrases that can only be addressing the responder.
+     *
+     * Deliberately restricted to second-person interrogative forms. A first attempt included
+     * "auto reply", "a bot" and "the assistant", and the owner's own Twilio test message --
+     * "Standard auto-reply. You can send outbound messages via the Tryout UI..." -- matched it
+     * immediately. Talking ABOUT auto-replies is not talking TO one, and the looser list would
+     * have had IRIS explain itself to anybody who mentioned automation.
+     */
+    private static final List<String> IRIS_PHRASES = Arrays.asList(
+            "are you a bot", "are you a robot", "are you a machine", "are you real",
+            "are you human", "are you an assistant", "are you his assistant",
+            "is this a bot", "is this a robot", "is this a machine", "is this automated",
+            "is this an auto reply", "is this an automated reply",
+            "am i talking to a bot", "am i talking to a robot", "am i talking to a machine",
+            "who am i talking to", "is anyone actually there");
 
     private static final List<String> URGENT_PHRASES = Arrays.asList(
             "call me", "need you", "right now", "very important", "pick up", "answer me");
@@ -168,6 +229,17 @@ public final class MessageCategory {
      * @param mentionKeywords words that count as naming Suvra, from settings. May be null or empty
      */
     public static Result classify(String raw, Collection<String> mentionKeywords) {
+        return classify(raw, mentionKeywords, false);
+    }
+
+    /**
+     * Classify a message, knowing whether IRIS spoke last in this conversation.
+     *
+     * @param irisSpokeLast IRIS sent the previous message in this thread, so a reply arriving now
+     *                      is probably aimed at IRIS rather than at Suvra
+     */
+    public static Result classify(String raw, Collection<String> mentionKeywords,
+                                  boolean irisSpokeLast) {
         if (raw == null) return NO_MATCH;
         String trimmed = raw.trim();
         if (trimmed.isEmpty()) return NO_MATCH;
@@ -176,6 +248,13 @@ public final class MessageCategory {
         if (flat.isEmpty()) return NO_MATCH;
         Set<String> tokens = new LinkedHashSet<>(Arrays.asList(flat.split(" ")));
         int wordCount = flat.split(" ").length;
+
+        // Being addressed by name comes first, ahead of even a mention of Suvra. If the sender has
+        // written "iris" they have worked out what they are talking to, and answering as though
+        // the message were meant for Suvra would be the one reply that is plainly wrong.
+        if (containsAnyWord(tokens, IRIS_WORDS) || containsAnyPhrase(flat, IRIS_PHRASES)) {
+            return new Result(Kind.TO_IRIS, "named");
+        }
 
         // Precedence runs most specific first. Being named directly outranks everything, because
         // a mention is the one case where staying silent is conspicuous.
@@ -202,6 +281,14 @@ public final class MessageCategory {
 
         if (containsAnyPhrase(flat, WEEKEND_PHRASES)) return new Result(Kind.WEEKEND, "");
 
+        // Before THANKS, because "congratulations and thank you" is congratulations first, and
+        // because "well done" shares no vocabulary with thanks but "badhai" sits near "dhanyavad"
+        // in the same messages.
+        if (containsAnyWord(tokens, CONGRATS_WORDS)
+                || containsAnyPhrase(flat, CONGRATS_PHRASES)) {
+            return new Result(Kind.CONGRATS, "");
+        }
+
         if (containsAnyWord(tokens, THANKS_WORDS) || containsAnyPhrase(flat, THANKS_PHRASES)) {
             return new Result(Kind.THANKS, "");
         }
@@ -220,11 +307,24 @@ public final class MessageCategory {
             return new Result(Kind.ACKNOWLEDGEMENT, "");
         }
 
+        // A reply arriving while IRIS was the last to speak is probably aimed at IRIS, even
+        // without the name. Checked LATE, after every specific category, because a festival wish
+        // or a question is still that regardless of who spoke last -- this only claims messages
+        // that would otherwise have matched nothing.
+        if (irisSpokeLast && wordCount > SHORT_MAX_WORDS) {
+            return new Result(Kind.TO_IRIS, "follow_up");
+        }
+
         if (trimmed.endsWith("?")) return new Result(Kind.QUESTION, "");
 
-        if (wordCount <= SHORT_MAX_WORDS) return new Result(Kind.SHORT, "");
+        if (wordCount <= SHORT_MAX_WORDS) {
+            return irisSpokeLast ? new Result(Kind.TO_IRIS, "follow_up")
+                    : new Result(Kind.SHORT, "");
+        }
 
-        return NO_MATCH;
+        // Classified as unremarkable rather than unclassified. Whether anything is said about it
+        // is the policy layer's decision, and it is off by default.
+        return new Result(Kind.OTHER, "");
     }
 
     /** Convenience overload for callers with no mention keywords configured. */
