@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.KeyguardManager;
 import android.app.Notification;
-import android.app.RemoteInput;
 import android.content.Intent;
 import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
@@ -78,30 +77,30 @@ public final class NotificationReplyActivity extends Activity {
                             .setPositiveButton("Send reply", (dialog, which) -> send(selected, body)).show();
                 }).show();
     }
+    /**
+     * Manual send.
+     *
+     * The unlock check stays here rather than moving into NotificationReply: it exists so that a
+     * model able to open this screen still cannot press Send. The auto-responder is authorised a
+     * different way and must work while the phone is locked, so sharing this rule would be wrong
+     * for one caller or the other.
+     *
+     * The verification and the submission itself now live in NotificationReply, shared with the
+     * responder, so there is only one copy of the guards to keep correct.
+     */
     private void send(StatusBarNotification selected, String body) {
         if (!unlocked()) { finish(); return; }
-        for (StatusBarNotification current : IrisNotificationListener.activeForReply()) {
-            if (!current.getKey().equals(selected.getKey())) continue;
-            Notification.Action action = IrisNotificationListener.replyAction(current);
-            if (action == null || current.getPostTime() != selected.getPostTime()
-                    || !action.actionIntent.equals(IrisNotificationListener.replyAction(selected).actionIntent)) break;
-            try {
-                RemoteInput field = action.getRemoteInputs()[0];
-                Bundle result = new Bundle();
-                result.putCharSequence(field.getResultKey(), body);
-                Intent intent = new Intent();
-                RemoteInput.addResultsToIntent(action.getRemoteInputs(), intent, result);
-                action.actionIntent.send(this, 0, intent);
-                try (ActionLedger ledger = new ActionLedger(this)) {
-                    ledger.record("notification_reply", ActionLedger.OK,
-                            "Reply submitted to " + current.getPackageName() + "; delivery unverified", "", "", false);
-                }
-                android.widget.Toast.makeText(this, "Reply submitted to the app. Delivery is not verified.", android.widget.Toast.LENGTH_LONG).show();
-                finish();
-                return;
-            } catch (Exception ignored) { break; }
+
+        NotificationReply.Result result =
+                NotificationReply.send(this, selected, body, "notification_reply");
+        if (NotificationReply.sent(result)) {
+            android.widget.Toast.makeText(this, NotificationReply.explain(result),
+                    android.widget.Toast.LENGTH_LONG).show();
+            finish();
+            return;
         }
-        new AlertDialog.Builder(this).setMessage("The notification changed or the reply action expired. Select it again.")
+        new AlertDialog.Builder(this)
+                .setMessage(NotificationReply.explain(result) + " Select it again.")
                 .setPositiveButton("Refresh", (d, w) -> showReplies()).show();
     }
 }

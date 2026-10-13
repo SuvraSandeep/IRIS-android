@@ -133,6 +133,36 @@ public class IrisNotificationListener extends NotificationListenerService {
         } catch (Exception e) { return new StatusBarNotification[0]; }
     }
 
+    /**
+     * Packages observed posting a notification that offered a usable reply action.
+     *
+     * Recorded as notifications arrive rather than guessed from the app list, because whether an
+     * app supports replying is not discoverable any other way: it depends on what that app chooses
+     * to attach. The Responder app picker uses this to show which apps it can actually answer
+     * through, so the owner is not left wondering why a ticked app never speaks.
+     *
+     * An app absent from this set has simply not been seen yet, which is NOT the same as being
+     * incapable. The picker is careful to present it that way.
+     */
+    public static java.util.Set<String> packagesSeenWithReplyAction() {
+        synchronized (REPLY_CAPABLE) {
+            return new java.util.LinkedHashSet<>(REPLY_CAPABLE);
+        }
+    }
+
+    private static final java.util.Set<String> REPLY_CAPABLE = new java.util.LinkedHashSet<>();
+    private static final int REPLY_CAPABLE_MAX = 60;
+
+    private static void noteReplyCapable(String pkg) {
+        if (pkg == null) return;
+        synchronized (REPLY_CAPABLE) {
+            REPLY_CAPABLE.add(pkg);
+            while (REPLY_CAPABLE.size() > REPLY_CAPABLE_MAX) {
+                REPLY_CAPABLE.remove(REPLY_CAPABLE.iterator().next());
+            }
+        }
+    }
+
     /** Active notifications only; cached history must never be used to send a reply. */
     public static StatusBarNotification[] activeForReply() {
         IrisNotificationListener service = instance;
@@ -214,6 +244,10 @@ public class IrisNotificationListener extends NotificationListenerService {
 
     @Override public void onDestroy() {
         stopScreenWatch();
+        if (responderWorker != null) {
+            try { responderWorker.shutdownNow(); } catch (Throwable ignored) { }
+            responderWorker = null;
+        }
         if (imageWorker != null) {
             // Queued copies are abandoned rather than awaited: the rows are already saved, and
             // blocking service teardown on image decoding would risk an ANR.
@@ -385,10 +419,14 @@ public class IrisNotificationListener extends NotificationListenerService {
             if (MessageRollup.isSummaryOnly(text, 0)) return;
             recordOne(context, settings, sbn, pkg, appLabel, key, extras,
                     parsed.rawTitle, parsed.sender, parsed.group, parsed.body, sbn.getPostTime());
+            offerToResponder(context, sbn, pkg, appLabel, parsed.rawTitle,
+                    parsed.sender, parsed.body, !parsed.group.isEmpty(), 0);
             return;
         }
 
         String groupName = MessageRollup.groupFromTitle(title);
+        String newestSender = "";
+        String newestBody = "";
         for (Bundle msg : messages) {
             String body = charSeq(msg.getCharSequence("text"));
             String sender = charSeq(msg.getCharSequence("sender"));
@@ -417,8 +455,69 @@ public class IrisNotificationListener extends NotificationListenerService {
             // granted with a notification is narrow and short-lived, so the bytes are copied now
             // rather than the link being stored for later.
             if (rowId > 0) captureImage(context, msg, rowId);
+
+            // Remember the newest message, for the responder below.
+            newestSender = sender;
+            newestBody = body;
         }
+
+        // The auto-responder runs AFTER capture and on its own thread, so it can neither delay
+        // notification delivery nor prevent a message being archived. Considered once per
+        // notification using the newest message: deciding separately for each of seven messages
+        // would put seven entries in the log for one conversation.
+        offerToResponder(context, sbn, pkg, appLabel, title, newestSender, newestBody,
+                groupHint || !groupName.isEmpty(), messages.size());
     }
+
+    /**
+     * Hand a notification to the auto-responder.
+     *
+     * Wrapped completely: the responder is the newest and least proven part of this file, and a
+     * fault in it must not be able to stop notifications being captured.
+     */
+    private void offerToResponder(final Context context, final StatusBarNotification sbn,
+                                  final String pkg, final String appLabel, final String title,
+                                  final String sender, final String body, final boolean group,
+                                  final int messageCount) {
+        try {
+            final AutoResponder.Incoming incoming = new AutoResponder.Incoming();
+            incoming.sbn = sbn;
+            incoming.pkg = pkg;
+            incoming.appLabel = appLabel;
+            incoming.sender = sender == null || sender.isEmpty() ? title : sender;
+            incoming.body = body == null ? "" : body;
+            incoming.group = group;
+            incoming.rollup = MessageRollup.isSummaryOnly(body, messageCount);
+            incoming.placeholder = DeletedMessageRules.isAnyDeletionPlaceholder(body);
+            incoming.fromOwner = false;
+
+            // Remember that this app can be replied to, so the picker can show it.
+            if (IrisNotificationListener.replyAction(sbn) != null) noteReplyCapable(pkg);
+
+            responderWorker().execute(new Runnable() {
+                @Override public void run() {
+                    try {
+                        AutoResponder.consider(context, incoming);
+                    } catch (Throwable ignored) { }
+                }
+            });
+        } catch (Throwable ignored) { }
+    }
+
+    /**
+     * Worker for responder decisions.
+     *
+     * Separate from the image worker on purpose. Decoding a large photo can take seconds, and
+     * queueing a reply decision behind one would delay it for no reason.
+     */
+    private synchronized java.util.concurrent.ExecutorService responderWorker() {
+        if (responderWorker == null) {
+            responderWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        }
+        return responderWorker;
+    }
+
+    private java.util.concurrent.ExecutorService responderWorker;
 
     /**
      * Copy an attached image on a background thread, then record its filename.
@@ -591,6 +690,11 @@ public class IrisNotificationListener extends NotificationListenerService {
         if (sbn == null) return;
         String pkg = sbn.getPackageName();
         if (pkg == null || pkg.equals(getPackageName())) return;
+
+        // The notification is gone, so this conversation may be considered again when it next
+        // appears. Without this, one answered conversation would stay blocked for the life of the
+        // process rather than only until its notification cleared.
+        AutoResponder.forget(sbn.getKey());
 
         Context context = getApplicationContext();
         AppSettings settings = new AppSettings(context);

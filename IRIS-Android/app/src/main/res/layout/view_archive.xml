@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Archive screen, styled as instrumentation rather than a dashboard: monospace throughout, hard
-  near-square corners, hollow outlined controls and neon edge strips.
+  ARCHIVE section of the COMMS DECK. The title and neon rule live in the shell (view_comms.xml),
+  so this file is the section body only.
 
   Built on the existing Command Deck tokens. deck_accent carries the owner's chosen accent colour,
   so the cyan edges follow the theme; magenta is used as a fixed second accent that belongs to this
@@ -16,36 +16,11 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:paddingBottom="12dp">
+    android:orientation="vertical">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fontFamily="monospace"
-        android:letterSpacing="0.3"
-        android:text="RECEIPT VAULT"
-        android:textColor="@color/deck_accent"
-        android:textSize="22sp"
-        android:textStyle="bold" />
-
-    <!-- Double neon rule: thick accent over a thin magenta trace. -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="2dp"
-        android:layout_marginTop="6dp"
-        android:background="@color/deck_accent" />
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginTop="2dp"
-        android:background="@color/magenta" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
         android:fontFamily="monospace"
         android:text="I write down every notification from the apps you tick, STG. When somebody deletes a message hoping you never saw it \u2014 I already have it. I\u0027m not saying I enjoy this. I\u0027m saying I\u0027m unreasonably good at it."
         android:textColor="@color/deck_text_dim"

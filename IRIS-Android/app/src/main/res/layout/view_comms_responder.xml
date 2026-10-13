@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  RESPONDER section. Skeleton only: the settings rows, category toggles and decision log are built
+  in MainActivity because they repeat per setting and per entry.
+
+  LIVE is present but refused until phase 12. Showing it greyed out with an explanation is better
+  than hiding it, because the owner needs to know the progression exists and where he is in it.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_cyber_panel"
+            android:orientation="vertical"
+            android:paddingBottom="11dp"
+            android:paddingLeft="13dp"
+            android:paddingRight="11dp"
+            android:paddingTop="11dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.25"
+                android:text="RESPONDER"
+                android:textColor="@color/magenta"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/responderStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:fontFamily="monospace"
+                android:text="reading my own settings\u2026"
+                android:textColor="@color/deck_text"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="9dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/responderStateOff"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_cyber_button"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:text="OFF"
+                android:textAllCaps="false"
+                android:textColor="@color/deck_accent"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/responderStateDry"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_marginLeft="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_cyber_button"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:text="DRY RUN"
+                android:textAllCaps="false"
+                android:textColor="@color/deck_accent"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/responderStateLive"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_marginLeft="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_cyber_button_danger"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:text="LIVE"
+                android:textAllCaps="false"
+                android:textColor="@color/deck_error"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/responderAppsButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="9dp"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.1"
+            android:text="[ WHICH APPS I MAY SPEAK THROUGH ]"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_accent"
+            android:textSize="11sp" />
+
+        <!-- Settings rows, built in MainActivity.renderResponder. -->
+        <LinearLayout
+            android:id="@+id/responderSettingsHost"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="12dp"
+            android:background="@color/magenta" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.2"
+            android:text="DECISION LOG"
+            android:textColor="@color/magenta"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/responderLogSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/deck_text_dim"
+            android:textSize="11sp" />
+
+        <LinearLayout
+            android:id="@+id/responderLogHost"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="vertical" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/responderClearLog"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_cyber_button"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:text="CLEAR LOG"
+                android:textAllCaps="false"
+                android:textColor="@color/deck_accent"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/responderResetButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_marginLeft="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_cyber_button_danger"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:text="RESET ALL"
+                android:textAllCaps="false"
+                android:textColor="@color/deck_error"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

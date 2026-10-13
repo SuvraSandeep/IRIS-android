@@ -225,6 +225,60 @@ javac -encoding UTF-8 -d "$test_dir/archive" \
   tests/SwipeDecisionTest.java
 java -cp "$test_dir/archive" com.iris.assistant.SwipeDecisionTest
 
+# Auto-responder message classification. Weighted toward what must NOT match: a missed category
+# means silence, which is safe, while a false match sends a colleague a reply from Suvra's account
+# to a message IRIS did not understand. Includes the owner's real Odia messages captured by the
+# PROBE as must-not-match cases, plus the substring traps for the ty/gm/gn/k shortforms.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  tests/MessageCategoryTest.java
+java -cp "$test_dir/responder" com.iris.assistant.MessageCategoryTest
+
+# Tone resolution and the silence decision. Sarcasm must be unreachable without naming a contact,
+# a relationship must beat a name pattern (the owner's "eric" rule would otherwise claim a relative
+# called Erica), and "ok" must be silent when professional but answered when sarcastic.
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  tests/ReplyToneTest.java
+java -cp "$test_dir/responder" com.iris.assistant.ReplyToneTest
+
+# Responder time windows. The owner's default quiet hours are 23:00-07:00, which wrap past
+# midnight: a naive start <= now && now <= end test is false for every minute of that window, so
+# quiet hours would silently never fire. The other guarded failure is a negative duration, which
+# would reach a recipient as "he'll be up in -16 hours". Properties are swept across all 1440
+# minutes of the day rather than spot-checked.
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/ResponderWindow.java \
+  tests/ResponderWindowTest.java
+java -cp "$test_dir/responder" com.iris.assistant.ResponderWindowTest
+
+# Responder guards. These are what stop the feature embarrassing its owner, so they are checked
+# adversarially. The most important is the burst guard: one notification on the owner's own phone
+# held seven messages from one chat, which without it is seven replies to one person in one second.
+# Where a judgement could go either way these guards choose silence, the opposite of the listener
+# watchdog, because acting wrongly here puts a message in somebody's chat.
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/ResponderGuards.java \
+  tests/ResponderGuardsTest.java
+java -cp "$test_dir/responder" com.iris.assistant.ResponderGuardsTest
+
+# Shipped reply texts. The headline check sweeps EVERY variant of EVERY category in EVERY tone and
+# asserts each one names both IRIS and Suvra, which is the transparency decision made enforceable:
+# a later edit cannot quietly ship a reply that reads as though Suvra wrote it himself. Also pins
+# that urgency does not pierce quiet hours but does redirect the sender to a phone call.
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/ReplyTemplates.java \
+  tests/ReplyTemplatesTest.java
+java -cp "$test_dir/responder" com.iris.assistant.ReplyTemplatesTest
+
 # The append-only guarantee is enforced by SQLite triggers, not by Java, so it cannot be covered by
 # the Java suites above (SQLiteOpenHelper is Android-only and Robolectric is unavailable offline).
 # Python ships a real SQLite engine, so the DDL is extracted from ArchiveSchema.java and actually

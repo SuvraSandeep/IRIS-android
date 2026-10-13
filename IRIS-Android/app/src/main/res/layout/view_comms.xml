@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  COMMS DECK shell: header, sub-tab selector, and a container the three sections are inflated into.
+  Renamed from Receipt Vault because the screen will send as well as capture, so "vault" became
+  wrong.
+
+  Sub-tabs live inside this screen rather than in the bottom bar. The bottom bar already holds five
+  tabs and a sixth truncates the labels, which is the same reason the archive became a section
+  rather than a tab in the first place.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingBottom="12dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:letterSpacing="0.3"
+        android:text="COMMS DECK"
+        android:textColor="@color/deck_accent"
+        android:textSize="22sp"
+        android:textStyle="bold" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_marginTop="6dp"
+        android:background="@color/deck_accent" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="2dp"
+        android:background="@color/magenta" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="9dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/commsTabArchive"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08"
+            android:text="ARCHIVE"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_accent"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/commsTabResponder"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_marginLeft="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08"
+            android:text="RESPONDER"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_accent"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/commsTabContacts"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_marginLeft="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08"
+            android:text="CONTACTS"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_accent"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/commsSection"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical" />
+</LinearLayout>

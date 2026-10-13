@@ -89,6 +89,61 @@ public final class ContactResolver {
         }
     }
 
+    /**
+     * Whether this sender is genuinely in the contact store.
+     *
+     * Added after a flaw found while planning the auto-responder. The obvious implementation is
+     * "if it does not look like a phone number it must be a saved contact, because the app
+     * substituted a name" -- and that is backwards. SMS senders are frequently alphanumeric
+     * shortcodes such as VM-HDFCBK or AX-AMAZON. Those contain letters, so looksLikePhoneNumber
+     * returns false, and the naive conclusion would mark a bank's spam gateway as a saved contact.
+     * The saved-contacts-only guard, the one thing meant to prevent auto-replying to spam, would
+     * have waved it straight through.
+     *
+     * So this is a POSITIVE lookup: the sender is saved only when found. Anything unconfirmed --
+     * no permission, no provider, a query failure -- counts as NOT saved. The direction of that
+     * uncertainty is deliberate: treating an unconfirmed sender as unsaved costs one silence,
+     * while the reverse sends a stranger a message.
+     */
+    public static boolean isSaved(Context context, String sender) {
+        if (context == null || sender == null) return false;
+        String trimmed = sender.trim();
+        if (trimmed.isEmpty()) return false;
+
+        try {
+            if (context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                // Cannot verify, so cannot claim it is saved.
+                return false;
+            }
+            if (ContactNumber.looksLikePhoneNumber(trimmed)) {
+                return lookup(context, ContactNumber.normalise(trimmed)) != null;
+            }
+            return matchesDisplayName(context, trimmed);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether a contact with this display name exists.
+     *
+     * Used for senders that arrive as text rather than digits. An exact-ish match is required: a
+     * substring search would let "Amazon" match a contact called "Amazonia" and reinstate the
+     * problem this method exists to solve.
+     */
+    private static boolean matchesDisplayName(Context context, String name) {
+        Uri uri = ContactsContract.Contacts.CONTENT_URI;
+        String selection = ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " = ?";
+        try (Cursor cursor = context.getContentResolver().query(uri,
+                new String[]{ContactsContract.Contacts._ID},
+                selection, new String[]{name}, null)) {
+            return cursor != null && cursor.moveToFirst();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     /** Clears the cache so a newly saved contact appears without restarting the app. */
     public static void forget() {
         synchronized (CACHE) { CACHE.clear(); }

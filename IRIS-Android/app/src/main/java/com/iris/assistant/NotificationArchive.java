@@ -777,6 +777,57 @@ public final class NotificationArchive {
         }
     }
 
+    /** One sender seen in the archive, for the contacts screen. */
+    public static final class SenderRef {
+        public String pkg = "";
+        public String appLabel = "";
+        public String sender = "";
+    }
+
+    /**
+     * Distinct senders seen recently, newest first.
+     *
+     * The archive is the only honest source of "people you actually hear from". Reading the phone
+     * book instead would list hundreds of contacts who have never messaged, and omit the unsaved
+     * numbers that matter most when deciding who to answer.
+     */
+    public static java.util.List<SenderRef> recentSenders(Context context, int limit) {
+        java.util.List<SenderRef> out = new java.util.ArrayList<>();
+        if (context == null) return out;
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        synchronized (LOCK) {
+            try {
+                SQLiteDatabase db = database(context);
+                if (db == null) return out;
+                try (Cursor cursor = db.query(ArchiveSchema.TABLE,
+                        new String[]{ArchiveSchema.COL_PKG, ArchiveSchema.COL_APP_LABEL,
+                                ArchiveSchema.COL_SENDER, ArchiveSchema.COL_RAW_TITLE},
+                        ArchiveSchema.COL_ROW_KIND + " = " + ArchiveSchema.KIND_MESSAGE,
+                        null, null, null,
+                        ArchiveSchema.COL_POST_TIME + " DESC",
+                        String.valueOf(Math.max(1, limit) * 20))) {
+                    while (cursor.moveToNext() && out.size() < Math.max(1, limit)) {
+                        SenderRef ref = new SenderRef();
+                        ref.pkg = text(cursor, 0);
+                        ref.appLabel = text(cursor, 1);
+                        ref.sender = text(cursor, 2);
+                        if (ref.sender.isEmpty()) ref.sender = text(cursor, 3);
+                        if (ref.sender.isEmpty()) continue;
+                        String key = ref.pkg + "|" + ref.sender;
+                        if (!seen.add(key)) continue;
+                        out.add(ref);
+                    }
+                }
+            } catch (Throwable ignored) { }
+        }
+        return out;
+    }
+
+    private static String text(Cursor cursor, int index) {
+        String value = cursor.getString(index);
+        return value == null ? "" : value;
+    }
+
     /** The fingerprint of a stored row, used to name its image file. Empty if not found. */
     public static String fingerprintOf(Context context, long rowId) {
         if (context == null || rowId <= 0) return "";

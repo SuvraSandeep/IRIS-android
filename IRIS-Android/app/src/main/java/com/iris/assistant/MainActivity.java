@@ -453,10 +453,836 @@ public class MainActivity extends Activity {
         selectedTab = 2;
         if (ownerTrainingActive) cancelWakeTraining();
         contentHost.removeAllViews();
-        View view = LayoutInflater.from(this).inflate(R.layout.view_archive, contentHost, false);
-        contentHost.addView(view);
+        View shell = LayoutInflater.from(this).inflate(R.layout.view_comms, contentHost, false);
+        contentHost.addView(shell);
         fadeInContent();
         updateTabs();
+
+        View toArchive = shell.findViewById(R.id.commsTabArchive);
+        View toResponder = shell.findViewById(R.id.commsTabResponder);
+        View toContacts = shell.findViewById(R.id.commsTabContacts);
+        if (toArchive != null) toArchive.setOnClickListener(v -> showCommsSection(shell, 0));
+        if (toResponder != null) toResponder.setOnClickListener(v -> showCommsSection(shell, 1));
+        if (toContacts != null) toContacts.setOnClickListener(v -> showCommsSection(shell, 2));
+
+        showCommsSection(shell, commsSection);
+    }
+
+    /** Which COMMS DECK sub-tab is open: 0 archive, 1 responder, 2 contacts. */
+    private int commsSection;
+
+    /**
+     * Swap the COMMS DECK sub-section.
+     *
+     * Leaving the archive commits any queued swipe-deletes, for the same reason navigating away
+     * does: the owner swiped deliberately, so switching tabs confirms that intent rather than
+     * silently cancelling it.
+     */
+    private void showCommsSection(View shell, int section) {
+        if (commsSection == 0 && section != 0) flushArchiveDeletes();
+        commsSection = section;
+
+        LinearLayout host = shell.findViewById(R.id.commsSection);
+        if (host == null) return;
+        host.removeAllViews();
+
+        highlightCommsTab(shell, section);
+
+        int layout = section == 1 ? R.layout.view_comms_responder
+                : section == 2 ? R.layout.view_comms_contacts
+                : R.layout.view_archive;
+        View body = LayoutInflater.from(this).inflate(layout, host, false);
+        host.addView(body);
+
+        if (section == 0) bindArchiveSection(body);
+        if (section == 1) bindResponderSection(body);
+        if (section == 2) bindContactsSection(body);
+    }
+
+    /** Wire the CONTACTS section. */
+    private void bindContactsSection(final View view) {
+        EditText search = view.findViewById(R.id.contactsSearch);
+        if (search != null) {
+            search.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+                @Override public void afterTextChanged(android.text.Editable s) {
+                    renderContacts(view);
+                }
+            });
+        }
+        renderContacts(view);
+    }
+
+    /**
+     * Draw the contact list.
+     *
+     * Two sources are merged: senders seen in the archive, and contacts the owner has already
+     * given an instruction about. The second matters because a contact set to NEVER whose
+     * messages later stopped arriving would otherwise vanish from this screen while the rule
+     * stayed in force -- invisible and unchangeable.
+     */
+    private void renderContacts(View view) {
+        final ResponderSettings settings = new ResponderSettings(this);
+        LinearLayout list = view.findViewById(R.id.contactsList);
+        TextView summary = view.findViewById(R.id.contactsSummary);
+        EditText search = view.findViewById(R.id.contactsSearch);
+        if (list == null) return;
+
+        String term = search == null ? "" : search.getText().toString().trim().toLowerCase(
+                java.util.Locale.ROOT);
+
+        java.util.LinkedHashMap<String, String> rows = new java.util.LinkedHashMap<>();
+        for (NotificationArchive.SenderRef ref
+                : NotificationArchive.recentSenders(this, 120)) {
+            String name = ContactResolver.display(this, ref.sender);
+            String key = ResponderSettings.conversationKey(ref.pkg, name);
+            rows.put(key, name + "  \u00b7  " + ref.appLabel);
+        }
+        // Configured contacts that no longer appear in the archive.
+        for (String key : settings.knownContactKeys()) {
+            String label = settings.contactLabel(key);
+            if (!label.isEmpty() && !rows.containsValue(label)) rows.put(key, label);
+        }
+
+        int configured = 0;
+        for (String key : rows.keySet()) {
+            if (settings.contactRule(key) != ResponderGuards.ContactRule.INHERIT) configured++;
+        }
+        if (summary != null) {
+            summary.setText(rows.isEmpty()
+                    ? "Nobody yet. Once I've seen some messages, the people who sent them appear "
+                      + "here and you can tell me who I may answer."
+                    : rows.size() + " people I've seen \u00b7 " + configured
+                      + " with your explicit instructions"
+                      + (settings.allowlistOnly()
+                            ? "\nAllow-list mode is on, so I answer ONLY the ones marked ALLOW."
+                            : "\nI answer anyone eligible except the ones marked NEVER."));
+        }
+
+        list.removeAllViews();
+        int shown = 0;
+        for (java.util.Map.Entry<String, String> entry : rows.entrySet()) {
+            if (!term.isEmpty()
+                    && !entry.getValue().toLowerCase(java.util.Locale.ROOT).contains(term)) {
+                continue;
+            }
+            list.addView(contactCard(settings, entry.getKey(), entry.getValue(), view));
+            shown++;
+        }
+        if (shown == 0 && !rows.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("Nobody by that name.");
+            empty.setTextSize(11f);
+            empty.setTypeface(android.graphics.Typeface.MONOSPACE);
+            empty.setTextColor(getColor(R.color.deck_text_dim));
+            empty.setPadding(0, dp(12), 0, dp(12));
+            list.addView(empty);
+        }
+    }
+
+    private View contactCard(final ResponderSettings settings, final String key,
+                             final String label, final View root) {
+        ResponderGuards.ContactRule rule = settings.contactRule(key);
+        ReplyTone.Relation relation = settings.contactRelation(key);
+        ReplyTone.Tone tone = settings.contactTone(key);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(11), dp(9), dp(11), dp(9));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(5);
+        card.setLayoutParams(params);
+        // NEVER is marked with the error edge, because it is the instruction whose failure would
+        // matter most: the owner needs to see at a glance that it took.
+        card.setBackgroundResource(rule == ResponderGuards.ContactRule.NEVER
+                ? R.drawable.bg_cyber_row_flagged : R.drawable.bg_cyber_row);
+
+        TextView name = new TextView(this);
+        name.setText(label);
+        name.setTextSize(12f);
+        name.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        name.setTextColor(getColor(rule == ResponderGuards.ContactRule.NEVER
+                ? R.color.deck_error : R.color.deck_accent));
+        card.addView(name);
+
+        TextView state = new TextView(this);
+        StringBuilder detail = new StringBuilder();
+        detail.append(rule == ResponderGuards.ContactRule.INHERIT ? "default" : rule.name());
+        if (relation != ReplyTone.Relation.UNKNOWN) detail.append(" \u00b7 ").append(relation.name());
+        detail.append(" \u00b7 ").append(tone == null ? "tone: default" : "tone: " + tone.name());
+        state.setText(detail.toString());
+        state.setTextSize(10f);
+        state.setTypeface(android.graphics.Typeface.MONOSPACE);
+        state.setTextColor(getColor(R.color.deck_text_dim));
+        state.setPadding(0, dp(3), 0, 0);
+        card.addView(state);
+
+        card.setOnClickListener(v -> editContact(settings, key, label, root));
+        return card;
+    }
+
+    /** Edit one contact: whether IRIS answers them, who they are, and how it should sound. */
+    private void editContact(final ResponderSettings settings, final String key,
+                             final String label, final View root) {
+        settings.setContactLabel(key, label);
+        new AlertDialog.Builder(this)
+                .setTitle(label)
+                .setItems(new String[]{
+                        "ALLOW \u2014 answer them",
+                        "NEVER \u2014 never answer them, whatever happens",
+                        "Default \u2014 follow my general rules",
+                        "Who are they? (family, work, friend)",
+                        "How should I sound to them?"
+                }, (d, which) -> {
+                    switch (which) {
+                        case 0:
+                            settings.setContactRule(key, ResponderGuards.ContactRule.ALLOW);
+                            break;
+                        case 1:
+                            settings.setContactRule(key, ResponderGuards.ContactRule.NEVER);
+                            toast("Understood. Not a word to them, ever.");
+                            break;
+                        case 2:
+                            settings.setContactRule(key, ResponderGuards.ContactRule.INHERIT);
+                            break;
+                        case 3:
+                            editContactRelation(settings, key, label, root);
+                            return;
+                        default:
+                            editContactTone(settings, key, label, root);
+                            return;
+                    }
+                    renderContacts(root);
+                }).show();
+    }
+
+    private void editContactRelation(final ResponderSettings settings, final String key,
+                                     final String label, final View root) {
+        final ReplyTone.Relation[] relations = ReplyTone.Relation.values();
+        String[] labels = new String[relations.length];
+        for (int i = 0; i < relations.length; i++) {
+            labels[i] = relations[i] == ReplyTone.Relation.UNKNOWN
+                    ? "Not saying \u2014 use my general rules" : relations[i].name();
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Who is " + label + "?")
+                .setMessage("This decides how I speak to them unless you overrule it. Family and "
+                        + "friends get the relaxed version; work gets the careful one. It also "
+                        + "beats my name-matching rules \u2014 so if someone called Erica is "
+                        + "family, she stops being mistaken for an Ericsson colleague.")
+                .setItems(labels, (d, which) -> {
+                    settings.setContactRelation(key, relations[which]);
+                    renderContacts(root);
+                }).show();
+    }
+
+    private void editContactTone(final ResponderSettings settings, final String key,
+                                 final String label, final View root) {
+        final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
+        String[] labels = new String[tones.length + 1];
+        for (int i = 0; i < tones.length; i++) {
+            labels[i] = tones[i] == ReplyTone.Tone.SARCASTIC
+                    ? "SARCASTIC \u2014 they'd better deserve it" : tones[i].name();
+        }
+        labels[tones.length] = "Clear it \u2014 work it out yourself";
+        new AlertDialog.Builder(this)
+                .setTitle("How should I sound to " + label + "?")
+                .setItems(labels, (d, which) -> {
+                    settings.setContactTone(key, which < tones.length ? tones[which] : null);
+                    renderContacts(root);
+                }).show();
+    }
+
+    /** Edit quiet hours. Both ends validated, and a zero-length window refused. */
+    private void editQuietHours(final ResponderSettings settings, final View root) {
+        final EditText from = new EditText(this);
+        from.setHint("from, e.g. 23:00");
+        from.setText(ResponderWindow.formatMinute(settings.quietStart()));
+        final EditText to = new EditText(this);
+        to.setHint("to, e.g. 07:00");
+        to.setText(ResponderWindow.formatMinute(settings.quietEnd()));
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(8), dp(16), 0);
+        box.addView(from);
+        box.addView(to);
+
+        new AlertDialog.Builder(this)
+                .setTitle("When are you asleep?")
+                .setMessage("24-hour times. Crossing midnight is fine \u2014 23:00 to 07:00 is "
+                        + "what you'd expect it to be.")
+                .setView(box)
+                .setNegativeButton("Leave it", null)
+                .setPositiveButton("Set", (d, w) -> {
+                    int start = ResponderWindow.parseMinute(from.getText().toString());
+                    int end = ResponderWindow.parseMinute(to.getText().toString());
+                    if (!ResponderWindow.isValidWindow(start, end)) {
+                        // Refused rather than stored. A start equal to an end would mean "always
+                        // quiet", and every message would get the sleeping reply.
+                        toast("That isn't a window I can use. Two different valid times, please.");
+                        return;
+                    }
+                    settings.setQuietHours(start, end);
+                    renderResponder(root);
+                }).show();
+    }
+
+    /** Edit one numeric setting. */
+    private void editNumber(String title, long current, final Number apply, final View root) {
+        final EditText input = new EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(current));
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(input)
+                .setNegativeButton("Leave it", null)
+                .setPositiveButton("Set", (d, w) -> {
+                    try {
+                        apply.set(Long.parseLong(input.getText().toString().trim()));
+                        renderResponder(root);
+                    } catch (Exception e) {
+                        toast("That wasn't a number.");
+                    }
+                }).show();
+    }
+
+    /** Edit the auto-disarm duration, including the indefinite option. */
+    private void editDisarm(final ResponderSettings settings, final View root) {
+        new AlertDialog.Builder(this)
+                .setTitle("How long should I stay armed?")
+                .setMessage("This is the thing that stops me still answering for you three weeks "
+                        + "from now because you forgot I was on. Everything else limits how often "
+                        + "I speak; only this limits how long.")
+                .setNegativeButton("Set hours", (d, w) -> {
+                    settings.setArmedIndefinitely(false);
+                    editNumber("Stand down after how many hours?",
+                            settings.disarmAfterMs() / 3600000,
+                            value -> settings.setDisarmAfterMs(value * 3600000L), root);
+                })
+                .setNeutralButton("Leave it", null)
+                .setPositiveButton("Until I stop you", (d, w) -> {
+                    settings.setArmedIndefinitely(true);
+                    toast("Armed until you say otherwise. I'd rather you didn't forget.");
+                    renderResponder(root);
+                }).show();
+    }
+
+    private void editDefaultTone(final ResponderSettings settings, final View root) {
+        final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
+        String[] labels = new String[tones.length];
+        for (int i = 0; i < tones.length; i++) {
+            labels[i] = tones[i] == ReplyTone.Tone.SARCASTIC
+                    ? "SARCASTIC \u2014 only if you mean it" : tones[i].name();
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("How should I sound by default?")
+                .setItems(labels, (d, which) -> {
+                    settings.setDefaultTone(tones[which]);
+                    renderResponder(root);
+                }).show();
+    }
+
+    /** Pick a category, then rewrite what IRIS says for it. */
+    private void editTemplates(final ResponderSettings settings, final View root) {
+        final java.util.List<MessageCategory.Kind> kinds = new java.util.ArrayList<>();
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+        for (MessageCategory.Kind kind : MessageCategory.Kind.values()) {
+            if (kind == MessageCategory.Kind.NONE) continue;
+            if (ReplyTemplates.variants(kind, settings.defaultTone(), false).isEmpty()
+                    && ReplyTemplates.variants(kind, settings.defaultTone(), true).isEmpty()) {
+                continue;
+            }
+            kinds.add(kind);
+            labels.add(categoryLabel(kind));
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Which reply should I rewrite?")
+                .setItems(labels.toArray(new String[0]),
+                        (d, which) -> editOneTemplate(settings, kinds.get(which), false, root))
+                .setNeutralButton("Reset all my words", (d, w) -> {
+                    int removed = settings.resetAllTemplates();
+                    toast(removed == 0 ? "Nothing to restore \u2014 they're all mine already."
+                            : removed + " restored to my wording.");
+                    renderResponder(root);
+                }).show();
+    }
+
+    private void editOneTemplate(final ResponderSettings settings,
+                                 final MessageCategory.Kind kind, final boolean quiet,
+                                 final View root) {
+        final ReplyTone.Tone tone = settings.defaultTone();
+        java.util.List<String> shipped = ReplyTemplates.variants(kind, tone, quiet);
+        String current = settings.customTemplate(kind, tone, quiet);
+
+        final EditText input = new EditText(this);
+        input.setHint(shipped.isEmpty() ? "your reply" : shipped.get(0));
+        input.setText(current);
+        input.setMinLines(3);
+
+        new AlertDialog.Builder(this)
+                .setTitle(categoryLabel(kind) + " \u00b7 " + tone.name()
+                        + (quiet ? " \u00b7 quiet hours" : ""))
+                .setMessage("Leave it empty to use my wording. You can use {name}, {time}, "
+                        + "{part_of_day} and {hours_until_morning}.")
+                .setView(input)
+                .setNegativeButton("Cancel", null)
+                .setNeutralButton(quiet ? "Normal hours" : "Quiet hours",
+                        (d, w) -> editOneTemplate(settings, kind, !quiet, root))
+                .setPositiveButton("Save", (d, w) -> {
+                    String text = input.getText().toString();
+                    settings.setCustomTemplate(kind, tone, quiet, text);
+                    // Non-blocking warning, not a refusal. Transparency is guaranteed for my
+                    // own wording and the owner may knowingly opt out of it for his.
+                    if (!text.trim().isEmpty() && !ReplyTemplates.identifiesIris(text)) {
+                        new AlertDialog.Builder(this)
+                                .setTitle("Saved, but they'll think it was you")
+                                .setMessage("That wording doesn't mention me or you by name, so "
+                                        + "whoever receives it will assume you typed it. That's "
+                                        + "your call \u2014 I've saved it exactly as written.")
+                                .setPositiveButton("I know", null)
+                                .show();
+                    }
+                    renderResponder(root);
+                }).show();
+    }
+
+    /** Wire the RESPONDER section. */
+    private void bindResponderSection(final View view) {
+        final ResponderSettings settings = new ResponderSettings(this);
+
+        View off = view.findViewById(R.id.responderStateOff);
+        View dry = view.findViewById(R.id.responderStateDry);
+        View live = view.findViewById(R.id.responderStateLive);
+
+        if (off != null) {
+            off.setOnClickListener(v -> {
+                settings.setState(ResponderGuards.State.OFF, System.currentTimeMillis());
+                toast("Stood down. I'll keep my opinions to myself.");
+                renderResponder(view);
+            });
+        }
+        if (dry != null) {
+            // Arming even the dry run is an authenticated action. It is the step at which IRIS
+            // begins forming opinions about Suvra's correspondence, which is worth a deliberate
+            // gesture even though nothing can leave the phone yet.
+            dry.setOnClickListener(v -> authenticateThen("Arm the responder in dry run", () -> {
+                settings.setState(ResponderGuards.State.DRY_RUN, System.currentTimeMillis());
+                toast("Dry run armed. I'll decide, and say nothing.");
+                renderResponder(view);
+            }));
+        }
+        if (live != null) {
+            live.setOnClickListener(v -> confirmGoLive(settings, view));
+        }
+
+        View apps = view.findViewById(R.id.responderAppsButton);
+        if (apps != null) {
+            apps.setOnClickListener(v ->
+                    ResponderAppPicker.show(this, () -> renderResponder(view)));
+        }
+
+        View clearLog = view.findViewById(R.id.responderClearLog);
+        if (clearLog != null) {
+            clearLog.setOnClickListener(v -> {
+                new ResponderLog(this).clear();
+                toast("Log cleared. I remember nothing, as usual.");
+                renderResponder(view);
+            });
+        }
+
+        View reset = view.findViewById(R.id.responderResetButton);
+        if (reset != null) {
+            reset.setOnClickListener(v -> new AlertDialog.Builder(this)
+                    .setTitle("Reset everything?")
+                    .setMessage("Every rule, every window, every word you've rewritten goes back "
+                            + "to how I shipped. Your contact list goes too. This is the way back "
+                            + "if you've edited me into something useless.")
+                    .setNegativeButton("Keep my settings", null)
+                    .setPositiveButton("Reset", (d, w) -> {
+                        settings.resetEverything();
+                        toast("Back to factory opinions.");
+                        renderResponder(view);
+                    }).show());
+        }
+
+        renderResponder(view);
+    }
+
+    /**
+     * Go live, behind authentication and a confirmation that states the consequences concretely.
+     *
+     * The confirmation lists the actual settings rather than a generic warning, because "are you
+     * sure?" is a question nobody reads. Naming the app count, the scope and the stand-down time
+     * means the owner is agreeing to something specific.
+     *
+     * A dry run is required first, and refused outright if the log is empty: going live without
+     * ever having seen what IRIS would say is the one path this whole design exists to prevent.
+     */
+    private void confirmGoLive(final ResponderSettings settings, final View view) {
+        ResponderLog log = new ResponderLog(this);
+        if (log.all().isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Run the dry run first")
+                    .setMessage("I haven't decided anything yet, Suvra, so you have no idea how "
+                            + "I'd behave \u2014 and neither do I, really.\n\nArm DRY RUN, let "
+                            + "some messages arrive, and read what I would have said. Then this "
+                            + "button means something.")
+                    .setPositiveButton("Fair", null)
+                    .show();
+            return;
+        }
+        if (settings.apps().isEmpty()) {
+            toast("Tell me which apps first, or I'll be live with nothing to speak through.");
+            return;
+        }
+
+        StringBuilder what = new StringBuilder();
+        what.append("From the moment you confirm, I will send messages from your account "
+                + "without asking you first.\n\n");
+        what.append("\u2022 Through ").append(settings.apps().size())
+                .append(settings.apps().size() == 1 ? " app\n" : " apps\n");
+        what.append("\u2022 ").append(settings.replyToPersonal()
+                ? "One-to-one chats: yes\n" : "One-to-one chats: no\n");
+        what.append("\u2022 ").append(settings.replyToGroups()
+                ? (settings.groupsRequireMention()
+                    ? "Groups: only when you're named\n" : "Groups: all messages\n")
+                : "Groups: no\n");
+        what.append("\u2022 ").append(settings.replyToUnsaved()
+                ? "Unknown numbers: yes\n" : "Unknown numbers: no\n");
+        what.append("\u2022 Default tone: ").append(settings.defaultTone().name()).append('\n');
+        what.append("\u2022 At most ").append(settings.dailyCapTotal())
+                .append(" replies a day, ").append(settings.contactCapPerDay())
+                .append(" per person\n");
+        what.append("\u2022 ").append(settings.armedIndefinitely()
+                ? "I will stay armed until you stop me"
+                : "I'll stand down after " + (settings.disarmAfterMs() / 3600000) + " hours");
+        what.append("\n\nEvery message will say it came from me and not from you. ")
+                .append(log.wouldHaveSentCount())
+                .append(" of my last ").append(log.all().size())
+                .append(" decisions would have been sent \u2014 read them first if you haven't.");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Let me speak for you?")
+                .setMessage(what.toString())
+                .setNegativeButton("Stay in dry run", null)
+                .setPositiveButton("Go live", (d, w) ->
+                        authenticateThen("Let IRIS send messages on your behalf", () -> {
+                            settings.setState(ResponderGuards.State.LIVE,
+                                    System.currentTimeMillis());
+                            toast("Live. I'll be careful with your name.");
+                            renderResponder(view);
+                        }))
+                .show();
+    }
+
+    /** Redraw the responder status, settings rows and decision log. */
+    private void renderResponder(View view) {
+        final ResponderSettings settings = new ResponderSettings(this);
+        long now = System.currentTimeMillis();
+
+        TextView status = view.findViewById(R.id.responderStatus);
+        if (status != null) {
+            status.setText(responderStatusText(settings, now));
+            boolean off = settings.state() == ResponderGuards.State.OFF;
+            status.setTextColor(getColor(off ? R.color.deck_text_dim : R.color.deck_accent));
+        }
+        highlightResponderState(view, settings.state());
+
+        LinearLayout host = view.findViewById(R.id.responderSettingsHost);
+        if (host != null) {
+            host.removeAllViews();
+            host.addView(sectionLabel("SCOPE"));
+            host.addView(responderSwitch("Answer one-to-one chats",
+                    settings.replyToPersonal(), on -> settings.setReplyToPersonal(on), view));
+            host.addView(responderSwitch("Answer group chats",
+                    settings.replyToGroups(), on -> settings.setReplyToGroups(on), view));
+            host.addView(responderSwitch("In groups, only when I'm named",
+                    settings.groupsRequireMention(),
+                    on -> settings.setGroupsRequireMention(on), view));
+            host.addView(responderSwitch("Answer numbers not in your contacts",
+                    settings.replyToUnsaved(), on -> settings.setReplyToUnsaved(on), view));
+            host.addView(responderSwitch("Only contacts you've explicitly allowed",
+                    settings.allowlistOnly(), on -> settings.setAllowlistOnly(on), view));
+
+            host.addView(sectionLabel("TIMING"));
+            host.addView(responderRow("Quiet hours",
+                    ResponderWindow.formatMinute(settings.quietStart()) + " \u2192 "
+                            + ResponderWindow.formatMinute(settings.quietEnd()),
+                    () -> editQuietHours(settings, view)));
+            host.addView(responderRow("Cooldown per chat",
+                    (settings.cooldownMs() / 60000) + " min",
+                    () -> editNumber("Cooldown in minutes",
+                            settings.cooldownMs() / 60000,
+                            value -> settings.setCooldownMs(value * 60000L), view)));
+            host.addView(responderRow("Stand down after",
+                    settings.armedIndefinitely() ? "never \u2014 until you stop me"
+                            : (settings.disarmAfterMs() / 3600000) + " h",
+                    () -> editDisarm(settings, view)));
+
+            host.addView(sectionLabel("LIMITS"));
+            host.addView(responderRow("Replies per contact per day",
+                    String.valueOf(settings.contactCapPerDay()),
+                    () -> editNumber("Replies per contact per day",
+                            settings.contactCapPerDay(),
+                            value -> settings.setContactCapPerDay((int) value), view)));
+            host.addView(responderRow("Replies per day in total",
+                    String.valueOf(settings.dailyCapTotal()),
+                    () -> editNumber("Replies per day in total", settings.dailyCapTotal(),
+                            value -> settings.setDailyCapTotal((int) value), view)));
+
+            host.addView(sectionLabel("VOICE"));
+            host.addView(responderRow("Default tone", settings.defaultTone().name(),
+                    () -> editDefaultTone(settings, view)));
+            host.addView(responderRow("Rewrite what I say", "per category",
+                    () -> editTemplates(settings, view)));
+
+            host.addView(sectionLabel("WHAT I ANSWER"));
+            for (MessageCategory.Kind kind : MessageCategory.Kind.values()) {
+                if (kind == MessageCategory.Kind.NONE) continue;
+                final MessageCategory.Kind current = kind;
+                host.addView(responderSwitch(categoryLabel(kind),
+                        settings.categoryEnabled(kind, settings.defaultTone()),
+                        on -> settings.setCategoryEnabled(current, on), view));
+            }
+        }
+
+        renderResponderLog(view);
+    }
+
+    private String responderStatusText(ResponderSettings settings, long now) {
+        ResponderGuards.State state = settings.state();
+        if (state == ResponderGuards.State.OFF) {
+            return "I'm off. Nothing I decide reaches anyone, because I'm not deciding.";
+        }
+        int appCount = settings.apps().size();
+        if (appCount == 0) {
+            return "Armed, but you haven't told me which apps I may speak through \u2014 so I am "
+                    + "watching nothing. Tap the button above.";
+        }
+        StringBuilder out = new StringBuilder();
+        out.append(state == ResponderGuards.State.DRY_RUN
+                ? "DRY RUN. I'm deciding and writing it down, and sending nothing. "
+                : "LIVE. I am answering for you. ");
+        out.append("Watching ").append(appCount).append(appCount == 1 ? " app" : " apps");
+        if (settings.armedIndefinitely()) {
+            out.append(", with no stand-down time \u2014 you'll have to stop me yourself.");
+        } else {
+            long left = settings.armedUntilMs() - now;
+            out.append(left > 0
+                    ? ", standing down in about " + Math.max(1, left / 3600000) + " h."
+                    : ". My armed period has run out, so I've stood down.");
+        }
+        return out.toString();
+    }
+
+    private void highlightResponderState(View view, ResponderGuards.State state) {
+        int[] ids = {R.id.responderStateOff, R.id.responderStateDry, R.id.responderStateLive};
+        ResponderGuards.State[] states = {ResponderGuards.State.OFF,
+                ResponderGuards.State.DRY_RUN, ResponderGuards.State.LIVE};
+        for (int i = 0; i < ids.length; i++) {
+            TextView button = view.findViewById(ids[i]);
+            if (button == null) continue;
+            boolean active = states[i] == state;
+            boolean danger = i == 2;
+            button.setTextColor(getColor(active ? R.color.magenta
+                    : danger ? R.color.deck_error : R.color.deck_inactive));
+            button.setTypeface(android.graphics.Typeface.MONOSPACE,
+                    active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        }
+    }
+
+    private String categoryLabel(MessageCategory.Kind kind) {
+        switch (kind) {
+            case GREETING: return "Plain hellos";
+            case TIME_GREETING: return "Good morning / night, gm, gn";
+            case FESTIVAL: return "Festival wishes";
+            case BIRTHDAY: return "Birthday wishes";
+            case WEEKEND: return "Weekend wishes";
+            case THANKS: return "Thanks, ty, thx";
+            case CHECK_IN: return "Are you there?";
+            case QUESTION: return "Questions";
+            case URGENT: return "Urgent";
+            case MENTION: return "When I'm named in a group";
+            case SHORT: return "One or two word messages";
+            case ACKNOWLEDGEMENT: return "\u201Cok\u201D (sarcastic tone only)";
+            case MEDIA_ONLY: return "Photos and stickers";
+            default: return kind.name();
+        }
+    }
+
+    private TextView sectionLabel(String text) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextSize(10f);
+        label.setTypeface(android.graphics.Typeface.MONOSPACE,
+                android.graphics.Typeface.BOLD);
+        label.setLetterSpacing(0.2f);
+        label.setTextColor(getColor(R.color.magenta));
+        label.setPadding(0, dp(14), 0, dp(4));
+        return label;
+    }
+
+    /** Callback for a boolean responder setting. */
+    private interface Toggle { void set(boolean on); }
+
+    /** Callback for a numeric responder setting. */
+    private interface Number { void set(long value); }
+
+    private View responderSwitch(String label, boolean value, final Toggle toggle,
+                                 final View root) {
+        Switch box = new Switch(this);
+        box.setText(label);
+        box.setChecked(value);
+        box.setTextSize(12f);
+        box.setTypeface(android.graphics.Typeface.MONOSPACE);
+        box.setTextColor(getColor(R.color.deck_text));
+        box.setMinHeight(dp(44));
+        box.setOnCheckedChangeListener((b, on) -> {
+            toggle.set(on);
+            renderResponder(root);
+        });
+        return box;
+    }
+
+    private View responderRow(String label, String value, final Runnable onTap) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setMinimumHeight(dp(44));
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setBackgroundResource(R.drawable.bg_cyber_row);
+        row.setPadding(dp(11), dp(9), dp(11), dp(9));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(5);
+        row.setLayoutParams(params);
+
+        TextView name = new TextView(this);
+        name.setText(label);
+        name.setTextSize(12f);
+        name.setTypeface(android.graphics.Typeface.MONOSPACE);
+        name.setTextColor(getColor(R.color.deck_text));
+        name.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(name);
+
+        TextView shown = new TextView(this);
+        shown.setText(value);
+        shown.setTextSize(12f);
+        shown.setTypeface(android.graphics.Typeface.MONOSPACE,
+                android.graphics.Typeface.BOLD);
+        shown.setTextColor(getColor(R.color.deck_accent));
+        row.addView(shown);
+
+        row.setOnClickListener(v -> onTap.run());
+        return row;
+    }
+
+    private void renderResponderLog(View view) {
+        ResponderLog log = new ResponderLog(this);
+        java.util.List<ResponderLog.Entry> entries = log.newestFirst();
+
+        TextView summary = view.findViewById(R.id.responderLogSummary);
+        if (summary != null) {
+            summary.setText(entries.isEmpty()
+                    ? "Nothing decided yet. Arm the dry run and let a message arrive."
+                    : entries.size() + " decisions \u00b7 " + log.wouldHaveSentCount()
+                            + " would have been answered");
+        }
+
+        LinearLayout host = view.findViewById(R.id.responderLogHost);
+        if (host == null) return;
+        host.removeAllViews();
+
+        if (entries.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("The silences will show up here too, with my reasons. That is the "
+                    + "point of the dry run \u2014 you get to audit my judgement before I'm "
+                    + "allowed to use it.");
+            empty.setTextSize(11f);
+            empty.setTypeface(android.graphics.Typeface.MONOSPACE);
+            empty.setTextColor(getColor(R.color.deck_text_dim));
+            empty.setPadding(0, dp(10), 0, dp(10));
+            host.addView(empty);
+            return;
+        }
+        for (ResponderLog.Entry entry : entries) host.addView(responderLogCard(entry));
+    }
+
+    /**
+     * One decision.
+     *
+     * A silence is shown as prominently as a send, because during a dry run the owner is mostly
+     * checking that IRIS declines for sensible reasons.
+     */
+    private View responderLogCard(ResponderLog.Entry entry) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(11), dp(9), dp(11), dp(9));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(5);
+        card.setLayoutParams(params);
+        boolean spoke = entry.wouldHaveSent();
+        card.setBackgroundResource(spoke
+                ? R.drawable.bg_cyber_row_flagged : R.drawable.bg_cyber_row);
+
+        TextView head = new TextView(this);
+        String who = entry.sender.isEmpty() ? "someone" : entry.sender;
+        head.setText(who + (entry.group ? " (group)" : "") + " \u00b7 " + entry.appLabel);
+        head.setTextSize(12f);
+        head.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        head.setTextColor(getColor(spoke ? R.color.deck_error : R.color.deck_accent));
+        card.addView(head);
+
+        TextView meta = new TextView(this);
+        meta.setText(DeletedMessageRules.formatTime(entry.whenMs, java.util.TimeZone.getDefault())
+                + " \u00b7 " + entry.category + " \u00b7 " + entry.tone
+                + (entry.dryRun ? " \u00b7 DRY RUN" : ""));
+        meta.setTextSize(10f);
+        meta.setTypeface(android.graphics.Typeface.MONOSPACE);
+        meta.setTextColor(getColor(R.color.deck_text_dim));
+        card.addView(meta);
+
+        TextView reason = new TextView(this);
+        ResponderGuards.Verdict verdict;
+        try { verdict = ResponderGuards.Verdict.valueOf(entry.verdict); }
+        catch (Exception e) { verdict = null; }
+        reason.setText(ResponderGuards.explain(verdict));
+        reason.setTextSize(11f);
+        reason.setTypeface(android.graphics.Typeface.MONOSPACE);
+        reason.setTextColor(getColor(R.color.deck_text_dim));
+        reason.setPadding(0, dp(4), 0, 0);
+        card.addView(reason);
+
+        if (spoke) {
+            TextView said = new TextView(this);
+            said.setText((entry.dryRun ? "WOULD HAVE SENT: " : "SENT: ") + entry.reply);
+            said.setTextSize(11f);
+            said.setTextColor(getColor(R.color.deck_text));
+            said.setPadding(0, dp(6), 0, 0);
+            card.addView(said);
+        }
+        return card;
+    }
+
+    /** Tint the active sub-tab. The inactive ones stay dim so the current section is obvious. */
+    private void highlightCommsTab(View shell, int section) {
+        int[] ids = {R.id.commsTabArchive, R.id.commsTabResponder, R.id.commsTabContacts};
+        for (int i = 0; i < ids.length; i++) {
+            TextView tab = shell.findViewById(ids[i]);
+            if (tab == null) continue;
+            boolean active = i == section;
+            tab.setTextColor(getColor(active ? R.color.magenta : R.color.deck_inactive));
+            tab.setTypeface(android.graphics.Typeface.MONOSPACE,
+                    active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        }
+    }
+
+    /** Wire the ARCHIVE section. Unchanged behaviour; only the host view moved. */
+    private void bindArchiveSection(View view) {
         ArchiveAlerts.clear(this);
 
         AppSettings settings = new AppSettings(this);
@@ -2041,7 +2867,7 @@ public class MainActivity extends Activity {
             // though capturing never does. Capture while locked is the whole point; display is the
             // part that needs a gate.
             archiveOpen.setOnClickListener(v ->
-                    authenticateThen("Open the receipt vault", this::showArchive));
+                    authenticateThen("Open the comms deck", this::showArchive));
         }
         view.findViewById(R.id.crashReportButton).setOnClickListener(v->authenticateThen("View crash and wake report",()->{
             new Thread(()->{String report=CrashDiagnostics.report(getApplicationContext());
@@ -5379,7 +6205,7 @@ public class MainActivity extends Activity {
         if (intent.getBooleanExtra(EXTRA_OPEN_ARCHIVE, false)) {
             intent.removeExtra(EXTRA_OPEN_ARCHIVE);
             // Authenticate before showing intercepted messages, matching the in-app entry point.
-            handler.post(() -> authenticateThen("Open the receipt vault", this::showArchive));
+            handler.post(() -> authenticateThen("Open the comms deck", this::showArchive));
             return;
         }
         if(intent.hasExtra("routinePreview")){String phrase=intent.getStringExtra("routinePreview");intent.removeExtra("routinePreview");ReliabilityTools.preview(this,RoutineStore.match(this,phrase),this::runReviewedCommand);return;}
