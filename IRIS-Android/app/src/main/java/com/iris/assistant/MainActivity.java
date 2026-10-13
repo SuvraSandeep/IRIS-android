@@ -1099,6 +1099,9 @@ public class MainActivity extends Activity {
                     ResponderAppPicker.show(this, () -> renderResponder(view)));
         }
 
+        View testSend = view.findViewById(R.id.responderTestSend);
+        if (testSend != null) testSend.setOnClickListener(v -> testSendNow(view));
+
         View refreshLog = view.findViewById(R.id.responderRefreshLog);
         if (refreshLog != null) {
             refreshLog.setOnClickListener(v -> {
@@ -1303,6 +1306,85 @@ public class MainActivity extends Activity {
     private String responderLogSignature = "";
 
     /**
+     * Attempt one real reply now and report exactly what came back.
+     *
+     * Added because "the log said sent and nothing arrived" is not diagnosable by reading code.
+     * Waiting for a message to arrive confounds three separate questions -- did the message get
+     * classified, did the guards allow it, did the send succeed -- and answering them one build at
+     * a time is slow. This isolates the third.
+     *
+     * It sends a REAL message, so it names the recipient first and requires confirmation. It does
+     * not touch cooldowns, caps or the decision log: it is a measurement of the send path, not a
+     * decision, and letting it consume allowances would distort the thing being measured.
+     */
+    private void testSendNow(final View root) {
+        final ResponderSettings settings = new ResponderSettings(this);
+        final java.util.List<android.service.notification.StatusBarNotification> candidates =
+                new java.util.ArrayList<>();
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+
+        for (android.service.notification.StatusBarNotification sbn
+                : IrisNotificationListener.activeForReply()) {
+            if (sbn == null || sbn.getPackageName() == null) continue;
+            if (!settings.allowsApp(sbn.getPackageName())) continue;
+            if (IrisNotificationListener.replyAction(sbn) == null) continue;
+            CharSequence title = sbn.getNotification().extras
+                    .getCharSequence(android.app.Notification.EXTRA_TITLE);
+            candidates.add(sbn);
+            labels.add((title == null ? "(no title)" : title.toString())
+                    + "\n" + appLabel(sbn.getPackageName()));
+        }
+
+        if (candidates.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Nothing I can reply to right now")
+                    .setMessage("I need a notification showing, from an app you've ticked for me, "
+                            + "that offers a reply box.\n\nSend yourself a message and leave the "
+                            + "notification in the shade \u2014 don't open the chat, because that "
+                            + "dismisses the notification and the reply handle lives on it.")
+                    .setPositiveButton("Right", null)
+                    .show();
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Reply to which one?")
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    final android.service.notification.StatusBarNotification chosen =
+                            candidates.get(which);
+                    new AlertDialog.Builder(this)
+                            .setTitle("This sends a real message")
+                            .setMessage("I'll send \u201CTest from IRIS, Suvra's assistant. "
+                                    + "Ignore this.\u201D to " + labels.get(which).replace('\n', ' ')
+                                    + ", right now, and tell you precisely what the app said "
+                                    + "back.\n\nThis doesn't use up any of your daily allowance "
+                                    + "and won't appear in the decision log \u2014 it's a test of "
+                                    + "the send, not a decision.")
+                            .setNegativeButton("Don't", null)
+                            .setPositiveButton("Send it", (d2, w2) -> {
+                                NotificationReply.Result result = NotificationReply.send(
+                                        this, chosen,
+                                        "Test from IRIS, Suvra's assistant. Ignore this.",
+                                        "auto_reply_test", false);
+                                new AlertDialog.Builder(this)
+                                        .setTitle(NotificationReply.sent(result)
+                                                ? "Handed over" : "Refused")
+                                        .setMessage("Result: " + result.name() + "\n\n"
+                                                + NotificationReply.explain(result)
+                                                + (NotificationReply.sent(result)
+                                                    ? "\n\nIf it doesn't appear in the chat, the "
+                                                      + "app accepted the handle and then did "
+                                                      + "nothing with it \u2014 which is the app's "
+                                                      + "doing, not mine, and nothing on this "
+                                                      + "phone can see past that point."
+                                                    : ""))
+                                        .setPositiveButton("Noted", null)
+                                        .show();
+                            }).show();
+                }).show();
+    }
+
+    /**
      * Watch the decision log while the RESPONDER tab is open.
      *
      * Decisions are written by the notification listener on a background thread, so on device the
@@ -1467,10 +1549,25 @@ public class MainActivity extends Activity {
 
         TextView summary = view.findViewById(R.id.responderLogSummary);
         if (summary != null) {
-            summary.setText(entries.isEmpty()
-                    ? "Nothing decided yet. Arm the dry run and let a message arrive."
-                    : entries.size() + " decisions \u00b7 " + log.wouldHaveSentCount()
-                            + " would have been answered");
+            if (entries.isEmpty()) {
+                summary.setText("Nothing decided yet. Arm the dry run and let a message arrive.");
+            } else {
+                StringBuilder line = new StringBuilder();
+                line.append(entries.size()).append(" decisions \u00b7 ")
+                        .append(log.wouldHaveSentCount()).append(" with something to say");
+                int sent = log.sentCount();
+                int failed = log.failedCount();
+                if (sent > 0) line.append(" \u00b7 ").append(sent).append(" sent");
+                // Called out, not buried. A responder that decides well and then fails to deliver
+                // reads from a summary line exactly like one that is working.
+                if (failed > 0) {
+                    line.append(" \u00b7 ").append(failed)
+                            .append(failed == 1 ? " FAILED to send" : " FAILED to send");
+                }
+                summary.setText(line.toString());
+                summary.setTextColor(getColor(
+                        failed > 0 ? R.color.deck_error : R.color.deck_text_dim));
+            }
         }
 
         LinearLayout host = view.findViewById(R.id.responderLogHost);
@@ -1507,6 +1604,7 @@ public class MainActivity extends Activity {
         params.topMargin = dp(5);
         card.setLayoutParams(params);
         boolean spoke = entry.wouldHaveSent();
+        boolean failed = entry.sendFailed();
         card.setBackgroundResource(spoke
                 ? R.drawable.bg_cyber_row_flagged : R.drawable.bg_cyber_row);
 
@@ -1539,12 +1637,40 @@ public class MainActivity extends Activity {
         card.addView(reason);
 
         if (spoke) {
+            // Three distinct outcomes, never collapsed. A failed send used to render under the
+            // word "SENT" with the failure message as its body, which told the owner a message had
+            // gone when it had not -- the one thing this log exists to get right.
             TextView said = new TextView(this);
-            said.setText((entry.dryRun ? "WOULD HAVE SENT: " : "SENT: ") + entry.reply);
+            String prefix = entry.dryRun ? "WOULD HAVE SENT: "
+                    : failed ? "NOT SENT: " : "SENT: ";
+            said.setText(prefix + entry.reply);
             said.setTextSize(11f);
-            said.setTextColor(getColor(R.color.deck_text));
+            said.setTextColor(getColor(failed ? R.color.deck_error : R.color.deck_text));
             said.setPadding(0, dp(6), 0, 0);
             card.addView(said);
+
+            if (failed) {
+                TextView why = new TextView(this);
+                NotificationReply.Result result;
+                try { result = NotificationReply.Result.valueOf(entry.sendResult); }
+                catch (Exception e) { result = null; }
+                why.setText("\u2514 " + NotificationReply.explain(result));
+                why.setTextSize(11f);
+                why.setTypeface(android.graphics.Typeface.MONOSPACE);
+                why.setTextColor(getColor(R.color.deck_error));
+                why.setPadding(0, dp(4), 0, 0);
+                card.addView(why);
+            } else if (entry.actuallySent()) {
+                // Stated plainly, because "submitted" and "delivered" are different claims and
+                // nothing observable from inside this app can tell them apart.
+                TextView caveat = new TextView(this);
+                caveat.setText("\u2514 handed to the app; delivery isn't something I can verify");
+                caveat.setTextSize(10f);
+                caveat.setTypeface(android.graphics.Typeface.MONOSPACE);
+                caveat.setTextColor(getColor(R.color.deck_text_dim));
+                caveat.setPadding(0, dp(4), 0, 0);
+                card.addView(caveat);
+            }
         }
         return card;
     }

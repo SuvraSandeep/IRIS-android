@@ -157,9 +157,23 @@
             android:orientation="horizontal">
 
             <Button
+                android:id="@+id/responderTestSend"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_cyber_button"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:text="TEST SEND"
+                android:textAllCaps="false"
+                android:textColor="@color/deck_error"
+                android:textSize="11sp" />
+
+            <Button
                 android:id="@+id/responderRefreshLog"
                 android:layout_width="0dp"
                 android:layout_height="44dp"
+                android:layout_marginLeft="6dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_cyber_button"
                 android:fontFamily="monospace"

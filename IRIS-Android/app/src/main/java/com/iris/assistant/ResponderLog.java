@@ -55,8 +55,28 @@ public final class ResponderLog {
         public String reply = "";
         /** True when the responder was in dry run and withheld the send. */
         public boolean dryRun;
+        /**
+         * What actually happened to the send, as a NotificationReply.Result name.
+         *
+         * Empty when nothing was attempted. Added because the log claimed delivery it could not
+         * prove: a failed send used to overwrite the reply text with its own failure message and
+         * was then rendered under the word "SENT", so the log read "SENT: the notification changed
+         * or the reply action expired". The outcome needs its own field so the display can never
+         * again put the two on the same line.
+         */
+        public String sendResult = "";
 
         public boolean wouldHaveSent() { return !reply.isEmpty(); }
+
+        /** True only when a send was attempted and the app accepted the handle. */
+        public boolean actuallySent() {
+            return !dryRun && "SENT".equals(sendResult);
+        }
+
+        /** True when a send was attempted and did not succeed. */
+        public boolean sendFailed() {
+            return !dryRun && !sendResult.isEmpty() && !"SENT".equals(sendResult);
+        }
     }
 
     private final SharedPreferences prefs;
@@ -84,7 +104,8 @@ public final class ResponderLog {
                     .append(clean(item.verdict)).append(FIELD)
                     .append(clean(item.reply)).append(FIELD)
                     .append(item.dryRun ? "1" : "0").append(FIELD)
-                    .append(clean(item.pkg));
+                    .append(clean(item.pkg)).append(FIELD)
+                    .append(clean(item.sendResult));
         }
         prefs.edit().putString(KEY, out.toString()).apply();
     }
@@ -112,6 +133,7 @@ public final class ResponderLog {
                 // empty package rather than being discarded -- the owner's dry-run log is
                 // evidence he collected, and a schema addition must not throw it away.
                 entry.pkg = parts.length > 9 ? parts[9] : "";
+                entry.sendResult = parts.length > 10 ? parts[10] : "";
                 out.add(entry);
             } catch (Exception ignored) {
                 // A malformed record is skipped rather than discarding the whole log.
@@ -132,6 +154,29 @@ public final class ResponderLog {
         int count = 0;
         for (Entry entry : all()) {
             if (entry.wouldHaveSent()) count++;
+        }
+        return count;
+    }
+
+    /** How many were handed to an app successfully. */
+    public int sentCount() {
+        int count = 0;
+        for (Entry entry : all()) {
+            if (entry.actuallySent()) count++;
+        }
+        return count;
+    }
+
+    /**
+     * How many were decided but did not leave.
+     *
+     * Surfaced because a responder that decides correctly and then fails to deliver looks, from
+     * the summary line, exactly like one that is working.
+     */
+    public int failedCount() {
+        int count = 0;
+        for (Entry entry : all()) {
+            if (entry.sendFailed()) count++;
         }
         return count;
     }

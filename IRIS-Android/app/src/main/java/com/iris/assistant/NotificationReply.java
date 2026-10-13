@@ -62,6 +62,34 @@ public final class NotificationReply {
      */
     public static Result send(Context context, StatusBarNotification selected, String body,
                               String ledgerKind) {
+        return send(context, selected, body, ledgerKind, true);
+    }
+
+    /**
+     * As above, with the freshness rule made explicit.
+     *
+     * The two callers need different rules, and conflating them made the responder fail in
+     * practice while the manual screen worked.
+     *
+     * The manual screen must require the EXACT notification: Suvra read a specific message and
+     * composed a reply to it, so if the app has replaced that notification the thing he answered
+     * is no longer what the handle points at, and the reply is abandoned.
+     *
+     * The responder has no reading step. It classified a message milliseconds ago and is answering
+     * the conversation, not a particular rendering of it. Messaging apps re-post a conversation's
+     * notification whenever anything about it changes -- another message, a resolved contact
+     * photo, a read receipt -- and each re-post gets a new post time and a new reply handle. With
+     * the exact rule, any such re-post inside the window between classifying and sending turned
+     * into NOT_FOUND, and the responder simply never spoke.
+     *
+     * What protects against replying into the wrong conversation is the notification KEY, which
+     * identifies the conversation and is still required to match in both modes. The post time only
+     * identifies which rendering of it, which is not a distinction the responder is making.
+     *
+     * @param requireSameNotification true for the manual screen, false for the responder
+     */
+    public static Result send(Context context, StatusBarNotification selected, String body,
+                              String ledgerKind, boolean requireSameNotification) {
         if (context == null || selected == null) return Result.NOT_FOUND;
         if (body == null || body.trim().isEmpty()) return Result.EMPTY_TEXT;
 
@@ -77,12 +105,22 @@ public final class NotificationReply {
             Notification.Action action = IrisNotificationListener.replyAction(current);
             if (action == null || action.actionIntent == null) return Result.NO_ACTION;
 
-            // Same conversation, but a newer notification: the content the owner reviewed is not
-            // what this handle now points at, so it is abandoned rather than sent.
-            if (current.getPostTime() != selected.getPostTime()) return Result.NOT_FOUND;
-            if (!action.actionIntent.equals(expected.actionIntent)) return Result.NOT_FOUND;
+            if (requireSameNotification) {
+                // Same conversation, but a newer notification: the content the owner reviewed is
+                // not what this handle now points at, so it is abandoned rather than sent.
+                if (current.getPostTime() != selected.getPostTime()) return Result.NOT_FOUND;
+                if (!action.actionIntent.equals(expected.actionIntent)) return Result.NOT_FOUND;
+            } else if (current.getPostTime() < selected.getPostTime()) {
+                // An OLDER notification under the same key should not exist, and sending into one
+                // would mean the live list disagrees with what just arrived. Refused rather than
+                // guessed at.
+                return Result.NOT_FOUND;
+            }
 
             try {
+                // The handle from the CURRENT notification, deliberately. In exact mode it has
+                // already been proven identical to the reviewed one; in responder mode it is the
+                // live one, which is the only one the app will still honour.
                 RemoteInput field = action.getRemoteInputs()[0];
                 Bundle result = new Bundle();
                 result.putCharSequence(field.getResultKey(), body);

@@ -170,13 +170,22 @@ public final class AutoResponder {
             rememberAnswered(incoming.sbn.getKey());
 
             if (state == ResponderGuards.State.LIVE) {
+                // requireSameNotification=false: the responder answers the CONVERSATION, and a
+                // messaging app re-posting its notification between classification and send is
+                // routine. The key still has to match, which is what keeps the reply in the right
+                // conversation.
                 NotificationReply.Result result = NotificationReply.send(
-                        context, incoming.sbn, reply, "auto_reply");
+                        context, incoming.sbn, reply, "auto_reply", false);
+                entry.sendResult = result.name();
                 if (!NotificationReply.sent(result)) {
                     // The decision stands but the send did not happen, and the log must say so
                     // rather than claiming a message was delivered.
-                    entry.verdict = "SEND_FAILED";
-                    entry.reply = NotificationReply.explain(result);
+                    //
+                    // The reply text is deliberately LEFT ALONE here. Overwriting it with the
+                    // failure message is what made the log read "SENT: the notification changed",
+                    // because the display had nothing but that field to go on. The outcome now
+                    // lives in its own field and the two are rendered separately.
+                    entry.verdict = ResponderGuards.Verdict.SEND.name();
                     try (ActionLedger ledger = new ActionLedger(context)) {
                         ledger.record("auto_reply", ActionLedger.FAILED,
                                 "Auto-reply to " + incoming.pkg + " not sent: " + result.name(),
