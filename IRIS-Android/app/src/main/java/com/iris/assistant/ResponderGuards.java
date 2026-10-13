@@ -107,6 +107,8 @@ public final class ResponderGuards {
         public long armedUntilMs;
         public boolean armedIndefinitely;
         public boolean phoneInUse;
+        /** Answer anyway even when Suvra is using the phone. Owner-set; default defers to him. */
+        public boolean replyWhileInUse;
 
         public boolean replyToGroups;
         public boolean replyToPersonal = true;
@@ -144,7 +146,12 @@ public final class ResponderGuards {
 
         // Suvra is holding the phone, so he can answer it. Checked early because it overrides
         // every per-message consideration.
-        if (policy.phoneInUse) return Verdict.PHONE_IN_USE;
+        //
+        // Overridable, at the owner's explicit request after device testing. The default still
+        // defers to him, because a reply arriving while he is mid-conversation is worse than no
+        // reply at all -- but "I am at my desk with the screen on all day and nothing is being
+        // answered" is a legitimate complaint, and this is the switch for it.
+        if (policy.phoneInUse && !policy.replyWhileInUse) return Verdict.PHONE_IN_USE;
 
         // ─── Can anything be sent at all? ───
         // Many apps offer no reply action. Those are skipped silently rather than reported as a

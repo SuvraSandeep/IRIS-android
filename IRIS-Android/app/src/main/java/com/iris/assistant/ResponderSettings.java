@@ -34,6 +34,7 @@ public final class ResponderSettings {
     private static final String K_PERSONAL = "reply_personal";
     private static final String K_REQUIRE_MENTION = "groups_require_mention";
     private static final String K_UNSAVED = "reply_unsaved";
+    private static final String K_REPLY_IN_USE = "reply_in_use";
     private static final String K_APPS = "apps";
     private static final String K_QUIET_START = "quiet_start";
     private static final String K_QUIET_END = "quiet_end";
@@ -151,6 +152,19 @@ public final class ResponderSettings {
     public boolean allowlistOnly() { return prefs.getBoolean(K_ALLOWLIST_ONLY, false); }
     public void setAllowlistOnly(boolean v) {
         prefs.edit().putBoolean(K_ALLOWLIST_ONLY, v).apply();
+    }
+
+    /**
+     * Whether to answer even while Suvra is using the phone. Default false.
+     *
+     * Added after device testing. The default defers to him -- if he is holding the phone he can
+     * answer better than IRIS can, and a reply landing while he is already typing is worse than
+     * silence. But a phone that sits awake on a desk all day meant nothing was ever answered, and
+     * that is his call to make, not a rule to enforce.
+     */
+    public boolean replyWhileInUse() { return prefs.getBoolean(K_REPLY_IN_USE, false); }
+    public void setReplyWhileInUse(boolean v) {
+        prefs.edit().putBoolean(K_REPLY_IN_USE, v).apply();
     }
 
     // ─── Apps the responder may speak through ───

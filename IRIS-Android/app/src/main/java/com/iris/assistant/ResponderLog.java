@@ -38,6 +38,14 @@ public final class ResponderLog {
     public static final class Entry {
         public long whenMs;
         public String appLabel = "";
+        /**
+         * Package the message arrived through.
+         *
+         * Added so the contacts screen can offer people the RESPONDER has seen, not only those
+         * the ARCHIVE captured. Those are different lists -- the two features have separate app
+         * selections -- and on device the contacts screen came up empty because of it.
+         */
+        public String pkg = "";
         public String sender = "";
         public boolean group;
         public String category = "";
@@ -75,7 +83,8 @@ public final class ResponderLog {
                     .append(clean(item.tone)).append(FIELD)
                     .append(clean(item.verdict)).append(FIELD)
                     .append(clean(item.reply)).append(FIELD)
-                    .append(item.dryRun ? "1" : "0");
+                    .append(item.dryRun ? "1" : "0").append(FIELD)
+                    .append(clean(item.pkg));
         }
         prefs.edit().putString(KEY, out.toString()).apply();
     }
@@ -99,6 +108,10 @@ public final class ResponderLog {
                 entry.verdict = parts[6];
                 entry.reply = parts[7];
                 entry.dryRun = "1".equals(parts[8]);
+                // Tenth field added later. Records written before it are still valid and keep an
+                // empty package rather than being discarded -- the owner's dry-run log is
+                // evidence he collected, and a schema addition must not throw it away.
+                entry.pkg = parts.length > 9 ? parts[9] : "";
                 out.add(entry);
             } catch (Exception ignored) {
                 // A malformed record is skipped rather than discarding the whole log.
@@ -125,6 +138,38 @@ public final class ResponderLog {
 
     public void clear() {
         prefs.edit().remove(KEY).apply();
+    }
+
+    /**
+     * A cheap value that changes whenever the log does.
+     *
+     * The decision log is written by the notification listener on a background thread while the
+     * RESPONDER tab may be open, and nothing told the screen. Rather than rebuilding the view on a
+     * timer -- which would fight the owner every time he moved a switch -- the tab polls this and
+     * redraws only when it differs. Reads the raw string and does not parse it.
+     */
+    public String signature() {
+        String raw = prefs.getString(KEY, "");
+        return raw.length() + ":" + raw.hashCode();
+    }
+
+    /**
+     * Distinct senders the responder itself has seen, newest first.
+     *
+     * The contacts screen originally drew only on the archive, which has a separate app list, so
+     * someone the responder had decided about could be missing from the one screen where the
+     * owner goes to set a rule about them. This closes that gap. Senders only -- no message
+     * bodies are stored here and none are returned.
+     */
+    public List<Entry> distinctSenders() {
+        List<Entry> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (Entry entry : newestFirst()) {
+            if (entry.sender == null || entry.sender.trim().isEmpty()) continue;
+            String key = entry.pkg + "|" + entry.sender.toLowerCase(java.util.Locale.ROOT);
+            if (seen.add(key)) out.add(entry);
+        }
+        return out;
     }
 
     /** Strip the field separators so one value cannot corrupt the record structure. */

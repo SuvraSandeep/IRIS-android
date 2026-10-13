@@ -110,4 +110,81 @@ public final class MessageRollup {
         int close = working.indexOf(')', bracket);
         return close < 0 || close + 1 >= working.length() ? "" : working.substring(close + 1);
     }
+
+    /**
+     * Whether a notification represents a group conversation rather than a one-to-one chat.
+     *
+     * Added after on-device testing found every conversation being treated as a group, which with
+     * the shipped defaults (groups off) meant the responder refused everything with
+     * GROUP_NOT_ENABLED. The cause was reading a non-empty {@link #groupFromTitle} result as proof
+     * of a group. It is not: in a one-to-one chat the title IS the other person, so that test is
+     * true for every message ever received.
+     *
+     * The rule here is that a group must be positively evidenced, because the two mistakes cost
+     * different amounts. Calling a group "one-to-one" risks a reply in a group chat, which the
+     * mention requirement still guards. Calling one-to-one "a group" silently disables the
+     * responder's main job, and reports a reason that sends the owner looking in the wrong place.
+     *
+     * Evidence accepted, in order:
+     * <ol>
+     *   <li>the app set EXTRA_IS_GROUP_CONVERSATION -- it knows, so it wins;</li>
+     *   <li>more than one distinct person sent a message in this notification;</li>
+     *   <li>a group name that is a genuinely different name from the sender.</li>
+     * </ol>
+     *
+     * A title alone is never evidence. An SMS from a Twilio number arrives with the number as the
+     * title and no sender field at all, and that is exactly the case this method exists to get
+     * right.
+     *
+     * @param platformHint    the app's own EXTRA_IS_GROUP_CONVERSATION flag
+     * @param groupName       the title with count decoration stripped, from {@link #groupFromTitle}
+     * @param sender          the sender of the newest message, which may be empty
+     * @param distinctSenders how many different people sent messages in this notification
+     */
+    public static boolean isGroupConversation(boolean platformHint, String groupName,
+                                              String sender, int distinctSenders) {
+        // The app told us outright. Nothing we can infer beats what the app knows.
+        if (platformHint) return true;
+
+        // Two people talking in one notification can only be a group. This is the strongest
+        // signal available when an app does not set the hint.
+        if (distinctSenders > 1) return true;
+
+        String group = squash(groupName);
+        String who = squash(sender);
+
+        // No title to reason about.
+        if (group.isEmpty()) return false;
+
+        // No sender to compare the title against. A bare title is not evidence of anything -- it
+        // is equally the name of a group and the name of a person -- so this stays one-to-one.
+        // This is the Twilio SMS case: title "+15551234567", no sender, one message.
+        if (who.isEmpty()) return false;
+
+        if (group.equals(who)) return false;
+
+        // One name inside the other is the same person under a different form: a notification
+        // titled "Alice Smith" whose message is attributed to "Alice", or the reverse. Treating
+        // that as a group would misread a saved contact as a group of one.
+        if (group.contains(who) || who.contains(group)) return false;
+
+        return true;
+    }
+
+    /** Lower-cased, punctuation-free, single-spaced, for comparing two names for sameness. */
+    private static String squash(String raw) {
+        if (raw == null) return "";
+        StringBuilder out = new StringBuilder();
+        boolean space = false;
+        for (char c : raw.toLowerCase(java.util.Locale.ROOT).toCharArray()) {
+            if (Character.isLetterOrDigit(c)) {
+                if (space && out.length() > 0) out.append(' ');
+                space = false;
+                out.append(c);
+            } else {
+                space = true;
+            }
+        }
+        return out.toString();
+    }
 }

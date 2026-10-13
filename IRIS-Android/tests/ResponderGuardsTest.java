@@ -132,6 +132,46 @@ public class ResponderGuardsTest {
         urgent.mentionsOwner = true;
         verdict(urgent, inUse, ResponderGuards.Verdict.PHONE_IN_USE,
                 "phone-in-use outranks even an urgent mention");
+
+        // ...unless the owner has said to answer anyway. Added at his explicit request after
+        // device testing, where a phone awake on the desk meant nothing was ever answered.
+        ResponderGuards.Policy override = sendablePolicy();
+        override.phoneInUse = true;
+        override.replyWhileInUse = true;
+        verdict(sendableMessage(), override, ResponderGuards.Verdict.SEND,
+                "the owner can opt into being answered for while he's using the phone");
+        verdict(urgent, override, ResponderGuards.Verdict.SEND,
+                "the override also applies to an urgent mention");
+
+        // The override must not reach past its own guard and weaken anything else.
+        ResponderGuards.Policy stillOff = sendablePolicy();
+        stillOff.phoneInUse = true;
+        stillOff.replyWhileInUse = true;
+        stillOff.state = ResponderGuards.State.OFF;
+        verdict(sendableMessage(), stillOff, ResponderGuards.Verdict.NOT_ARMED,
+                "answering while in use does not switch the responder on");
+
+        ResponderGuards.Policy stillBlocked = sendablePolicy();
+        stillBlocked.phoneInUse = true;
+        stillBlocked.replyWhileInUse = true;
+        stillBlocked.contactRule = ResponderGuards.ContactRule.NEVER;
+        verdict(sendableMessage(), stillBlocked, ResponderGuards.Verdict.CONTACT_BLOCKED,
+                "answering while in use does not override a NEVER contact");
+
+        // Off by default, so an existing install behaves exactly as before the option existed.
+        ResponderGuards.Policy fresh = sendablePolicy();
+        check(!fresh.replyWhileInUse, "replying while in use is off unless chosen");
+        fresh.phoneInUse = true;
+        verdict(sendableMessage(), fresh, ResponderGuards.Verdict.PHONE_IN_USE,
+                "the default still defers to Suvra");
+
+        // The override is only relevant when the phone IS in use; it must not be a general
+        // bypass that changes anything when he is not holding it.
+        ResponderGuards.Policy notInUse = sendablePolicy();
+        notInUse.phoneInUse = false;
+        notInUse.replyWhileInUse = true;
+        verdict(sendableMessage(), notInUse, ResponderGuards.Verdict.SEND,
+                "the override is harmless when the phone is idle");
     }
 
     /** The owner's requirement: apps that cannot be replied to are simply ignored. */

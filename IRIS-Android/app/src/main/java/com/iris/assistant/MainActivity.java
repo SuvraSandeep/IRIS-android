@@ -511,7 +511,87 @@ public class MainActivity extends Activity {
                 }
             });
         }
+        View add = view.findViewById(R.id.contactsAddButton);
+        if (add != null) add.setOnClickListener(v -> addContactByHand(view));
         renderContacts(view);
+    }
+
+    /**
+     * Add someone by hand, before any message from them has arrived.
+     *
+     * Needed because every other source here is retrospective: a contact only appeared once IRIS
+     * had already seen them, which is the wrong way round for the one instruction worth setting in
+     * advance -- never answer this person.
+     *
+     * The name must match the sender as the notification presents it, so the dialog says so
+     * rather than letting a near-miss silently produce a rule that never fires.
+     */
+    private void addContactByHand(final View root) {
+        final ResponderSettings settings = new ResponderSettings(this);
+        final java.util.List<String> packages =
+                new java.util.ArrayList<>(settings.apps());
+        if (packages.isEmpty()) {
+            toast("Pick the apps I may speak through first, on the RESPONDER tab.");
+            return;
+        }
+
+        final EditText name = new EditText(this);
+        name.setHint("name exactly as it appears in the notification");
+        name.setMaxLines(1);
+
+        final String[] appLabels = new String[packages.size()];
+        for (int i = 0; i < packages.size(); i++) {
+            appLabels[i] = appLabel(packages.get(i));
+        }
+        final int[] chosen = {0};
+
+        final Button appButton = new Button(this);
+        appButton.setText("App: " + appLabels[0]);
+        appButton.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Which app?")
+                .setItems(appLabels, (d, which) -> {
+                    chosen[0] = which;
+                    appButton.setText("App: " + appLabels[which]);
+                }).show());
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(8), dp(16), 0);
+        box.addView(name);
+        box.addView(appButton);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Who should I know about?")
+                .setMessage("A rule is stored against the name as the app shows it, so spell it "
+                        + "the way the notification does. Get it wrong and the rule simply never "
+                        + "matches \u2014 it won't warn you.")
+                .setView(box)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Add", (d, w) -> {
+                    String typed = name.getText().toString().trim();
+                    if (typed.isEmpty()) {
+                        toast("I need a name to attach the rule to.");
+                        return;
+                    }
+                    String key = ResponderSettings.conversationKey(
+                            packages.get(chosen[0]), typed);
+                    settings.setContactLabel(key, typed + "  \u00b7  " + appLabels[chosen[0]]);
+                    // Stored as INHERIT so the row exists and can be edited. Choosing a rule is a
+                    // separate, deliberate tap rather than something this dialog assumes.
+                    settings.setContactRule(key, ResponderGuards.ContactRule.INHERIT);
+                    renderContacts(root);
+                    editContact(settings, key, typed, root);
+                }).show();
+    }
+
+    /** Human-readable app name for a package, falling back to the package itself. */
+    private String appLabel(String pkg) {
+        try {
+            android.content.pm.PackageManager pm = getPackageManager();
+            return pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString();
+        } catch (Throwable ignored) {
+            return pkg;
+        }
     }
 
     /**
@@ -533,13 +613,26 @@ public class MainActivity extends Activity {
                 java.util.Locale.ROOT);
 
         java.util.LinkedHashMap<String, String> rows = new java.util.LinkedHashMap<>();
+        // Senders the RESPONDER has decided about, first and most relevant. This list used to come
+        // from the archive alone, which has a SEPARATE app selection -- so on device the screen
+        // could be empty even after the responder had seen plenty of messages, and there was no
+        // way to set a rule about any of them.
+        for (ResponderLog.Entry entry : new ResponderLog(this).distinctSenders()) {
+            String name = ContactResolver.display(this, entry.sender);
+            if (name.trim().isEmpty()) continue;
+            rows.put(ResponderSettings.conversationKey(entry.pkg, name),
+                    name + "  \u00b7  " + entry.appLabel);
+        }
         for (NotificationArchive.SenderRef ref
                 : NotificationArchive.recentSenders(this, 120)) {
             String name = ContactResolver.display(this, ref.sender);
+            // A row with no name is unusable: it cannot be recognised and the rule it carries
+            // cannot be attributed to anyone.
+            if (name.trim().isEmpty()) continue;
             String key = ResponderSettings.conversationKey(ref.pkg, name);
-            rows.put(key, name + "  \u00b7  " + ref.appLabel);
+            if (!rows.containsKey(key)) rows.put(key, name + "  \u00b7  " + ref.appLabel);
         }
-        // Configured contacts that no longer appear in the archive.
+        // Configured contacts that no longer appear anywhere else.
         for (String key : settings.knownContactKeys()) {
             String label = settings.contactLabel(key);
             if (!label.isEmpty() && !rows.containsValue(label)) rows.put(key, label);
@@ -791,17 +884,27 @@ public class MainActivity extends Activity {
         final java.util.List<String> labels = new java.util.ArrayList<>();
         for (MessageCategory.Kind kind : MessageCategory.Kind.values()) {
             if (kind == MessageCategory.Kind.NONE) continue;
-            if (ReplyTemplates.variants(kind, settings.defaultTone(), false).isEmpty()
-                    && ReplyTemplates.variants(kind, settings.defaultTone(), true).isEmpty()) {
-                continue;
+            boolean anywhere = false;
+            // Listed if the category speaks in ANY tone, not just the current default. The old
+            // check used the default tone only, so switching the default quietly changed which
+            // categories could be edited at all.
+            for (ReplyTone.Tone tone : ReplyTone.Tone.values()) {
+                if (!ReplyTemplates.variants(kind, tone, false).isEmpty()
+                        || !ReplyTemplates.variants(kind, tone, true).isEmpty()) {
+                    anywhere = true;
+                    break;
+                }
             }
+            if (!anywhere) continue;
             kinds.add(kind);
-            labels.add(categoryLabel(kind));
+            String edited = editedCountFor(settings, kind);
+            labels.add(categoryLabel(kind) + edited);
         }
         new AlertDialog.Builder(this)
                 .setTitle("Which reply should I rewrite?")
                 .setItems(labels.toArray(new String[0]),
-                        (d, which) -> editOneTemplate(settings, kinds.get(which), false, root))
+                        (d, which) -> editOneTemplate(settings, kinds.get(which),
+                                settings.defaultTone(), false, root))
                 .setNeutralButton("Reset all my words", (d, w) -> {
                     int removed = settings.resetAllTemplates();
                     toast(removed == 0 ? "Nothing to restore \u2014 they're all mine already."
@@ -810,27 +913,101 @@ public class MainActivity extends Activity {
                 }).show();
     }
 
-    private void editOneTemplate(final ResponderSettings settings,
-                                 final MessageCategory.Kind kind, final boolean quiet,
-                                 final View root) {
-        final ReplyTone.Tone tone = settings.defaultTone();
-        java.util.List<String> shipped = ReplyTemplates.variants(kind, tone, quiet);
-        String current = settings.customTemplate(kind, tone, quiet);
+    /** A marker on the category list so edited entries are visible before opening them. */
+    private String editedCountFor(ResponderSettings settings, MessageCategory.Kind kind) {
+        int count = 0;
+        for (ReplyTone.Tone tone : ReplyTone.Tone.values()) {
+            if (!settings.customTemplate(kind, tone, false).isEmpty()) count++;
+            if (!settings.customTemplate(kind, tone, true).isEmpty()) count++;
+        }
+        return count == 0 ? "" : "   [" + count + " yours]";
+    }
 
+    /**
+     * Rewrite one reply.
+     *
+     * Rebuilt after the owner called the first version confusing, and he was right. It was a bare
+     * text box that silently edited only the current default tone, showed my wording as a
+     * placeholder that vanished the moment he typed, and swapped between normal and quiet hours
+     * through a button labelled with the hours he was NOT editing.
+     *
+     * Everything that was implicit is now on screen: which tone, which hours, my wording in full,
+     * and a live preview with the placeholders filled in so he can see the actual sentence rather
+     * than the template. Each of the eight slots per category is edited separately, because they
+     * are genuinely different sentences.
+     */
+    private void editOneTemplate(final ResponderSettings settings,
+                                 final MessageCategory.Kind kind, final ReplyTone.Tone tone,
+                                 final boolean quiet, final View root) {
+        final java.util.List<String> shipped = ReplyTemplates.variants(kind, tone, quiet);
+        final String current = settings.customTemplate(kind, tone, quiet);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(6), dp(18), 0);
+
+        // Which situation this is, stated rather than implied, and tappable to move between them.
+        box.addView(responderRow("Tone", tone.name(),
+                () -> pickTemplateTone(settings, kind, quiet, root)));
+        box.addView(responderRow("When", quiet ? "quiet hours" : "normal hours",
+                () -> editOneTemplate(settings, kind, tone, !quiet, root)));
+
+        if (shipped.isEmpty()) {
+            box.addView(templateNote("I say nothing here by default. Anything you write becomes "
+                    + "the whole reply for this situation."));
+        } else {
+            StringBuilder mine = new StringBuilder();
+            for (int i = 0; i < shipped.size(); i++) {
+                if (i > 0) mine.append('\n');
+                mine.append("\u2022 ").append(shipped.get(i));
+            }
+            box.addView(templateLabel("MY WORDING"
+                    + (shipped.size() > 1 ? " (" + shipped.size() + ", rotated)" : "")));
+            box.addView(templateNote(mine.toString()));
+        }
+
+        box.addView(templateLabel("YOURS"));
         final EditText input = new EditText(this);
-        input.setHint(shipped.isEmpty() ? "your reply" : shipped.get(0));
+        input.setHint("leave empty to keep my wording");
         input.setText(current);
         input.setMinLines(3);
+        input.setTextSize(12f);
+        box.addView(input);
+
+        box.addView(templateLabel("PREVIEW"));
+        final TextView preview = templateNote("");
+        box.addView(preview);
+        box.addView(templateNote("Placeholders: {name} {time} {part_of_day} "
+                + "{hours_until_morning}"));
+
+        // A live preview, because a template is not the sentence. Seeing "{hours_until_morning}"
+        // resolve to "7" is the difference between guessing and knowing.
+        final Runnable repaint = () -> {
+            String text = input.getText().toString().trim();
+            if (text.isEmpty()) text = shipped.isEmpty() ? "" : shipped.get(0);
+            preview.setText(text.isEmpty() ? "(silence)"
+                    : ReplyTemplates.fill(text, "Ramesh", "21:40", "evening",
+                            quiet ? 7 : -1, "Tuesday"));
+        };
+        input.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void afterTextChanged(android.text.Editable s) { repaint.run(); }
+        });
+        repaint.run();
+
+        ScrollView scroller = new ScrollView(this);
+        scroller.addView(box);
 
         new AlertDialog.Builder(this)
-                .setTitle(categoryLabel(kind) + " \u00b7 " + tone.name()
-                        + (quiet ? " \u00b7 quiet hours" : ""))
-                .setMessage("Leave it empty to use my wording. You can use {name}, {time}, "
-                        + "{part_of_day} and {hours_until_morning}.")
-                .setView(input)
+                .setTitle(categoryLabel(kind))
+                .setView(scroller)
                 .setNegativeButton("Cancel", null)
-                .setNeutralButton(quiet ? "Normal hours" : "Quiet hours",
-                        (d, w) -> editOneTemplate(settings, kind, !quiet, root))
+                .setNeutralButton("Use my wording", (d, w) -> {
+                    settings.setCustomTemplate(kind, tone, quiet, "");
+                    toast("Back to my words for that one.");
+                    renderResponder(root);
+                })
                 .setPositiveButton("Save", (d, w) -> {
                     String text = input.getText().toString();
                     settings.setCustomTemplate(kind, tone, quiet, text);
@@ -847,6 +1024,44 @@ public class MainActivity extends Activity {
                     }
                     renderResponder(root);
                 }).show();
+    }
+
+    /** Switch which tone's wording is being edited. */
+    private void pickTemplateTone(final ResponderSettings settings,
+                                  final MessageCategory.Kind kind, final boolean quiet,
+                                  final View root) {
+        final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
+        String[] labels = new String[tones.length];
+        for (int i = 0; i < tones.length; i++) {
+            boolean speaks = ReplyTone.answers(kind, tones[i]);
+            labels[i] = tones[i].name() + (speaks ? "" : "   (silent here)");
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Which tone's wording?")
+                .setItems(labels,
+                        (d, which) -> editOneTemplate(settings, kind, tones[which], quiet, root))
+                .show();
+    }
+
+    private TextView templateLabel(String text) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextSize(10f);
+        label.setTypeface(android.graphics.Typeface.MONOSPACE,
+                android.graphics.Typeface.BOLD);
+        label.setLetterSpacing(0.15f);
+        label.setTextColor(getColor(R.color.magenta));
+        label.setPadding(0, dp(12), 0, dp(3));
+        return label;
+    }
+
+    private TextView templateNote(String text) {
+        TextView note = new TextView(this);
+        note.setText(text);
+        note.setTextSize(11f);
+        note.setTypeface(android.graphics.Typeface.MONOSPACE);
+        note.setTextColor(getColor(R.color.deck_text_dim));
+        return note;
     }
 
     /** Wire the RESPONDER section. */
@@ -884,6 +1099,14 @@ public class MainActivity extends Activity {
                     ResponderAppPicker.show(this, () -> renderResponder(view)));
         }
 
+        View refreshLog = view.findViewById(R.id.responderRefreshLog);
+        if (refreshLog != null) {
+            refreshLog.setOnClickListener(v -> {
+                renderResponder(view);
+                toast("Caught up.");
+            });
+        }
+
         View clearLog = view.findViewById(R.id.responderClearLog);
         if (clearLog != null) {
             clearLog.setOnClickListener(v -> {
@@ -918,27 +1141,42 @@ public class MainActivity extends Activity {
      * sure?" is a question nobody reads. Naming the app count, the scope and the stand-down time
      * means the owner is agreeing to something specific.
      *
-     * A dry run is required first, and refused outright if the log is empty: going live without
-     * ever having seen what IRIS would say is the one path this whole design exists to prevent.
+     * The dry run is strongly recommended and no longer mandatory. It was a hard block until the
+     * owner asked for it to be removed; refusing to obey him is not my call to make. Skipping it
+     * now costs an extra, blunter confirmation rather than a closed door. Authentication is
+     * unchanged either way.
      */
     private void confirmGoLive(final ResponderSettings settings, final View view) {
-        ResponderLog log = new ResponderLog(this);
-        if (log.all().isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Run the dry run first")
-                    .setMessage("I haven't decided anything yet, Suvra, so you have no idea how "
-                            + "I'd behave \u2014 and neither do I, really.\n\nArm DRY RUN, let "
-                            + "some messages arrive, and read what I would have said. Then this "
-                            + "button means something.")
-                    .setPositiveButton("Fair", null)
-                    .show();
-            return;
-        }
+        final ResponderLog log = new ResponderLog(this);
         if (settings.apps().isEmpty()) {
             toast("Tell me which apps first, or I'll be live with nothing to speak through.");
             return;
         }
+        if (log.all().isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Live with no rehearsal, then")
+                    .setMessage("You've not let me decide anything yet, so neither of us knows "
+                            + "how I'll behave. The first thing you learn about my judgement "
+                            + "will be whatever I've already said to somebody.\n\nI'd rather you "
+                            + "armed DRY RUN for an hour. But it's your name on the messages, "
+                            + "so it's your call.")
+                    .setNegativeButton("Dry run first", (d, w) ->
+                            authenticateThen("Arm the responder in dry run", () -> {
+                                settings.setState(ResponderGuards.State.DRY_RUN,
+                                        System.currentTimeMillis());
+                                toast("Dry run armed. I'll decide, and say nothing.");
+                                renderResponder(view);
+                            }))
+                    .setPositiveButton("Go live anyway", (d, w) -> goLiveNow(settings, view))
+                    .show();
+            return;
+        }
+        goLiveNow(settings, view);
+    }
 
+    /** The consequences, stated concretely, then authentication. */
+    private void goLiveNow(final ResponderSettings settings, final View view) {
+        ResponderLog log = new ResponderLog(this);
         StringBuilder what = new StringBuilder();
         what.append("From the moment you confirm, I will send messages from your account "
                 + "without asking you first.\n\n");
@@ -959,10 +1197,16 @@ public class MainActivity extends Activity {
         what.append("\u2022 ").append(settings.armedIndefinitely()
                 ? "I will stay armed until you stop me"
                 : "I'll stand down after " + (settings.disarmAfterMs() / 3600000) + " hours");
-        what.append("\n\nEvery message will say it came from me and not from you. ")
-                .append(log.wouldHaveSentCount())
-                .append(" of my last ").append(log.all().size())
-                .append(" decisions would have been sent \u2014 read them first if you haven't.");
+        what.append("\n\nEvery message will say it came from me and not from you. ");
+        if (log.all().isEmpty()) {
+            what.append("You have no dry-run history, so this is the first thing I'll have "
+                    + "done unsupervised.");
+        } else {
+            what.append(log.wouldHaveSentCount())
+                    .append(" of my last ").append(log.all().size())
+                    .append(" decisions would have been sent \u2014 read them first if you "
+                            + "haven't.");
+        }
 
         new AlertDialog.Builder(this)
                 .setTitle("Let me speak for you?")
@@ -1006,6 +1250,8 @@ public class MainActivity extends Activity {
                     settings.replyToUnsaved(), on -> settings.setReplyToUnsaved(on), view));
             host.addView(responderSwitch("Only contacts you've explicitly allowed",
                     settings.allowlistOnly(), on -> settings.setAllowlistOnly(on), view));
+            host.addView(responderSwitch("Answer even while I'm using the phone",
+                    settings.replyWhileInUse(), on -> settings.setReplyWhileInUse(on), view));
 
             host.addView(sectionLabel("TIMING"));
             host.addView(responderRow("Quiet hours",
@@ -1050,6 +1296,41 @@ public class MainActivity extends Activity {
         }
 
         renderResponderLog(view);
+        startResponderLogWatch(view);
+    }
+
+    /** Signature of the decision log as last drawn, so polling can detect a real change. */
+    private String responderLogSignature = "";
+
+    /**
+     * Watch the decision log while the RESPONDER tab is open.
+     *
+     * Decisions are written by the notification listener on a background thread, so on device the
+     * log appeared frozen: entries only showed up after leaving the tab and coming back, which
+     * made the dry run look broken when it was working.
+     *
+     * Polls rather than registering a listener because the writer is a different process component
+     * and a preference-change listener would fire for every counter update too. Only the log host
+     * is redrawn, and only when the signature actually changed -- rebuilding the settings rows on a
+     * timer would fight the owner mid-toggle and reset his scroll position.
+     *
+     * Self-cancelling: the posted runnable stops as soon as the view leaves the window or the owner
+     * moves to another sub-tab, so there is no timer outliving the screen.
+     */
+    private void startResponderLogWatch(final View view) {
+        responderLogSignature = new ResponderLog(this).signature();
+        view.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (isFinishing() || isDestroyed()) return;
+                if (!view.isAttachedToWindow() || commsSection != 1) return;
+                String current = new ResponderLog(MainActivity.this).signature();
+                if (!current.equals(responderLogSignature)) {
+                    responderLogSignature = current;
+                    renderResponderLog(view);
+                }
+                view.postDelayed(this, 2500);
+            }
+        }, 2500);
     }
 
     private String responderStatusText(ResponderSettings settings, long now) {

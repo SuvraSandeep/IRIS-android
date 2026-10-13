@@ -420,13 +420,19 @@ public class IrisNotificationListener extends NotificationListenerService {
             recordOne(context, settings, sbn, pkg, appLabel, key, extras,
                     parsed.rawTitle, parsed.sender, parsed.group, parsed.body, sbn.getPostTime());
             offerToResponder(context, sbn, pkg, appLabel, parsed.rawTitle,
-                    parsed.sender, parsed.body, !parsed.group.isEmpty(), 0);
+                    parsed.sender, parsed.body,
+                    MessageRollup.isGroupConversation(groupHint, parsed.group, parsed.sender, 1),
+                    0);
             return;
         }
 
         String groupName = MessageRollup.groupFromTitle(title);
         String newestSender = "";
         String newestBody = "";
+        // Distinct people who sent something in this one notification. Two or more can only be a
+        // group, and it is the strongest signal available from an app that does not set
+        // EXTRA_IS_GROUP_CONVERSATION.
+        java.util.Set<String> sendersSeen = new java.util.LinkedHashSet<>();
         for (Bundle msg : messages) {
             String body = charSeq(msg.getCharSequence("text"));
             String sender = charSeq(msg.getCharSequence("sender"));
@@ -459,14 +465,21 @@ public class IrisNotificationListener extends NotificationListenerService {
             // Remember the newest message, for the responder below.
             newestSender = sender;
             newestBody = body;
+            if (!sender.trim().isEmpty()) sendersSeen.add(sender.trim().toLowerCase());
         }
 
         // The auto-responder runs AFTER capture and on its own thread, so it can neither delay
         // notification delivery nor prevent a message being archived. Considered once per
         // notification using the newest message: deciding separately for each of seven messages
         // would put seven entries in the log for one conversation.
+        //
+        // The group flag used to be `groupHint || !groupName.isEmpty()`, which was wrong: in a
+        // one-to-one chat the title is the other person, so that was true for every message and
+        // the responder refused everything as a group. Group now has to be evidenced.
         offerToResponder(context, sbn, pkg, appLabel, title, newestSender, newestBody,
-                groupHint || !groupName.isEmpty(), messages.size());
+                MessageRollup.isGroupConversation(groupHint, groupName, newestSender,
+                        sendersSeen.size()),
+                messages.size());
     }
 
     /**

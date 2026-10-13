@@ -114,6 +114,7 @@ public final class AutoResponder {
         policy.armedUntilMs = settings.armedUntilMs();
         policy.armedIndefinitely = settings.armedIndefinitely();
         policy.phoneInUse = phoneInUse(context);
+        policy.replyWhileInUse = settings.replyWhileInUse();
         policy.replyToGroups = settings.replyToGroups();
         policy.replyToPersonal = settings.replyToPersonal();
         policy.groupsRequireMention = settings.groupsRequireMention();
@@ -147,6 +148,7 @@ public final class AutoResponder {
         ResponderLog.Entry entry = new ResponderLog.Entry();
         entry.whenMs = now;
         entry.appLabel = incoming.appLabel;
+        entry.pkg = incoming.pkg;
         entry.sender = resolvedSender;
         entry.group = incoming.group;
         entry.category = category.kind.name();

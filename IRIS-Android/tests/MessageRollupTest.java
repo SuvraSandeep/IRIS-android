@@ -24,6 +24,7 @@ public class MessageRollupTest {
         edgeInputsFailSafe();
         perMessageDetailAlwaysWins();
         groupTitleIsStrippedOfDecoration();
+        groupNeedsRealEvidence();
         System.out.println("Passed " + checks + " message roll-up checks");
     }
 
@@ -124,5 +125,72 @@ public class MessageRollupTest {
                 "a real message with no entries is still kept");
         check(MessageRollup.isSummaryOnly("2 messages", -1),
                 "a negative count is treated as absent, not as detail");
+    }
+
+    /**
+     * A group must be positively evidenced.
+     *
+     * These exist because of a real on-device failure. The responder read "the title is not empty"
+     * as proof of a group, and in a one-to-one chat the title IS the other person -- so every
+     * conversation was a group, and with groups off by default the responder refused everything.
+     * The owner saw it first with a Twilio SMS, which is the fourth check below.
+     */
+    private static void groupNeedsRealEvidence() {
+        // ─── One-to-one, which must never read as a group ───
+        check(!MessageRollup.isGroupConversation(false, "Ramesh", "Ramesh", 1),
+                "a 1:1 chat where title and sender match is not a group");
+        check(!MessageRollup.isGroupConversation(false, "Ramesh", "", 1),
+                "a title with no sender is not evidence of a group");
+        check(!MessageRollup.isGroupConversation(false, "", "", 0),
+                "nothing at all is not a group");
+        // The one the owner hit: a Twilio test message arrives titled with the number and
+        // carries no sender field.
+        check(!MessageRollup.isGroupConversation(false, "+15551234567", "", 1),
+                "an SMS titled with a bare number and no sender is NOT a group");
+        check(!MessageRollup.isGroupConversation(false, "+15551234567", "+15551234567", 1),
+                "an SMS whose sender repeats the number is not a group");
+        check(!MessageRollup.isGroupConversation(false, "Alice Smith", "Alice", 1),
+                "a shortened sender inside the title is the same person, not a group");
+        check(!MessageRollup.isGroupConversation(false, "Alice", "Alice Smith", 1),
+                "the reverse containment is also the same person");
+        check(!MessageRollup.isGroupConversation(false, "ramesh", "RAMESH", 1),
+                "case alone never makes two names different people");
+        check(!MessageRollup.isGroupConversation(false, "Dr. Rao", "Dr Rao", 1),
+                "punctuation alone never makes two names different people");
+
+        // ─── Genuine groups, which must still be detected ───
+        check(MessageRollup.isGroupConversation(true, "", "", 1),
+                "the app's own group flag is believed outright");
+        check(MessageRollup.isGroupConversation(true, "Ramesh", "Ramesh", 1),
+                "the app's group flag beats a title that matches the sender");
+        check(MessageRollup.isGroupConversation(false, "Project Falcon", "Alice", 1),
+                "a group name different from the sender is a group");
+        check(MessageRollup.isGroupConversation(false, "Family", "Ramesh", 3),
+                "three distinct senders is a group");
+        check(MessageRollup.isGroupConversation(false, "", "Alice", 2),
+                "two distinct senders is a group even with no title");
+        check(MessageRollup.isGroupConversation(false, "Ramesh", "Ramesh", 2),
+                "two senders outweighs a title matching the newest sender");
+
+        // ─── Degenerate input must not throw ───
+        check(!MessageRollup.isGroupConversation(false, null, null, 0),
+                "nulls fail safe to one-to-one");
+        check(!MessageRollup.isGroupConversation(false, "Ramesh", null, 1),
+                "a null sender fails safe to one-to-one");
+        check(MessageRollup.isGroupConversation(true, null, null, 0),
+                "nulls do not defeat the platform hint");
+        check(!MessageRollup.isGroupConversation(false, "...", "", 1),
+                "a title of only punctuation is not a group name");
+        check(!MessageRollup.isGroupConversation(false, "Ramesh", "Ramesh", -1),
+                "a negative sender count is not read as evidence");
+
+        // The decorated-title path and this one have to agree, since the live code feeds one
+        // into the other.
+        check(!MessageRollup.isGroupConversation(false,
+                        MessageRollup.groupFromTitle("Ramesh (3 messages)"), "Ramesh", 1),
+                "a 1:1 chat with a message count is still not a group");
+        check(MessageRollup.isGroupConversation(false,
+                        MessageRollup.groupFromTitle("Project Falcon (3 messages)"), "Alice", 1),
+                "a group with a message count is still a group");
     }
 }
