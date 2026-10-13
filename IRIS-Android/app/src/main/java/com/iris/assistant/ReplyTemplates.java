@@ -996,6 +996,27 @@ public final class ReplyTemplates {
     }
 
     /**
+     * Short replies for a conversation IRIS has already introduced itself to.
+     *
+     * The owner asked not to repeat "personal intelligence" every time. The first reply to a
+     * thread still names IRIS and the owner in full, so the recipient knows once and for all that
+     * it is not the owner typing. From then on a follow-up can be this: it still says "IRIS" --
+     * transparency is never dropped, only the verbosity -- but it is short and does not recite the
+     * whole title again.
+     *
+     * One tone-neutral set, because by the second reply the point is brevity, not personality.
+     * Every line still contains "IRIS".
+     */
+    public static List<String> shortFollowUp() {
+        return Arrays.asList(
+                "Still IRIS here \u2014 passed it to " + OWNER + ".",
+                "IRIS again. Noted for " + OWNER + ".",
+                "Got it \u2014 IRIS. " + OWNER + " will see it.",
+                "IRIS here. With " + OWNER + " now.",
+                "Noted, IRIS. " + OWNER + "'ll reply himself.");
+    }
+
+    /**
      * Fill the placeholders in a template.
      *
      * Unknown placeholders are left exactly as they are rather than blanked. An owner who mistypes

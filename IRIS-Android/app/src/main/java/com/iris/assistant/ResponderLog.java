@@ -47,6 +47,19 @@ public final class ResponderLog {
          */
         public String pkg = "";
         public String sender = "";
+        /**
+         * The incoming message this decision was about.
+         *
+         * Earlier versions deliberately kept this OUT of the log, on the principle that message
+         * bodies belong only in the archive. The owner asked, explicitly, to see what each
+         * decision was about so he could audit the classifier \u2014 "in the decision logs i can't
+         * see the message itself" \u2014 and a diagnostic you can't read the input to is not much
+         * of one. It is stored here now, bounded by the 60-entry cap and cleared by CLEAR LOG and
+         * by reset, which are the same controls that cover every other field. This is the one
+         * store that holds a copy of the text besides the archive, and it is a deliberate,
+         * owner-requested, bounded exception, not a general content log.
+         */
+        public String incoming = "";
         public boolean group;
         public String category = "";
         public String tone = "";
@@ -118,6 +131,7 @@ public final class ResponderLog {
                 // evidence he collected, and a schema addition must not throw it away.
                 entry.pkg = parts.length > 9 ? parts[9] : "";
                 entry.sendResult = parts.length > 10 ? parts[10] : "";
+                entry.incoming = parts.length > 11 ? parts[11] : "";
                 out.add(entry);
             } catch (Exception ignored) {
                 // A malformed record is skipped rather than discarding the whole log.
@@ -207,7 +221,8 @@ public final class ResponderLog {
                     .append(clean(item.reply)).append(FIELD)
                     .append(item.dryRun ? "1" : "0").append(FIELD)
                     .append(clean(item.pkg)).append(FIELD)
-                    .append(clean(item.sendResult));
+                    .append(clean(item.sendResult)).append(FIELD)
+                    .append(clean(item.incoming));
         }
         prefs.edit().putString(KEY, out.toString()).apply();
     }

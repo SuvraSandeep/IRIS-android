@@ -65,6 +65,8 @@ public final class ResponderSettings {
     private static final String P_CONV_LAST = "clast_";
     private static final String P_CONV_COUNT = "ccount_";
     private static final String P_CONV_IRIS = "ciris_";
+    private static final String P_CONV_TEXT = "ctext_";
+    private static final String P_CONV_INTRO = "cintro_";
 
     /** Shipped default auto-disarm, 12 hours. */
     public static final long DISARM_AFTER_DEFAULT_MS = 12L * 60 * 60 * 1000;
@@ -808,6 +810,37 @@ public final class ResponderSettings {
                         prefs.getInt(P_CONV_COUNT + convKey, 0) + 1)
                 .putInt(K_REPLIES_TODAY, prefs.getInt(K_REPLIES_TODAY, 0) + 1)
                 .apply();
+    }
+
+    /**
+     * The exact text IRIS last answered in this conversation, normalised, or empty.
+     *
+     * Used to refuse answering the identical message twice. Stored normalised so the comparison in
+     * the guard is a plain equality.
+     */
+    public String lastAnsweredText(String conversationKey) {
+        return prefs.getString(P_CONV_TEXT + safe(conversationKey), "");
+    }
+
+    public void recordAnsweredText(String conversationKey, String incomingText) {
+        String norm = MessageCategory.normalise(incomingText == null ? "" : incomingText);
+        prefs.edit().putString(P_CONV_TEXT + safe(conversationKey), norm).apply();
+    }
+
+    /**
+     * Whether IRIS has already introduced itself in full to this conversation.
+     *
+     * The first reply names IRIS and the owner in full, for transparency; later replies to the
+     * same thread can be short and say just "IRIS", because the recipient already knows. This is
+     * what the owner asked for -- stop repeating "personal intelligence" every time -- without
+     * ever hiding that it is not the owner replying.
+     */
+    public boolean hasIntroduced(String conversationKey) {
+        return prefs.getBoolean(P_CONV_INTRO + safe(conversationKey), false);
+    }
+
+    public void markIntroduced(String conversationKey) {
+        prefs.edit().putBoolean(P_CONV_INTRO + safe(conversationKey), true).apply();
     }
 
     /** Rotation counter, so repeat senders do not receive identical wording. */

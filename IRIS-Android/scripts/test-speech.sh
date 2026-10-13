@@ -208,6 +208,14 @@ javac -encoding UTF-8 -d "$test_dir/archive" \
   tests/MessageRollupTest.java
 java -cp "$test_dir/archive" com.iris.assistant.MessageRollupTest
 
+# Messaging-channel classifier. SMS behaves unlike the chat apps (lettered shortcodes, one-time
+# codes, no group semantics), so naming the channel is the first step to treating it differently.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessagingApp.java \
+  tests/MessagingAppTest.java
+java -cp "$test_dir/responder" com.iris.assistant.MessagingAppTest
+
 # Image sizing and budget. Images are orders of magnitude larger than text rows, so the budget is a
 # fraction of the ceiling: a vault full of photos must never be the reason a deleted message goes
 # uncaptured. Sample size is computed from dimensions alone, before decoding, so a camera photo is

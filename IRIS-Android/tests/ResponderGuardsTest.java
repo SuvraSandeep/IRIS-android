@@ -84,6 +84,7 @@ public class ResponderGuardsTest {
         unsavedContactsAreRefusedByDefault();
         toneDrivenSilence();
         burstProducesOneReplyNotSeven();
+        sameTextIsNotAnsweredTwice();
         cooldownBlocksAndThenReleases();
         capsBlockIncludingZero();
         loopDetection();
@@ -404,6 +405,45 @@ public class ResponderGuardsTest {
             verdict(sendableMessage(), policy, ResponderGuards.Verdict.BURST_ALREADY_ANSWERED,
                     "message " + i + " of the same burst is not answered again");
         }
+    }
+
+    /**
+     * The identical text is not answered twice, but a different text releases it.
+     *
+     * The owner's rule exactly: "once replied, don't reply to the same text again; it can if
+     * another text is coming."
+     */
+    private static void sameTextIsNotAnsweredTwice() {
+        ResponderGuards.Message m = sendableMessage();
+        m.incomingText = "are you free this evening";
+        ResponderGuards.Policy policy = sendablePolicy();
+
+        // First time: nothing answered yet, so it sends.
+        verdict(m, policy, ResponderGuards.Verdict.SEND, "the first time a text is seen it sends");
+
+        // The identical text arrives again, now recorded as last answered.
+        policy.lastAnsweredText = MessageCategory.normalise("are you free this evening");
+        verdict(m, policy, ResponderGuards.Verdict.SAME_TEXT_ALREADY_ANSWERED,
+                "the identical text is not answered a second time");
+
+        // Punctuation and casing do not defeat it.
+        ResponderGuards.Message loud = sendableMessage();
+        loud.incomingText = "ARE YOU FREE THIS EVENING!!!";
+        verdict(loud, policy, ResponderGuards.Verdict.SAME_TEXT_ALREADY_ANSWERED,
+                "a resend with different casing and punctuation still counts as the same");
+
+        // A genuinely different message releases it.
+        ResponderGuards.Message next = sendableMessage();
+        next.incomingText = "actually never mind";
+        verdict(next, policy, ResponderGuards.Verdict.SEND,
+                "a different message is answered");
+
+        // A fixed name-rule reply is exempt: the owner said to answer this person every time.
+        ResponderGuards.Message forced = sendableMessage();
+        forced.incomingText = "are you free this evening";
+        forced.forceReply = true;
+        verdict(forced, policy, ResponderGuards.Verdict.SEND,
+                "a fixed reply answers even the identical text");
     }
 
     private static void cooldownBlocksAndThenReleases() {

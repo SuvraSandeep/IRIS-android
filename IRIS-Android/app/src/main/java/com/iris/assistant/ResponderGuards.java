@@ -82,6 +82,8 @@ public final class ResponderGuards {
         LOOP_SUSPECTED,
         /** Something in this burst of messages has already been answered. */
         BURST_ALREADY_ANSWERED,
+        /** This exact text was already answered in this conversation; a new text would release it. */
+        SAME_TEXT_ALREADY_ANSWERED,
         /** Too soon after the last reply to this conversation. */
         COOLDOWN,
         /** This contact has had their allowance for the day. */
@@ -142,6 +144,14 @@ public final class ResponderGuards {
         public long cooldownMs;
         public long lastReplyToConversationMs;
         public boolean burstAlreadyAnswered;
+        /**
+         * The exact incoming text IRIS last answered in this conversation.
+         *
+         * Compared against the current text, normalised, so the identical message re-arriving as a
+         * fresh notification is not answered twice. A genuinely different message releases it,
+         * which is the owner's rule: "it can if another text is coming".
+         */
+        public String lastAnsweredText = "";
 
         public int repliesToContactToday;
         /** How many times IRIS has already explained itself to this conversation today. */
@@ -232,6 +242,16 @@ public final class ResponderGuards {
         // One reply per burst. A single notification held seven messages from one chat on the
         // owner's own phone, so without this the responder would have fired seven times.
         if (policy.burstAlreadyAnswered) return Verdict.BURST_ALREADY_ANSWERED;
+        // The identical text, already answered in this conversation. The owner's rule exactly:
+        // don't answer the same message twice, but a different message releases it. Checked after
+        // the burst guard and before the cooldown, because it is a more specific "already handled"
+        // than either. Normalised so punctuation and casing don't defeat it. A forced reply (a
+        // fixed name-rule reply) is exempt: the owner has said to answer this person every time.
+        if (!message.forceReply
+                && !message.incomingText.isEmpty()
+                && sameText(message.incomingText, policy.lastAnsweredText)) {
+            return Verdict.SAME_TEXT_ALREADY_ANSWERED;
+        }
         // Someone talking directly to IRIS gets one acknowledgement even inside the cooldown,
         // because the cooldown exists to stop IRIS pestering a conversation and this is the one
         // case where the other person has asked IRIS a direct question. Bounded hard at one per
@@ -315,6 +335,20 @@ public final class ResponderGuards {
         return incoming.contains(sent) || sent.contains(incoming);
     }
 
+    /**
+     * Whether two incoming texts are the same message for the purpose of not answering twice.
+     *
+     * Normalised, so a resend with different punctuation or casing still counts as the same. An
+     * empty previous text means nothing has been answered yet, so nothing matches.
+     */
+    public static boolean sameText(String current, String lastAnswered) {
+        if (current == null || lastAnswered == null) return false;
+        String a = MessageCategory.normalise(current);
+        String b = MessageCategory.normalise(lastAnswered);
+        if (a.isEmpty() || b.isEmpty()) return false;
+        return a.equals(b);
+    }
+
     /** Plain-language reason, for the decision log and the explain view. */
     public static String explain(Verdict verdict) {
         if (verdict == null) return "No decision was recorded.";
@@ -349,6 +383,9 @@ public final class ResponderGuards {
                 return "That looked like my own reply coming back. I'm not doing this all night.";
             case BURST_ALREADY_ANSWERED:
                 return "I'd already answered that burst. One reply per flurry, not one per message.";
+            case SAME_TEXT_ALREADY_ANSWERED:
+                return "I already answered that exact message. I'll reply again when they say "
+                        + "something new.";
             case COOLDOWN: return "Too soon after my last reply to them.";
             case CONTACT_CAP: return "They've had their replies for today.";
             case TO_IRIS_CAP:

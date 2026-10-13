@@ -2103,13 +2103,25 @@ public class MainActivity extends Activity {
         card.addView(head);
 
         TextView meta = new TextView(this);
+        MessagingApp channel = MessagingApp.fromPackage(entry.pkg);
         meta.setText(DeletedMessageRules.formatTime(entry.whenMs, java.util.TimeZone.getDefault())
+                + " \u00b7 " + channel.label()
                 + " \u00b7 " + entry.category + " \u00b7 " + entry.tone
                 + (entry.dryRun ? " \u00b7 DRY RUN" : ""));
         meta.setTextSize(10f);
         meta.setTypeface(android.graphics.Typeface.MONOSPACE);
         meta.setTextColor(getColor(R.color.deck_text_dim));
         card.addView(meta);
+
+        if (!entry.incoming.isEmpty()) {
+            TextView incoming = new TextView(this);
+            incoming.setText("\u201C" + entry.incoming + "\u201D");
+            incoming.setTextSize(11f);
+            incoming.setTypeface(android.graphics.Typeface.MONOSPACE);
+            incoming.setTextColor(getColor(R.color.deck_text));
+            incoming.setPadding(0, dp(5), 0, 0);
+            card.addView(incoming);
+        }
 
         TextView reason = new TextView(this);
         ResponderGuards.Verdict verdict;

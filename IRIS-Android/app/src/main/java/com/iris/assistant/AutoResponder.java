@@ -133,6 +133,7 @@ public final class AutoResponder {
         policy.cooldownMs = settings.cooldownMs();
         policy.lastReplyToConversationMs = settings.lastReplyTo(conversationKey);
         policy.burstAlreadyAnswered = alreadyAnswered(incoming.sbn.getKey());
+        policy.lastAnsweredText = settings.lastAnsweredText(conversationKey);
         policy.repliesToContactToday = settings.repliesToContactToday(conversationKey, now);
         policy.toIrisRepliesToday = settings.toIrisRepliesToday(conversationKey, now);
         policy.contactCapPerDay = settings.contactCapPerDay();
@@ -158,7 +159,8 @@ public final class AutoResponder {
                     ? ReplyTemplates.fill(nameReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now))
-                    : compose(settings, category, tone, resolvedSender, now, minuteOfDay);
+                    : compose(settings, category, tone, resolvedSender, now, minuteOfDay,
+                            settings.hasIntroduced(conversationKey));
             // A category with no text left to send is a silence, not an empty message.
             if (reply.isEmpty()) verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
         }
@@ -168,6 +170,7 @@ public final class AutoResponder {
         entry.appLabel = incoming.appLabel;
         entry.pkg = incoming.pkg;
         entry.sender = resolvedSender;
+        entry.incoming = incoming.body;
         entry.group = incoming.group;
         entry.category = category.kind.name();
         entry.tone = tone.name();
@@ -185,6 +188,11 @@ public final class AutoResponder {
             // the same day starts with some allowance already spent, which errs toward fewer
             // messages and is therefore the safe direction.
             settings.recordReply(conversationKey, now);
+            // Remember exactly what was answered, so the identical message re-arriving is not
+            // answered again, and mark that IRIS has now introduced itself to this thread so the
+            // next reply can be short.
+            settings.recordAnsweredText(conversationKey, incoming.body);
+            settings.markIntroduced(conversationKey);
             // Counted separately, because this is the one category allowed past the cooldown and
             // its own bound is the only thing stopping an exchange.
             if (category.kind == MessageCategory.Kind.TO_IRIS) {
@@ -230,7 +238,7 @@ public final class AutoResponder {
      */
     private static String compose(ResponderSettings settings, MessageCategory.Result category,
                                   ReplyTone.Tone tone, String senderName, long nowMs,
-                                  int minuteOfDay) {
+                                  int minuteOfDay, boolean alreadyIntroduced) {
         // An active mode overrides both the time window and the category: the owner has stated
         // the situation outright, and that beats whatever the hour would otherwise imply. SLEEPING
         // is handled inside modeVariants by reusing the quiet-hours wording, so the hours-to-wake
@@ -243,6 +251,17 @@ public final class AutoResponder {
             // Only the sleeping mode talks about waking, so the hours-until figure is only
             // meaningful there.
             quiet = mode == ResponderMode.SLEEPING;
+        } else if (alreadyIntroduced
+                && category.kind != MessageCategory.Kind.TO_IRIS
+                && category.kind != MessageCategory.Kind.URGENT
+                && !ResponderWindow.isQuiet(
+                        settings.quietStart(), settings.quietEnd(), minuteOfDay)) {
+            // A follow-up to a thread IRIS has already introduced itself to, in ordinary hours.
+            // Short, naming just IRIS. Excluded: TO_IRIS (which must identify in full every time),
+            // URGENT (whose whole point is the call redirect), quiet hours and modes (blanket
+            // statements that must say what they say in full).
+            quiet = false;
+            variants = ReplyTemplates.shortFollowUp();
         } else {
             quiet = ResponderWindow.isQuiet(
                     settings.quietStart(), settings.quietEnd(), minuteOfDay);
