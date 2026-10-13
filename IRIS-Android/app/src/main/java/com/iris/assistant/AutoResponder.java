@@ -187,6 +187,7 @@ public final class AutoResponder {
         // overriding exactly this, so it is not re-silenced here.
         if (verdict == ResponderGuards.Verdict.SEND
                 && !message.forceReply
+                && !settings.replyToEveryMessage()
                 && !settings.categoryEnabled(category.kind, tone)) {
             verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
         }
@@ -217,8 +218,7 @@ public final class AutoResponder {
                         ? ReplyTemplates.fill(nameReply, resolvedSender,
                                 ResponderWindow.formatMinute(minuteOfDay),
                                 ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now))
-                        : compose(settings, category, tone, resolvedSender, now, minuteOfDay,
-                                settings.hasIntroduced(conversationKey));
+                        : compose(settings, category, tone, resolvedSender, now, minuteOfDay);
             }
             // A category with no text left to send is a silence, not an empty message.
             if (reply.isEmpty()) verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
@@ -294,40 +294,41 @@ public final class AutoResponder {
     /**
      * Build the reply text.
      *
+     * The reply ALWAYS reflects the message's own category (or the active mode). An earlier
+     * version collapsed every follow-up in a thread to one generic "still IRIS here" line once
+     * IRIS had introduced itself, which is why the owner saw every message answered the same way
+     * regardless of what it was \u2014 a festival wish, a thank-you and a question all got the same
+     * reply. That shortcut is gone: the "What I answer" categories now drive the wording every
+     * time, at the cost of IRIS naming itself in full on each reply, which is the safer default
+     * anyway since every recipient must know it is not Suvra typing.
+     *
      * Quiet hours are evaluated here rather than inside the guards because they change what is
      * said, not whether anything is said. The single exception is urgency, which selects a
      * different quiet-hours variant rather than escaping quiet hours.
      */
     private static String compose(ResponderSettings settings, MessageCategory.Result category,
                                   ReplyTone.Tone tone, String senderName, long nowMs,
-                                  int minuteOfDay, boolean alreadyIntroduced) {
-        // An active mode overrides both the time window and the category: the owner has stated
-        // the situation outright, and that beats whatever the hour would otherwise imply. SLEEPING
-        // is handled inside modeVariants by reusing the quiet-hours wording, so the hours-to-wake
+                                  int minuteOfDay) {
+        // An active mode overrides both the time window and the category: the owner has stated the
+        // situation outright, and that beats whatever the hour would otherwise imply. SLEEPING is
+        // handled inside modeVariants by reusing the quiet-hours wording, so the hours-to-wake
         // placeholder still needs filling for it.
         ResponderMode mode = settings.mode();
         boolean quiet;
         List<String> variants;
         if (mode.isActive()) {
             variants = settings.modeVariantsFor(mode, category.kind, tone);
-            // Only the sleeping mode talks about waking, so the hours-until figure is only
-            // meaningful there.
             quiet = mode == ResponderMode.SLEEPING;
-        } else if (alreadyIntroduced
-                && category.kind != MessageCategory.Kind.TO_IRIS
-                && category.kind != MessageCategory.Kind.URGENT
-                && !ResponderWindow.isQuiet(
-                        settings.quietStart(), settings.quietEnd(), minuteOfDay)) {
-            // A follow-up to a thread IRIS has already introduced itself to, in ordinary hours.
-            // Short, naming just IRIS. Excluded: TO_IRIS (which must identify in full every time),
-            // URGENT (whose whole point is the call redirect), quiet hours and modes (blanket
-            // statements that must say what they say in full).
-            quiet = false;
-            variants = ReplyTemplates.shortFollowUp();
         } else {
             quiet = ResponderWindow.isQuiet(
                     settings.quietStart(), settings.quietEnd(), minuteOfDay);
             variants = settings.variantsFor(category.kind, tone, quiet);
+        }
+        // Reply-to-every-message must never fall silent. If the category itself has nothing to
+        // say \u2014 an unclassified message, or one the owner left switched off \u2014 acknowledge
+        // receipt generically rather than dropping the message he asked to have answered.
+        if (variants.isEmpty() && settings.replyToEveryMessage()) {
+            variants = settings.variantsFor(MessageCategory.Kind.OTHER, tone, quiet);
         }
         if (variants.isEmpty()) return "";
 
@@ -378,8 +379,7 @@ public final class AutoResponder {
         }
         if (live) settings.setPendingRingWord(conversationKey, RING_WORD);
         return "If this genuinely can't wait, reply " + RING_WORD + " and I'll make " + owner
-                + "'s phone ring loudly, even if it's on silent. I'm IRIS, his personal "
-                + "intelligence.";
+                + "'s phone ring loudly, even if it's on silent. I'm IRIS, his assistant.";
     }
 
     /** The word a family member replies to trigger the ring. Stated to them explicitly. */

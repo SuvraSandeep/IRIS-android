@@ -311,6 +311,19 @@ public class MessageCategoryTest {
         kind("_urgent_", MessageCategory.Kind.URGENT, "underscore-wrapped urgent is still urgent");
         kind("**URGENT** please call", MessageCategory.Kind.URGENT,
                 "bold urgent in a longer message");
+        // Typo tolerance: people fat-finger "urgent" when they are in a hurry. Only the long,
+        // distinctive urgent words are fuzzed, within an edit distance of two and a matching
+        // first letter, so these catch slips without catching unrelated words.
+        kind("urgnt", MessageCategory.Kind.URGENT, "a missing letter is still urgent");
+        kind("urgentt", MessageCategory.Kind.URGENT, "a doubled letter is still urgent");
+        kind("urjent", MessageCategory.Kind.URGENT, "a wrong letter is still urgent");
+        kind("this is urgnt", MessageCategory.Kind.URGENT, "a typo'd urgent inside a sentence");
+        kind("emergeny", MessageCategory.Kind.URGENT, "a slip in emergency is still urgent");
+        kind("importnt", MessageCategory.Kind.URGENT, "a slip in important is still urgent");
+        // Negative: an unrelated word that shares neither first letter nor shape with an urgent
+        // word must NOT become urgent. "current" starts with c; no urgent word does.
+        kind("current status", MessageCategory.Kind.SHORT,
+                "an unrelated word is not fuzzed into urgent");
     }
 
     /** "Aeee" and "Online asa" were both captured from the owner's phone. */

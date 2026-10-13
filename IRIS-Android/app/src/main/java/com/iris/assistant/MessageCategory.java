@@ -299,7 +299,8 @@ public final class MessageCategory {
             return new Result(Kind.REMINDER, "");
         }
 
-        if (containsAnyWord(tokens, URGENT_WORDS) || containsAnyPhrase(flat, URGENT_PHRASES)) {
+        if (containsAnyWord(tokens, URGENT_WORDS) || containsAnyPhrase(flat, URGENT_PHRASES)
+                || fuzzyUrgent(tokens)) {
             return new Result(Kind.URGENT, "");
         }
 
@@ -438,6 +439,48 @@ public final class MessageCategory {
             if (candidates.contains(token)) return true;
         }
         return false;
+    }
+
+    /**
+     * Typo-tolerant match for the urgent words, which the owner asked for because "urgent" is the
+     * one word people fat-finger when they are in a hurry: "urgnt", "urgentt", "emergeny".
+     *
+     * Deliberately narrow. Only the long, distinctive urgent words take part (six letters or
+     * more), so short tokens cannot drift into them; the first letter must match; the lengths must
+     * be within two; and the edit distance must be at most two. That is loose enough to catch a
+     * genuine slip and tight enough that it never fired on the Odia must-not-match traffic in the
+     * tests. "asap" is left out on purpose \u2014 four letters is too short to fuzz without catching
+     * real words like "asp".
+     */
+    private static boolean fuzzyUrgent(Set<String> tokens) {
+        for (String token : tokens) {
+            if (token.length() < 4) continue;
+            for (String word : URGENT_WORDS) {
+                if (word.length() < 6) continue;
+                if (token.charAt(0) != word.charAt(0)) continue;
+                if (Math.abs(token.length() - word.length()) > 2) continue;
+                if (editDistance(token, word) <= 2) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Standard Levenshtein edit distance, two-row variant. */
+    private static int editDistance(String a, String b) {
+        int[] prev = new int[b.length() + 1];
+        int[] cur = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) prev[j] = j;
+        for (int i = 1; i <= a.length(); i++) {
+            cur[0] = i;
+            for (int j = 1; j <= b.length(); j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                cur[j] = Math.min(Math.min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+            }
+            int[] tmp = prev;
+            prev = cur;
+            cur = tmp;
+        }
+        return prev[b.length()];
     }
 
     /** Whole-word sequence match, so "happy holi" cannot be found inside "happy holiday". */

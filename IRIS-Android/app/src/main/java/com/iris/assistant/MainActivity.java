@@ -1112,21 +1112,18 @@ public class MainActivity extends Activity {
         }
         labels[rules.size()] = "+ Add a rule";
 
-        new AlertDialog.Builder(this)
-                .setTitle("Rules by name")
-                .setMessage("Checked in order; the first match wins. Matching is on whole words, "
-                        + "so \"eric\" catches Eric and Eric Jones but never Erica, Frederica or "
-                        + "America \u2014 and not Ericsson either, which needs its own rule. A "
-                        + "relationship you've set on a contact still beats these.")
-                .setItems(labels, (d, which) -> {
+        choiceDialog("Rules by name",
+                "Checked in order; the first match wins. Matching is on whole words, so \"eric\" "
+                        + "catches Eric and Eric Jones but never Erica, Frederica or America "
+                        + "\u2014 and not Ericsson either, which needs its own rule. A relationship "
+                        + "you've set on a contact still beats these.",
+                labels, which -> {
                     if (which == rules.size()) {
                         editOneNameRule(settings, -1, root);
                     } else {
                         editOneNameRule(settings, which, root);
                     }
-                })
-                .setNegativeButton("Done", null)
-                .show();
+                });
     }
 
     private void editOneNameRule(final ResponderSettings settings, final int index,
@@ -1263,12 +1260,18 @@ public class MainActivity extends Activity {
                         + (modes[i] == ResponderMode.SLEEPING
                             ? " (urgent senders told to call)" : "");
         }
-        new AlertDialog.Builder(this)
-                .setTitle("What are you doing?")
-                .setMessage("While a mode is on, I say the same thing to everyone regardless of "
-                        + "the hour \u2014 it beats quiet hours and the categories. I won't turn "
-                        + "it off for you, so remember you set it.")
-                .setItems(labels, (d, which) -> {
+        final String[] withEdit = new String[labels.length + 1];
+        System.arraycopy(labels, 0, withEdit, 0, labels.length);
+        withEdit[labels.length] = "Edit a mode's wording\u2026";
+        choiceDialog("What are you doing?",
+                "While a mode is on, I say the same thing to everyone regardless of the hour "
+                        + "\u2014 it beats quiet hours and the categories. I won't turn it off for "
+                        + "you, so remember you set it.",
+                withEdit, which -> {
+                    if (which == labels.length) {
+                        editModeTemplatePick(settings, root);
+                        return;
+                    }
                     final ResponderMode chosen = modes[which];
                     settings.setMode(chosen);
                     renderResponder(root);
@@ -1289,10 +1292,7 @@ public class MainActivity extends Activity {
                                         editModeTemplate(settings, chosen, root))
                                 .show();
                     }
-                })
-                .setNeutralButton("Edit mode wording", (d, w) ->
-                        editModeTemplatePick(settings, root))
-                .show();
+                });
     }
 
     /** Pick which mode's wording to rewrite. */
@@ -1877,15 +1877,13 @@ public class MainActivity extends Activity {
         final ResponderSettings.ReminderScope[] scopes = ResponderSettings.ReminderScope.values();
         String[] labels = new String[scopes.length];
         for (int i = 0; i < scopes.length; i++) labels[i] = reminderScopeLabel(scopes[i]);
-        new AlertDialog.Builder(this)
-                .setTitle("Who may set a reminder?")
-                .setMessage("Someone texting \u201Cremind Suvra to...\u201D sets an alarm on your "
-                        + "phone. Contacts-only is the safe default; a stranger shouldn't be able "
-                        + "to.")
-                .setItems(labels, (d, which) -> {
+        choiceDialog("Who may set a reminder?",
+                "Someone texting \u201Cremind Suvra to...\u201D sets an alarm on your phone. "
+                        + "Contacts-only is the safe default; a stranger shouldn't be able to.",
+                labels, which -> {
                     settings.setReminderScope(scopes[which]);
                     renderResponder(root);
-                }).show();
+                });
     }
 
     /** The pending reminders, each with a delete, so the owner sees even undated ones. */
@@ -2119,6 +2117,69 @@ public class MainActivity extends Activity {
 
     /** Callback for a boolean responder setting. */
     private interface Toggle { void set(boolean on); }
+
+    /** A pick-one-from-a-list callback for choiceDialog. */
+    private interface OnPick { void pick(int which); }
+
+    /**
+     * A list-choice dialog that ALSO shows an explanation.
+     *
+     * AlertDialog cannot show setMessage() and setItems() together: the message takes the content
+     * area and the item list silently never appears. That is exactly why the mode, rules-by-name
+     * and reminder-scope choosers looked uneditable on the device \u2014 an explanatory paragraph
+     * with a Close button and nothing to tap. This renders the explanation as a header above
+     * real, tappable rows inside a scroll view, so both always show.
+     */
+    private void choiceDialog(String title, String message, String[] labels, final OnPick onPick) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(8), dp(16), dp(8));
+        scroll.addView(box);
+
+        if (message != null && !message.isEmpty()) {
+            TextView msg = new TextView(this);
+            msg.setText(message);
+            msg.setTextSize(13f);
+            msg.setTypeface(android.graphics.Typeface.MONOSPACE);
+            msg.setTextColor(getColor(R.color.deck_text_dim));
+            msg.setPadding(0, 0, 0, dp(8));
+            box.addView(msg);
+        }
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(scroll)
+                .setNegativeButton("Close", null)
+                .create();
+
+        if (labels != null) {
+            for (int i = 0; i < labels.length; i++) {
+                final int which = i;
+                TextView row = new TextView(this);
+                row.setText(labels[i]);
+                row.setTextSize(15f);
+                row.setTypeface(android.graphics.Typeface.MONOSPACE);
+                row.setTextColor(getColor(R.color.deck_text));
+                row.setMinHeight(dp(48));
+                row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(10), dp(10), dp(10), dp(10));
+                row.setClickable(true);
+                row.setBackgroundResource(R.drawable.bg_cyber_row);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = dp(6);
+                row.setLayoutParams(lp);
+                row.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    onPick.pick(which);
+                });
+                box.addView(row);
+            }
+        }
+        dialog.show();
+    }
 
     /** Callback for a numeric responder setting. */
     private interface Number { void set(long value); }

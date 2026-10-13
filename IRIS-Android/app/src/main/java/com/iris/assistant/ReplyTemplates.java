@@ -136,8 +136,7 @@ public final class ReplyTemplates {
                                 + "your message is safe with me until he's up.");
             case SARCASTIC:
                 return Arrays.asList(
-                        OWNER + " is unconscious, so you've got IRIS instead \u2014 his personal "
-                                + "intelligence, and the one of us that doesn't need sleep. He'll "
+                        OWNER + " is unconscious, so you've got IRIS instead \u2014 his assistant, and the one of us that doesn't need sleep. He'll "
                                 + "read it when he resurfaces.",
                         "It is {time}. " + OWNER + " is asleep like a sensible person. I'm IRIS, "
                                 + "his assistant, and I never get that luxury. "
@@ -146,8 +145,7 @@ public final class ReplyTemplates {
                                 + "on duty as ever. He'll deal with you in daylight.",
                         "You've reached IRIS, " + OWNER + "'s assistant. He's asleep. "
                                 + "One of us has to be, and it's never me.",
-                        "At this hour? " + OWNER + " is asleep and I'm IRIS, his personal "
-                                + "intelligence, taking the message he's blissfully unaware of.");
+                        "At this hour? " + OWNER + " is asleep and I'm IRIS, his assistant, taking the message he's blissfully unaware of.");
             case BRIEF:
                 return Arrays.asList(
                         OWNER + " is asleep. IRIS, his assistant \u2014 message logged.",
@@ -160,8 +158,7 @@ public final class ReplyTemplates {
                         OWNER + " is asleep. I'm IRIS, the assistant he keeps for "
                                 + "exactly this \u2014 your message is recorded and he'll see it in "
                                 + "the morning.",
-                        "It's {time} and " + OWNER + " is resting. This is IRIS, his personal "
-                                + "intelligence. I've logged your message; he'll respond in about "
+                        "It's {time} and " + OWNER + " is resting. This is IRIS, his assistant. I've logged your message; he'll respond in about "
                                 + "{hours_until_morning} hours.",
                         OWNER + " has retired for the night. I'm IRIS, his assistant; "
                                 + "your message is safely recorded and he'll attend to it in the "
@@ -190,27 +187,22 @@ public final class ReplyTemplates {
         switch (tone) {
             case CASUAL:
                 return Arrays.asList(
-                        OWNER + "'s asleep and a message won't wake him. I'm IRIS, his personal "
-                                + "intelligence \u2014 if this really can't wait, call him. The "
+                        OWNER + "'s asleep and a message won't wake him. I'm IRIS, his assistant \u2014 if this really can't wait, call him. The "
                                 + "phone rings. This doesn't.",
-                        "Marked urgent, but " + OWNER + " is asleep. I'm IRIS, his personal "
-                                + "intelligence. If it's genuinely now, ring him \u2014 that gets "
+                        "Marked urgent, but " + OWNER + " is asleep. I'm IRIS, his assistant. If it's genuinely now, ring him \u2014 that gets "
                                 + "through and this won't.",
                         OWNER + "'s asleep. I'm IRIS, his assistant \u2014 a text just "
                                 + "sits here till morning, so if it's urgent, call and the phone "
                                 + "will wake him.",
-                        "He's down for the night. IRIS here, " + OWNER + "'s personal "
-                                + "intelligence. Urgent means call, not text \u2014 a ring gets "
+                        "He's down for the night. IRIS here, " + OWNER + "'s assistant. Urgent means call, not text \u2014 a ring gets "
                                 + "him, this won't.",
-                        "I've got you, but " + OWNER + "'s asleep and I'm only IRIS, his personal "
-                                + "intelligence. If it truly can't wait, call him now.");
+                        "I've got you, but " + OWNER + "'s asleep and I'm only IRIS, his assistant. If it truly can't wait, call him now.");
             case SARCASTIC:
                 return Arrays.asList(
                         "Everyone's message is urgent at {time}. " + OWNER + " is asleep and I'm "
                                 + "IRIS, his assistant, not his alarm clock. If it's "
                                 + "truly an emergency, call him \u2014 that actually wakes people.",
-                        OWNER + " is asleep and I don't wake him for text. I'm IRIS, his personal "
-                                + "intelligence. If this is as urgent as you say, ring the phone.",
+                        OWNER + " is asleep and I don't wake him for text. I'm IRIS, his assistant. If this is as urgent as you say, ring the phone.",
                         "Urgent at this hour, is it. " + OWNER + " is asleep; I'm IRIS, his "
                                 + "assistant, and I don't do dramatic. If it's real, "
                                 + "call him.",
@@ -225,17 +217,13 @@ public final class ReplyTemplates {
                                 + "assistant.",
                         OWNER + " is asleep. Call to wake him. IRIS, his assistant.",
                         "Asleep. Call if urgent. IRIS, " + OWNER + "'s assistant.",
-                        "A text won't wake " + OWNER + ". Ring him. IRIS, his personal "
-                                + "intelligence.",
-                        "He's asleep. Call, don't text. IRIS, " + OWNER + "'s personal "
-                                + "intelligence.");
+                        "A text won't wake " + OWNER + ". Ring him. IRIS, his assistant.",
+                        "He's asleep. Call, don't text. IRIS, " + OWNER + "'s assistant.");
             default:
                 return Arrays.asList(
-                        OWNER + " is asleep and a message won't wake him. I'm IRIS, his personal "
-                                + "intelligence \u2014 if this genuinely cannot wait until "
+                        OWNER + " is asleep and a message won't wake him. I'm IRIS, his assistant \u2014 if this genuinely cannot wait until "
                                 + "morning, call him. The phone will ring; this will not.",
-                        "It's {time} and " + OWNER + " is asleep. I'm IRIS, his personal "
-                                + "intelligence. I've marked this urgent, but if it's truly "
+                        "It's {time} and " + OWNER + " is asleep. I'm IRIS, his assistant. I've marked this urgent, but if it's truly "
                                 + "immediate, call \u2014 a call gets through and a message "
                                 + "doesn't.",
                         "I understand this is urgent. " + OWNER + " is asleep, and I'm IRIS, his "
@@ -256,12 +244,10 @@ public final class ReplyTemplates {
         switch (tone) {
             case CASUAL:
                 return Arrays.asList(
-                        "Hello. " + OWNER + " isn't free right now \u2014 I'm IRIS, his personal "
-                                + "intelligence. I've passed it on and he'll get back to you.",
+                        "Hello. " + OWNER + " isn't free right now \u2014 I'm IRIS, his assistant. I've passed it on and he'll get back to you.",
                         "Hi. You've got IRIS, " + OWNER + "'s assistant. He's busy, "
                                 + "but your message is with him.",
-                        "Hey. " + OWNER + "'s away from his phone \u2014 I'm IRIS, his personal "
-                                + "intelligence, keeping things ticking. He'll reply soon.",
+                        "Hey. " + OWNER + "'s away from his phone \u2014 I'm IRIS, his assistant, keeping things ticking. He'll reply soon.",
                         "Hello there. IRIS here, " + OWNER + "'s assistant. He'll see "
                                 + "you've messaged and get back to you.",
                         "Hi. " + OWNER + " can't come to the phone, so you've got IRIS, his "
@@ -274,12 +260,10 @@ public final class ReplyTemplates {
                         "Hi. " + OWNER + " isn't answering, which is where I come in. IRIS, his "
                                 + "assistant. Say more and he'll have something to "
                                 + "read.",
-                        "A greeting. " + OWNER + " is elsewhere, so you've got IRIS, his personal "
-                                + "intelligence, holding up his end of the conversation.",
+                        "A greeting. " + OWNER + " is elsewhere, so you've got IRIS, his assistant, holding up his end of the conversation.",
                         "Hello. You've reached IRIS, " + OWNER + "'s assistant \u2014 "
                                 + "he's busy being unreachable, and I'm the understudy.",
-                        "Hi there. " + OWNER + " hasn't surfaced, so it's IRIS, his personal "
-                                + "intelligence, being sociable on his behalf.");
+                        "Hi there. " + OWNER + " hasn't surfaced, so it's IRIS, his assistant, being sociable on his behalf.");
             case BRIEF:
                 return Arrays.asList(
                         "Hello. IRIS here, " + OWNER + "'s assistant. He'll reply "
@@ -343,8 +327,7 @@ public final class ReplyTemplates {
                         "Good {part_of_day} to you as well. " + OWNER + " is away from his phone "
                                 + "\u2014 this is IRIS, his assistant. Your message "
                                 + "is with him.",
-                        "Thank you, and the same to you. I'm IRIS, " + OWNER + "'s personal "
-                                + "intelligence; he'll reply himself when he's free.",
+                        "Thank you, and the same to you. I'm IRIS, " + OWNER + "'s assistant; he'll reply himself when he's free.",
                         "Good {part_of_day}, and the same to you. This is IRIS, " + OWNER + "'s "
                                 + "assistant \u2014 I've passed your wishes on.",
                         "A good {part_of_day} to you too. " + OWNER + " isn't at his phone; I'm "
@@ -365,10 +348,8 @@ public final class ReplyTemplates {
                                 + "He'll have seen it by evening.",
                         "Same to you and yours. " + OWNER + "'s celebrating, so you've got IRIS, "
                                 + "his assistant \u2014 wishes noted.",
-                        "Thanks so much, same to you. I'm IRIS, " + OWNER + "'s personal "
-                                + "intelligence, passing it all along to him.",
-                        "That's kind \u2014 same to you. IRIS here, " + OWNER + "'s personal "
-                                + "intelligence; he'll reply once things settle down.");
+                        "Thanks so much, same to you. I'm IRIS, " + OWNER + "'s assistant, passing it all along to him.",
+                        "That's kind \u2014 same to you. IRIS here, " + OWNER + "'s assistant; he'll reply once things settle down.");
             case SARCASTIC:
                 return Arrays.asList(
                         "Wishes received and logged. " + OWNER + " is celebrating somewhere "
@@ -378,8 +359,7 @@ public final class ReplyTemplates {
                                 + "assistant, and I am at least punctual.",
                         "Festive greetings duly filed. " + OWNER + " is off enjoying himself; "
                                 + "IRIS, his assistant, is minding the phone as usual.",
-                        "And the same to you, courtesy of IRIS \u2014 " + OWNER + "'s personal "
-                                + "intelligence, since the man himself is unreachable mid-feast.",
+                        "And the same to you, courtesy of IRIS \u2014 " + OWNER + "'s assistant, since the man himself is unreachable mid-feast.",
                         "Thank you on his behalf. " + OWNER + " is busy celebrating; I'm IRIS, "
                                 + "his assistant, and I don't get holidays.");
             case BRIEF:
@@ -394,15 +374,12 @@ public final class ReplyTemplates {
                         "Thank you, and the same to you. " + OWNER + " isn't at his phone right "
                                 + "now; I'm IRIS, his assistant, and I've passed your "
                                 + "wishes on to him.",
-                        "That's very kind \u2014 thank you. This is IRIS, " + OWNER + "'s personal "
-                                + "intelligence. He'll want to reply himself, and he will.",
+                        "That's very kind \u2014 thank you. This is IRIS, " + OWNER + "'s assistant. He'll want to reply himself, and he will.",
                         "Thank you very much, and the same to you and yours. I'm IRIS, " + OWNER
                                 + "'s assistant; your wishes are with him.",
-                        "Warm wishes returned. This is IRIS, " + OWNER + "'s personal "
-                                + "intelligence \u2014 " + OWNER + " is away from his phone but "
+                        "Warm wishes returned. This is IRIS, " + OWNER + "'s assistant \u2014 " + OWNER + " is away from his phone but "
                                 + "he'll see your message.",
-                        "Thank you for the kind wishes. I'm IRIS, " + OWNER + "'s personal "
-                                + "intelligence, and I've made sure he has them to answer "
+                        "Thank you for the kind wishes. I'm IRIS, " + OWNER + "'s assistant, and I've made sure he has them to answer "
                                 + "himself.");
         }
     }
@@ -418,24 +395,19 @@ public final class ReplyTemplates {
         }
         if (tone == ReplyTone.Tone.SARCASTIC) {
             return Arrays.asList(
-                    "Thank you. " + OWNER + " is being celebrated elsewhere, so IRIS, his personal "
-                            + "intelligence, is accepting wishes on his behalf.",
+                    "Thank you. " + OWNER + " is being celebrated elsewhere, so IRIS, his assistant, is accepting wishes on his behalf.",
                     "Duly recorded. I'm IRIS, " + OWNER + "'s assistant, and I will "
                             + "make sure he knows you remembered.",
                     "Another year of " + OWNER + ", noted. IRIS, his assistant, "
                             + "keeping the ledger while he blows out candles.",
-                    "Wishes accepted on his behalf. I'm IRIS, " + OWNER + "'s personal "
-                            + "intelligence \u2014 he's too busy aging to reply just now.",
-                    "Thank you. " + OWNER + " is off celebrating; IRIS, his personal "
-                            + "intelligence, does the paperwork, as ever.");
+                    "Wishes accepted on his behalf. I'm IRIS, " + OWNER + "'s assistant \u2014 he's too busy aging to reply just now.",
+                    "Thank you. " + OWNER + " is off celebrating; IRIS, his assistant, does the paperwork, as ever.");
         }
         return Arrays.asList(
                 "Thank you very much. " + OWNER + " isn't at his phone \u2014 I'm IRIS, his "
                         + "assistant, and I've made sure he has your message.",
-                "That's kind of you, thank you. This is IRIS, " + OWNER + "'s personal "
-                        + "intelligence; he'll thank you himself shortly.",
-                "Thank you for the birthday wishes. I'm IRIS, " + OWNER + "'s personal "
-                        + "intelligence, and I've passed them straight to him.",
+                "That's kind of you, thank you. This is IRIS, " + OWNER + "'s assistant; he'll thank you himself shortly.",
+                "Thank you for the birthday wishes. I'm IRIS, " + OWNER + "'s assistant, and I've passed them straight to him.",
                 "How kind \u2014 thank you. This is IRIS, " + OWNER + "'s assistant; "
                         + OWNER + " will want to reply to this one himself.",
                 "Thank you on his behalf. I'm IRIS, " + OWNER + "'s assistant, "
@@ -449,8 +421,7 @@ public final class ReplyTemplates {
                             + "IRIS, his assistant, is looking at it for him.",
                     "Same to you. " + OWNER + " is off duty; I'm IRIS, his assistant, "
                             + "and I am not.",
-                    "A good weekend returned. " + OWNER + " has gone quiet, so IRIS, his personal "
-                            + "intelligence, is keeping up appearances.",
+                    "A good weekend returned. " + OWNER + " has gone quiet, so IRIS, his assistant, is keeping up appearances.",
                     "You too. " + OWNER + " is resting; I'm IRIS, his assistant, "
                             + "which apparently never does.",
                     "Weekend wishes logged. " + OWNER + " is unreachable by design; IRIS here, "
@@ -482,14 +453,11 @@ public final class ReplyTemplates {
             return Arrays.asList(
                     "You're welcome, although " + OWNER + " did the work and I'm only IRIS, his "
                             + "assistant, taking the credit.",
-                    "Noted. I'll tell " + OWNER + " he was appreciated. IRIS, his personal "
-                            + "intelligence.",
-                    "Don't thank me, thank " + OWNER + " \u2014 though I'm IRIS, his personal "
-                            + "intelligence, and I did relay it promptly.",
+                    "Noted. I'll tell " + OWNER + " he was appreciated. IRIS, his assistant.",
+                    "Don't thank me, thank " + OWNER + " \u2014 though I'm IRIS, his assistant, and I did relay it promptly.",
                     "Received. I'm IRIS, " + OWNER + "'s assistant; I'll pass the "
                             + "gratitude to the man who'll take all the credit.",
-                    "You're welcome on his behalf. IRIS here, " + OWNER + "'s personal "
-                            + "intelligence \u2014 someone has to be gracious while he's out.");
+                    "You're welcome on his behalf. IRIS here, " + OWNER + "'s assistant \u2014 someone has to be gracious while he's out.");
         }
         if (tone == ReplyTone.Tone.BRIEF) {
             return Arrays.asList(
@@ -522,8 +490,7 @@ public final class ReplyTemplates {
                             + "he'll be insufferable about this for a week.",
                     "Lovely. I'm IRIS, " + OWNER + "'s assistant; I'll add it to the "
                             + "pile he hasn't read yet.",
-                    "Congratulations received on his behalf. IRIS, " + OWNER + "'s personal "
-                            + "intelligence, doing the admin as usual.",
+                    "Congratulations received on his behalf. IRIS, " + OWNER + "'s assistant, doing the admin as usual.",
                     "He'll love that. IRIS, " + OWNER + "'s assistant \u2014 I'll make "
                             + "sure he sees it, eventually.");
         }
@@ -639,8 +606,7 @@ public final class ReplyTemplates {
     private static List<String> other(ReplyTone.Tone tone) {
         if (tone == ReplyTone.Tone.SARCASTIC) {
             return Arrays.asList(
-                    "Received, and entirely beyond me. I'm IRIS, " + OWNER + "'s personal "
-                            + "intelligence \u2014 he does the comprehension.",
+                    "Received, and entirely beyond me. I'm IRIS, " + OWNER + "'s assistant \u2014 he does the comprehension.",
                     "I have no idea what to do with that, but " + OWNER + " will. IRIS, his "
                             + "assistant.",
                     "Noted, unread, and filed. IRIS here, " + OWNER + "'s assistant; "
@@ -695,8 +661,7 @@ public final class ReplyTemplates {
                             + "one who actually turns up.",
                     "He's not here. IRIS is, though \u2014 " + OWNER + "'s assistant, "
                             + "covering for him again.",
-                    "Looking for " + OWNER + "? Join the queue. IRIS here, his personal "
-                            + "intelligence, taking a number for you.");
+                    "Looking for " + OWNER + "? Join the queue. IRIS here, his assistant, taking a number for you.");
         }
         if (tone == ReplyTone.Tone.BRIEF) {
             return Arrays.asList(
@@ -714,20 +679,17 @@ public final class ReplyTemplates {
                             + "back to you.",
                     "He's stepped away \u2014 I'm IRIS, " + OWNER + "'s assistant. "
                             + "I've noted you were after him.",
-                    "Can't reach him this second. IRIS here, " + OWNER + "'s personal "
-                            + "intelligence; he'll see you were asking.",
+                    "Can't reach him this second. IRIS here, " + OWNER + "'s assistant; he'll see you were asking.",
                     "Not right now, sorry \u2014 I'm IRIS, " + OWNER + "'s assistant. "
                             + "He'll get back to you.");
         }
         return Arrays.asList(
                 OWNER + " isn't available at the moment. I'm IRIS, his assistant \u2014 "
                         + "I've noted that you were trying to reach him.",
-                "He's away from his phone just now. This is IRIS, " + OWNER + "'s personal "
-                        + "intelligence; he'll get back to you.",
+                "He's away from his phone just now. This is IRIS, " + OWNER + "'s assistant; he'll get back to you.",
                 OWNER + " can't take this right now. I'm IRIS, his assistant, and "
                         + "I've recorded that you were looking for him.",
-                "He isn't free at the moment. This is IRIS, " + OWNER + "'s personal "
-                        + "intelligence \u2014 I'll make sure he knows you called.",
+                "He isn't free at the moment. This is IRIS, " + OWNER + "'s assistant \u2014 I'll make sure he knows you called.",
                 "Not right now, I'm afraid. I'm IRIS, " + OWNER + "'s assistant; "
                         + OWNER + " will come back to you as soon as he can.");
     }
@@ -741,8 +703,7 @@ public final class ReplyTemplates {
                             + "I've written the question down for him.",
                     "I could answer, but it wouldn't be true. " + OWNER + " gets this one. IRIS, "
                             + "his assistant.",
-                    "A question for the man himself. I'm IRIS, " + OWNER + "'s personal "
-                            + "intelligence \u2014 I file, he answers.",
+                    "A question for the man himself. I'm IRIS, " + OWNER + "'s assistant \u2014 I file, he answers.",
                     "Nice try. I'm IRIS, " + OWNER + "'s assistant, not his stand-in "
                             + "for decisions. He'll reply.");
         }
@@ -757,26 +718,22 @@ public final class ReplyTemplates {
         return Arrays.asList(
                 "That's one for " + OWNER + " himself. I'm IRIS, his assistant; I've "
                         + "recorded the question and he'll answer it properly when he's back.",
-                "I'd rather he answered that than I did. This is IRIS, " + OWNER + "'s personal "
-                        + "intelligence \u2014 your question is with him.",
+                "I'd rather he answered that than I did. This is IRIS, " + OWNER + "'s assistant \u2014 your question is with him.",
                 "That needs " + OWNER + "'s own answer. I'm IRIS, his assistant; I've "
                         + "noted it and he'll respond.",
                 "I'll leave that one to " + OWNER + ". This is IRIS, his assistant "
                         + "\u2014 your question is logged for him.",
-                "A fair question, but his to answer. I'm IRIS, " + OWNER + "'s personal "
-                        + "intelligence, and I've passed it to him.");
+                "A fair question, but his to answer. I'm IRIS, " + OWNER + "'s assistant, and I've passed it to him.");
     }
 
     private static List<String> urgent(ReplyTone.Tone tone) {
         if (tone == ReplyTone.Tone.SARCASTIC) {
             return Arrays.asList(
-                    "Flagged as urgent, as requested. I'm IRIS, " + OWNER + "'s personal "
-                            + "intelligence. If it is genuinely urgent, call him rather than "
+                    "Flagged as urgent, as requested. I'm IRIS, " + OWNER + "'s assistant. If it is genuinely urgent, call him rather than "
                             + "typing at me.",
                     "Understood. " + OWNER + " now has this above everything else, courtesy of "
                             + "IRIS, his assistant. A call would be faster.",
-                    "Marked most urgent, naturally. I'm IRIS, " + OWNER + "'s personal "
-                            + "intelligence \u2014 if it truly is, call him, that's what the "
+                    "Marked most urgent, naturally. I'm IRIS, " + OWNER + "'s assistant \u2014 if it truly is, call him, that's what the "
                             + "phone is for.",
                     "Duly escalated. IRIS here, " + OWNER + "'s assistant. A call "
                             + "reaches him; a flag just sits in a queue.",
@@ -796,12 +753,9 @@ public final class ReplyTemplates {
                 "Understood as urgent. I'm IRIS, " + OWNER + "'s assistant \u2014 I've "
                         + "flagged this above everything else. If it cannot wait, call rather "
                         + "than message.",
-                "Marked urgent and put in front of " + OWNER + ". This is IRIS, his personal "
-                        + "intelligence; a call will reach him faster than this will.",
-                "I've flagged this as urgent for " + OWNER + ". I'm IRIS, his personal "
-                        + "intelligence \u2014 if it's truly immediate, a phone call is surer.",
-                "Noted as urgent and raised with " + OWNER + ". This is IRIS, his personal "
-                        + "intelligence; please call him if it genuinely can't wait.",
+                "Marked urgent and put in front of " + OWNER + ". This is IRIS, his assistant; a call will reach him faster than this will.",
+                "I've flagged this as urgent for " + OWNER + ". I'm IRIS, his assistant \u2014 if it's truly immediate, a phone call is surer.",
+                "Noted as urgent and raised with " + OWNER + ". This is IRIS, his assistant; please call him if it genuinely can't wait.",
                 "Treated as urgent. I'm IRIS, " + OWNER + "'s assistant, and it's in "
                         + "front of him \u2014 for anything immediate, call rather than text.");
     }
@@ -809,14 +763,11 @@ public final class ReplyTemplates {
     private static List<String> mention(ReplyTone.Tone tone) {
         if (tone == ReplyTone.Tone.SARCASTIC) {
             return Arrays.asList(
-                    OWNER + " has been summoned and is not here. I'm IRIS, his personal "
-                            + "intelligence, standing in until he notices.",
-                    "He's been named and he's absent. IRIS, " + OWNER + "'s personal "
-                            + "intelligence \u2014 I've logged the mention.",
+                    OWNER + " has been summoned and is not here. I'm IRIS, his assistant, standing in until he notices.",
+                    "He's been named and he's absent. IRIS, " + OWNER + "'s assistant \u2014 I've logged the mention.",
                     "Someone said " + OWNER + "'s name and nothing happened. IRIS here, his "
                             + "assistant, answering the summons for him.",
-                    "He's been tagged and he's elsewhere. I'm IRIS, " + OWNER + "'s personal "
-                            + "intelligence, the one who actually heard you.",
+                    "He's been tagged and he's elsewhere. I'm IRIS, " + OWNER + "'s assistant, the one who actually heard you.",
                     "A mention, and no " + OWNER + " in sight. IRIS, his assistant, "
                             + "noting it so he can pretend he saw it live.");
         }
@@ -829,16 +780,11 @@ public final class ReplyTemplates {
                     "Tagged for " + OWNER + ". IRIS, his assistant.");
         }
         return Arrays.asList(
-                OWNER + " has been mentioned and isn't here to answer. This is IRIS, his personal "
-                        + "intelligence; the mention is logged and he'll pick it up.",
-                "He's been named but he's away from his phone. I'm IRIS, " + OWNER + "'s personal "
-                        + "intelligence \u2014 I've made sure he'll see it.",
-                OWNER + " was mentioned and he isn't at his phone. I'm IRIS, his personal "
-                        + "intelligence, and I've noted it for him.",
-                "I've caught the mention of " + OWNER + ". This is IRIS, his personal "
-                        + "intelligence \u2014 he's away, but he'll see he was named.",
-                OWNER + " isn't here to respond to that, but I am. I'm IRIS, his personal "
-                        + "intelligence, and the mention is with him.");
+                OWNER + " has been mentioned and isn't here to answer. This is IRIS, his assistant; the mention is logged and he'll pick it up.",
+                "He's been named but he's away from his phone. I'm IRIS, " + OWNER + "'s assistant \u2014 I've made sure he'll see it.",
+                OWNER + " was mentioned and he isn't at his phone. I'm IRIS, his assistant, and I've noted it for him.",
+                "I've caught the mention of " + OWNER + ". This is IRIS, his assistant \u2014 he's away, but he'll see he was named.",
+                OWNER + " isn't here to respond to that, but I am. I'm IRIS, his assistant, and the mention is with him.");
     }
 
     /**
@@ -855,10 +801,8 @@ public final class ReplyTemplates {
                         + "assistant.",
                 "Noted, and barely. I'm IRIS, " + OWNER + "'s assistant, and even I "
                         + "expected more.",
-                "Such eloquence. I'll be sure " + OWNER + " savours it. IRIS, his personal "
-                        + "intelligence.",
-                "Received, all one syllable of it. I'm IRIS, " + OWNER + "'s personal "
-                        + "intelligence \u2014 he'll be thrilled.");
+                "Such eloquence. I'll be sure " + OWNER + " savours it. IRIS, his assistant.",
+                "Received, all one syllable of it. I'm IRIS, " + OWNER + "'s assistant \u2014 he'll be thrilled.");
     }
 
     // ─── Situational modes ───
@@ -892,8 +836,7 @@ public final class ReplyTemplates {
                             + "He'll get back to you once he's stopped.",
                     "He's on the road. IRIS here, " + OWNER + "'s assistant; your "
                             + "message is safe with me till he parks.",
-                    "Driving at the moment \u2014 I'm IRIS, " + OWNER + "'s personal "
-                            + "intelligence. I'll make sure he sees this.",
+                    "Driving at the moment \u2014 I'm IRIS, " + OWNER + "'s assistant. I'll make sure he sees this.",
                     OWNER + "'s behind the wheel, so you've got IRIS, his assistant. "
                             + "He'll reply shortly.",
                     "He's driving \u2014 IRIS here, " + OWNER + "'s assistant. Catch "
@@ -915,16 +858,14 @@ public final class ReplyTemplates {
     private static List<String> meeting(ReplyTone.Tone tone) {
         if (tone == ReplyTone.Tone.SARCASTIC) {
             return Arrays.asList(
-                    OWNER + " is in a meeting, pretending to pay attention. I'm IRIS, his personal "
-                            + "intelligence \u2014 he'll surface eventually.",
+                    OWNER + " is in a meeting, pretending to pay attention. I'm IRIS, his assistant \u2014 he'll surface eventually.",
                     "He's trapped in a meeting. IRIS here, " + OWNER + "'s assistant, "
                             + "and considerably freer than he is.",
                     "In a meeting. " + OWNER + " will emerge with opinions later. IRIS, his "
                             + "assistant, taking messages in the meantime.",
                     "I'm IRIS, " + OWNER + "'s assistant. He's in a meeting, so you've "
                             + "got the half that's allowed to talk.",
-                    OWNER + " is being productive in a room somewhere. IRIS here, his personal "
-                            + "intelligence \u2014 he'll read this after.");
+                    OWNER + " is being productive in a room somewhere. IRIS here, his assistant \u2014 he'll read this after.");
         }
         if (tone == ReplyTone.Tone.BRIEF) {
             return Arrays.asList(
@@ -939,24 +880,20 @@ public final class ReplyTemplates {
             return Arrays.asList(
                     OWNER + "'s in a meeting \u2014 I'm IRIS, his assistant. He'll "
                             + "get back to you once he's out.",
-                    "He's in a meeting right now. IRIS here, " + OWNER + "'s personal "
-                            + "intelligence; I've got your message for him.",
+                    "He's in a meeting right now. IRIS here, " + OWNER + "'s assistant; I've got your message for him.",
                     "Stuck in a meeting \u2014 I'm IRIS, " + OWNER + "'s assistant. "
                             + "I'll pass this on the moment he's free.",
-                    OWNER + "'s tied up in a meeting, so you've got IRIS, his personal "
-                            + "intelligence. He'll reply soon.",
+                    OWNER + "'s tied up in a meeting, so you've got IRIS, his assistant. He'll reply soon.",
                     "He's in a meeting \u2014 IRIS here, " + OWNER + "'s assistant. "
                             + "Your message is waiting for him.");
         }
         return Arrays.asList(
                 OWNER + " is in a meeting at the moment. I'm IRIS, his assistant "
                         + "\u2014 I've noted your message and he'll reply when he's free.",
-                "He's in a meeting just now. This is IRIS, " + OWNER + "'s personal "
-                        + "intelligence; your message is with him and he'll respond afterwards.",
+                "He's in a meeting just now. This is IRIS, " + OWNER + "'s assistant; your message is with him and he'll respond afterwards.",
                 "I'm IRIS, " + OWNER + "'s assistant. " + OWNER + " is in a meeting "
                         + "and can't reply right now, but I've made sure he has this.",
-                OWNER + " can't take this during his meeting. I'm IRIS, his personal "
-                        + "intelligence \u2014 he'll get back to you once it's over.",
+                OWNER + " can't take this during his meeting. I'm IRIS, his assistant \u2014 he'll get back to you once it's over.",
                 "This is IRIS, " + OWNER + "'s assistant. " + OWNER + " is in a "
                         + "meeting; your message is recorded and he'll answer it himself shortly.");
     }
@@ -964,16 +901,14 @@ public final class ReplyTemplates {
     private static List<String> away(ReplyTone.Tone tone) {
         if (tone == ReplyTone.Tone.SARCASTIC) {
             return Arrays.asList(
-                    OWNER + " is away and blissfully unreachable. I'm IRIS, his personal "
-                            + "intelligence \u2014 I don't get to go anywhere.",
+                    OWNER + " is away and blissfully unreachable. I'm IRIS, his assistant \u2014 I don't get to go anywhere.",
                     "He's off somewhere. IRIS here, " + OWNER + "'s assistant, "
                             + "minding the phone he left behind.",
                     "Away. " + OWNER + " will deal with the backlog on his return. IRIS, his "
                             + "assistant, building said backlog.",
                     "I'm IRIS, " + OWNER + "'s assistant. He's away \u2014 you've got "
                             + "the one of us that never clocks off.",
-                    OWNER + " is out of reach and enjoying it. IRIS here, his personal "
-                            + "intelligence, holding the fort.");
+                    OWNER + " is out of reach and enjoying it. IRIS here, his assistant, holding the fort.");
         }
         if (tone == ReplyTone.Tone.BRIEF) {
             return Arrays.asList(
@@ -987,8 +922,7 @@ public final class ReplyTemplates {
             return Arrays.asList(
                     OWNER + "'s away at the moment \u2014 I'm IRIS, his assistant. "
                             + "He'll get back to you when he's back.",
-                    "He's out of reach right now. IRIS here, " + OWNER + "'s personal "
-                            + "intelligence; I've got your message for him.",
+                    "He's out of reach right now. IRIS here, " + OWNER + "'s assistant; I've got your message for him.",
                     "Away just now \u2014 I'm IRIS, " + OWNER + "'s assistant. I'll "
                             + "pass this on when he returns.",
                     OWNER + "'s away, so you've got IRIS, his assistant. He'll reply "

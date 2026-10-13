@@ -20,11 +20,14 @@ public final class ResponderGuards {
     /**
      * How many times a day IRIS will explain itself to one conversation.
      *
-     * One. Enough to answer "is this a bot?" once; not enough to hold a conversation. This is the
-     * only route past the cooldown, so it is the only place a loop could start, and the bound is
-     * what makes the exemption safe to have at all.
+     * Raised from one to five after the owner found IRIS went silent the second time he addressed
+     * it by name while testing. One acknowledgement was too few: someone who writes "iris?" and
+     * then "are you there iris?" is owed an answer both times. Five is enough to be reliably self-
+     * aware when named, and still bounded so two auto-responders cannot talk all night \u2014 loop
+     * detection is the other backstop. Reply-to-every-message lifts this entirely by the owner's
+     * explicit choice.
      */
-    public static final int TO_IRIS_PER_DAY = 1;
+    public static final int TO_IRIS_PER_DAY = 5;
 
     /** What the responder is allowed to do at all. */
     public enum State {
@@ -245,8 +248,11 @@ public final class ResponderGuards {
         // ─── Does this category speak in this tone? ───
         // A fixed reply set by name is the owner overriding this specific question: he has said
         // what to send to this person, so "that kind of message earns no reply" no longer applies.
-        // Every other guard above and below still does.
+        // Reply-to-every-message is the owner overriding it wholesale: answer everything, even an
+        // unclassified message (which the composer then acknowledges generically). Every other
+        // guard above and below still does apply.
         if (!message.forceReply
+                && !policy.replyToEveryMessage
                 && !ReplyTone.answers(message.category, message.tone)) {
             return Verdict.CATEGORY_SILENT;
         }
@@ -260,6 +266,13 @@ public final class ResponderGuards {
         if (looksLikeLoop(message.incomingText, message.lastSentReply)) {
             return Verdict.LOOP_SUSPECTED;
         }
+        // Reply-to-every-message: the owner's explicit "answer every message, not one per burst".
+        // It skips the burst, same-text, cooldown and cap guards below. Placed AFTER the safety
+        // and scope guards and after loop detection, so it still won't answer two bots echoing
+        // each other, a blocked or unsaved contact, or a group \u2014 groups are governed by the
+        // scope switch and are deliberately left to the normal burst limiting even here, so one
+        // chatty group can't be answered line by line.
+        if (policy.replyToEveryMessage && !message.group) return Verdict.SEND;
         // One reply per burst. A single notification held seven messages from one chat on the
         // owner's own phone, so without this the responder would have fired seven times. The owner
         // can switch this off to answer every message.
