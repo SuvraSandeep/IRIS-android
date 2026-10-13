@@ -55,6 +55,8 @@ public final class ResponderGuards {
         BLOCKED_CONTENT,
         /** The contact is marked NEVER. */
         CONTACT_BLOCKED,
+        /** A rule on the contact's NAME refuses them, independently of the contact list. */
+        NAME_RULE_BLOCKED,
         /** Allowlist mode is on and this contact is not on it. */
         NOT_ALLOWLISTED,
         /** Group replies are switched off. */
@@ -116,6 +118,8 @@ public final class ResponderGuards {
         public boolean replyToUnsaved;
 
         public ContactRule contactRule = ContactRule.INHERIT;
+        /** A rule on the sender's name refuses them. Set from ResponderSettings.nameRuleBlocks. */
+        public boolean nameRuleBlocked;
         public boolean allowlistOnly;
 
         public long cooldownMs;
@@ -168,6 +172,13 @@ public final class ResponderGuards {
         // NEVER outranks everything that follows, including mentions and urgency. If the owner has
         // said no, no amount of urgency in the message overrides it.
         if (policy.contactRule == ContactRule.NEVER) return Verdict.CONTACT_BLOCKED;
+        // A name rule refuses too, but only where the contact list has said nothing. An explicit
+        // ALLOW on this conversation is a decision about this person and outranks a pattern that
+        // happens to match their name -- otherwise an "eric" rule would permanently silence a
+        // relative called Erica whom the owner had deliberately allowed.
+        if (policy.nameRuleBlocked && policy.contactRule != ContactRule.ALLOW) {
+            return Verdict.NAME_RULE_BLOCKED;
+        }
         if (policy.allowlistOnly && policy.contactRule != ContactRule.ALLOW) {
             return Verdict.NOT_ALLOWLISTED;
         }
@@ -285,6 +296,8 @@ public final class ResponderGuards {
                 return "That wasn't really a message \u2014 a notification count, a deleted-message "
                         + "placeholder, or something already taken back.";
             case CONTACT_BLOCKED: return "You told me never to answer this contact.";
+            case NAME_RULE_BLOCKED:
+                return "Their name matches one of your rules that says don't reply.";
             case NOT_ALLOWLISTED:
                 return "I'm only answering your chosen contacts, and this one isn't on the list.";
             case GROUP_NOT_ENABLED: return "A group, and I'm not answering groups.";

@@ -292,14 +292,32 @@ public final class ResponderSettings {
         prefs.edit().putString(K_MENTION_WORDS, join(words)).apply();
     }
 
-    /** One name-pattern rule: a substring to look for, and the tone it implies. */
+    /**
+     * One name-pattern rule: a substring to look for, and what to do about it.
+     *
+     * A rule either sets a tone or refuses the contact outright. The owner asked for both from one
+     * place -- "if the name has eric, be professional, or don't reply at all" -- and splitting them
+     * across two screens would mean matching the same name twice by two different mechanisms.
+     */
     public static final class NameRule {
         public final String pattern;
+        /** Tone to apply. Ignored when {@link #never} is true. */
         public final ReplyTone.Tone tone;
+        /** Refuse anyone matching this pattern, whatever else is true. */
+        public final boolean never;
+
         public NameRule(String pattern, ReplyTone.Tone tone) {
+            this(pattern, tone, false);
+        }
+
+        public NameRule(String pattern, ReplyTone.Tone tone, boolean never) {
             this.pattern = pattern == null ? "" : pattern;
             this.tone = tone == null ? ReplyTone.Tone.PROFESSIONAL : tone;
+            this.never = never;
         }
+
+        /** How this rule is stored and shown. */
+        public String actionName() { return never ? "NEVER" : tone.name(); }
     }
 
     /**
@@ -316,8 +334,15 @@ public final class ResponderSettings {
             if (trimmed.isEmpty()) continue;
             int bar = trimmed.indexOf('|');
             if (bar <= 0) continue;
-            out.add(new NameRule(trimmed.substring(0, bar),
-                    ReplyTone.parseTone(trimmed.substring(bar + 1))));
+            String pattern = trimmed.substring(0, bar);
+            String action = trimmed.substring(bar + 1).trim();
+            // Checked before parseTone, which would otherwise read "NEVER" as an unknown tone and
+            // silently return PROFESSIONAL -- turning a refusal into a reply.
+            if ("NEVER".equalsIgnoreCase(action)) {
+                out.add(new NameRule(pattern, null, true));
+            } else {
+                out.add(new NameRule(pattern, ReplyTone.parseTone(action), false));
+            }
         }
         return out;
     }
@@ -328,18 +353,40 @@ public final class ResponderSettings {
             for (NameRule rule : rules) {
                 if (rule == null || rule.pattern.trim().isEmpty()) continue;
                 if (joined.length() > 0) joined.append('\n');
-                joined.append(rule.pattern.trim()).append('|').append(rule.tone.name());
+                joined.append(rule.pattern.trim()).append('|').append(rule.actionName());
             }
         }
         prefs.edit().putString(K_NAME_PATTERNS, joined.toString()).apply();
     }
 
-    /** Tone implied by the first matching name rule, or null. */
+    /**
+     * Tone implied by the first matching name rule, or null.
+     *
+     * A refusal rule carries no tone, so it must not be read as one. Returning PROFESSIONAL here
+     * would mean a "never reply" rule quietly became "reply professionally".
+     */
     public ReplyTone.Tone toneForName(String contactName) {
         for (NameRule rule : nameRules()) {
-            if (ReplyTone.nameMatches(contactName, rule.pattern)) return rule.tone;
+            if (!ReplyTone.nameMatches(contactName, rule.pattern)) continue;
+            return rule.never ? null : rule.tone;
         }
         return null;
+    }
+
+    /** Whether a name rule refuses this contact outright. First match wins, as for tone. */
+    public boolean nameRuleBlocks(String contactName) {
+        for (NameRule rule : nameRules()) {
+            if (ReplyTone.nameMatches(contactName, rule.pattern)) return rule.never;
+        }
+        return false;
+    }
+
+    /** The pattern that matched, for the decision log. Empty when none did. */
+    public String matchingNamePattern(String contactName) {
+        for (NameRule rule : nameRules()) {
+            if (ReplyTone.nameMatches(contactName, rule.pattern)) return rule.pattern;
+        }
+        return "";
     }
 
     // ─── Categories ───

@@ -863,6 +863,169 @@ public class MainActivity extends Activity {
                 }).show();
     }
 
+    /**
+     * What tone is actually in force right now, when it differs from the stored default.
+     *
+     * The owner set SARCASTIC and kept receiving PROFESSIONAL. Both were working as written: the
+     * work-hours window outranks the global default in the resolver, and that window had no UI, so
+     * a rule he could not see was overruling one he had deliberately chosen. Stating the effective
+     * tone and its reason is the actual fix; exposing the switch is only half of it.
+     */
+    private String effectiveToneNote(ResponderSettings settings) {
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        int minute = now.get(java.util.Calendar.HOUR_OF_DAY) * 60
+                + now.get(java.util.Calendar.MINUTE);
+        ReplyTone.Tone windowTone =
+                ResponderWindow.toneFor(settings.toneWindows(), minute);
+        if (windowTone == null || windowTone == settings.defaultTone()) return "";
+        return "  \u2192 " + windowTone.name() + " now";
+    }
+
+    private String nameRuleSummary(ResponderSettings settings) {
+        java.util.List<ResponderSettings.NameRule> rules = settings.nameRules();
+        if (rules.isEmpty()) return "none";
+        return rules.size() == 1 ? rules.get(0).pattern + " \u2192 "
+                + rules.get(0).actionName() : rules.size() + " rules";
+    }
+
+    /** Edit work hours, during which IRIS can be held to the professional tone. */
+    private void editWorkHours(final ResponderSettings settings, final View root) {
+        final EditText from = new EditText(this);
+        from.setHint("from, e.g. 09:00");
+        from.setText(ResponderWindow.formatMinute(settings.workStart()));
+        final EditText to = new EditText(this);
+        to.setHint("to, e.g. 18:00");
+        to.setText(ResponderWindow.formatMinute(settings.workEnd()));
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(8), dp(16), 0);
+        box.addView(from);
+        box.addView(to);
+
+        new AlertDialog.Builder(this)
+                .setTitle("When are you working?")
+                .setMessage("While this window is open I use the professional tone regardless of "
+                        + "your default \u2014 which is why a sarcastic default can come out "
+                        + "formal in the afternoon. Turn the switch above off if you'd rather I "
+                        + "didn't.")
+                .setView(box)
+                .setNegativeButton("Leave it", null)
+                .setPositiveButton("Set", (d, w) -> {
+                    int start = ResponderWindow.parseMinute(from.getText().toString());
+                    int end = ResponderWindow.parseMinute(to.getText().toString());
+                    if (!ResponderWindow.isValidWindow(start, end)) {
+                        toast("That isn't a window I can use. Two different valid times, please.");
+                        return;
+                    }
+                    settings.setWorkHours(start, end);
+                    renderResponder(root);
+                }).show();
+    }
+
+    /**
+     * Rules that match on a contact's NAME rather than on a specific conversation.
+     *
+     * Exists because per-contact rules are retrospective and exact: they need the person to have
+     * messaged, and they bind to one name on one app. A pattern covers everyone who will ever
+     * match it, which is what the owner wanted for colleagues -- one rule for anybody with "eric"
+     * in their name, set once.
+     */
+    private void editNameRules(final ResponderSettings settings, final View root) {
+        final java.util.List<ResponderSettings.NameRule> rules =
+                new java.util.ArrayList<>(settings.nameRules());
+        final String[] labels = new String[rules.size() + 1];
+        for (int i = 0; i < rules.size(); i++) {
+            labels[i] = "\"" + rules.get(i).pattern + "\"  \u2192  "
+                    + rules.get(i).actionName();
+        }
+        labels[rules.size()] = "+ Add a rule";
+
+        new AlertDialog.Builder(this)
+                .setTitle("Rules by name")
+                .setMessage("Checked in order; the first match wins. Matching is on whole words, "
+                        + "so \"eric\" catches Eric and Eric Jones but never Erica, Frederica or "
+                        + "America \u2014 and not Ericsson either, which needs its own rule. A "
+                        + "relationship you've set on a contact still beats these.")
+                .setItems(labels, (d, which) -> {
+                    if (which == rules.size()) {
+                        editOneNameRule(settings, -1, root);
+                    } else {
+                        editOneNameRule(settings, which, root);
+                    }
+                })
+                .setNegativeButton("Done", null)
+                .show();
+    }
+
+    private void editOneNameRule(final ResponderSettings settings, final int index,
+                                 final View root) {
+        final java.util.List<ResponderSettings.NameRule> rules =
+                new java.util.ArrayList<>(settings.nameRules());
+        final boolean adding = index < 0 || index >= rules.size();
+
+        final EditText pattern = new EditText(this);
+        pattern.setHint("word to look for, e.g. eric");
+        pattern.setMaxLines(1);
+        if (!adding) pattern.setText(rules.get(index).pattern);
+
+        // The action list is the tones plus an outright refusal, because the owner asked for both
+        // from one place and a name he wants silenced is the same kind of rule as a name he wants
+        // addressed formally.
+        final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
+        final String[] actions = new String[tones.length + 1];
+        for (int i = 0; i < tones.length; i++) actions[i] = "Sound " + tones[i].name();
+        actions[tones.length] = "Never reply to them at all";
+        final int[] chosen = {adding || rules.get(index).never ? tones.length : 0};
+        if (!adding && !rules.get(index).never) {
+            for (int i = 0; i < tones.length; i++) {
+                if (tones[i] == rules.get(index).tone) chosen[0] = i;
+            }
+        }
+
+        final Button action = new Button(this);
+        action.setText(actions[chosen[0]]);
+        action.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Do what?")
+                .setItems(actions, (d, which) -> {
+                    chosen[0] = which;
+                    action.setText(actions[which]);
+                }).show());
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(8), dp(16), 0);
+        box.addView(pattern);
+        box.addView(action);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                .setTitle(adding ? "New rule" : "Edit rule")
+                .setView(box)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (d, w) -> {
+                    String text = pattern.getText().toString().trim();
+                    if (text.isEmpty()) {
+                        toast("I need a word to match on.");
+                        return;
+                    }
+                    boolean never = chosen[0] == tones.length;
+                    ResponderSettings.NameRule built = new ResponderSettings.NameRule(
+                            text, never ? null : tones[chosen[0]], never);
+                    if (adding) rules.add(built);
+                    else rules.set(index, built);
+                    settings.setNameRules(rules);
+                    renderResponder(root);
+                });
+        if (!adding) {
+            builder.setNeutralButton("Delete", (d, w) -> {
+                rules.remove(index);
+                settings.setNameRules(rules);
+                renderResponder(root);
+            });
+        }
+        builder.show();
+    }
+
     private void editDefaultTone(final ResponderSettings settings, final View root) {
         final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
         String[] labels = new String[tones.length];
@@ -1283,8 +1446,21 @@ public class MainActivity extends Activity {
                             value -> settings.setDailyCapTotal((int) value), view)));
 
             host.addView(sectionLabel("VOICE"));
-            host.addView(responderRow("Default tone", settings.defaultTone().name(),
+            // The effective tone is shown, not just the stored default. The owner set SARCASTIC
+            // and kept receiving PROFESSIONAL because the work-hours window outranks the global
+            // default and had no UI at all -- a rule he could neither see nor switch off.
+            host.addView(responderRow("Default tone",
+                    settings.defaultTone().name() + effectiveToneNote(settings),
                     () -> editDefaultTone(settings, view)));
+            host.addView(responderSwitch("Sound professional during work hours",
+                    settings.workHoursForceProfessional(),
+                    on -> settings.setWorkHoursForceProfessional(on), view));
+            host.addView(responderRow("Work hours",
+                    ResponderWindow.formatMinute(settings.workStart()) + " \u2192 "
+                            + ResponderWindow.formatMinute(settings.workEnd()),
+                    () -> editWorkHours(settings, view)));
+            host.addView(responderRow("Rules by name", nameRuleSummary(settings),
+                    () -> editNameRules(settings, view)));
             host.addView(responderRow("Rewrite what I say", "per category",
                     () -> editTemplates(settings, view)));
 

@@ -76,6 +76,7 @@ public class ResponderGuardsTest {
         ownMessagesAreIgnored();
         nonMessagesAreRefused();
         neverOutranksEverything();
+        nameRuleCanRefuse();
         allowlistModeExcludesByDefault();
         scopeRules();
         groupMentionsRule();
@@ -231,6 +232,46 @@ public class ResponderGuardsTest {
                 "NEVER refuses a group mention too");
     }
 
+    /**
+     * A rule on the sender's NAME can refuse them, and must not outrank a decision about the
+     * person themselves.
+     */
+    private static void nameRuleCanRefuse() {
+        ResponderGuards.Policy blocked = sendablePolicy();
+        blocked.nameRuleBlocked = true;
+        verdict(sendableMessage(), blocked, ResponderGuards.Verdict.NAME_RULE_BLOCKED,
+                "a name rule saying never stops the reply");
+
+        // An explicit ALLOW is a decision about this person and beats a pattern that merely
+        // matches their name -- otherwise an "eric" rule would silence a deliberately allowed
+        // relative called Erica for good.
+        ResponderGuards.Policy allowed = sendablePolicy();
+        allowed.nameRuleBlocked = true;
+        allowed.contactRule = ResponderGuards.ContactRule.ALLOW;
+        verdict(sendableMessage(), allowed, ResponderGuards.Verdict.SEND,
+                "an explicit ALLOW on the contact overrides a name-pattern refusal");
+
+        // NEVER on the contact is reported as the contact rule, the more specific reason.
+        ResponderGuards.Policy both = sendablePolicy();
+        both.nameRuleBlocked = true;
+        both.contactRule = ResponderGuards.ContactRule.NEVER;
+        verdict(sendableMessage(), both, ResponderGuards.Verdict.CONTACT_BLOCKED,
+                "an explicit NEVER is reported ahead of the name rule");
+
+        // Urgency and mentions do not override it, same as a NEVER contact.
+        ResponderGuards.Message urgent = sendableMessage();
+        urgent.category = MessageCategory.Kind.URGENT;
+        urgent.mentionsOwner = true;
+        verdict(urgent, blocked, ResponderGuards.Verdict.NAME_RULE_BLOCKED,
+                "urgency does not override a name-rule refusal");
+
+        ResponderGuards.Policy clear = sendablePolicy();
+        check(!clear.nameRuleBlocked, "no name rule blocks by default");
+        verdict(sendableMessage(), clear, ResponderGuards.Verdict.SEND,
+                "an unmatched name rule changes nothing");
+    }
+
+    /** Allowlist mode excludes by default. */
     private static void allowlistModeExcludesByDefault() {
         ResponderGuards.Policy strict = sendablePolicy();
         strict.allowlistOnly = true;

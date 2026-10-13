@@ -120,6 +120,7 @@ public final class AutoResponder {
         policy.groupsRequireMention = settings.groupsRequireMention();
         policy.replyToUnsaved = settings.replyToUnsaved();
         policy.contactRule = settings.contactRule(conversationKey);
+        policy.nameRuleBlocked = settings.nameRuleBlocks(resolvedSender);
         policy.allowlistOnly = settings.allowlistOnly();
         policy.cooldownMs = settings.cooldownMs();
         policy.lastReplyToConversationMs = settings.lastReplyTo(conversationKey);
