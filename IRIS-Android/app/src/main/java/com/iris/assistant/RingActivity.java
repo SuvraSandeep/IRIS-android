@@ -2,6 +2,7 @@ package com.iris.assistant;
 
 import android.app.Activity;
 import android.app.NotificationManager;
+import android.content.Context;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.Ringtone;

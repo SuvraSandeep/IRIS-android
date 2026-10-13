@@ -303,6 +303,14 @@ public class MessageCategoryTest {
         kind("emergency", MessageCategory.Kind.URGENT, "emergency");
         // Urgent outranks a greeting, since the pressing part matters more than the pleasantry.
         kind("hi, urgent", MessageCategory.Kind.URGENT, "urgent outranks a greeting");
+        // WhatsApp bold/italic markers wrap the word in asterisks or underscores. These are
+        // stripped by normalisation, so the word is still recognised \u2014 the owner reported
+        // "**URGENT**" not being understood.
+        kind("**URGENT**", MessageCategory.Kind.URGENT, "bold-wrapped URGENT is still urgent");
+        kind("*urgent*", MessageCategory.Kind.URGENT, "italic-wrapped urgent is still urgent");
+        kind("_urgent_", MessageCategory.Kind.URGENT, "underscore-wrapped urgent is still urgent");
+        kind("**URGENT** please call", MessageCategory.Kind.URGENT,
+                "bold urgent in a longer message");
     }
 
     /** "Aeee" and "Online asa" were both captured from the owner's phone. */
