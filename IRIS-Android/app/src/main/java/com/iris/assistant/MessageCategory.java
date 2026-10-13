@@ -199,7 +199,12 @@ public final class MessageCategory {
             "is this a bot", "is this a robot", "is this a machine", "is this automated",
             "is this an auto reply", "is this an automated reply",
             "am i talking to a bot", "am i talking to a robot", "am i talking to a machine",
-            "who am i talking to", "is anyone actually there");
+            "who am i talking to", "is anyone actually there",
+            // Direct questions aimed at IRIS itself, which the owner wants answered interactively.
+            "who are you", "what are you", "what is iris", "who is iris", "whats iris",
+            "what can you do", "what do you do", "can you help", "can you help me",
+            "who made you", "who created you", "who built you", "are you ai", "are you an ai",
+            "is iris there", "hello iris", "hi iris", "hey iris", "thanks iris", "thank you iris");
 
     private static final List<String> URGENT_PHRASES = Arrays.asList(
             "call me", "need you", "right now", "very important", "pick up", "answer me");

@@ -70,6 +70,17 @@ public final class AutoResponder {
         // archiving must never silently authorise outgoing messages through it.
         if (!settings.allowsApp(incoming.pkg)) return;
 
+        // Re-posted identical notification? WhatsApp re-adds the same notification while a message
+        // stays unread, which used to clear the in-process answered set and draw a second reply.
+        // This persisted key+body fingerprint blocks that across removals and restarts, unless the
+        // owner has asked to reply to every message.
+        long nowEarly = System.currentTimeMillis();
+        String keyEarly = incoming.sbn.getKey();
+        if (!settings.replyToEveryMessage()
+                && settings.answeredRecently(keyEarly, incoming.body, nowEarly)) {
+            return;
+        }
+
         long now = System.currentTimeMillis();
         int minuteOfDay = minuteOfDay(now);
 
@@ -102,6 +113,11 @@ public final class AutoResponder {
         String pendingWord = settings.pendingRingWord(conversationKey);
         boolean confirmsRing = isFamily && !pendingWord.isEmpty()
                 && messageIsWord(incoming.body, pendingWord);
+        // An explicit "where are you IRIS / ring the phone / find my phone" from family rings at
+        // once \u2014 the phrase IS the deliberate request, so it needs no second confirm word. Still
+        // gated to saved family and the master switch.
+        boolean ringRequest = isFamily && settings.familyRingEnabled()
+                && isRingRequest(incoming.body);
         boolean urgentFamily = isFamily && category.kind == MessageCategory.Kind.URGENT
                 && !incoming.group;
 
@@ -135,7 +151,7 @@ public final class AutoResponder {
         message.placeholder = incoming.placeholder;
         message.flaggedDeleted = false;
         message.forceReply = (!nameReply.isEmpty() || awaitingReminderTime
-                        || confirmsRing || urgentFamily)
+                        || confirmsRing || urgentFamily || ringRequest)
                 && category.kind != MessageCategory.Kind.NONE;
 
         ResponderGuards.Policy policy = new ResponderGuards.Policy();
@@ -155,8 +171,9 @@ public final class AutoResponder {
         policy.cooldownMs = settings.cooldownMs();
         policy.lastReplyToConversationMs = settings.lastReplyTo(conversationKey);
         policy.burstAlreadyAnswered = alreadyAnswered(incoming.sbn.getKey());
+        policy.replyToEveryMessage = settings.replyToEveryMessage();
         policy.lastAnsweredText = settings.lastAnsweredText(conversationKey);
-        policy.familyPriority = confirmsRing || urgentFamily;
+        policy.familyPriority = confirmsRing || urgentFamily || ringRequest;
         policy.repliesToContactToday = settings.repliesToContactToday(conversationKey, now);
         policy.toIrisRepliesToday = settings.toIrisRepliesToday(conversationKey, now);
         policy.contactCapPerDay = settings.contactCapPerDay();
@@ -176,10 +193,10 @@ public final class AutoResponder {
 
         String reply = "";
         if (ResponderGuards.sends(verdict)) {
-            if (confirmsRing || urgentFamily) {
+            if (confirmsRing || urgentFamily || ringRequest) {
                 // Family ring takes precedence over every other interpretation of the message.
                 reply = handleFamilyRing(context, settings, conversationKey, resolvedSender,
-                        confirmsRing, state == ResponderGuards.State.LIVE);
+                        confirmsRing || ringRequest, state == ResponderGuards.State.LIVE);
             } else if (category.kind == MessageCategory.Kind.REMINDER || awaitingReminderTime) {
                 // Reminders are their own path: parse, (in LIVE) store and schedule, and reply to
                 // the sender confirming or asking for a time. The scope check is separate from the
@@ -235,6 +252,9 @@ public final class AutoResponder {
             // next reply can be short.
             settings.recordAnsweredText(conversationKey, incoming.body);
             settings.markIntroduced(conversationKey);
+            // Persisted fingerprint, so the same notification re-posted after removal or a restart
+            // is not answered a second time.
+            settings.recordAnsweredFingerprint(incoming.sbn.getKey(), incoming.body, now);
             // Counted separately, because this is the one category allowed past the cooldown and
             // its own bound is the only thing stopping an exchange.
             if (category.kind == MessageCategory.Kind.TO_IRIS) {
@@ -345,23 +365,16 @@ public final class AutoResponder {
         if (confirmsRing) {
             if (live) {
                 settings.clearPendingRingWord(conversationKey);
-                try {
-                    android.content.Intent i = new android.content.Intent(context,
-                            RingActivity.class);
-                    i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                            | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                    i.putExtra(RingActivity.EXTRA_WHO, senderName);
-                    context.startActivity(i);
-                } catch (Throwable ignored) { }
+                RingActivity.ring(context, senderName);
             }
-            return "Ringing his phone now. I'm IRIS, " + owner + "'s personal intelligence \u2014 "
+            return "Ringing his phone now. I'm IRIS, " + owner + "'s assistant \u2014 "
                     + "if he can reach it, he will.";
         }
 
         // Urgent family message.
         if (!settings.familyRingEnabled()) {
             return "He's not reachable here and I can't ring his phone right now. If it's truly "
-                    + "urgent, call him directly. I'm IRIS, " + owner + "'s personal intelligence.";
+                    + "urgent, call him directly. I'm IRIS, " + owner + "'s assistant.";
         }
         if (live) settings.setPendingRingWord(conversationKey, RING_WORD);
         return "If this genuinely can't wait, reply " + RING_WORD + " and I'll make " + owner
@@ -378,6 +391,27 @@ public final class AutoResponder {
         String a = MessageCategory.normalise(body);
         String b = MessageCategory.normalise(word);
         return !b.isEmpty() && a.equals(b);
+    }
+
+    /**
+     * An explicit request to ring the phone \u2014 find-my-phone by text.
+     *
+     * "where are you iris", "ring the phone", "find my phone", "make your phone ring". Phrase-
+     * matched on the normalised body. Only acted on for a saved family contact, so it is not a
+     * ring button anyone can press.
+     */
+    private static boolean isRingRequest(String body) {
+        if (body == null) return false;
+        String flat = " " + MessageCategory.normalise(body) + " ";
+        String[] phrases = {
+                "where are you iris", "where is the phone", "where is your phone",
+                "ring the phone", "ring your phone", "ring my phone", "ring his phone",
+                "find my phone", "find the phone", "make your phone ring", "make the phone ring",
+                "sound the alarm iris", "iris ring"};
+        for (String p : phrases) {
+            if (flat.contains(" " + p + " ")) return true;
+        }
+        return false;
     }
 
     /**
@@ -412,31 +446,31 @@ public final class AutoResponder {
 
         if (delay > 0) {
             long dueMs = now + delay * 60_000L;
-            if (live) {
-                long id = store.add(task, senderName, dueMs, now);
-                ReminderStore.schedule(context, id,
-                        "You asked me to remind " + ReplyTemplates.OWNER + ": " + task, dueMs);
-                store.clearAwaiting(conversationKey);
-            }
-            return "Noted \u2014 I'm IRIS, " + ReplyTemplates.OWNER + "'s personal intelligence. I'll remind him "
+            // Stored and scheduled in BOTH dry run and live, deliberately. A reminder is a note
+            // for Suvra, not a message to the sender; dry run withholds the outgoing reply (via
+            // the normal send gating) but should not stop IRIS actually helping him, which is also
+            // why reminders appeared "not to work" when testing in dry run.
+            long id = store.add(task, senderName, dueMs, now);
+            ReminderStore.schedule(context, id,
+                    "You asked me to remind " + ReplyTemplates.OWNER + ": " + task, dueMs);
+            store.clearAwaiting(conversationKey);
+            return "Noted \u2014 I'm IRIS, " + ReplyTemplates.OWNER + "'s assistant. I'll remind him "
                     + "to " + task + " " + whenPhrase(dueMs, now) + ".";
         }
 
         // No time. If this was already the answer to a time question, give up gracefully and store
         // it undated rather than asking in a loop.
         if (answeringTimeQuestion) {
-            if (live) {
-                store.add(task, senderName, 0, now);
-                store.clearAwaiting(conversationKey);
-            }
-            return "I couldn't make out a time, so I've saved it for " + ReplyTemplates.OWNER + " to see: \u201C"
-                    + task + "\u201D. I'm IRIS, his personal intelligence.";
+            store.add(task, senderName, 0, now);
+            store.clearAwaiting(conversationKey);
+            return "I couldn't make out a time, so I've saved it for " + ReplyTemplates.OWNER
+                    + " to see: \u201C" + task + "\u201D. I'm IRIS, his assistant.";
         }
 
         // First time with no time: ask.
-        if (live) store.setAwaitingTime(conversationKey, task);
-        return "I'll remind " + ReplyTemplates.OWNER + " to " + task + " \u2014 when would you like him "
-                + "reminded? I'm IRIS, his personal intelligence.";
+        store.setAwaitingTime(conversationKey, task);
+        return "I'll remind " + ReplyTemplates.OWNER + " to " + task + " \u2014 when would you "
+                + "like him reminded? I'm IRIS, his assistant.";
     }
 
     /** A human phrase for when a reminder is due, e.g. "in about 2 hours" or "tomorrow". */

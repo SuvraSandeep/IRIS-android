@@ -406,6 +406,18 @@ public class ResponderGuardsTest {
             verdict(sendableMessage(), policy, ResponderGuards.Verdict.BURST_ALREADY_ANSWERED,
                     "message " + i + " of the same burst is not answered again");
         }
+
+        // ...unless the owner switched on replying to every message.
+        ResponderGuards.Policy every = sendablePolicy();
+        every.burstAlreadyAnswered = true;
+        every.replyToEveryMessage = true;
+        verdict(sendableMessage(), every, ResponderGuards.Verdict.SEND,
+                "reply-to-every-message answers each message in the burst");
+        every.lastAnsweredText = MessageCategory.normalise("same thing");
+        ResponderGuards.Message same = sendableMessage();
+        same.incomingText = "same thing";
+        verdict(same, every, ResponderGuards.Verdict.SEND,
+                "reply-to-every-message also lifts the same-text guard");
     }
 
     /**

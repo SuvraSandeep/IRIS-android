@@ -145,6 +145,15 @@ public final class ResponderGuards {
         public long lastReplyToConversationMs;
         public boolean burstAlreadyAnswered;
         /**
+         * Answer every message in a flurry, not one per flurry.
+         *
+         * Off by default: a single WhatsApp notification can hold seven messages, so without burst
+         * suppression IRIS fires seven times. But the owner asked for a switch to turn that off and
+         * reply to everything, so when this is set the burst and same-text guards are skipped. The
+         * cooldown and caps still apply, which keep it from being truly unbounded.
+         */
+        public boolean replyToEveryMessage;
+        /**
          * The exact incoming text IRIS last answered in this conversation.
          *
          * Compared against the current text, normalised, so the identical message re-arriving as a
@@ -252,14 +261,19 @@ public final class ResponderGuards {
             return Verdict.LOOP_SUSPECTED;
         }
         // One reply per burst. A single notification held seven messages from one chat on the
-        // owner's own phone, so without this the responder would have fired seven times.
-        if (policy.burstAlreadyAnswered) return Verdict.BURST_ALREADY_ANSWERED;
+        // owner's own phone, so without this the responder would have fired seven times. The owner
+        // can switch this off to answer every message.
+        if (!policy.replyToEveryMessage && policy.burstAlreadyAnswered) {
+            return Verdict.BURST_ALREADY_ANSWERED;
+        }
         // The identical text, already answered in this conversation. The owner's rule exactly:
         // don't answer the same message twice, but a different message releases it. Checked after
         // the burst guard and before the cooldown, because it is a more specific "already handled"
         // than either. Normalised so punctuation and casing don't defeat it. A forced reply (a
         // fixed name-rule reply) is exempt: the owner has said to answer this person every time.
+        // Reply-to-every-message also lifts it, by the same intent.
         if (!message.forceReply
+                && !policy.replyToEveryMessage
                 && !message.incomingText.isEmpty()
                 && sameText(message.incomingText, policy.lastAnsweredText)) {
             return Verdict.SAME_TEXT_ALREADY_ANSWERED;

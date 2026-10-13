@@ -1231,12 +1231,17 @@ public class MainActivity extends Activity {
                                 .show();
                     }
                     renderResponder(root);
+                    toast(adding ? "Rule added." : "Rule updated.");
+                    // Reopen the list so more rules can be added in one sitting \u2014 the owner
+                    // asked for multiple entries, so adding should not kick him back out each time.
+                    editNameRules(settings, root);
                 });
         if (!adding) {
             builder.setNeutralButton("Delete", (d, w) -> {
                 rules.remove(index);
                 settings.setNameRules(rules);
                 renderResponder(root);
+                editNameRules(settings, root);
             });
         }
         builder.show();
@@ -1264,11 +1269,26 @@ public class MainActivity extends Activity {
                         + "the hour \u2014 it beats quiet hours and the categories. I won't turn "
                         + "it off for you, so remember you set it.")
                 .setItems(labels, (d, which) -> {
-                    settings.setMode(modes[which]);
-                    toast(modes[which] == ResponderMode.NONE
-                            ? "Mode off. Back to normal."
-                            : modes[which].label() + " \u2014 I'll tell everyone.");
+                    final ResponderMode chosen = modes[which];
+                    settings.setMode(chosen);
                     renderResponder(root);
+                    if (chosen == ResponderMode.NONE) {
+                        toast("Mode off. Back to normal.");
+                    } else if (chosen == ResponderMode.SLEEPING) {
+                        toast("Sleeping \u2014 everyone gets the quiet-hours reply.");
+                    } else {
+                        // Offer to edit this mode's wording right here, so editing is never more
+                        // than one tap from choosing it.
+                        new AlertDialog.Builder(this)
+                                .setTitle(chosen.label() + " is on")
+                                .setMessage("Everyone now gets the " + chosen.label().toLowerCase(
+                                        java.util.Locale.ROOT) + " reply. Want to change the "
+                                        + "wording?")
+                                .setNegativeButton("It's fine", null)
+                                .setPositiveButton("Edit wording", (dd, ww) ->
+                                        editModeTemplate(settings, chosen, root))
+                                .show();
+                    }
                 })
                 .setNeutralButton("Edit mode wording", (d, w) ->
                         editModeTemplatePick(settings, root))
@@ -1724,6 +1744,9 @@ public class MainActivity extends Activity {
             host.addView(responderSwitch("Let family ring my phone when urgent",
                     settings.familyRingEnabled(),
                     on -> settings.setFamilyRingEnabled(on), view));
+            host.addView(responderSwitch("Reply to every message, not one per burst",
+                    settings.replyToEveryMessage(),
+                    on -> settings.setReplyToEveryMessage(on), view));
 
             host.addView(sectionLabel("TIMING"));
             host.addView(responderRow("Quiet hours",
@@ -2291,112 +2314,41 @@ public class MainActivity extends Activity {
             }
         }
 
-        attachSwipeToDeleteLog(card, entry, root);
-        // Long-press jumps straight to a rule for this sender, so an unwanted reply in the log is
-        // one gesture away from "never again". Uses the name-level rule, so it holds whatever app
-        // they next message from -- the same place the phone-book picker writes.
+        // No swipe handler here on purpose: a touch listener on the row fought the ScrollView and
+        // made the list hard to scroll, with the action firing on a plain touch. The log is a
+        // diagnostic, not the archive, so a long-press menu is the right weight \u2014 a plain touch
+        // now just scrolls.
         final String who2 = entry.sender;
         card.setOnLongClickListener(v -> {
-            if (who2 == null || who2.trim().isEmpty()) {
-                toast("No name on that one to make a rule from.");
-                return true;
-            }
-            editPhoneContact(new ResponderSettings(this), who2, root, null);
+            java.util.List<String> items = new java.util.ArrayList<>();
+            items.add("Delete this entry");
+            boolean hasSender = who2 != null && !who2.trim().isEmpty();
+            if (hasSender) items.add("Set a rule for " + who2);
+            new AlertDialog.Builder(this)
+                    .setTitle(hasSender ? who2 : "This decision")
+                    .setItems(items.toArray(new String[0]), (d, which) -> {
+                        if (which == 0) {
+                            ResponderLog log = new ResponderLog(this);
+                            final java.util.List<ResponderLog.Entry> before = log.all();
+                            log.deleteOne(entry.whenMs, entry.sender, entry.verdict);
+                            responderLogSignature = log.signature();
+                            renderResponderLog(root);
+                            new AlertDialog.Builder(this)
+                                    .setMessage("Removed one decision from the log.")
+                                    .setNegativeButton("Undo", (dd, ww) -> {
+                                        log.overwrite(before);
+                                        responderLogSignature = log.signature();
+                                        renderResponderLog(root);
+                                    })
+                                    .setPositiveButton("Keep removed", null)
+                                    .show();
+                        } else {
+                            editPhoneContact(new ResponderSettings(this), who2, root, null);
+                        }
+                    }).show();
             return true;
         });
         return card;
-    }
-
-    /**
-     * Swipe a decision-log row away, with an undo window.
-     *
-     * The same gesture language as the archive, via the same tested SwipeDecision thresholds. The
-     * log is only a diagnostic, not irreplaceable like the archive, so the delete is immediate
-     * rather than deferred \u2014 but a full snapshot is kept so UNDO restores the list exactly,
-     * which matters because the owner may swipe to tidy and change his mind.
-     */
-    private void attachSwipeToDeleteLog(final View card, final ResponderLog.Entry entry,
-                                        final View root) {
-        final float[] start = new float[2];
-        final long[] startedAt = new long[1];
-        final boolean[] claimed = new boolean[1];
-
-        card.setOnTouchListener((v, event) -> {
-            switch (event.getActionMasked()) {
-                case android.view.MotionEvent.ACTION_DOWN:
-                    start[0] = event.getRawX();
-                    start[1] = event.getRawY();
-                    startedAt[0] = System.currentTimeMillis();
-                    claimed[0] = false;
-                    return false; // let long-press still fire when it isn't a swipe
-
-                case android.view.MotionEvent.ACTION_MOVE: {
-                    float dx = event.getRawX() - start[0];
-                    float dy = event.getRawY() - start[1];
-                    if (!claimed[0] && SwipeDecision.claimsGesture(dx, dy)) {
-                        claimed[0] = true;
-                        v.getParent().requestDisallowInterceptTouchEvent(true);
-                    }
-                    if (claimed[0]) {
-                        v.setTranslationX(dx);
-                        v.setAlpha(SwipeDecision.dragAlpha(dx, v.getWidth()));
-                        return true;
-                    }
-                    return false;
-                }
-
-                case android.view.MotionEvent.ACTION_UP: {
-                    if (!claimed[0]) {
-                        v.setTranslationX(0);
-                        v.setAlpha(1f);
-                        return false;
-                    }
-                    float dx = event.getRawX() - start[0];
-                    long elapsed = Math.max(1, System.currentTimeMillis() - startedAt[0]);
-                    float velocity = dx / elapsed * 1000f;
-                    if (SwipeDecision.dismisses(dx, velocity, v.getWidth())) {
-                        swipeAwayAndDeleteLog(v, entry, root, dx >= 0);
-                    } else {
-                        v.animate().translationX(0).alpha(1f).setDuration(140).start();
-                    }
-                    return true;
-                }
-
-                case android.view.MotionEvent.ACTION_CANCEL:
-                    v.animate().translationX(0).alpha(1f).setDuration(140).start();
-                    return true;
-
-                default:
-                    return false;
-            }
-        });
-    }
-
-    private void swipeAwayAndDeleteLog(final View card, final ResponderLog.Entry entry,
-                                       final View root, boolean toTheRight) {
-        // Snapshot before deleting, so undo restores the exact list including order.
-        final ResponderLog log = new ResponderLog(this);
-        final java.util.List<ResponderLog.Entry> before = log.all();
-        int distance = Math.max(card.getWidth(), dp(320));
-        card.animate()
-                .translationX(toTheRight ? distance : -distance)
-                .alpha(0f)
-                .setDuration(160)
-                .withEndAction(() -> {
-                    LinearLayout host = root.findViewById(R.id.responderLogHost);
-                    if (host != null) host.removeView(card);
-                    log.deleteOne(entry.whenMs, entry.sender, entry.verdict);
-                    responderLogSignature = log.signature();
-                    new AlertDialog.Builder(this)
-                            .setMessage("Removed one decision from the log.")
-                            .setNegativeButton("Undo", (d, w) -> {
-                                log.overwrite(before);
-                                responderLogSignature = log.signature();
-                                renderResponderLog(root);
-                            })
-                            .setPositiveButton("Keep removed", null)
-                            .show();
-                }).start();
     }
 
     /** Tint the active sub-tab. The inactive ones stay dim so the current section is obvious. */

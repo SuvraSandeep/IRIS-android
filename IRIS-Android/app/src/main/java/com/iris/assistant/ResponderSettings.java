@@ -35,6 +35,7 @@ public final class ResponderSettings {
     private static final String K_REQUIRE_MENTION = "groups_require_mention";
     private static final String K_UNSAVED = "reply_unsaved";
     private static final String K_REPLY_IN_USE = "reply_in_use";
+    private static final String K_REPLY_EVERY = "reply_every";
     private static final String K_MODE = "mode";
     private static final String K_REMINDER_SCOPE = "reminder_scope";
     private static final String K_FAMILY_RING = "family_ring";
@@ -175,6 +176,18 @@ public final class ResponderSettings {
     public boolean replyWhileInUse() { return prefs.getBoolean(K_REPLY_IN_USE, false); }
     public void setReplyWhileInUse(boolean v) {
         prefs.edit().putBoolean(K_REPLY_IN_USE, v).apply();
+    }
+
+    /**
+     * Answer every message in a burst rather than one per burst. Default false.
+     *
+     * The safe default is one reply per flurry: a single notification can carry seven messages.
+     * The owner asked for a switch to answer all of them, so this lifts the burst and same-text
+     * guards; the cooldown and daily caps still bound it.
+     */
+    public boolean replyToEveryMessage() { return prefs.getBoolean(K_REPLY_EVERY, false); }
+    public void setReplyToEveryMessage(boolean v) {
+        prefs.edit().putBoolean(K_REPLY_EVERY, v).apply();
     }
 
     /**
@@ -919,6 +932,64 @@ public final class ResponderSettings {
     }
 
     public int rotation() { return prefs.getInt(K_ROTATION, 0); }
+
+    // ─── Persisted answered-notification fingerprints ───
+    //
+    // WhatsApp re-posts the same notification while a message stays unread, often cancelling and
+    // re-adding it, which cleared the in-process "already answered" set and let IRIS reply again.
+    // This store survives both the removal and a process restart: a notification key plus the
+    // normalised body it was answered for, with a timestamp, bounded. If the same key+body is seen
+    // again within the window, it is not answered a second time.
+
+    private static final String K_ANSWERED_FP = "answered_fp";
+    private static final int ANSWERED_FP_MAX = 80;
+    /** How long a re-posted identical notification stays suppressed. */
+    public static final long ANSWERED_FP_WINDOW_MS = 6L * 60 * 60 * 1000;
+
+    private static String fingerprint(String notifKey, String body) {
+        return (notifKey == null ? "" : notifKey) + "\u0001"
+                + MessageCategory.normalise(body == null ? "" : body);
+    }
+
+    /** True if this exact notification+body was already answered within the window. */
+    public boolean answeredRecently(String notifKey, String body, long nowMs) {
+        String fp = fingerprint(notifKey, body);
+        String raw = prefs.getString(K_ANSWERED_FP, "");
+        if (raw.isEmpty()) return false;
+        for (String rec : raw.split("\n")) {
+            int tab = rec.lastIndexOf('\u0002');
+            if (tab <= 0) continue;
+            String key = rec.substring(0, tab);
+            if (!key.equals(fp)) continue;
+            try {
+                long when = Long.parseLong(rec.substring(tab + 1));
+                return nowMs - when >= 0 && nowMs - when < ANSWERED_FP_WINDOW_MS;
+            } catch (Exception ignored) { return false; }
+        }
+        return false;
+    }
+
+    /** Record that this notification+body was answered, pruning old and surplus entries. */
+    public void recordAnsweredFingerprint(String notifKey, String body, long nowMs) {
+        String fp = fingerprint(notifKey, body);
+        java.util.List<String> kept = new ArrayList<>();
+        String raw = prefs.getString(K_ANSWERED_FP, "");
+        if (!raw.isEmpty()) {
+            for (String rec : raw.split("\n")) {
+                int tab = rec.lastIndexOf('\u0002');
+                if (tab <= 0) continue;
+                String key = rec.substring(0, tab);
+                if (key.equals(fp)) continue; // replace any prior entry for this fingerprint
+                try {
+                    long when = Long.parseLong(rec.substring(tab + 1));
+                    if (nowMs - when < ANSWERED_FP_WINDOW_MS) kept.add(rec);
+                } catch (Exception ignored) { }
+            }
+        }
+        kept.add(fp + "\u0002" + nowMs);
+        while (kept.size() > ANSWERED_FP_MAX) kept.remove(0);
+        prefs.edit().putString(K_ANSWERED_FP, String.join("\n", kept)).apply();
+    }
 
     // ─── Helpers ───
 

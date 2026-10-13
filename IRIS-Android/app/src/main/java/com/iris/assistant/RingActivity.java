@@ -46,6 +46,67 @@ public final class RingActivity extends Activity {
     private final android.os.Handler handler = new android.os.Handler();
     private final Runnable autoStop = this::stopAndFinish;
 
+    /** Full-screen-intent channel, so the ring can launch from the background and over the lock. */
+    private static final String RING_CHANNEL = "iris_ring_v1";
+
+    /**
+     * Make the phone ring, correctly, from anywhere.
+     *
+     * The responder decides on a background worker inside the notification listener, and Android
+     * 10+ forbids starting an activity from the background \u2014 which is exactly why the ring only
+     * fired when the app happened to be open. The fix is a high-importance notification carrying a
+     * FULL-SCREEN intent: Android launches that over the lock screen even from the background,
+     * the sanctioned path for alarms and calls. A direct startActivity is kept as a foreground
+     * fallback.
+     *
+     * @param who the family member who asked, shown on the ring screen
+     */
+    public static void ring(Context context, String who) {
+        if (context == null) return;
+        try {
+            android.app.NotificationManager nm = (android.app.NotificationManager)
+                    context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                android.app.NotificationChannel ch = new android.app.NotificationChannel(
+                        RING_CHANNEL, "IRIS urgent ring",
+                        android.app.NotificationManager.IMPORTANCE_HIGH);
+                ch.setDescription("Rings the phone when family marks a message urgent");
+                try { ch.setBypassDnd(true); } catch (Throwable ignored) { }
+                nm.createNotificationChannel(ch);
+            }
+
+            android.content.Intent full = new android.content.Intent(context, RingActivity.class);
+            full.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            full.putExtra(EXTRA_WHO, who == null ? "" : who);
+            int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                    | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                        ? android.app.PendingIntent.FLAG_IMMUTABLE : 0);
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                    context, 0, full, flags);
+
+            if (nm != null) {
+                android.app.Notification.Builder b =
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                                ? new android.app.Notification.Builder(context, RING_CHANNEL)
+                                : new android.app.Notification.Builder(context);
+                android.app.Notification n = b
+                        .setSmallIcon(R.drawable.ic_iris)
+                        .setContentTitle("\u260E Urgent")
+                        .setContentText((who == null || who.isEmpty() ? "Family" : who)
+                                + " marked a message urgent.")
+                        .setCategory(android.app.Notification.CATEGORY_CALL)
+                        .setFullScreenIntent(pi, true)
+                        .setAutoCancel(true)
+                        .build();
+                nm.notify(0x1215, n);
+            }
+
+            // Foreground fallback: if we happen to be allowed, the activity shows immediately.
+            try { context.startActivity(full); } catch (Throwable ignored) { }
+        } catch (Throwable ignored) { }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -83,7 +144,7 @@ public final class RingActivity extends Activity {
 
         TextView body = new TextView(this);
         body.setText(who + " marked a message urgent and asked me to reach you.\n\nI'm IRIS, "
-                + ReplyTemplates.OWNER + "'s personal intelligence.");
+                + ReplyTemplates.OWNER + "'s assistant.");
         body.setTextSize(16f);
         body.setTextColor(0xFFE6E6F0);
         body.setGravity(Gravity.CENTER);
