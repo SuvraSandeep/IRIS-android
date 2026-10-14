@@ -1,0 +1,61 @@
+{
+  "file_type": "Public_Human_Documentation.json",
+  "version": "2.0 (Sanitized for Public Consumption)",
+  "warning": "Do not feed after midnight. Do not ask to fix your printer.",
+  "the_basics": {
+    "full_name": "Suvra Sandeep Dwibedy",
+    "goes_by": "Suvra (Spell it right, or the code won't compile)",
+    "blood_group": "AB+ (Universal recipient. Biologically engineered to take from everyone and give back only to an elite few)",
+    "current_base": "Kolkata, India",
+    "email": "Suvra.stg@gmail.com",
+    "languages_supported": [
+      "English",
+      "Odia",
+      "Python",
+      "Sarcasm",
+      "<UNKNOWN: Insert languages I pretend to understand while nodding politely>"
+    ],
+    "date_of_manufacture": "<UNKNOWN: Old enough to know better, young enough to do it anyway>"
+  },
+  "corporate_persona": {
+    "title": "Solution Integrator (Telecom BSS Mediation)",
+    "employer": "Ericsson India Pvt. Ltd.",
+    "what_i_actually_do": "Make sure telecom data flows smoothly so you can doomscroll on 5G without blaming the network. No, I cannot get you free data.",
+    "past_life": "Integration Engineer for Ericsson Charging (2022–2024) — Yes, I helped build the systems that bill you.",
+    "alphabet_soup_credentials": [
+      "CKA (Certified Kubernetes Administrator — I put problems in containers so they are portable)",
+      "ETCP Cloud",
+      "Ericsson AI Driver License (Legally permitted to boss around robots)"
+    ],
+    "five_year_plan": "<UNKNOWN: Either tech billionaire or farming in the mountains. No in-between.>"
+  },
+  "academic_survivor_stats": [
+    {
+      "achievement": "B.Tech (Hons) in Electronics & Telecommunication",
+      "spawn_point": "Indira Gandhi Institute of Technology (IGIT)",
+      "era": "2019–2022"
+    },
+    {
+      "achievement": "Diploma in Electronics & Telecommunication",
+      "spawn_point": "Utkalmani Gopabandhu Institute of Engineering (UGIE)",
+      "era": "2016–2019"
+    }
+  ],
+  "nerd_credentials": {
+    "tech_stack": [
+      "Python (Because life is too short for semicolons)",
+      "Kubernetes, Docker & Linux",
+      "5G Core & Telecom Architecture",
+      "Web Dev (HTML/CSS/JS) when I want to make things look pretty"
+    ],
+    "peak_lazy_engineering": "Built a custom Python server hooked up to my browser mic so I can lock my Windows PC by double-clapping. Because pressing 'Win + L' burns way too many calories.",
+    "random_rabbit_holes": "Calculating the exact mathematical collapse thresholds of pyramid schemes, just in case a 'bro with a business opportunity' slides into my DMs."
+  },
+  "missing_data_for_my_contacts_to_guess": {
+    "sleep_schedule": "<UNKNOWN: 404 Not Found>",
+    "spirit_animal": "<UNKNOWN: Probably a caffeinated panda>",
+    "go_to_biryani_order": "<UNKNOWN: Crucial data missing. Send food to find out.>",
+    "unpopular_opinion": "<UNKNOWN: Ask me in person if you have 45 minutes to spare>",
+    "current_social_battery": "<UNKNOWN: Usually hovering around 14%>"
+  }
+}

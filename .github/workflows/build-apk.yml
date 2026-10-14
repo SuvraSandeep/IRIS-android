@@ -115,6 +115,21 @@ jobs:
             echo "No iris-me.json at repo root — skipping (app still works without it)."
           fi
 
+      - name: Bundle share profile (iris-share.json, optional)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # The SHARE profile is separate from iris-me.json: it holds only the facts the owner is
+          # willing for the responder to disclose when asked about him. Absent = nothing shared.
+          ASSETS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/app/src/main/assets"
+          mkdir -p "$ASSETS_DIR"
+          if [[ -f "$GITHUB_WORKSPACE/iris-share.json" ]]; then
+            cp "$GITHUB_WORKSPACE/iris-share.json" "$ASSETS_DIR/iris-share.json"
+            echo "Bundled iris-share.json into assets."
+          else
+            echo "No iris-share.json at repo root — skipping (nothing will be shared)."
+          fi
+
       - name: Download and bundle Vosk speaker model (optional, non-fatal)
         shell: bash
         continue-on-error: true

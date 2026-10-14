@@ -173,7 +173,8 @@ public final class AutoResponder {
         // city) ONLY from facts he put under "share" in iris-me.json. Nothing is disclosed unless
         // he opted in, and no question maps to a phone/address/email, so PII can never leak.
         String profileReply = ProfileShare.reply(
-                ProfileShare.fieldFor(incoming.body), profileShare(context), ReplyTemplates.OWNER);
+                ProfileShare.fieldFor(incoming.body), ShareProfile.fields(context),
+                ReplyTemplates.OWNER);
         boolean profileMatched = !profileReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
@@ -716,29 +717,6 @@ public final class AutoResponder {
     /** Forget a notification once it is gone, so a later conversation can be answered again. */
     public static synchronized void forget(String notifKey) {
         if (notifKey != null) ANSWERED_KEYS.remove(notifKey);
-    }
-
-    /**
-     * The owner's opt-in "share" facts from iris-me.json as a plain map, or empty. Only values the
-     * owner explicitly listed under "share" are present; ProfileShare further restricts which ones
-     * can ever be spoken.
-     */
-    private static java.util.Map<String, String> profileShare(Context context) {
-        java.util.Map<String, String> out = new java.util.HashMap<>();
-        try {
-            org.json.JSONObject p = PersonalProfile.get(context);
-            org.json.JSONObject share = p == null ? null : p.optJSONObject("share");
-            if (share != null) {
-                java.util.Iterator<String> keys = share.keys();
-                while (keys.hasNext()) {
-                    String k = keys.next();
-                    out.put(k.toLowerCase(java.util.Locale.ROOT), share.optString(k, ""));
-                }
-            }
-        } catch (Throwable ignored) {
-            // No profile, or malformed: share nothing. Silence is the safe default.
-        }
-        return out;
     }
 
     /**
