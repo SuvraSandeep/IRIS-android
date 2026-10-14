@@ -278,6 +278,13 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/OwnerAliasTest.java
 java -cp "$test_dir/responder" com.iris.assistant.OwnerAliasTest
 
+# Group @-handle / phone-number mention detection.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/GroupMention.java \
+  tests/GroupMentionTest.java
+java -cp "$test_dir/responder" com.iris.assistant.GroupMentionTest
+
 # Wrong-time greetings: "good morning" at night gets an aware reply.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \

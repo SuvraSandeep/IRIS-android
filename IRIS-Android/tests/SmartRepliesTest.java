@@ -178,6 +178,18 @@ public final class SmartRepliesTest {
                 "weather: raining");
         check(!SmartReplies.match("how's the weather", ReplyTone.Tone.SARCASTIC).isEmpty(),
                 "weather: how's the weather");
+        // Money requests that name an AMOUNT get the money reply (not just "send money").
+        for (String q : new String[]{"send me 100", "100 rupe de", "100rs vej", "rs 500 bhej do",
+                "\u20B9500 please", "pay me 250", "need 1000 urgently", "udhaar 500 dena",
+                "500 bhej do", "100 chahiye"}) {
+            check(namesIris(SmartReplies.match(q, ReplyTone.Tone.PROFESSIONAL)),
+                    "money amount handled: \"" + q + "\"");
+        }
+        // Must NOT false-trigger on non-money numbers.
+        check(!SmartReplies.looksLikeMoneyRequest("send me 2 pics"), "2 pics is not money");
+        check(!SmartReplies.looksLikeMoneyRequest("call me at 5"), "a time is not money");
+        check(!SmartReplies.looksLikeMoneyRequest("meeting in 10 minutes"), "minutes not money");
+        check(!SmartReplies.looksLikeMoneyRequest("send me the file"), "no amount, no money");
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

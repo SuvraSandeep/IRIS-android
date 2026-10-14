@@ -62,6 +62,44 @@ public final class SmartReplies {
                     + "\u2014 saved for {owner} to judge for himself.",
             "Link saved for {owner}. I'm IRIS, his assistant \u2014 I don't open links."};
 
+    // ─── Money-amount requests ───
+    // A currency token next to a number ("100rs", "rs 100", "₹500", "100 rupe"), either order.
+    private static final Pattern MONEY_CURRENCY = Pattern.compile(
+            "(?i)(\u20B9\\s*\\d|\\d+\\s*(rs\\b|rs\\.|inr\\b|rupees?\\b|rupaye\\b|rupaya\\b|"
+            + "rupaiya\\b|rupe\\b|rupay\\b|paisa\\b|paise\\b|taka\\b)"
+            + "|\\b(rs|rs\\.|inr|rupees?|rupaye|rupe|rupay)\\s*\\d)");
+    // A money verb before an amount ("send me 100", "pay 500", "udhaar 1000"), unless the number
+    // is counting something non-monetary ("send me 2 pics").
+    private static final Pattern MONEY_VERB_AMOUNT = Pattern.compile(
+            "(?i)\\b(send|bhej\\w*|vej\\w*|bej\\w*|pay|give|lend|transfer|chahiye|chaiye|need|"
+            + "want|udhaar|udhar|loan|owe\\w*|dedo)\\b[\\sa-z,.']{0,15}\\d+"
+            + "(?!\\s*(photos?|pics?|pictures?|images?|files?|pdfs?|docs?|documents?|messages?|"
+            + "msgs?|mins?|minutes?|items?|copies|copy|pages?|people|ppl|guests?|times?|days?|"
+            + "weeks?|months?|years?|kgs?|kms?|percent|am\\b|pm\\b|oclock))");
+    // An amount before a money verb ("100 de do", "500 bhej do", "100 chahiye").
+    private static final Pattern MONEY_AMOUNT_VERB = Pattern.compile(
+            "(?i)\\d+[\\sa-z,.']{0,15}\\b(de\\s*do|dedo|chahiye|chaiye|bhej\\w*|vej\\w*|bej\\w*|"
+            + "udhaar|udhar|loan|transfer)\\b");
+
+    /** True when the message is asking to move or lend a specific amount of money. */
+    static boolean looksLikeMoneyRequest(String raw) {
+        if (raw == null) return false;
+        String s = raw.toLowerCase(java.util.Locale.ROOT);
+        if (!s.matches("(?s).*\\d.*")) return false;     // an amount has a number
+        return MONEY_CURRENCY.matcher(s).find()
+                || MONEY_VERB_AMOUNT.matcher(s).find()
+                || MONEY_AMOUNT_VERB.matcher(s).find();
+    }
+
+    private static final String[] MONEY_AMOUNT = {
+            "I don't handle money or bank apps \u2014 I'm IRIS, {owner}'s assistant \u2014 so I've "
+                    + "flagged your request for {owner} to deal with personally.",
+            "I can't move money (no UPI access here!) \u2014 I'm IRIS, {owner}'s assistant. I've "
+                    + "flagged it for {owner} to sort out.",
+            "{owner} wisely didn't give a script access to his bank. I've flagged the money "
+                    + "request for him! I'm IRIS.",
+            "Flagged your money request for {owner}. I'm IRIS \u2014 I don't do payments."};
+
     /**
      * The best matching reply for this message and tone, or empty if nothing matched.
      *
@@ -73,6 +111,11 @@ public final class SmartReplies {
         String raw = body.trim();
         if (raw.isEmpty()) return "";
         if (URL.matcher(raw).find()) return pick(LINK, tone);
+
+        // A money request that names an AMOUNT ("send me 100", "100 rupe de", "100rs vej",
+        // "udhaar 500") -- the fixed-phrase rules below only catch wordings like "send money",
+        // so a varying number needs its own detector. Checked early, before the keyword pass.
+        if (looksLikeMoneyRequest(raw)) return pick(MONEY_AMOUNT, tone);
 
         // Punctuation- or emoji-only pings ("?", "...", "👀"). These normalise to nothing, so
         // they must be caught before the keyword pass or they would never match.

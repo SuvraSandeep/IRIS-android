@@ -111,6 +111,17 @@ public final class AutoResponder {
                 incoming.body, settings.mentionKeywords(),
                 settings.irisSpokeLast(conversationKey, now));
 
+        // In a group, an @-handle or phone-number mention of the owner counts as being named,
+        // even though it isn't his saved name. Checked on the raw body (not normalised, which
+        // would mangle an underscored handle), and it does not override a message already aimed
+        // at IRIS itself.
+        if (incoming.group
+                && category.kind != MessageCategory.Kind.TO_IRIS
+                && GroupMention.isMentioned(incoming.body, settings.mentionHandles(),
+                        settings.mentionNumbers())) {
+            category = new MessageCategory.Result(MessageCategory.Kind.MENTION, "");
+        }
+
         // ─── Family ring ───
         // A saved family contact gets full priority: an urgent message is offered a word to make
         // the phone ring, and replying that word rings it. Computed before everything else so it

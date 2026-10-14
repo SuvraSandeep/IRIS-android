@@ -1386,6 +1386,43 @@ public class MainActivity extends Activity {
                 });
     }
 
+    /** Receives an edited list of mention handles/numbers. */
+    private interface ListSink { void accept(java.util.List<String> v); }
+
+    private String mentionSummary(java.util.List<String> items, String emptyText) {
+        if (items == null || items.isEmpty()) return emptyText;
+        if (items.size() == 1) return items.get(0);
+        return items.get(0) + " +" + (items.size() - 1) + " more";
+    }
+
+    /** A multiline text editor for a list of handles/numbers (one per line or comma-separated). */
+    private void editMentionList(final View root, String title, String hint,
+                                 java.util.List<String> current, final ListSink sink) {
+        final EditText input = new EditText(this);
+        input.setHint(hint);
+        input.setMinLines(3);
+        input.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        input.setText(current == null ? "" : android.text.TextUtils.join("\n", current));
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(8), dp(16), 0);
+        box.addView(input);
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(box)
+                .setPositiveButton("Save", (d, w) -> {
+                    java.util.List<String> out = new java.util.ArrayList<>();
+                    for (String part : input.getText().toString().split("[\\n,]+")) {
+                        String t = part.trim();
+                        if (!t.isEmpty()) out.add(t);
+                    }
+                    sink.accept(out);
+                    renderResponder(root);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     private void editDefaultTone(final ResponderSettings settings, final View root) {
         final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
         String[] labels = new String[tones.length];
@@ -1779,6 +1816,16 @@ public class MainActivity extends Activity {
             host.addView(responderSwitch("In groups, only when I'm named",
                     settings.groupsRequireMention(),
                     on -> settings.setGroupsRequireMention(on), view));
+            host.addView(responderRow("My @handle(s) for group mentions",
+                    mentionSummary(settings.mentionHandles(), "no handle set"),
+                    () -> editMentionList(view, "My @handle(s)",
+                            "One per line (e.g. you_know__who__i__am). Underscores matter.",
+                            settings.mentionHandles(), settings::setMentionHandles)));
+            host.addView(responderRow("My number(s) for group mentions",
+                    mentionSummary(settings.mentionNumbers(), "no number set"),
+                    () -> editMentionList(view, "My number(s)",
+                            "One per line, with or without +country code.",
+                            settings.mentionNumbers(), settings::setMentionNumbers)));
             host.addView(responderSwitch("Answer numbers not in your contacts",
                     settings.replyToUnsaved(), on -> settings.setReplyToUnsaved(on), view));
             host.addView(responderSwitch("Only contacts you've explicitly allowed",

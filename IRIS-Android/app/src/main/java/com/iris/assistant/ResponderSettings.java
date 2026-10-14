@@ -444,6 +444,38 @@ public final class ResponderSettings {
     }
 
     /**
+     * WhatsApp @-handles that count as naming the owner in a group (matched whole, underscores and
+     * all, on the raw message). Separate from name keywords because these must NOT be normalised.
+     */
+    public List<String> mentionHandles() {
+        return lines(prefs.getString(K_MENTION_HANDLES, "you_know__who__i__am"));
+    }
+    public void setMentionHandles(List<String> v) {
+        prefs.edit().putString(K_MENTION_HANDLES, join(v)).apply();
+    }
+
+    /** Owner phone numbers (any format) that count as naming the owner; matched on last 10 digits. */
+    public List<String> mentionNumbers() {
+        return lines(prefs.getString(K_MENTION_NUMBERS, "7789893369"));
+    }
+    public void setMentionNumbers(List<String> v) {
+        prefs.edit().putString(K_MENTION_NUMBERS, join(v)).apply();
+    }
+
+    private List<String> lines(String raw) {
+        List<String> out = new ArrayList<>();
+        if (raw == null) return out;
+        for (String line : raw.split("\n")) {
+            String t = line.trim();
+            if (!t.isEmpty()) out.add(t);
+        }
+        return out;
+    }
+
+    private static final String K_MENTION_HANDLES = "mention_handles";
+    private static final String K_MENTION_NUMBERS = "mention_numbers";
+
+    /**
      * One name-pattern rule: a substring to look for, and what to do about it.
      *
      * A rule either sets a tone or refuses the contact outright. The owner asked for both from one
