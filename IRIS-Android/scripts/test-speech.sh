@@ -232,6 +232,15 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/ReminderParserTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ReminderParserTest
 
+# Multi-turn follow-ups: edit/cancel of a reminder just set in the same conversation.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReminderParser.java \
+  app/src/main/java/com/iris/assistant/ConversationContext.java \
+  tests/ConversationContextTest.java
+java -cp "$test_dir/responder" com.iris.assistant.ConversationContextTest
+
 # Loose phrase matching. Synonyms, stopword drop and typo tolerance behind the smart reply layer.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \

@@ -189,6 +189,43 @@ public final class ReminderStore {
         prefs.edit().remove(P_AWAIT + safe(conversationKey)).apply();
     }
 
+    // ─── Last reminder set in a conversation, for edit/cancel follow-ups ("make it 6") ───
+
+    private static final String P_LAST = "last_";
+
+    /** Remember the reminder just set in this conversation, with the time, for follow-ups. */
+    public void setLastReminder(String conversationKey, long id, long nowMs) {
+        prefs.edit().putString(P_LAST + safe(conversationKey), id + "\u001f" + nowMs).apply();
+    }
+
+    /** The reminder id set in this conversation within the follow-up window, or 0. */
+    public long lastReminderId(String conversationKey, long nowMs) {
+        String v = prefs.getString(P_LAST + safe(conversationKey), "");
+        if (v.isEmpty()) return 0;
+        String[] p = v.split("\u001f");
+        if (p.length < 2) return 0;
+        try {
+            long id = Long.parseLong(p[0]);
+            long when = Long.parseLong(p[1]);
+            if (nowMs - when > ConversationContext.FOLLOW_UP_WINDOW_MS) return 0;
+            return id;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    public void clearLastReminder(String conversationKey) {
+        prefs.edit().remove(P_LAST + safe(conversationKey)).apply();
+    }
+
+    /** The task text of a stored reminder by id, or empty. */
+    public String taskOf(long id) {
+        for (Reminder r : all()) {
+            if (r.id == id) return r.task;
+        }
+        return "";
+    }
+
     private void write(List<Reminder> items) {
         StringBuilder out = new StringBuilder();
         for (Reminder r : items) {

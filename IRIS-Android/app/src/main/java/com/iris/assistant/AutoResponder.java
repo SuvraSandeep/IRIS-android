@@ -133,6 +133,13 @@ public final class AutoResponder {
         boolean awaitingReminderTime =
                 !new ReminderStore(context).awaitingTask(conversationKey).isEmpty();
 
+        // Multi-turn follow-up: "actually make it 6" / "cancel that" right after a reminder was
+        // set in this conversation. Only recognised while a recent reminder exists, so an
+        // ordinary "cancel that" to a shop is never read as cancelling an IRIS reminder.
+        long recentReminderId = new ReminderStore(context).lastReminderId(conversationKey, now);
+        ConversationContext.FollowUp followUp =
+                ConversationContext.classify(incoming.body, recentReminderId > 0);
+
         // Smart keyword replies: an additive layer for messages the classifier left generic
         // (someone talking to IRIS, a bare question, an unremarkable or unmatched message, or a
         // link). It fires ONLY for those generic buckets, so greetings, thanks, festivals, urgent
@@ -165,7 +172,8 @@ public final class AutoResponder {
         message.forceReply = ((!nameReply.isEmpty() || awaitingReminderTime
                         || confirmsRing || urgentFamily || ringRequest)
                 && category.kind != MessageCategory.Kind.NONE)
-                || smartMatched;
+                || smartMatched
+                || followUp != ConversationContext.FollowUp.NONE;
 
         ResponderGuards.Policy policy = new ResponderGuards.Policy();
         policy.state = state;
@@ -211,6 +219,13 @@ public final class AutoResponder {
                 // Family ring takes precedence over every other interpretation of the message.
                 reply = handleFamilyRing(context, settings, conversationKey, resolvedSender,
                         confirmsRing || ringRequest, state == ResponderGuards.State.LIVE);
+            } else if (followUp != ConversationContext.FollowUp.NONE) {
+                // A follow-up edits or cancels the reminder just set in this conversation. Checked
+                // before the reminder branch, because "cancel that reminder" also classifies as a
+                // reminder but must be treated as a cancel, not a new one.
+                reply = handleFollowUp(context, incoming, conversationKey, resolvedSender, now,
+                        minuteOfDay, followUp, recentReminderId,
+                        state == ResponderGuards.State.LIVE);
             } else if (category.kind == MessageCategory.Kind.REMINDER || awaitingReminderTime) {
                 // Reminders are their own path: parse, (in LIVE) store and schedule, and reply to
                 // the sender confirming or asking for a time. The scope check is separate from the
@@ -501,6 +516,7 @@ public final class AutoResponder {
             ReminderStore.schedule(context, id,
                     "You asked me to remind " + ReplyTemplates.OWNER + ": " + task, dueMs);
             store.clearAwaiting(conversationKey);
+            store.setLastReminder(conversationKey, id, now);
             return "Noted \u2014 I'm IRIS, " + ReplyTemplates.OWNER + "'s assistant. I'll remind him "
                     + "to " + task + " " + whenPhrase(dueMs, now) + ".";
         }
@@ -522,6 +538,55 @@ public final class AutoResponder {
                 + "can say a time like \u201Cin 2 hours\u201D, \u201Ctomorrow 5pm\u201D, "
                 + "\u201CMonday 9am\u201D, or a date like \u201C25/12 6pm\u201D. I'm IRIS, his "
                 + "assistant.";
+    }
+
+    /**
+     * Edit or cancel the reminder just set in this conversation. Scheduling side effects happen
+     * only when live, matching the reminder path; the reply is composed in both states.
+     */
+    private static String handleFollowUp(Context context, Incoming incoming, String conversationKey,
+                                         String senderName, long now, int minuteOfDay,
+                                         ConversationContext.FollowUp followUp, long lastId,
+                                         boolean live) {
+        ReminderStore store = new ReminderStore(context);
+        String owner = ReplyTemplates.OWNER;
+
+        if (followUp == ConversationContext.FollowUp.CANCEL_REMINDER) {
+            if (live) {
+                ReminderStore.cancel(context, lastId);
+                store.remove(lastId);
+            }
+            store.clearLastReminder(conversationKey);
+            return "Done \u2014 I've cancelled that reminder for " + owner + ". I'm IRIS, his "
+                    + "assistant.";
+        }
+
+        // EDIT_REMINDER_TIME: re-read the new time and reschedule, keeping the original task.
+        String task = store.taskOf(lastId);
+        ReminderParser.Result parsed = ReminderParser.parse(incoming.body);
+        java.util.Calendar cal = java.util.Calendar.getInstance(TimeZone.getDefault());
+        cal.setTimeInMillis(now);
+        int delay = ReminderParser.delayMinutes(parsed, minuteOfDay,
+                cal.get(java.util.Calendar.DAY_OF_WEEK),
+                cal.get(java.util.Calendar.DAY_OF_MONTH),
+                cal.get(java.util.Calendar.MONTH) + 1,
+                cal.get(java.util.Calendar.YEAR));
+        if (delay <= 0 || task.isEmpty()) {
+            // Shouldn't happen (the classifier required a time), but never silently mis-edit.
+            return "I couldn't make out the new time, so I've left the reminder as it was. I'm "
+                    + "IRIS, " + owner + "'s assistant.";
+        }
+        long dueMs = now + delay * 60_000L;
+        if (live) {
+            ReminderStore.cancel(context, lastId);
+            store.remove(lastId);
+            long id = store.add(task, senderName, dueMs, now);
+            ReminderStore.schedule(context, id, "You asked me to remind " + owner + ": " + task,
+                    dueMs);
+            store.setLastReminder(conversationKey, id, now);
+        }
+        return "Updated \u2014 I'll remind " + owner + " to " + task + " " + whenPhrase(dueMs, now)
+                + " instead. I'm IRIS, his assistant.";
     }
 
     /** A human phrase for when a reminder is due, e.g. "in about 2 hours" or "tomorrow". */
