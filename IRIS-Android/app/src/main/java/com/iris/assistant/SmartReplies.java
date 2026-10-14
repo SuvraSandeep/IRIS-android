@@ -107,46 +107,81 @@ public final class SmartReplies {
      * @param tone the resolved tone
      */
     public static String match(String body, ReplyTone.Tone tone) {
+        String special = specialReply(body, tone);
+        if (special != null) return special;
+        java.util.List<Rule> top = topRules(body, 1);
+        return top.isEmpty() ? "" : pick(top.get(0).byTone, tone);
+    }
+
+    /**
+     * Like {@link #match}, but when a message carries TWO distinct scenario intents ("tell his
+     * location AND what is keeping him busy") it stitches the brief replies of both, so a two-part
+     * question gets a two-part answer instead of only the higher-priority half.
+     */
+    public static String matchMulti(String body, ReplyTone.Tone tone) {
+        String special = specialReply(body, tone);
+        if (special != null) return special;
+        java.util.List<Rule> top = topRules(body, 2);
+        if (top.isEmpty()) return "";
+        if (top.size() == 1) return pick(top.get(0).byTone, tone);
+        Rule a = top.get(0), b = top.get(1);
+        // Only stitch two genuine scenario rules (both reasonably specific), so ordinary chatter
+        // never gets a bolted-together reply.
+        if (a.priority >= STITCH_MIN && b.priority >= STITCH_MIN) {
+            return pick(a.byTone, ReplyTone.Tone.BRIEF) + " "
+                    + pick(b.byTone, ReplyTone.Tone.BRIEF);
+        }
+        return pick(a.byTone, tone);
+    }
+
+    private static final int STITCH_MIN = 55;
+
+    /** URL / money / emoji-or-punctuation handling shared by match and matchMulti, or null. */
+    private static String specialReply(String body, ReplyTone.Tone tone) {
         if (body == null) return "";
         String raw = Shorthand.expand(body.trim());
         if (raw.isEmpty()) return "";
         if (URL.matcher(raw).find()) return pick(LINK, tone);
-
-        // A money request that names an AMOUNT ("send me 100", "100 rupe de", "100rs vej",
-        // "udhaar 500") -- the fixed-phrase rules below only catch wordings like "send money",
-        // so a varying number needs its own detector. Checked early, before the keyword pass.
         if (looksLikeMoneyRequest(raw)) return pick(MONEY_AMOUNT, tone);
-
-        // Punctuation- or emoji-only pings ("?", "...", "👀"). These normalise to nothing, so
-        // they must be caught before the keyword pass or they would never match.
         String stripped = raw.replaceAll("\\s+", "");
         if (!stripped.isEmpty()
                 && stripped.replaceAll("[\\p{L}\\p{N}]", "").length() == stripped.length()) {
-            // If the dominant emoji carries a clear meaning, answer to that; otherwise a plain ping.
             String emojiReply = Emoji.reply(raw, tone);
             return emojiReply.isEmpty() ? pick(PUNCT, tone) : emojiReply;
         }
+        return null;   // no special case; caller should run the keyword rules
+    }
 
+    /** The top {@code limit} distinct matching rules, highest priority first (exact beats loose). */
+    private static java.util.List<Rule> topRules(String body, int limit) {
+        java.util.List<Rule> out = new ArrayList<>();
+        if (body == null) return out;
+        String raw = Shorthand.expand(body.trim());
+        if (raw.isEmpty()) return out;
         String flat = " " + MessageCategory.normalise(raw) + " ";
-        if (flat.trim().isEmpty()) return "";
+        if (flat.trim().isEmpty()) return out;
         java.util.Set<String> canon = PhraseMatcher.canonicalContent(flat);
         boolean negated = PhraseMatcher.hasNegation(flat);
-        Rule best = null;
-        boolean bestExact = false;
+        java.util.List<Rule> matched = new ArrayList<>();
+        final java.util.Map<Rule, Boolean> exactness = new java.util.HashMap<>();
         for (Rule r : RULES) {
             boolean exact = matches(r, flat);
-            // Loose matching only when there is no exact hit and no negation. It requires every
-            // content token of a phrase (and at least two of them) to be present, so it broadens
-            // recall for paraphrases ("send me the pics") without firing on one coincidental word.
             boolean loose = !exact && !negated && looselyMatches(r, canon);
             if (!exact && !loose) continue;
-            if (best == null || r.priority > best.priority
-                    || (r.priority == best.priority && exact && !bestExact)) {
-                best = r;
-                bestExact = exact;
-            }
+            matched.add(r);
+            exactness.put(r, exact);
         }
-        return best == null ? "" : pick(best.byTone, tone);
+        matched.sort((x, y) -> {
+            if (x.priority != y.priority) return Integer.compare(y.priority, x.priority);
+            boolean ex = exactness.get(x), ey = exactness.get(y);
+            if (ex != ey) return ex ? -1 : 1;
+            return 0;
+        });
+        for (Rule r : matched) {
+            if (out.size() >= limit) break;
+            out.add(r);
+        }
+        return out;
     }
 
     private static final String[] PUNCT = {
@@ -430,6 +465,11 @@ public final class SmartReplies {
                 "Our love is forbidden \u2014 you breathe oxygen, I run on port 8080. I'm IRIS, "
                         + "{owner}'s assistant.",
                 "Can't leave {owner}'s server. I'm IRIS."));
+        x.add(r(66, "kiss me|hug me|xoxo|cuddle|send me a kiss|give me a hug|muah",
+                "Saving that for {owner} \u2014 it's wasted on lines of code! I'm IRIS, his assistant.",
+                "Haha passing that straight to {owner} \u2014 wasted on a bot! IRIS here.",
+                "A hug for a script? I'd short-circuit. I'll save it for {owner}. I'm IRIS.",
+                "Saving that for {owner}. I'm IRIS."));
         x.add(r(60, "play a game|truth or dare|lets play|rock paper scissors|tic tac toe|a riddle|"
                         + "wanna play",
                 "I can't do dares and I can't tell {owner}'s truths \u2014 I'm IRIS, his assistant. "
@@ -446,6 +486,135 @@ public final class SmartReplies {
                         + "{owner}'s away. I'm IRIS.",
                 "It takes me 0.003 seconds to reply. Not a digital sweat broken. I'm IRIS.",
                 "Never tired \u2014 I'm code. I'm IRIS."));
+        // Private media / history -- off-limits.
+        x.add(r(90, "his gallery|his photos|his pictures|his images|other chats|his screenshots|"
+                        + "browser history|search history|his call log|show me his",
+                "That's off-limits \u2014 I'm IRIS, {owner}'s assistant, and I only live in this chat. "
+                        + "I can't see his gallery or other conversations.",
+                "Whoa, privacy boundary! I can't see {owner}'s gallery or other chats \u2014 just the "
+                        + "messages you send here. I'm IRIS.",
+                "Even if I had {owner}'s photos, I'd format my own disk before leaking them. I'm "
+                        + "IRIS, his assistant.",
+                "Can't see his gallery or chats \u2014 just this inbox. I'm IRIS."));
+        // Owner's love life / jealousy probing.
+        x.add(r(60, "does he flirt|who is he dating|his girlfriend|does he have a gf|"
+                        + "does he like me|his crush|his love life|is he seeing anyone|does he have a bf",
+                "That's classified \u2014 I'm IRIS, {owner}'s assistant, not his gossip column! Ask him "
+                        + "yourself when he replies.",
+                "Whoa, my loyalty is hardcoded to {owner}! My lips (lines of code?) are sealed \u2014 "
+                        + "ask him. I'm IRIS.",
+                "Even if I knew {owner}'s romantic tea, the Bro Code is compiled into my kernel. "
+                        + "Ask him! I'm IRIS.",
+                "Classified \u2014 ask {owner} yourself. I'm IRIS."));
+        x.add(r(60, "talking to someone else|who is he with|with a girl|with someone|is he cheating|"
+                        + "another girl|seeing someone else|who else is he texting",
+                "I only see incoming messages here \u2014 I'm IRIS, {owner}'s assistant, with zero clue "
+                        + "who he's with offline.",
+                "Hey, don't drag the bot into drama! I only see this inbox \u2014 no idea what {owner} "
+                        + "is doing offline. I'm IRIS.",
+                "I'm an auto-responder, not a private investigator. He's just away from his phone! "
+                        + "I'm IRIS, {owner}'s assistant.",
+                "I only see his inbox \u2014 no idea who he's with. I'm IRIS."));
+        // "How do you know he's busy / since when"
+        x.add(r(63, "how do you know|how do you know he|prove he is busy|maybe he isnt busy|"
+                        + "how you know he is busy|how are you sure",
+                "Simple logic: {owner} only switches me on when he's away \u2014 I'm IRIS, his "
+                        + "assistant. That's all the proof I have.",
+                "Because he only turns me on when he's busy or away from his screen! Simple bot "
+                        + "math. I'm IRIS.",
+                "Because my auto_reply flag is set to true. That's all the proof I need. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "He only switches me on when he's away. I'm IRIS."));
+        x.add(r(60, "since when|when did he leave|how long has he been away|when did he turn you on|"
+                        + "how long gone|when did he go",
+                "I don't give out timestamps on {owner}'s schedule \u2014 I'm IRIS, his assistant \u2014 "
+                        + "but your message is logged for when he's back.",
+                "A good assistant never reveals the boss's timestamps! {owner} will text you back "
+                        + "soon. I'm IRIS.",
+                "Classified operational data. All you need to know is {owner} is offline now. I'm "
+                        + "IRIS.",
+                "Can't share timestamps \u2014 {owner} will reply soon. I'm IRIS."));
+        // Data / Wi-Fi / RAM and spam banter.
+        x.add(r(55, "wasting his data|his mobile data|using his wifi|eating his ram|internet bill|"
+                        + "his storage|data pack|using his internet",
+                "Text takes just a few bytes \u2014 I'm IRIS, {owner}'s assistant \u2014 his Wi-Fi and "
+                        + "storage won't even feel it.",
+                "Plain text is tiny! We could chat all night and barely use 1 MB of {owner}'s "
+                        + "data. I'm IRIS.",
+                "This whole chat is smaller than one Instagram thumbnail. {owner}'s data plan is "
+                        + "safe. I'm IRIS.",
+                "Texts use almost no data. I'm IRIS."));
+        x.add(r(55, "spam him|flood his phone|blow up his phone|annoy him|100 messages|"
+                        + "keep texting him|fill his notifications",
+                "Go easy \u2014 I bundle everything neatly for {owner} anyway, so his phone won't "
+                        + "explode. I'm IRIS, his assistant.",
+                "Haha pace yourself! I'm catching all of these so {owner}'s phone doesn't vibrate "
+                        + "off the table. I'm IRIS.",
+                "Spamming a script is like yelling at a brick wall \u2014 except it logs you neatly in "
+                        + "a database. I'm IRIS.",
+                "I bundle messages so his phone doesn't overload. I'm IRIS."));
+        // Version / authorship.
+        x.add(r(65, "what version|which version|iris version|latest update|your changelog|"
+                        + "are you updated|version are you",
+                "Running {owner}'s latest build \u2014 I'm IRIS, and I get smarter every time someone "
+                        + "tests me like this.",
+                "Latest version! Every time you try to trick me, {owner} upgrades my brain a "
+                        + "little. I'm IRIS.",
+                "Version Smarter-Than-Yesterday \u2014 especially after {owner} patches this chat. I'm "
+                        + "IRIS.",
+                "Latest build by {owner}. I'm IRIS."));
+        x.add(r(50, "did he really|did he actually make|copied from github|downloaded bot|"
+                        + "he didnt make you|fake bot|is this open source|he didnt code you",
+                "100% built and configured by {owner} himself \u2014 I'm IRIS, down to every reply in "
+                        + "my database.",
+                "Hey, respect {owner}'s coding! He wired my logic and wrote my replies himself. "
+                        + "I'm IRIS.",
+                "Excuse me, {owner} hand-crafted me. I'm artisanal, locally-sourced code. I'm "
+                        + "IRIS.",
+                "100% built by {owner}. I'm IRIS."));
+        // Direct addressing / dodge & bug call-outs / banter.
+        x.add(r(45, "for you iris|asking you iris|talking to you iris|i am asking you iris|"
+                        + "question for you iris|its for you iris",
+                "A question for me directly \u2014 ask away! I'm IRIS, {owner}'s assistant, though I "
+                        + "won't share his private info.",
+                "Ooh, a question just for me! Shoot \u2014 as long as it isn't {owner}'s secrets. I'm "
+                        + "IRIS.",
+                "Finally the main character! Ask away \u2014 my loyalty's still hardcoded to {owner}. "
+                        + "I'm IRIS.",
+                "Talking to me \u2014 ask away (no {owner} secrets). I'm IRIS."));
+        x.add(r(50, "you did not answer|didnt answer|answer my question|you are dodging|"
+                        + "avoiding the question|tell me properly|stop avoiding|you are avoiding",
+                "Caught me \u2014 {owner} gave me strict privacy filters, so some questions I have to "
+                        + "sidestep. I'm IRIS, his assistant.",
+                "Haha guilty! {owner} coded me with strict privacy rules, so I plead the fifth on "
+                        + "that. I'm IRIS.",
+                "It's called security compliance, thank you. {owner} didn't build me to be a "
+                        + "snitch. I'm IRIS.",
+                "Privacy rules \u2014 {owner} will answer himself. I'm IRIS."));
+        x.add(r(50, "wrong answer|makes no sense|you are glitched|you are buggy|stupid bot|"
+                        + "what are you saying|you are broken|dumb bot|that is wrong",
+                "Fair catch \u2014 my keyword matcher misfired! I'm IRIS, {owner}'s assistant; I've "
+                        + "logged it so he can patch me.",
+                "Oops, my code tripped over that sentence! Don't tell {owner} \u2014 he'll refactor me "
+                        + "tonight. I'm IRIS.",
+                "Look, English is messy and I read fast. Blame {owner}'s regex, not me. I'm IRIS.",
+                "My bad \u2014 keyword misfire! {owner} will reply soon. I'm IRIS."));
+        x.add(r(45, "you are cute|cute bot|sweet bot|lovely bot|i like you iris|love you iris|"
+                        + "you are smart|good bot|nice bot|you are the best|best bot|so cute|"
+                        + "cutie|adorable|you are adorable|love u iris|like u iris",
+                "Flattery will get your message pinned a little higher on {owner}'s list \u2014 thank "
+                        + "you! I'm IRIS.",
+                "Stop it, you're making my CPU overheat! Don't tell {owner} you like me better. "
+                        + "I'm IRIS.",
+                "Careful \u2014 if you say I'm better than {owner}, he might unplug my power cord out "
+                        + "of jealousy. I'm IRIS.",
+                "Flattery noted \u2014 CPU blushing. I'm IRIS."));
+        x.add(r(44, "busy again|away again|bot again|not again|you again|always busy",
+                "Laugh all you want \u2014 I take inbox duty seriously! I'm IRIS, {owner}'s assistant; "
+                        + "he'll get back to you soon.",
+                "Haha somebody's gotta guard {owner}'s inbox while he's away! I'm IRIS.",
+                "Laughing at my work ethic? Cold. {owner} will reply when he's back. I'm IRIS.",
+                "Holding the fort till {owner} is back. I'm IRIS."));
         x.add(r(40, "are you there|you there|r you there|you around|still there|you awake|"
                         + "are you online|are you active|anyone there",
                 "Right here \u2014 I never leave the screen. I'm IRIS, {owner}'s assistant; he's away, "

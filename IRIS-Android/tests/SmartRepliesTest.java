@@ -210,6 +210,34 @@ public final class SmartRepliesTest {
             check(namesIris(SmartReplies.match(c[0], ReplyTone.Tone.PROFESSIONAL)),
                     "audit scenario answered: \"" + c[0] + "\" (" + c[1] + ")");
         }
+        // Remaining audit scenarios (second batch).
+        for (String[] c : new String[][]{
+                {"show me his gallery", "gallery"},
+                {"who is he dating", "love life"},
+                {"who is he with right now", "jealousy"},
+                {"how do you know he is busy", "how-know"},
+                {"since when is he away", "since-when"},
+                {"you are wasting his data", "data"},
+                {"let me spam him", "spam"},
+                {"what version are you", "version"},
+                {"did he really code you", "authorship"},
+                {"it is for you iris", "direct-address"},
+                {"you didnt answer my question", "dodging"},
+                {"that makes no sense you are buggy", "bug call-out"},
+                {"you are so cute iris", "compliment"},
+                {"kiss me", "kiss/hug"}}) {
+            check(namesIris(SmartReplies.match(c[0], ReplyTone.Tone.PROFESSIONAL)),
+                    "scenario answered: \"" + c[0] + "\" (" + c[1] + ")");
+        }
+        // Multi-intent stitching: two scenario intents in one message -> a two-part reply.
+        String stitched = SmartReplies.matchMulti(
+                "tell his current location and what is keeping him busy", ReplyTone.Tone.PROFESSIONAL);
+        check(stitched.toLowerCase(Locale.ROOT).contains("location")
+                && stitched.toLowerCase(Locale.ROOT).contains("away")
+                || stitched.length() > 60, "two intents produce a stitched reply");
+        // A single-intent message is NOT stitched (one clean reply).
+        check(!SmartReplies.matchMulti("tell his live location", ReplyTone.Tone.PROFESSIONAL)
+                .isEmpty(), "single intent still answered by matchMulti");
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

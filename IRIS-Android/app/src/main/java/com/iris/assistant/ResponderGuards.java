@@ -89,6 +89,8 @@ public final class ResponderGuards {
         BURST_ALREADY_ANSWERED,
         /** This exact text was already answered in this conversation; a new text would release it. */
         SAME_TEXT_ALREADY_ANSWERED,
+        /** A rapid-fire follow-up within the coalesce window of the last reply; folded into it. */
+        DEBOUNCED,
         /** Too soon after the last reply to this conversation. */
         COOLDOWN,
         /** This contact has had their allowance for the day. */
@@ -150,6 +152,8 @@ public final class ResponderGuards {
 
         public long cooldownMs;
         public long lastReplyToConversationMs;
+        /** Rapid-fire coalesce window in ms; 0 disables (default), so unset callers are unaffected. */
+        public long coalesceWindowMs;
         public boolean burstAlreadyAnswered;
         /**
          * Answer every message in a flurry, not one per flurry.
@@ -270,6 +274,17 @@ public final class ResponderGuards {
         // priority with no limits, and the ring confirm arrives seconds after the offer, so a
         // cooldown would otherwise swallow the very reply that rings the phone.
         if (policy.familyPriority) return Verdict.SEND;
+
+        // Rapid-fire coalescing. If a reply went to this conversation within the coalesce window,
+        // treat this message as part of the same burst and stay quiet, so three quick bubbles
+        // don't earn three back-to-back introductions. Applies even to the TO_IRIS cooldown
+        // exemption below (that's exactly where the double-intro came from), but never when the
+        // owner has asked to answer every message. Disabled when the window is 0 (unset callers).
+        if (!policy.replyToEveryMessage
+                && Debounce.withinWindow(policy.lastReplyToConversationMs, policy.nowMs,
+                        policy.coalesceWindowMs)) {
+            return Verdict.DEBOUNCED;
+        }
 
         if (looksLikeLoop(message.incomingText, message.lastSentReply)) {
             return Verdict.LOOP_SUSPECTED;
@@ -440,6 +455,9 @@ public final class ResponderGuards {
                 return "I already answered that exact message. I'll reply again when they say "
                         + "something new.";
             case COOLDOWN: return "Too soon after my last reply to them.";
+            case DEBOUNCED:
+                return "A rapid-fire follow-up seconds after my reply \u2014 folded into that one "
+                        + "rather than firing again.";
             case CONTACT_CAP: return "They've had their replies for today.";
             case TO_IRIS_CAP:
                 return "I've already introduced myself to them once today. Twice is a "

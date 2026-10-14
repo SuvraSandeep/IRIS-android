@@ -17,7 +17,7 @@ public final class Emoji {
     public enum Category {
         NONE, POSITIVE, LOVE, LAUGH, CELEBRATE, THANKS, PRAISE, OK, GREET,
         SAD, ANGRY, SCARED, SICK, THINKING, SLEEP, NEUTRAL, MONEY,
-        PLAYFUL, NIGHT, MOVED, LOOK }
+        PLAYFUL, NIGHT, MOVED, LOOK, FLIRT }
 
     private Emoji() { }
 
@@ -62,6 +62,9 @@ public final class Emoji {
         // Moons -- night / goodnight / "heading to bed".
         p(m, Category.NIGHT, "\uD83C\uDF19", "\uD83C\uDF1B", "\uD83C\uDF1C", "\uD83C\uDF1D",
                 "\uD83C\uDF1A", "\uD83C\uDF03", "\uD83C\uDF0C");
+        // 😘🥰😍😉😏🫦 flirty -- saved for the owner, never reciprocated.
+        p(m, Category.FLIRT, "\uD83D\uDE18", "\uD83D\uDE09", "\uD83D\uDE0F", "\uD83E\uDEE6",
+                "\uD83D\uDE1A", "\uD83D\uDE17");
         return m;
     }
 
@@ -215,6 +218,12 @@ public final class Emoji {
                 "I'm watching the inbox, not much else. {owner} is away \u2014 saved for him. I'm "
                         + "IRIS.",
                 "Noted \u2014 {owner} is away, saved for him. IRIS."});
+        m.put(Category.FLIRT, new String[]{
+                "Saving those for {owner} \u2014 they're wasted on lines of code! I'm IRIS, his "
+                        + "assistant.",
+                "Haha passing those straight to {owner} \u2014 wasted on a bot! IRIS here.",
+                "Winking at a script? Bold. I'll save that for {owner} instead. I'm IRIS.",
+                "Saving those for {owner}. I'm IRIS."});
         return m;
     }
 

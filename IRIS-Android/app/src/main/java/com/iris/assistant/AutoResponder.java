@@ -177,7 +177,7 @@ public final class AutoResponder {
         // Suvra free", "where is Suvra" and "Suvra's email" hit the same rules written for "he".
         String aliasedBody = OwnerAlias.toThirdPerson(normBody, ReplyTemplates.OWNER);
 
-        String smartReply = SmartReplies.match(aliasedBody, tone);
+        String smartReply = SmartReplies.matchMulti(aliasedBody, tone);
         boolean smartMatched = !smartReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
@@ -244,6 +244,7 @@ public final class AutoResponder {
         policy.allowlistOnly = settings.allowlistOnly();
         policy.cooldownMs = settings.cooldownMs();
         policy.lastReplyToConversationMs = settings.lastReplyTo(conversationKey);
+        policy.coalesceWindowMs = Debounce.DEFAULT_WINDOW_MS;
         policy.burstAlreadyAnswered = alreadyAnswered(incoming.sbn.getKey());
         policy.replyToEveryMessage = settings.replyToEveryMessage();
         policy.lastAnsweredText = settings.lastAnsweredText(conversationKey);
@@ -317,6 +318,14 @@ public final class AutoResponder {
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
                 } else {
                     reply = compose(settings, category, tone, resolvedSender, now, minuteOfDay);
+                }
+                // Once IRIS has already introduced itself in this conversation (or the sender is
+                // clearly addressing IRIS by name), drop the "I'm IRIS, Suvra's assistant" intro
+                // so a continuing chat stops repeating itself. Owner-defined wording is untouched.
+                if (learnedReply.isEmpty() && nameReply.isEmpty()) {
+                    boolean introduced = settings.lastReplyTo(conversationKey) > 0
+                            || IntroTrim.senderKnowsIris(incoming.body);
+                    reply = IntroTrim.trim(reply, introduced, ReplyTemplates.OWNER);
                 }
             }
             // A category with no text left to send is a silence, not an empty message.

@@ -53,6 +53,9 @@ public final class EmojiTest {
         check(!Emoji.reply("\uD83C\uDF1D", ReplyTone.Tone.BRIEF).isEmpty(),
                 "\uD83C\uDF1D full moon recognised");
         check(Emoji.dominant("\uD83C\uDF19") == Emoji.Category.NIGHT, "moon is NIGHT");
+        check(!Emoji.reply("\uD83D\uDE18", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "\uD83D\uDE18 kiss emoji gets a (deflecting) reply");
+        check(Emoji.dominant("\uD83D\uDE09") == Emoji.Category.FLIRT, "wink is FLIRT");
         System.out.println("Passed " + checks + " emoji checks");
     }
 }

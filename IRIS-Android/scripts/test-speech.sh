@@ -292,6 +292,13 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/ShorthandTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ShorthandTest
 
+# Intro-stripping once IRIS has already introduced itself in a conversation.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/IntroTrim.java \
+  tests/IntroTrimTest.java
+java -cp "$test_dir/responder" com.iris.assistant.IntroTrimTest
+
 # Wrong-time greetings: "good morning" at night gets an aware reply.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
@@ -427,9 +434,17 @@ java -cp "$test_dir/responder" com.iris.assistant.ResponderWindowTest
 javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/MessageCategory.java \
   app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/Debounce.java \
   app/src/main/java/com/iris/assistant/ResponderGuards.java \
   tests/ResponderGuardsTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ResponderGuardsTest
+
+# Rapid-fire debounce / coalescing helper.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/Debounce.java \
+  tests/DebounceTest.java
+java -cp "$test_dir/responder" com.iris.assistant.DebounceTest
 
 # Shipped reply texts. The headline check sweeps EVERY variant of EVERY category in EVERY tone and
 # asserts each one names both IRIS and Suvra, which is the transparency decision made enforceable:

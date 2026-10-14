@@ -45,6 +45,32 @@ public class ResponderGuardsTest {
         return m;
     }
 
+    private static void rapidFireIsDebounced() {
+        // A reply went out one second ago; a quick follow-up is folded, not answered again.
+        ResponderGuards.Message m = sendableMessage();
+        ResponderGuards.Policy p = sendablePolicy();
+        p.coalesceWindowMs = ResponderGuards_defaultWindow();
+        p.lastReplyToConversationMs = p.nowMs - 1000L;
+        verdict(m, p, ResponderGuards.Verdict.DEBOUNCED, "rapid follow-up is debounced");
+
+        // The same message well after the window sends normally (greeting, no cooldown issue).
+        ResponderGuards.Policy later = sendablePolicy();
+        later.coalesceWindowMs = ResponderGuards_defaultWindow();
+        later.lastReplyToConversationMs = later.nowMs - 10_000L;
+        later.cooldownMs = 0;
+        verdict(sendableMessage(), later, ResponderGuards.Verdict.SEND,
+                "a follow-up after the window sends");
+
+        // With the window unset (0), behaviour is unchanged from before.
+        ResponderGuards.Policy off = sendablePolicy();
+        off.lastReplyToConversationMs = off.nowMs - 1000L;
+        off.cooldownMs = 0;
+        verdict(sendableMessage(), off, ResponderGuards.Verdict.SEND,
+                "window 0 disables debounce");
+    }
+
+    private static long ResponderGuards_defaultWindow() { return Debounce.DEFAULT_WINDOW_MS; }
+
     private static ResponderGuards.Policy sendablePolicy() {
         ResponderGuards.Policy p = new ResponderGuards.Policy();
         p.state = ResponderGuards.State.LIVE;
@@ -87,6 +113,7 @@ public class ResponderGuardsTest {
         burstProducesOneReplyNotSeven();
         sameTextIsNotAnsweredTwice();
         familyPriorityBypassesRateLimitsOnly();
+        rapidFireIsDebounced();
         cooldownBlocksAndThenReleases();
         capsBlockIncludingZero();
         loopDetection();
