@@ -85,12 +85,26 @@ public final class ReplyTone {
      */
     public static Tone resolve(Tone explicitTone, Relation relation, Tone patternTone,
                                Tone windowTone, Tone globalDefault) {
+        return resolve(explicitTone, relation, patternTone, null, windowTone, globalDefault);
+    }
+
+    /**
+     * Resolve the tone, including a per-app default.
+     *
+     * {@code appTone} sits below the person-specific sources (explicit tone, relationship, name
+     * pattern) and above the time window and the global default: "sound professional on SMS" is a
+     * weaker statement than "this person is family", but a stronger one than "it's work hours" or
+     * "the global default". Null means the owner set no tone for this app.
+     */
+    public static Tone resolve(Tone explicitTone, Relation relation, Tone patternTone,
+                               Tone appTone, Tone windowTone, Tone globalDefault) {
         if (explicitTone != null) return explicitTone;
 
         Tone fromRelation = toneFor(relation);
         if (fromRelation != null) return fromRelation;
 
         if (patternTone != null) return patternTone;
+        if (appTone != null) return appTone;
         if (windowTone != null) return windowTone;
         if (globalDefault != null) return globalDefault;
 

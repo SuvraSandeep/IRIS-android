@@ -135,12 +135,14 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "16.20.0";
+const BUILD_VERSION = "16.21.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
 
 const FEATURES = [
+
+  {"id": "apptone16210", "cat": "Communication", "icon": "\uD83C\uDF9A", "title": "A different tone per app", "tagline": "Professional on SMS, casual on WhatsApp \u2014 set how IRIS sounds per channel.", "desc": "You can now set the tone IRIS uses by messaging app. Under RESPONDER \u2192 VOICE, \u201CTone by app\u201D lets you choose professional, casual, sarcastic or brief for WhatsApp, SMS, Telegram, Signal, Instagram or Messenger individually \u2014 so work-leaning SMS can stay professional while WhatsApp is casual. It slots into the existing tone order in the right place: a tone you've set on a specific person, their relationship, or a name rule still wins over the per-app tone, and the per-app tone in turn beats the work-hours window and the global default. Leave an app on \u201Cdefault\u201D and nothing changes for it. The resolution order is a pure, offline-tested unit and the old five-way resolver still works unchanged.", "examples": ["RESPONDER \u2192 Tone by app \u2192 SMS \u2192 Professional", "WhatsApp \u2192 Casual, Instagram \u2192 Casual", "Mom (family) still gets the casual family tone whatever the app", "Leave an app on default \u2192 unchanged"], "version": "16.21.0"},
 
   {"id": "media16200", "cat": "Communication", "icon": "\uD83D\uDCCE", "title": "IRIS tells media apart", "tagline": "Photo vs voice note vs document vs sticker vs GIF vs contact vs location \u2014 named, not lumped as \u201Cmedia\u201D.", "desc": "A new media classifier recognises the KIND of an attachment from its MIME type or the app's placeholder text \u2014 a photo, a video, a voice note, a document, a sticker, a GIF, a shared contact, or a location. Two improvements come with it. First, the responder now recognises more media placeholders (voice notes, pictures, GIFs, shared contacts, live location) as media, so it correctly stays quiet on them instead of mis-reading them as a message to answer. Second, the \u201Cwhat did I miss\u201D triage digest now names a waiting attachment: \u201C\u2026 One sent a voice note.\u201D instead of leaving it generic. The classifier is a pure, offline-tested unit and is ready for the archive to label captured media the same way.", "examples": ["\u201Csent a voice message\u201D \u2192 recognised as a voice note", "image/jpeg or \u201C\uD83D\uDCF7 Photo\u201D \u2192 a photo; image/gif \u2192 a GIF", "digest: \u201C3 messages from 2 people\u2026 One sent a voice note.\u201D", "a shared contact or live location is recognised as media"], "version": "16.20.0"},
 

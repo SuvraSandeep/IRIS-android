@@ -36,6 +36,8 @@ public class ReplyToneTest {
 
     public static void main(String[] args) {
         resolutionOrderIsMostSpecificFirst();
+        appToneSitsBelowPersonAboveWindow();
+        legacyResolutionOrder();
         relationshipBeatsNamePattern();
         sarcasmIsUnreachableWithoutNamingSomeone();
         unconfiguredRespondersAreFormal();
@@ -52,6 +54,38 @@ public class ReplyToneTest {
 
     private static void resolutionOrderIsMostSpecificFirst() {
         // Explicit per-contact tone beats every other source, including a relationship.
+        equal(ReplyTone.resolve(ReplyTone.Tone.BRIEF, ReplyTone.Relation.WORK,
+                        ReplyTone.Tone.PROFESSIONAL, ReplyTone.Tone.CASUAL,
+                        ReplyTone.Tone.PROFESSIONAL),
+                ReplyTone.Tone.BRIEF, "an explicit contact tone wins outright");
+
+        // The old 5-arg form still works (delegates with no app tone).
+        equal(ReplyTone.resolve(null, ReplyTone.Relation.UNKNOWN, null, null,
+                        ReplyTone.Tone.CASUAL),
+                ReplyTone.Tone.CASUAL, "legacy 5-arg resolve still works");
+    }
+
+    /** A per-app tone sits below the person-specific sources and above window/default. */
+    private static void appToneSitsBelowPersonAboveWindow() {
+        // App tone wins over window and default when nothing more specific is set.
+        equal(ReplyTone.resolve(null, ReplyTone.Relation.UNKNOWN, null,
+                        ReplyTone.Tone.BRIEF, ReplyTone.Tone.CASUAL, ReplyTone.Tone.PROFESSIONAL),
+                ReplyTone.Tone.BRIEF, "app tone beats window and default");
+        // A name pattern beats the app tone.
+        equal(ReplyTone.resolve(null, ReplyTone.Relation.UNKNOWN, ReplyTone.Tone.PROFESSIONAL,
+                        ReplyTone.Tone.BRIEF, ReplyTone.Tone.CASUAL, ReplyTone.Tone.CASUAL),
+                ReplyTone.Tone.PROFESSIONAL, "a name pattern beats the app tone");
+        // A relationship beats the app tone.
+        equal(ReplyTone.resolve(null, ReplyTone.Relation.FAMILY, null,
+                        ReplyTone.Tone.PROFESSIONAL, null, ReplyTone.Tone.PROFESSIONAL),
+                ReplyTone.Tone.CASUAL, "a relationship beats the app tone");
+        // No app tone -> the window applies.
+        equal(ReplyTone.resolve(null, ReplyTone.Relation.UNKNOWN, null,
+                        null, ReplyTone.Tone.CASUAL, ReplyTone.Tone.PROFESSIONAL),
+                ReplyTone.Tone.CASUAL, "no app tone falls through to the window");
+    }
+
+    private static void legacyResolutionOrder() {
         equal(ReplyTone.resolve(ReplyTone.Tone.BRIEF, ReplyTone.Relation.WORK,
                         ReplyTone.Tone.PROFESSIONAL, ReplyTone.Tone.CASUAL,
                         ReplyTone.Tone.PROFESSIONAL),

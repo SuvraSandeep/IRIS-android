@@ -1345,6 +1345,47 @@ public class MainActivity extends Activity {
 
 
 
+    /** How many apps have a tone override set, for the row's value text. */
+    private String appToneSummary(ResponderSettings settings) {
+        int n = 0;
+        for (MessagingApp a : MessagingApp.values()) {
+            if (a == MessagingApp.OTHER) continue;
+            if (settings.appTone(a) != null) n++;
+        }
+        return n == 0 ? "all default" : n + " set";
+    }
+
+    /** Pick an app, then set the tone IRIS uses for messages from it. */
+    private void editAppTones(final ResponderSettings settings, final View root) {
+        final java.util.List<MessagingApp> apps = new java.util.ArrayList<>();
+        for (MessagingApp a : MessagingApp.values()) {
+            if (a != MessagingApp.OTHER) apps.add(a);
+        }
+        final String[] labels = new String[apps.size()];
+        for (int i = 0; i < apps.size(); i++) {
+            ReplyTone.Tone t = settings.appTone(apps.get(i));
+            labels[i] = apps.get(i).label() + "  \u2192  " + (t == null ? "default" : t.name());
+        }
+        choiceDialog("Tone by app",
+                "Sound a certain way on a given channel \u2014 say professional on SMS, casual on "
+                        + "WhatsApp. A tone you've set on a person or a name rule still wins over "
+                        + "this.",
+                labels, which -> editOneAppTone(settings, apps.get(which), root));
+    }
+
+    private void editOneAppTone(final ResponderSettings settings, final MessagingApp app,
+                                final View root) {
+        final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
+        final String[] labels = new String[tones.length + 1];
+        for (int i = 0; i < tones.length; i++) labels[i] = tones[i].name();
+        labels[tones.length] = "Use default (clear)";
+        choiceDialog(app.label() + " tone", "How should I sound on " + app.label() + "?",
+                labels, which -> {
+                    settings.setAppTone(app, which < tones.length ? tones[which] : null);
+                    renderResponder(root);
+                });
+    }
+
     private void editDefaultTone(final ResponderSettings settings, final View root) {
         final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
         String[] labels = new String[tones.length];
@@ -1784,6 +1825,8 @@ public class MainActivity extends Activity {
             host.addView(responderRow("Default tone",
                     settings.defaultTone().name() + effectiveToneNote(settings),
                     () -> editDefaultTone(settings, view)));
+            host.addView(responderRow("Tone by app", appToneSummary(settings),
+                    () -> editAppTones(settings, view)));
             host.addView(responderSwitch("Sound professional during work hours",
                     settings.workHoursForceProfessional(),
                     on -> settings.setWorkHoursForceProfessional(on), view));

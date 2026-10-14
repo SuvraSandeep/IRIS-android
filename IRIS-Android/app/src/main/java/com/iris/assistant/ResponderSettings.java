@@ -204,6 +204,30 @@ public final class ResponderSettings {
     }
 
     /**
+     * A per-app default tone (e.g. professional on SMS, casual on WhatsApp), or null when the
+     * owner has set none for that app. Keyed by the messaging channel, so it applies however the
+     * sender is saved.
+     */
+    public ReplyTone.Tone appTone(String pkg) {
+        String v = prefs.getString(P_APP_TONE + MessagingApp.fromPackage(pkg).name(), "");
+        return v.isEmpty() ? null : ReplyTone.parseTone(v);
+    }
+
+    public ReplyTone.Tone appTone(MessagingApp app) {
+        if (app == null) return null;
+        String v = prefs.getString(P_APP_TONE + app.name(), "");
+        return v.isEmpty() ? null : ReplyTone.parseTone(v);
+    }
+
+    public void setAppTone(MessagingApp app, ReplyTone.Tone tone) {
+        if (app == null) return;
+        if (tone == null) prefs.edit().remove(P_APP_TONE + app.name()).apply();
+        else prefs.edit().putString(P_APP_TONE + app.name(), tone.name()).apply();
+    }
+
+    private static final String P_APP_TONE = "app_tone_";
+
+    /**
      * The situational mode the owner has switched on, or NONE.
      *
      * A mode overrides the category content and the time windows while it is active. Stored by

@@ -94,6 +94,7 @@ public final class AutoResponder {
                 settings.contactTone(conversationKey),
                 settings.effectiveContactRelation(conversationKey, resolvedSender),
                 settings.toneForName(resolvedSender),
+                settings.appTone(incoming.pkg),
                 ResponderWindow.toneFor(settings.toneWindows(), minuteOfDay),
                 settings.defaultTone());
 
