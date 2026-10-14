@@ -155,40 +155,46 @@ public final class SmartReplies {
     /** URL / money / emoji-or-punctuation handling shared by match and matchMulti, or null. */
     private static String specialReply(String body, ReplyTone.Tone tone) {
         if (body == null) return "";
-        String unaddressed = stripBotAddressing(body);
-        String raw = Shorthand.expand(unaddressed.trim());
+        String raw = Shorthand.expand(body.trim());
         if (raw.isEmpty()) return "";
-        if (URL.matcher(raw).find()) return pick(LINK, tone);
-        if (looksLikeMoneyRequest(raw)) return pick(MONEY_AMOUNT, tone);
-        String stripped = raw.replaceAll("\\s+", "");
-        if (!stripped.isEmpty()
-                && stripped.replaceAll("[\\p{L}\\p{N}]", "").length() == stripped.length()) {
-            String emojiReply = Emoji.reply(raw, tone);
-            return emojiReply.isEmpty() ? pick(PUNCT, tone) : emojiReply;
+        String reply = checkSpecial(raw, tone);
+        if (reply != null) return reply;
+        String unaddressed = Shorthand.expand(stripBotAddressing(body).trim());
+        if (!unaddressed.equals(raw)) {
+            reply = checkSpecial(unaddressed, tone);
+            if (reply != null) return reply;
         }
         return null;   // no special case; caller should run the keyword rules
+    }
+
+    private static String checkSpecial(String text, ReplyTone.Tone tone) {
+        if (URL.matcher(text).find()) return pick(LINK, tone);
+        if (looksLikeMoneyRequest(text)) return pick(MONEY_AMOUNT, tone);
+        String stripped = text.replaceAll("\\s+", "");
+        if (!stripped.isEmpty()
+                && stripped.replaceAll("[\\p{L}\\p{N}]", "").length() == stripped.length()) {
+            String emojiReply = Emoji.reply(text, tone);
+            return emojiReply.isEmpty() ? pick(PUNCT, tone) : emojiReply;
+        }
+        return null;
     }
 
     /** The top {@code limit} distinct matching rules, highest priority first (exact beats loose). */
     private static java.util.List<Rule> topRules(String body, int limit) {
         java.util.List<Rule> out = new ArrayList<>();
         if (body == null) return out;
-        String unaddressed = stripBotAddressing(body);
-        String raw = Shorthand.expand(unaddressed.trim());
+        String raw = Shorthand.expand(body.trim());
         if (raw.isEmpty()) return out;
-        String flat = " " + MessageCategory.normalise(raw) + " ";
-        if (flat.trim().isEmpty()) return out;
-        java.util.Set<String> canon = PhraseMatcher.canonicalContent(flat);
-        boolean negated = PhraseMatcher.hasNegation(flat);
+        String unaddressed = Shorthand.expand(stripBotAddressing(body).trim());
+
         java.util.List<Rule> matched = new ArrayList<>();
         final java.util.Map<Rule, Boolean> exactness = new java.util.HashMap<>();
-        for (Rule r : RULES) {
-            boolean exact = matches(r, flat);
-            boolean loose = !exact && !negated && looselyMatches(r, canon);
-            if (!exact && !loose) continue;
-            matched.add(r);
-            exactness.put(r, exact);
+
+        matchAgainst(raw, matched, exactness);
+        if (!unaddressed.equals(raw)) {
+            matchAgainst(unaddressed, matched, exactness);
         }
+
         matched.sort((x, y) -> {
             if (x.priority != y.priority) return Integer.compare(y.priority, x.priority);
             boolean ex = exactness.get(x), ey = exactness.get(y);
@@ -200,6 +206,25 @@ public final class SmartReplies {
             out.add(r);
         }
         return out;
+    }
+
+    private static void matchAgainst(String text, java.util.List<Rule> matched,
+                                     java.util.Map<Rule, Boolean> exactness) {
+        String flat = " " + MessageCategory.normalise(text) + " ";
+        if (flat.trim().isEmpty()) return;
+        java.util.Set<String> canon = PhraseMatcher.canonicalContent(flat);
+        boolean negated = PhraseMatcher.hasNegation(flat);
+        for (Rule r : RULES) {
+            boolean exact = matches(r, flat);
+            boolean loose = !exact && !negated && looselyMatches(r, canon);
+            if (!exact && !loose) continue;
+            if (!exactness.containsKey(r)) {
+                matched.add(r);
+                exactness.put(r, exact);
+            } else if (exact && !exactness.get(r)) {
+                exactness.put(r, true);
+            }
+        }
     }
 
     private static final String[] PUNCT = {
