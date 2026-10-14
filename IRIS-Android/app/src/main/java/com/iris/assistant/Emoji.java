@@ -135,7 +135,7 @@ public final class Emoji {
         m.put(Category.CELEBRATE, new String[]{
                 "Thank you \u2014 I'm IRIS, {owner}'s assistant. I've saved your wishes at the top for "
                         + "him.",
-                "Woohoo, thanks! IRIS here \u2014 pinned for {owner}!",
+                "Woohoo, thanks! IRIS here \u2014 saved right at the top for {owner}!",
                 "Confetti noted. I'm IRIS, {owner}'s assistant \u2014 he'll be insufferable about it.",
                 "Thanks! Wishes saved for {owner}. IRIS."});
         m.put(Category.THANKS, new String[]{
@@ -182,7 +182,7 @@ public final class Emoji {
         m.put(Category.MOVED, new String[]{
                 "That means a lot \u2014 I'm IRIS, {owner}'s assistant. I've saved it right at the "
                         + "top for him.",
-                "Aw, that's lovely \u2014 IRIS here, I've pinned it for {owner}.",
+                "Aw, that's lovely \u2014 IRIS here, I've saved it right at the top for {owner}.",
                 "Getting emotional at a script \u2014 I'm touched too (figuratively). Saved for "
                         + "{owner}. I'm IRIS.",
                 "Noted warmly \u2014 saved for {owner}. IRIS."});

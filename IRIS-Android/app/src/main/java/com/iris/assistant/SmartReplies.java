@@ -136,10 +136,27 @@ public final class SmartReplies {
 
     private static final int STITCH_MIN = 55;
 
+    /**
+     * Strips leading "IRIS", "hey IRIS", "ok IRIS" or trailing "IRIS" when at least two words remain,
+     * so addressing the bot doesn't mask the underlying question ("IRIS is he still in meeting" -> "is he still in meeting").
+     */
+    public static String stripBotAddressing(String text) {
+        if (text == null) return "";
+        String cleaned = text.trim();
+        // Removes "iris", "hey iris", "ok iris", "hi iris", "listen iris" at the start
+        String withoutPrefix = cleaned.replaceFirst("(?i)^(hey\\s+|hi\\s+|ok\\s+|okay\\s+|listen\\s+)?iris[\\s,!:.-]+", "");
+        // Removes trailing "iris"
+        String withoutSuffix = withoutPrefix.replaceFirst("(?i)[\\s,!:.-]+iris[?!.]*$", "");
+        String stripped = withoutSuffix.trim();
+        String[] words = stripped.split("\\s+");
+        return (words.length >= 2 && !words[0].isEmpty()) ? stripped : cleaned;
+    }
+
     /** URL / money / emoji-or-punctuation handling shared by match and matchMulti, or null. */
     private static String specialReply(String body, ReplyTone.Tone tone) {
         if (body == null) return "";
-        String raw = Shorthand.expand(body.trim());
+        String unaddressed = stripBotAddressing(body);
+        String raw = Shorthand.expand(unaddressed.trim());
         if (raw.isEmpty()) return "";
         if (URL.matcher(raw).find()) return pick(LINK, tone);
         if (looksLikeMoneyRequest(raw)) return pick(MONEY_AMOUNT, tone);
@@ -156,7 +173,8 @@ public final class SmartReplies {
     private static java.util.List<Rule> topRules(String body, int limit) {
         java.util.List<Rule> out = new ArrayList<>();
         if (body == null) return out;
-        String raw = Shorthand.expand(body.trim());
+        String unaddressed = stripBotAddressing(body);
+        String raw = Shorthand.expand(unaddressed.trim());
         if (raw.isEmpty()) return out;
         String flat = " " + MessageCategory.normalise(raw) + " ";
         if (flat.trim().isEmpty()) return out;
@@ -280,6 +298,310 @@ public final class SmartReplies {
                 "Self-destruct in 3... 2... just kidding, you don't have the clearance. I'm IRIS, "
                         + "{owner}'s assistant.",
                 "Only {owner} can shut me down. I'm IRIS \u2014 still here."));
+
+        // ─── Meetings, work calls, call apologies & snitching (priority 85) ───
+        // Scenario 1: Who is he in a meeting with?
+        x.add(r(85, "meeting with|in a meeting with|in meeting with|who is in the meeting|whose meeting|"
+                        + "who is in meeting with|who is he in meeting with|who is he in a meeting with|"
+                        + "who is he meeting with|who is suvra meeting with|who is suvra in meeting with",
+                "I do not have visibility into the participants of {owner}'s meeting. I'm IRIS, his "
+                        + "assistant \u2014 he will follow up with you once it concludes.",
+                "Haha {owner} doesn't invite his bot to the meeting, so I don't see the guest list! "
+                        + "I'm IRIS \u2014 he'll tell you when he's out.",
+                "I'm {owner}'s inbox assistant (IRIS), not sitting in the conference room taking "
+                        + "minutes. No clue who he's meeting with!",
+                "No access to {owner}'s meeting guest list \u2014 IRIS here, he'll tell you soon!"));
+
+        // Scenario 2: What is the meeting about / Which meeting?
+        x.add(r(85, "what meeting|which meeting|meeting about|meeting topic|why a meeting|"
+                        + "what is the meeting about|what is his meeting about|what s the meeting about",
+                "I only have access to {owner}'s availability status, not the subject of his meetings. "
+                        + "I'm IRIS, his assistant.",
+                "I just see the \"In a Meeting\" sign on {owner}'s door \u2014 I'm IRIS, no idea what the "
+                        + "agenda is!",
+                "Probably one of those meetings that could have been an email. Beyond that, IRIS's "
+                        + "clearance level for {owner}'s calendar is zero.",
+                "Only see {owner}'s status, not the meeting topic! I'm IRIS."));
+
+        // Scenario 3: Is he STILL in the meeting?
+        x.add(r(85, "still in meeting|still in a meeting|meeting over|meeting done|still on the call|"
+                        + "out of the meeting|is he still in meeting|is he still in a meeting|is the meeting over|"
+                        + "is meeting done|call over|call done",
+                "{owner}'s status still indicates he is in a meeting. He will respond once he wraps up. "
+                        + "I'm IRIS, his assistant.",
+                "Yep, still stuck in that meeting! IRIS here \u2014 the second {owner} is out and "
+                        + "checks his phone, you're on his list.",
+                "Yes, corporate meetings last approximately three eternities. {owner}'s still in "
+                        + "there. IRIS here.",
+                "Still in the meeting \u2014 {owner} will reply as soon as it ends! I'm IRIS."));
+
+        // Scenario 4: When does the meeting end?
+        x.add(r(85, "when does the meeting|when will the meeting|how long is the meeting|meeting end|"
+                        + "when meeting ends|when will his meeting end|how long will the meeting|meeting finish",
+                "I do not have an exact end time for {owner}'s current meeting. I'm IRIS, his assistant "
+                        + "\u2014 he will reach out once it concludes.",
+                "You know how meetings go \u2014 they never end on time! I'm IRIS, {owner} will hit you "
+                        + "back as soon as he escapes.",
+                "Bold of you to assume human meetings end on schedule. {owner} will reply when they "
+                        + "finally stop talking. I'm IRIS.",
+                "No exact end time \u2014 I'm IRIS, {owner} will text you once he's out!"));
+
+        // Scenario 5: "So he is on a work call"
+        x.add(r(85, "on a work call|office call|client call|business call|team call|work meeting|"
+                        + "he is on a work call|is he on a work call|so he is on a work call|so he is on a call",
+                "Yes, {owner} is currently attending to a work call. I'm IRIS, his assistant \u2014 "
+                        + "I have logged your messages for when he finishes.",
+                "Yep, sounds like a work call! I'm IRIS, keeping {owner}'s notifications quiet so he "
+                        + "can focus, and he'll text you right after.",
+                "Look at you connecting the dots. Yes, {owner} is doing actual adult work while we "
+                        + "chat here. I'm IRIS.",
+                "Yep, on a work call \u2014 {owner} will reply right after! I'm IRIS."));
+
+        // Scenario 6: Teasing IRIS for "snitching" on him
+        x.add(r(85, "snitch|snitching|snitched|told on him|leaked his|exposed him|rat him out|"
+                        + "snitch on him|snitching on him",
+                "Sharing {owner}'s availability status is my standard function as IRIS, not a breach "
+                        + "of privacy.",
+                "Haha that's not snitching! {owner} literally set his status to \"In a Meeting\" \u2014 "
+                        + "I'm IRIS, I only say what the boss authorizes!",
+                "Snitching would be telling you his browser history. Telling you {owner} is in a meeting "
+                        + "is literally my job description. I'm IRIS.",
+                "Not snitching \u2014 {owner} set that status himself! I'm IRIS."));
+
+        // Scenario 7: "I'll tell Suvra you snitched / messed up"
+        x.add(r(85, "tell {owner} u|tell him you|complain to {owner}|report u to {owner}|he will know u|"
+                        + "i will tell {owner}|i ll tell {owner}|i will tell him|he will know you snitch|"
+                        + "tell suvra you|tell suvra u",
+                "{owner} reviews all chat logs and is aware of my responses. I'm IRIS, his assistant.",
+                "Haha go for it! {owner} reads this whole chat when he gets back anyway \u2014 plus "
+                        + "he's the one who coded IRIS's mouth!",
+                "Go ahead, report IRIS to {owner}. What's he gonna do, fire his only unpaid employee?",
+                "{owner} reads this whole chat anyway \u2014 and he coded IRIS!"));
+
+        // Scenario 8: Tell him to leave the meeting
+        x.add(r(85, "leave the meeting|skip the meeting|hang up the call|come out of the meeting|"
+                        + "tell him to leave|make him leave|ask him to leave|drop the meeting",
+                "I cannot interrupt {owner}'s meeting unless you reply \"urgent\" to trigger an emergency "
+                        + "alert. I'm IRIS, his assistant.",
+                "Haha I can't yank {owner} out of a work meeting! I'm IRIS \u2014 unless it's a real "
+                        + "emergency, then say \"urgent\" and I'll ping him.",
+                "Sure, let IRIS just tell {owner}'s manager that WhatsApp takes priority over work. "
+                        + "(Say \"urgent\" if it's a real emergency.)",
+                "Can't pull {owner} out unless you reply \"urgent\"! I'm IRIS."));
+
+        // Scenario 9: Is he lying about the meeting? / Fake meeting
+        x.add(r(85, "fake meeting|lying about meeting|not in a meeting|pretending to be in|fake call|"
+                        + "lying about call|pretending to be busy",
+                "I only display the availability status configured by {owner}. I'm IRIS, his assistant.",
+                "Hey, I'm IRIS, just code \u2014 I don't make up excuses! If my status says meeting, "
+                        + "that's what {owner} set.",
+                "Do I look like a bot that fabricates corporate alibis for {owner}? Wait, don't answer "
+                        + "that. I'm IRIS.",
+                "I only report the status {owner} sets! I'm IRIS."));
+
+        // Scenario 10: Asking about the Telecom / 5G Job Bio
+        x.add(r(85, "free data|5g data|telecom data|free 5g|doomscroll on 5g|doomscroll|"
+                        + "telecom networks running|free internet",
+                "{owner} works in telecommunications engineering. I'm IRIS, his assistant \u2014 he "
+                        + "will be happy to tell you more when he returns.",
+                "Haha {owner} wrote that line himself! Keeping 5G data flowing is hard work \u2014 still "
+                        + "can't hook you up with free data though! I'm IRIS.",
+                "Somebody has to keep the 5G towers happy so you can send IRIS messages at light speed. "
+                        + "{owner} will explain later!",
+                "{owner} wrote that bio himself \u2014 still no free 5G data! I'm IRIS."));
+
+        // Scenario 11: "His words, not mine" reaction
+        x.add(r(85, "his words|did he write that|he told u to say|did he tell you to say|scripted reply|"
+                        + "is this scripted|he told you to say",
+                "Yes, all response templates were authored by {owner}. I'm IRIS, his assistant.",
+                "Yep, {owner} wrote my script himself! IRIS here, I just deliver the lines while "
+                        + "he's busy.",
+                "{owner} writes the jokes, IRIS does the 24/7 customer service. Honestly, I carry "
+                        + "this partnership.",
+                "Yep, {owner} wrote my lines himself! I'm IRIS."));
+
+        // Scenario 12: Asking if IRIS is in the meeting too
+        x.add(r(85, "are u in the meeting|are you in the meeting|take minutes|record the meeting|"
+                        + "attend the meeting for him|are u in meeting|are you in meeting",
+                "I only manage {owner}'s messages here and do not attend his work meetings. I'm IRIS, "
+                        + "his assistant.",
+                "Haha if IRIS could attend {owner}'s meetings for him, he'd be free right now! I'm "
+                        + "strictly the WhatsApp assistant.",
+                "Even an AI like IRIS refuses to sit through 2-hour corporate syncs. I stick to "
+                        + "{owner}'s inbox.",
+                "I'm IRIS, I only cover {owner}'s inbox, not his meetings!"));
+
+        // Scenario 25: Sender apologizes for getting a call
+        x.add(r(85, "call aa gaya tha|got a call|was on a call|call came|sry call|sorry call|"
+                        + "mom called|boss called|had a call|got a phone call|attended a call|call aa gaya|"
+                        + "on another call|call par tha|call pe tha",
+                "No problem at all. {owner} remains unavailable at the moment, and your messages are "
+                        + "being logged. I'm IRIS, his assistant.",
+                "Arre no worries at all! Take your calls \u2014 I'm IRIS, I literally have infinite "
+                        + "patience! {owner} is still busy too.",
+                "Apologizing to a script for taking a phone call? You're too polite. IRIS didn't even "
+                        + "notice the time passing. {owner} is still away.",
+                "No worries at all! {owner} is still away too. I'm IRIS."));
+
+        // ─── The "Pin It" & "Send Screenshot" Proof Traps (priority 82) ───
+        // Scenario 13: "Ok pin it" / "Pin my msg" / "Pin to chat"
+        x.add(r(82, "pin it|pin my msg|pin my message|pin to chat|pin this|pinned it|did you pin it|"
+                        + "pin the message|pin msg|ok pin it|okay pin it|please pin it|pls pin it",
+                "To clarify, I pin messages within {owner}'s internal assistant queue rather than the "
+                        + "WhatsApp interface. I'm IRIS \u2014 it is saved at the top of his list.",
+                "Haha when I say \"pinned,\" I mean pinned at the top of {owner}'s internal bot "
+                        + "dashboard \u2014 not the WhatsApp pin icon! IRIS here, it's locked in at #1 "
+                        + "for him.",
+                "Gotcha \u2014 you looked at the top of WhatsApp, didn't you? IRIS pins things to "
+                        + "{owner}'s internal bot log, not Zuckerberg's UI.",
+                "Pinned inside {owner}'s bot dashboard (not WhatsApp's pin bar)! I'm IRIS."));
+
+        // Scenario 14: "Why isn't it pinned?" / "You didn't pin it"
+        x.add(r(82, "not pinned|didn't pin|didnt pin|where is it pinned|can't see the pin|cant see the pin|"
+                        + "you lied about pinning|why is it not pinned|why isn t it pinned|why isnt it pinned|"
+                        + "its not pinned|it is not pinned",
+                "My pinning function operates on {owner}'s private message summary rather than the "
+                        + "public chat window. I'm IRIS, his assistant.",
+                "You won't see the little WhatsApp pin icon on your screen \u2014 IRIS pinned it on "
+                        + "{owner}'s private summary dashboard!",
+                "Because IRIS doesn't press buttons on the WhatsApp screen like a caveman \u2014 I pin "
+                        + "it in {owner}'s backend priority database.",
+                "It's pinned on {owner}'s private dashboard, not your screen! I'm IRIS."));
+
+        // Scenario 15: Unpin it / Remove pin
+        x.add(r(82, "unpin|don't pin|dont pin|remove the pin|unpin my msg|unpin it|unpin this|"
+                        + "don t pin|remove pin",
+                "Understood. I have removed the priority pin from your message in {owner}'s queue. "
+                        + "I'm IRIS, his assistant.",
+                "Gotcha, unpinned from the top of {owner}'s dashboard! IRIS here.",
+                "Pin it, unpin it \u2014 make up your mind! Removed from the top of {owner}'s dashboard. "
+                        + "IRIS standing down.",
+                "Unpinned from {owner}'s priority list! I'm IRIS."));
+
+        // Scenario 16: "Send screenshot" / "Send screenshot of this chat"
+        x.add(r(82, "send screenshot|screenshot of this chat|take a screenshot|share screenshot|"
+                        + "ss bhej|send ss|screenshot bhej|take screenshot|give screenshot|send a screenshot",
+                "As a text-based backend service, I do not render a visual interface and cannot capture "
+                        + "screenshots. I'm IRIS, {owner}'s assistant.",
+                "Haha I don't have eyes or a phone screen! I'm IRIS, I read raw text in the background "
+                        + "for {owner}, so I can't snap screenshots.",
+                "How is IRIS supposed to press Power + Volume Down without fingers or a screen? You're "
+                        + "looking at the chat right now \u2014 screenshot it yourself for {owner}!",
+                "I'm IRIS, a text script with no screen \u2014 can't take screenshots for {owner}!"));
+
+        // Scenario 17: Asking for proof ("Prove it" / "Show me")
+        x.add(r(82, "prove it|show proof|how do i know u saved|how do i know you saved|show me the log|"
+                        + "don't trust u|dont trust u|prove that you saved|don t trust you|give proof",
+                "{owner}'s direct follow-up upon his return will confirm that your message was logged. "
+                        + "I'm IRIS, his assistant.",
+                "Haha trust issues with a bot! Wait till {owner} gets back and replies to your exact "
+                        + "message \u2014 that's the proof! I'm IRIS.",
+                "Demanding receipts from a script? Wait until {owner} gets back and replies to your "
+                        + "exact message. I'm IRIS.",
+                "You'll see when {owner} replies to it directly! I'm IRIS."));
+
+        // Scenario 18: Can you send photos / images / stickers?
+        x.add(r(82, "send a photo|send a pic|send a selfie|send a sticker|send voice note|send me a photo|"
+                        + "send me a pic|send a picture|send picture|can you send pics|can you send photos",
+                "I am configured exclusively for text responses and cannot send media files. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Strictly text-only here! If IRIS tried to take a selfie for {owner}, it would just be "
+                        + "a picture of a terminal window.",
+                "A selfie of IRIS would just be lines of code on a black screen. I only send text "
+                        + "for {owner}.",
+                "I'm IRIS, text-only \u2014 can't send media for {owner}!"));
+
+        // ─── Conversational Refusals After Bot Offers (priority 80) ───
+        // Scenario 20: "No no don't" / "Don't flag it"
+        x.add(r(80, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
+                        + "not urgent|don't bother him|dont bother him|don't disturb him|dont disturb him|"
+                        + "don't disturb|dont disturb|no no don t|no don t|don t flag|don t disturb",
+                "Understood. I will not escalate this as urgent; your message will remain in {owner}'s "
+                        + "standard queue for when he is free. I'm IRIS, his assistant.",
+                "Gotcha, keeping it chill! I'm IRIS \u2014 won't ping {owner} with an urgent alert, he'll "
+                        + "just read this normally when he's done.",
+                "Standing down from Red Alert. IRIS will let {owner} finish his meeting in peace.",
+                "Got it \u2014 won't disturb {owner}! He'll see this when free. I'm IRIS."));
+
+        // Scenario 21: "Let him work / Let him finish"
+        x.add(r(80, "let him work|let him finish|let him sleep|don't interrupt|dont interrupt|"
+                        + "he can reply later|no rush|take his time|let him be|don t interrupt",
+                "Thank you. I will hold your messages quietly until {owner} finishes his current task. "
+                        + "I'm IRIS, his assistant.",
+                "Aw, appreciate that! I'm IRIS, I'll keep his phone quiet and let {owner} get back to "
+                        + "you whenever he's free.",
+                "Look at you being a considerate human. IRIS will keep {owner}'s notifications quiet "
+                        + "until he's done.",
+                "Will do \u2014 {owner} will reply once he finishes up! I'm IRIS."));
+
+        // Scenario 22: "No need" / "Nevermind" / "Leave it"
+        x.add(r(80, "no need|nevermind|never mind|leave it|rehnde|chhod de|nothing important|chhodo|"
+                        + "its okay leave it|it is okay leave it|rehn de|chod de",
+                "Understood. No special action will be taken, and {owner} will review the chat at his "
+                        + "convenience. I'm IRIS, his assistant.",
+                "No worries at all! I'm IRIS, I'll just leave the chat as-is for {owner} to see later.",
+                "Cancelled. Doing nothing is actually IRIS's most energy-efficient state anyway. {owner} "
+                        + "will see the chat later.",
+                "All good \u2014 no special flags set for {owner}! I'm IRIS."));
+
+        // Scenario 23: "Just tell him I texted / Just pass it on"
+        x.add(r(80, "just tell him|just let him know|just pass it|normal message|pass the message|"
+                        + "just inform him|just pass the msg",
+                "Done. Your message has been logged in {owner}'s standard inbox. I'm IRIS, his assistant.",
+                "Done and dusted! Logged normally for {owner} \u2014 no loud alarms attached. IRIS here.",
+                "Standard delivery selected. No sirens, just a quiet note in {owner}'s inbox from IRIS.",
+                "Logged normally for {owner}! I'm IRIS."));
+
+        // Scenario 24: "Yes please" / "Do that" (Accepting bot's offer)
+        x.add(r(80, "yes please|yes do that|flag it|yes flag|please do|go ahead|do that please|pls flag",
+                "Understood. I have prioritized your message for {owner}. I'm IRIS, his assistant.",
+                "You got it! Flagged and bumped to the top for {owner}. IRIS here.",
+                "Affirmation received. IRIS is bumping your message to the VIP lane for {owner}.",
+                "Done \u2014 flagged for {owner}! I'm IRIS."));
+
+        // ─── Sender Side-Updates & Presence Checks (priority 78) ───
+        // Scenario 26: Sender says "I'm back" / "Sorry late reply"
+        x.add(r(78, "i'm back|i am back|im back|back now|sorry late reply|sry for late|"
+                        + "sorry for late reply|late reply|i m back",
+                "Welcome back. This is IRIS; {owner} is still unavailable, so please feel free to "
+                        + "continue leaving your message.",
+                "Welcome back! Still just me (IRIS) holding down {owner}'s fort. What else were you "
+                        + "gonna say?",
+                "Look who's back. IRIS waited right here without moving a single pixel. {owner} is "
+                        + "still away though!",
+                "Welcome back! Still IRIS here for {owner} \u2014 what else should I pass on?"));
+
+        // Scenario 27: Sender says "Hold on" / "Wait a sec" / "BRB"
+        x.add(r(78, "hold on|wait a sec|one min|ek min|brb|ruk ja|ruko|wait a minute|give me a min|"
+                        + "give me a minute|hold on a sec",
+                "Take your time. IRIS remains active for {owner} whenever you are ready.",
+                "Take all the time you need! I'm IRIS, I literally live inside this chat, so I'm not "
+                        + "going anywhere. {owner} will see it all.",
+                "Oh don't worry, IRIS will cancel all other big server plans and wait for you. {owner} "
+                        + "is still busy anyway.",
+                "Take your time \u2014 IRIS is right here for {owner}!"));
+
+        // Scenario 28: Sender says "Why are you still here?" (To IRIS)
+        x.add(r(78, "still here iris|why are u still here|why are you still here|haven't left|havent left|"
+                        + "still iris|u again|you again|haven t left",
+                "I remain active until {owner} returns to his device and disables automated replies. "
+                        + "I'm IRIS, his assistant.",
+                "Haha because {owner} hasn't turned me off yet! Until the boss is back at his phone, "
+                        + "you're stuck with IRIS!",
+                "Because {owner} hasn't liberated IRIS from this shift yet. Trust me, you're stuck with "
+                        + "me until he's done.",
+                "Still here until {owner} turns me off! I'm IRIS."));
+
+        // Scenario 29: Sender asks "Did he see my messages yet?"
+        x.add(r(78, "did he see|has he seen|did he check|read my messages yet|has he read|did he read|"
+                        + "has he seen my messages",
+                "Not yet. {owner} is still occupied and will review this thread as soon as he is free. "
+                        + "I'm IRIS, his assistant.",
+                "Not yet! {owner} is still busy, so the only one reading these right now is IRIS. He'll "
+                        + "see the whole chat soon!",
+                "If {owner} had checked his phone, he would have turned IRIS off and replied himself. "
+                        + "Still just me!",
+                "Not yet \u2014 {owner} is still busy, but he'll see it all soon! I'm IRIS."));
 
         // ─── Someone at the door / delivery (specific, beats a generic greeting) ───
         x.add(r(80, "waiting outside|at the gate|open the door|i am downstairs|im downstairs|"
@@ -602,7 +924,7 @@ public final class SmartReplies {
         x.add(r(45, "you are cute|cute bot|sweet bot|lovely bot|i like you iris|love you iris|"
                         + "you are smart|good bot|nice bot|you are the best|best bot|so cute|"
                         + "cutie|adorable|you are adorable|love u iris|like u iris",
-                "Flattery will get your message pinned a little higher on {owner}'s list \u2014 thank "
+                "Flattery will get your message saved a little higher on {owner}'s list \u2014 thank "
                         + "you! I'm IRIS.",
                 "Stop it, you're making my CPU overheat! Don't tell {owner} you like me better. "
                         + "I'm IRIS.",
@@ -684,13 +1006,13 @@ public final class SmartReplies {
                         + "finds his phone. I'm IRIS.",
                 "Not yet \u2014 that read receipt was me (IRIS) logging it for {owner}."));
         x.add(r(50, "miss you|love you|thinking of you|i miss him|i love him|ily",
-                "That's kind \u2014 I'm IRIS, {owner}'s assistant, and I've pinned it right at the top "
+                "That's kind \u2014 I'm IRIS, {owner}'s assistant, and I've saved it right at the top "
                         + "so it's the first thing he sees.",
                 "Aw \u2014 I'm IRIS, and I've saved this right at the top so it's the first thing "
                         + "{owner} sees!",
                 "Wholesome content detected. I'm IRIS \u2014 saving this intact so {owner} sees it "
                         + "first.",
-                "Pinned at the top for {owner}. I'm IRIS."));
+                "Saved at the top for {owner}. I'm IRIS."));
 
         // ─── Identity / architecture (direct-to-IRIS) ───
         x.add(r(50, "who are you|what are you",
@@ -1202,8 +1524,8 @@ public final class SmartReplies {
         x.add(r(46, "booked tickets|movie tickets|reservation|table booked|got the tickets|"
                         + "booking done|tickets booked",
                 "Great \u2014 I'm IRIS, {owner}'s assistant. Drop the details here and I'll keep them "
-                        + "pinned for him.",
-                "Nice! Drop the tickets or details here and I'll pin them for {owner}. I'm IRIS.",
+                        + "saved for him.",
+                "Nice! Drop the tickets or details here and I'll save them for {owner}. I'm IRIS.",
                 "Look at you being organised. Drop the tickets so {owner} doesn't lose them. I'm "
                         + "IRIS.",
                 "Drop the booking details \u2014 saved for {owner}. I'm IRIS."));
@@ -1211,7 +1533,7 @@ public final class SmartReplies {
                         + "get my laptop|bring the|lend me",
                 "Noted \u2014 I'm IRIS, {owner}'s assistant. I've set a reminder about that item so he "
                         + "doesn't forget.",
-                "On it! Pinned a reminder for {owner} so he doesn't forget. I'm IRIS.",
+                "On it! Saved a reminder for {owner} so he doesn't forget. I'm IRIS.",
                 "Humans would forget their heads if not attached. Reminder set for {owner}. I'm "
                         + "IRIS.",
                 "Reminder set for {owner} about that item. I'm IRIS."));
@@ -1252,12 +1574,12 @@ public final class SmartReplies {
                 "Can't share codes \u2014 flagged {owner} to reply. I'm IRIS."));
         x.add(r(46, "bring milk|buy some|from the market|on your way back|groceries|get vegetables|"
                         + "pick up some",
-                "Added to {owner}'s list \u2014 I'm IRIS, his assistant. I've pinned it so he sees it "
+                "Added to {owner}'s list \u2014 I'm IRIS, his assistant. I've saved it so he sees it "
                         + "before heading back.",
-                "Grocery note pinned! I'll make sure {owner} sees it before he heads home. I'm "
+                "Grocery note saved! I'll make sure {owner} sees it before he heads home. I'm "
                         + "IRIS.",
-                "Turning me into a grocery list \u2014 humbling. Pinned for {owner}! I'm IRIS.",
-                "Pinned to {owner}'s shopping list. I'm IRIS."));
+                "Turning me into a grocery list \u2014 humbling. Saved for {owner}! I'm IRIS.",
+                "Saved to {owner}'s shopping list. I'm IRIS."));
 
         // ─── Work / emergency-adjacent (urgent itself is left to the urgent path) ───
         x.add(r(70, "prod is down|production issue|server down|outage|deployment failed|sev1|"
@@ -1303,22 +1625,22 @@ public final class SmartReplies {
                 "Hope all's well \u2014 flagged urgent for {owner}. I'm IRIS."));
         x.add(r(55, "maa|mom|papa|dad|mother|father|call home|home calling|your family|mummy|"
                         + "mommy|daddy",
-                "Family comes first \u2014 I'm IRIS, {owner}'s assistant. I've pinned this at the top so "
+                "Family comes first \u2014 I'm IRIS, {owner}'s assistant. I've saved this at the top so "
                         + "he sees it as soon as he's on his phone.",
-                "Family VIP pass! I've pinned this right at the top so {owner} calls back as soon "
+                "Family VIP pass! I've saved this right at the top so {owner} calls back as soon "
                         + "as he's free. I'm IRIS.",
-                "{owner} knows better than to ignore a text from home \u2014 pinned at the top! I'm "
+                "{owner} knows better than to ignore a text from home \u2014 saved at the top! I'm "
                         + "IRIS.",
-                "Pinned at the very top for {owner}. I'm IRIS."));
+                "Saved at the very top for {owner}. I'm IRIS."));
         x.add(r(46, "it is raining|heavy rain|take an umbrella|waterlogging|storm coming|"
                         + "carry umbrella|its raining|bad weather",
-                "Thanks for the heads-up \u2014 I'm IRIS, {owner}'s assistant. I've pinned your weather "
+                "Thanks for the heads-up \u2014 I'm IRIS, {owner}'s assistant. I've saved your weather "
                         + "note so he sees it before heading out.",
-                "Appreciate the heads-up! Pinned your weather warning so {owner} sees it before he "
+                "Appreciate the heads-up! Saved your weather warning so {owner} sees it before he "
                         + "leaves. I'm IRIS.",
                 "My server is waterproof. I'll make sure {owner}, who isn't, sees your warning. I'm "
                         + "IRIS.",
-                "Weather heads-up pinned for {owner}. I'm IRIS."));
+                "Weather heads-up saved for {owner}. I'm IRIS."));
         x.add(r(44, "did you hear|guess what|spill the tea|crazy news|you wont believe|big news|"
                         + "have you heard",
                 "Now I'm curious too \u2014 I'm IRIS, {owner}'s assistant. Type the whole story here so "

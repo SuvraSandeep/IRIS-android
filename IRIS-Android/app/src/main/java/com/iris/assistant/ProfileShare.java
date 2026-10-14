@@ -68,7 +68,12 @@ public final class ProfileShare {
                 "what do you work as", "what is his role", "what is your role",
                 "what work does he do", "what work do you do", "what does he do for a living",
                 "what do you do for a living")) return "role";
-        if (any(f, "tell me about him", "about him", "who is he")) return "about";
+        if (any(f, "tell me about him", "about him", "who is he")) {
+            if (any(f, "meeting", "call", "with", "dating", "doing", "talking", "working", "going", "seeing")) {
+                return "";
+            }
+            return "about";
+        }
         return "";
     }
 

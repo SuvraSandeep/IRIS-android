@@ -304,16 +304,16 @@ public final class AutoResponder {
                     reply = ReplyTemplates.fill(nameReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
-                } else if (profileMatched) {
-                    reply = ReplyTemplates.fill(profileReply, resolvedSender,
+                } else if (smartMatched) {
+                    reply = ReplyTemplates.fill(smartReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
                 } else if (vernMatched) {
                     reply = ReplyTemplates.fill(vernReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
-                } else if (smartMatched) {
-                    reply = ReplyTemplates.fill(smartReply, resolvedSender,
+                } else if (profileMatched) {
+                    reply = ReplyTemplates.fill(profileReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
                 } else {
