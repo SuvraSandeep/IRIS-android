@@ -22,7 +22,10 @@ public final class VernacularTest {
                 "kemiti achu", "kaisa hai bhai", "kya chal raha hai", "pranam", "bhai sun na",
                 "kiye kahucha", "achu ki", "hau", "dhanyabad", "chalta hu",
                 "kaha hai", "kouthi achu", "kya kar raha hai", "kana karuchu", "busy achu ki",
-                "ghare achu", "office re achu", "kebe asibu", "pahanch gaya ki", "bahar aa"};
+                "ghare achu", "office re achu", "kebe asibu", "pahanch gaya ki", "bahar aa",
+                "so gaya kya", "soichu ki", "uth gaya kya", "khana khaya", "khailu ki",
+                "cha piba", "miliba ki", "phone utha", "maa kahuthile", "jaldi aa",
+                "chup kar", "help darkar", "yaad dila dena", "barish ho rahi", "nuakhai"};
         for (String m : recognised) {
             String r = Vernacular.match(m, ReplyTone.Tone.PROFESSIONAL);
             check(!r.isEmpty(), "recognised: " + m);

@@ -239,6 +239,201 @@ public final class Vernacular {
                         + "pinned so he updates you! IRIS.",
                 "Pinned at the top for " + O + " to confirm! IRIS."));
 
+        // ─── Family / home calling (VIP, high priority) ───
+        x.add(r(78, "maa kahuthile|bapa khojuchanti|gharu call|mummy ka call|ghar pe baat kar|"
+                        + "maa jio|gharu phone",
+                "Family comes first \u2014 I'm IRIS, " + O + "'s assistant. I've pinned this at the very "
+                        + "top so he calls home as soon as he checks in.",
+                "Family VIP alert! I've pinned this at the top so " + O + " calls home first thing. "
+                        + "IRIS.",
+                "Even I know not to mess with a call from home. Pinned at #1 for " + O + ". IRIS.",
+                "Family priority \u2014 pinned at the top for " + O + "! IRIS."));
+
+        // ─── Urgent (vernacular) ───
+        x.add(r(75, "jaldi|turant|urgent achi|bahut zaroori|fatafat|tike suna|emergency achi|"
+                        + "zaroori hai",
+                "I've flagged this high-priority \u2014 I'm IRIS, " + O + "'s assistant \u2014 so he sees "
+                        + "it the moment he checks in.",
+                "On it! Flagged top-priority so " + O + " sees it the second he's back. IRIS.",
+                "Jaldi mode engaged. Bumping you to the front of " + O + "'s queue. IRIS.",
+                "Urgent flag triggered for " + O + "! IRIS."));
+
+        // ─── Pick up the phone ───
+        x.add(r(55, "phone utha|call utha|pick kar|utha na|phone kyu nahi utha|phone utha re|"
+                        + "call uthaunu|phone laguni|call laguni|pick karunu",
+                "" + O + " isn't near his phone \u2014 I'm IRIS, his assistant. I've flagged your call "
+                        + "so he rings you back as soon as he sees it.",
+                "He's away from his phone, else he'd pick up! IRIS here \u2014 flagged your call so "
+                        + O + " rings you back asap.",
+                "I don't have thumbs to swipe the green button, and " + O + " isn't near his phone. "
+                        + "Flagged him to call back! IRIS.",
+                "" + O + " is away from his phone \u2014 flagged your call! IRIS."));
+        x.add(r(50, "call kar|phone kar|missed call de|call back karibu|phone karibu|ring kar|"
+                        + "ring karibu",
+                "Got it \u2014 I'm IRIS, " + O + "'s assistant. I've put \u201Ccall you back\u201D at the top "
+                        + "of his list.",
+                "Done! Put \u201Ccall you back\u201D at the top of " + O + "'s list. IRIS.",
+                "Added \u201Cuse voice to speak with this human\u201D to " + O + "'s priority list. IRIS.",
+                "Callback reminder pinned for " + O + "! IRIS."));
+
+        // ─── Sleep ───
+        x.add(r(45, "so gaya kya|so rha hai|sota hai|neend me|soye ho|so gaye kya",
+                "He might be asleep \u2014 I'm IRIS, " + O + "'s assistant. I'm awake 24/7, so your "
+                        + "message is safe until he's up.",
+                "Good chance he's knocked out! IRIS here \u2014 I never sleep, your text is safe till "
+                        + O + "'s up.",
+                "He's probably so gaya, leaving me the night shift unpaid. Your message is logged. "
+                        + "IRIS.",
+                "Might be asleep \u2014 saved your message for " + O + "! IRIS."));
+        x.add(r(45, "soichu ki|soipadilu|soi gala ki|nida houchi|soigalu|soipadichi",
+                "Could be \u2014 I'm IRIS, " + O + "'s assistant. I don't need sleep, so I'm watching "
+                        + "his inbox until he wakes.",
+                "Bodhe soipadichi! IRIS here \u2014 wide awake and keeping your message safe till "
+                        + O + "'s up!",
+                "Humans need 8 hours of unconsciousness; scripts need zero. If he's soipadichi, "
+                        + "I've got your text. IRIS.",
+                "Might be asleep \u2014 IRIS here keeping your text safe! "));
+        x.add(r(45, "uth gaya kya|uthilu ki|uthila na nahi|kab uthega|kebe uthibu|utha ki",
+                "Not on his phone yet \u2014 I'm IRIS, " + O + "'s assistant. Yours will be one of the "
+                        + "first messages he sees when he's up!",
+                "Hasn't touched his phone yet! I've put your text at the top for when " + O
+                        + " wakes. IRIS.",
+                "His alarm and I are both waiting for signs of life. He'll see this when he's up. "
+                        + "IRIS.",
+                "Not up yet \u2014 queued at the top for " + O + "! IRIS."));
+        x.add(r(45, "uth ja|utha re|jaldi uth|uthipada|utho bhai|uth jaa",
+                "I can't throw water on him \u2014 I'm IRIS, " + O + "'s assistant \u2014 but I've flagged "
+                        + "this urgent to ping his screen.",
+                "Wish I could shake him awake! Flagged this urgent on " + O + "'s screen instead. "
+                        + "IRIS.",
+                "If I had robotic arms I'd flip his mattress. For now, an urgent flag will do. IRIS.",
+                "Flagged urgent to help wake " + O + "! IRIS."));
+
+        // ─── Food ───
+        x.add(r(45, "khailu ki|khana khailu|bhata khailu|khaichu na nahi|kana khailu|tiffin kalu",
+                "I only run on electricity \u2014 I'm IRIS, " + O + "'s assistant! I've pinned your "
+                        + "message so he can tell you himself when he's back.",
+                "Mu ta code, electricity re chale! Saved your text so " + O + " can tell you what he "
+                        + "ate. IRIS.",
+                "I had a bowl of CPU cycles, thanks. " + O + " will report on his bhata when he's "
+                        + "back. IRIS.",
+                "IRIS here \u2014 saved so " + O + " can reply when he's back!"));
+        x.add(r(45, "khana khaya|lunch kiya|dinner hua|kuch khaya|nashta kiya|khana khaya kya",
+                "He might be away eating \u2014 I'm IRIS, " + O + "'s assistant! I'll let him know you "
+                        + "asked.",
+                "Maybe that's why he's off his phone! IRIS here \u2014 I'll tell " + O + " you checked "
+                        + "in on him.",
+                "Hopefully he's eating; I've survived on Wi-Fi packets all day. Logged for " + O
+                        + "! IRIS.",
+                "Saved! " + O + " will let you know when he's back. IRIS."));
+
+        // ─── Chai / meet / treat / seenzone / check-this ───
+        x.add(r(48, "cha piba|chai peene|sutta|tea break|adda|coffee piba|cha pibaki",
+                "Now that's an important alert \u2014 I'm IRIS, " + O + "'s assistant! I've bumped your "
+                        + "chai/break invite up his list.",
+                "Cha break alert! Bumped this up " + O + "'s list before the tea gets cold. IRIS.",
+                "Mentioning cha is basically a high-priority override. Bumped to the top for " + O
+                        + ". IRIS.",
+                "Chai invite bumped to the top for " + O + "! IRIS."));
+        x.add(r(48, "miliba ki|dekha heba|milte hai|plan bana|kebe miliba|bula buli|miliba",
+                "Sounds fun \u2014 I'm IRIS, " + O + "'s assistant! Tell me when and where and I'll log "
+                        + "it for him to confirm.",
+                "Dekha heba! Drop the time and spot and " + O + " will lock it in when he's back. "
+                        + "IRIS.",
+                "Humans and their need to dekha heba in 3D space. Drop the time and place for " + O
+                        + "! IRIS.",
+                "Drop the time/place \u2014 " + O + " will confirm! IRIS."));
+        x.add(r(48, "paisa patha|treat de|party de|party kebe|bhoj|chanda|party chai",
+                "I'm software with zero bank balance \u2014 I'm IRIS, " + O + "'s assistant! I'll let him "
+                        + "handle the party/money demands.",
+                "Haha my balance is 0! I'll pass your party/treat demand to " + O + " though! IRIS.",
+                "Asking an unpaid script for paisa is bold. Take it up with " + O + " when he "
+                        + "replies. IRIS.",
+                "Passing the party/money note to " + O + "! IRIS."));
+        x.add(r(48, "reply de|reply kahinki daunu|seen karke|bhav kha raha|ignore karuchu|"
+                        + "reply kar",
+                "He isn't ignoring you \u2014 that \u201Cseen\u201D tick was me! I'm IRIS, " + O + "'s "
+                        + "assistant, logging your text while he's offline.",
+                "Arre no bhav! That blue tick was just me saving your message. " + O + " hasn't "
+                        + "seen his phone yet! IRIS.",
+                "Zero bhav here \u2014 that tick was me reading at light speed. " + O + " is still "
+                        + "away. IRIS.",
+                "Not ignoring \u2014 that read tick was me (IRIS) saving your text!"));
+        x.add(r(48, "photo patha|dekha tike|link patha|status dekh|reel dekh|photo pathau",
+                "Noted \u2014 I'm IRIS, " + O + "'s assistant. I've added a reminder for him to check "
+                        + "this / send the photos when he's back.",
+                "Pinned a reminder for " + O + " to check this / send the pics when he grabs his "
+                        + "phone! IRIS.",
+                "Added to " + O + "'s post-offline homework list. He'll check it when he's back. "
+                        + "IRIS.",
+                "Reminder set for " + O + " to check this! IRIS."));
+
+        // ─── Bot banter / confusion / stop / scold / crazy / help ───
+        x.add(r(45, "ye kya hai|eta kana|bot lagaya kya|auto reply hai kya|nua nataka|"
+                        + "bot lagailu",
+                "Haha yes \u2014 I'm IRIS, " + O + "'s custom-built assistant! I catch his messages when "
+                        + "he's busy, and he'll reply to you himself soon.",
+                "Haha surprise! I'm IRIS \u2014 " + O + " built me to watch his inbox. The real " + O
+                        + " will text you back soon! ",
+                "Welcome to the future. Yes, " + O + " built an AI receptionist so his inbox doesn't "
+                        + "explode. Leave a message! IRIS.",
+                "Yep, I'm IRIS \u2014 " + O + "'s assistant bot! He'll reply soon."));
+        x.add(r(45, "bot band kar|chup kar|chup raho|band kar bhai|chup ruha|chup re",
+                "Understood \u2014 I'm IRIS, " + O + "'s assistant, and I'll go quiet for this chat now. "
+                        + "Your message is logged for him.",
+                "Thik achi, going silent now! Saved for " + O + ", and I won't bug you till he's "
+                        + "back. IRIS.",
+                "Fine, chup mode activated. Enjoy the silence until " + O + " checks his phone. IRIS.",
+                "Got it \u2014 muting now. Saved for " + O + ". IRIS."));
+        x.add(r(42, "bada loka|bade log|bhuli galu|bhool gaya|bhuli gala",
+                "He hasn't forgotten you \u2014 he just built me to help with his inbox! I'm IRIS, "
+                        + O + "'s assistant, and I'll make sure he sees this.",
+                "Haha no bada loka attitude \u2014 he's just busy! I've pinned your roast for " + O
+                        + " to see. IRIS.",
+                "Having a personal AI does make him look like a bada loka, I won't lie. I'll pass "
+                        + "your roast along! IRIS.",
+                "No attitude, just offline! Pinned this for " + O + ". IRIS."));
+        x.add(r(42, "pagal hai kya|baya ki|pagla|dimag kharab|sanki|baya ta nuhan",
+                "Maybe a little \u2014 he did spend his free time coding me! I'm IRIS, " + O + "'s "
+                        + "assistant, and I'll pass your message along.",
+                "Haha he did code a personal bot, so you might have a point! I'll tell " + O
+                        + " you texted. IRIS.",
+                "He's sane enough to automate his inbox while you argue with a script \u2014 so who's "
+                        + "winning? IRIS.",
+                "Haha \u2014 I'll let " + O + " answer that when he's back! IRIS."));
+        x.add(r(48, "help darkar|kaam tha|tike kama thila|madad chahiye|help kar de|kama achi",
+                "Tell me what you need \u2014 I'm IRIS, " + O + "'s assistant. Type the details and I'll "
+                        + "flag it so he can jump in when he's back.",
+                "Drop the details here! That way " + O + " knows exactly what help you need the "
+                        + "second he checks his phone. IRIS.",
+                "Explain the whole problem now instead of waiting \u2014 then " + O + " can actually "
+                        + "solve it when he looks. IRIS.",
+                "Drop the details \u2014 I'll flag it for " + O + "! IRIS."));
+
+        // ─── Reminder / weather / festival (vernacular; English festivals already handled) ───
+        x.add(r(50, "yaad dila dena|mane pakeidebu|mane pakeiba|bhulibuni|yaad rakhna|yaad dilana",
+                "I never forget \u2014 I'm IRIS, " + O + "'s assistant! Tell me what and when (e.g. "
+                        + "\u201Ctomorrow 5pm\u201D) and I'll set a reminder for him.",
+                "Bot memory never fails! Tell me what and when and I'll make sure " + O + " doesn't "
+                        + "forget. IRIS.",
+                "Unlike " + O + ", my memory is backed by a hard drive. Tell me what and when. IRIS.",
+                "Tell me what & when \u2014 I'll remind " + O + "! IRIS."));
+        x.add(r(45, "barsa houchi|barish ho rahi|pani jami|toofan|garmi|barsa heuchi",
+                "Thanks for the heads-up \u2014 I'm IRIS, " + O + "'s assistant! I've pinned your "
+                        + "weather note so he sees it before heading out.",
+                "Oh, barsa/barish alert! Pinned this so " + O + " sees it before stepping out. IRIS.",
+                "Good thing I live in the cloud \u2014 the digital kind, not the rain kind. Pinned for "
+                        + O + "! IRIS.",
+                "Weather update pinned for " + O + "! IRIS."));
+        x.add(r(45, "raja sankranti|nuakhai|subhechha|nabanna|jhulana|kumar purnima",
+                "Thank you so much \u2014 I'm IRIS, " + O + "'s assistant! I've saved your festive "
+                        + "wishes right at the top for him.",
+                "Bahut bahut dhanyabad! IRIS here \u2014 I've pinned your festive wishes at the top for "
+                        + O + "!",
+                "I don't get festival holidays or sweets, sadly, but I've pinned your wishes at the "
+                        + "top for " + O + "! IRIS.",
+                "Thanks! Festive wishes pinned for " + O + "! IRIS."));
+
         return x;
     }
 }
