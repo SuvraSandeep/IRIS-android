@@ -97,6 +97,14 @@ public final class AutoResponder {
                 ResponderWindow.toneFor(settings.toneWindows(), minuteOfDay),
                 settings.defaultTone());
 
+        // Never answer a distressed or angry message with sarcasm. A lexicon read of the message
+        // softens only the one tone that would be hurtful here; it changes nothing else and never
+        // causes a send. Everything above (category, urgency, quiet hours) is unaffected.
+        if (tone == ReplyTone.Tone.SARCASTIC
+                && SentimentScore.score(incoming.body).shouldSoften()) {
+            tone = ReplyTone.Tone.PROFESSIONAL;
+        }
+
         // ─── Category ───
         MessageCategory.Result category = MessageCategory.classify(
                 incoming.body, settings.mentionKeywords(),

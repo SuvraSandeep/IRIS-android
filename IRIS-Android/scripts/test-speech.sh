@@ -248,6 +248,14 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/LearnedRepliesTest.java
 java -cp "$test_dir/responder" com.iris.assistant.LearnedRepliesTest
 
+# Sentiment / urgency: a lexicon read used only to stop sarcasm toward a distressed message.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/SentimentScore.java \
+  tests/SentimentScoreTest.java
+java -cp "$test_dir/responder" com.iris.assistant.SentimentScoreTest
+
 # Loose phrase matching. Synonyms, stopword drop and typo tolerance behind the smart reply layer.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
