@@ -45,6 +45,7 @@ public final class NotificationTriage {
         Map<String, Integer> apps = new LinkedHashMap<>();     // app -> count (non-person tail)
         int personTotal = 0;
         int total = items.size();
+        String firstMedia = "";                                // label of the first media item
 
         for (Item it : items) {
             if (it == null) continue;
@@ -56,6 +57,10 @@ public final class NotificationTriage {
                 people.merge(it.sender, 1, Integer::sum);
                 personTotal++;
                 if (looksUrgent(it.text)) urgent.add(it.sender);
+                if (firstMedia.isEmpty()) {
+                    String media = MediaType.label(MediaType.fromText(it.text));
+                    if (!media.isEmpty()) firstMedia = media;
+                }
             } else {
                 String app = it.app.isEmpty() ? "another app" : it.app;
                 apps.merge(app, 1, Integer::sum);
@@ -83,6 +88,7 @@ public final class NotificationTriage {
                 sb.append(", most from ").append(top).append(" (").append(topCount).append(")");
             }
             sb.append(". ");
+            if (!firstMedia.isEmpty()) sb.append("One sent ").append(firstMedia).append(". ");
         }
 
         int nonPerson = total - personTotal;

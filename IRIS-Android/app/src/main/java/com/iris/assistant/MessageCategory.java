@@ -230,9 +230,10 @@ public final class MessageCategory {
             "kya kar rahe", "u there");
 
     private static final List<String> MEDIA_PHRASES = Arrays.asList(
-            "sent a photo", "sent a video", "sent a sticker", "sent an audio",
-            "sent a document", "sent a gif", "sent a voice message", "voice message",
-            "photo", "sticker");
+            "sent a photo", "sent a picture", "sent a video", "sent a sticker", "sent an audio",
+            "sent a document", "sent a file", "sent a gif", "sent a voice message",
+            "voice message", "voice note", "photo", "picture", "sticker", "gif",
+            "shared a contact", "sent a contact", "live location", "shared live location");
 
     private static final List<String> WEEKEND_PHRASES = Arrays.asList(
             "happy weekend", "good weekend", "happy friday", "enjoy your weekend",

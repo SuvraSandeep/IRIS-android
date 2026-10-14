@@ -28,12 +28,14 @@ public final class NotificationTriageTest {
         list.add(it("Messages", "Boss", "need this right now, it's an emergency", "com.google.android.apps.messaging"));
         list.add(it("Gmail", "", "Your statement is ready", "com.google.android.gm"));
         list.add(it("Messages", "VM-HDFCBK", "Your OTP is 4455", "com.google.android.apps.messaging"));
+        list.add(it("WhatsApp", "Ana", "sent a voice message", "com.whatsapp"));
         String s = NotificationTriage.summarize(list);
 
-        check(s.startsWith("5 notifications."), "counts all five: " + s);
+        check(s.startsWith("6 notifications."), "counts all six: " + s);
         check(s.contains("urgent") && s.contains("Boss"), "flags Boss as urgent: " + s);
         check(s.contains("messages from") && s.contains("people"), "clusters people: " + s);
         check(s.contains("most from Mom (2)"), "Mom is the busiest sender: " + s);
+        check(s.contains("One sent a voice note"), "names a waiting voice note: " + s);
         // Gmail (no sender) and the HDFC shortcode are app alerts, not people.
         check(s.contains("app alert"), "non-person notifications are app alerts: " + s);
         check(!s.contains("VM-HDFCBK"), "an SMS shortcode is never counted as a person: " + s);
