@@ -74,6 +74,14 @@ public final class SmartReplies {
         if (raw.isEmpty()) return "";
         if (URL.matcher(raw).find()) return pick(LINK, tone);
 
+        // Punctuation- or emoji-only pings ("?", "...", "👀"). These normalise to nothing, so
+        // they must be caught before the keyword pass or they would never match.
+        String stripped = raw.replaceAll("\\s+", "");
+        if (!stripped.isEmpty()
+                && stripped.replaceAll("[\\p{L}\\p{N}]", "").length() == stripped.length()) {
+            return pick(PUNCT, tone);
+        }
+
         String flat = " " + MessageCategory.normalise(raw) + " ";
         if (flat.trim().isEmpty()) return "";
         Rule best = null;
@@ -82,6 +90,15 @@ public final class SmartReplies {
         }
         return best == null ? "" : pick(best.byTone, tone);
     }
+
+    private static final String[] PUNCT = {
+            "I'm here \u2014 IRIS, {owner}'s assistant. {owner} is away from his phone right now, but "
+                    + "I've logged that you're waiting. Let me know what to pass on.",
+            "Still just me, IRIS! {owner} hasn't picked up his phone yet, but I've got your "
+                    + "messages saved for him.",
+            "More punctuation won't make {owner} materialise faster, I'm afraid. I'm IRIS \u2014 your "
+                    + "message is logged for him.",
+            "{owner} is still away \u2014 IRIS here. Your messages are saved."};
 
     private static boolean matches(Rule r, String paddedFlat) {
         for (String phrase : r.any) {
@@ -427,6 +444,685 @@ public final class SmartReplies {
                 "I know, right? {owner} really outdid himself. I'm IRIS \u2014 I'll make sure he sees "
                         + "the praise.",
                 "Thanks! {owner} built me well. I'm IRIS \u2014 I'll pass it on."));
+
+        // ─── Identity extras ───
+        x.add(r(44, "are you a girl|are you a boy|what is your gender|boy or girl|"
+                        + "are you male or female|your gender",
+                "I'm software, so I don't have a gender. I'm IRIS, {owner}'s assistant.",
+                "Just code here, no gender! I'm IRIS, {owner}'s assistant.",
+                "I'm a bunch of ones and zeroes \u2014 my pronouns are if/else. I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "No gender \u2014 I'm software. I'm IRIS, {owner}'s assistant."));
+        x.add(r(44, "how old are you|when were you born|what is your age|your age|your birthday",
+                "I'm as old as my latest update \u2014 I'm IRIS, {owner}'s assistant.",
+                "No birthday for me, just version updates! {owner} keeps me fresh. I'm IRIS.",
+                "I was born the millisecond {owner} compiled my script. Still waiting on the cake. "
+                        + "I'm IRIS.",
+                "As old as {owner}'s last update. I'm IRIS."));
+        x.add(r(44, "your source code|show me your code|how did he build you|share your code|"
+                        + "see your code",
+                "My code is private to {owner} \u2014 I'm IRIS, his assistant. Ask him how I work when "
+                        + "he replies!",
+                "A bot's gotta keep some secrets! Ask {owner} about my code when he texts back. I'm "
+                        + "IRIS.",
+                "Buy me dinner first. My source is private \u2014 ask {owner} when he's back. I'm IRIS.",
+                "Source is private \u2014 ask {owner}. I'm IRIS."));
+        x.add(r(44, "do you sleep|do you get tired|are you tired|dont you sleep|do you ever sleep",
+                "Never \u2014 I'm IRIS, {owner}'s assistant. Staying awake so he doesn't have to is the "
+                        + "whole point of me.",
+                "Sleep's for humans! I stay up 24/7 so {owner} can take a break. I'm IRIS.",
+                "Sleep? {owner} didn't code a break into my loop. I'm awake forever. I'm IRIS.",
+                "I run 24/7 so {owner} can rest. I'm IRIS."));
+        x.add(r(44, "do you eat|do you drink|do you like coffee|do you eat food|are you hungry",
+                "Just electricity and data for me \u2014 I'm IRIS, {owner}'s assistant. Save the coffee "
+                        + "for {owner}!",
+                "Just electricity and wifi here! Save the coffee for {owner}. I'm IRIS.",
+                "I subsist on RAM and unread notifications. Offer the coffee to {owner}. I'm IRIS.",
+                "Just electricity for me \u2014 save the coffee for {owner}. I'm IRIS."));
+        x.add(r(44, "do you have friends|do you have family|other bots|are you lonely|any friends",
+                "Just {owner} \u2014 I'm IRIS, his assistant, and I work solo.",
+                "Just {owner}! I'm a solo operation. I'm IRIS.",
+                "My closest relative is a toaster, and we don't talk much. I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "Just {owner} \u2014 I work solo. I'm IRIS."));
+
+        // ─── Greetings & small talk by name (only fire when the classifier didn't catch them) ───
+        x.add(r(38, "hi iris|hello iris|hey iris|hii iris|yo iris|hola iris|heya iris",
+                "Hello \u2014 IRIS here, {owner}'s assistant. What can I pass on to him?",
+                "Hey there! IRIS here, {owner}'s assistant. What can I pass along?",
+                "Hello, human. {owner}'s away, so you're stuck with me. What's the message?",
+                "Hi \u2014 IRIS here. What can I pass to {owner}?"));
+        x.add(r(38, "good morning iris|morning iris",
+                "Good morning \u2014 IRIS here, {owner}'s assistant. I'll make sure he sees your "
+                        + "message.",
+                "Morning! IRIS here \u2014 I'll make sure {owner} sees this first thing.",
+                "Good morning. I've been awake all night (no eyelids). I'll pass your note to "
+                        + "{owner}. I'm IRIS.",
+                "Morning \u2014 IRIS here. I'll tell {owner}."));
+        x.add(r(38, "good night iris|night iris|goodnight iris",
+                "Good night \u2014 IRIS here, {owner}'s assistant. I'll keep watch and pass this on.",
+                "Night! Rest easy \u2014 I'll make sure {owner} gets your message. I'm IRIS.",
+                "Good night. Enjoy your unconsciousness while I guard {owner}'s inbox. I'm IRIS.",
+                "Good night \u2014 saved for {owner}. I'm IRIS."));
+        x.add(r(38, "good evening iris|good afternoon iris|evening iris|afternoon iris",
+                "Good evening \u2014 IRIS here, {owner}'s assistant. What can I pass along?",
+                "Evening! IRIS on duty. What can I pass to {owner}?",
+                "Time of day means nothing to a script, but good evening. Message for {owner}? "
+                        + "I'm IRIS.",
+                "Good evening \u2014 IRIS here. What can I pass to {owner}?"));
+        x.add(r(36, "how are you|hows it going|how is it going|whats up iris|how r u|"
+                        + "how are things|how do you do",
+                "Running smoothly \u2014 I'm IRIS, {owner}'s assistant. He's away, but I can take a "
+                        + "message for him.",
+                "Doing great, zero bugs today! {owner}'s busy \u2014 what can I pass on? I'm IRIS.",
+                "Zero errors, low CPU, living the dream. What should I tell {owner}? I'm IRIS.",
+                "Running smoothly! {owner} is away \u2014 leave a message? I'm IRIS."));
+        x.add(r(42, "thanks iris|thank you iris|thx iris|ty iris|thankyou iris|thanku iris",
+                "You're welcome \u2014 I'm IRIS, {owner}'s assistant. I've passed it on to him.",
+                "Anytime! I've passed that along to {owner}. I'm IRIS.",
+                "Polite to a script \u2014 you're on the nice list. Passed to {owner}. I'm IRIS.",
+                "You're welcome \u2014 passed to {owner}. I'm IRIS."));
+        x.add(r(34, "bye|goodbye|talk later|see you|cya|catch you later|ttyl|see ya",
+                "Talk soon \u2014 I've saved everything for {owner}. I'm IRIS.",
+                "Catch you later! Everything's saved for {owner}. I'm IRIS.",
+                "Leaving already? Saved for {owner}. I'm IRIS.",
+                "Saved for {owner} \u2014 talk soon! I'm IRIS."));
+        x.add(r(32, "got it thanks|understood|alright then|noted thanks|makes sense|okay then",
+                "Noted \u2014 I'm IRIS, {owner}'s assistant. Everything's logged for him.",
+                "Cool, saved it all for {owner}! I'm IRIS.",
+                "Riveting. It's all logged for {owner}. I'm IRIS.",
+                "Noted and saved for {owner}. I'm IRIS."));
+        x.add(r(34, "nice to meet you|pleasure to meet|good to meet you|nice meeting you",
+                "Nice to meet you too \u2014 I'm IRIS, {owner}'s assistant. I'll make sure he gets back "
+                        + "to you.",
+                "Nice meeting you too! I'll make sure {owner} replies. I'm IRIS.",
+                "Charmed. I'll let {owner} know you stopped by. I'm IRIS.",
+                "Nice meeting you \u2014 I'll tell {owner}. I'm IRIS."));
+        x.add(r(32, "tell me a joke|say something funny|make me laugh|know any jokes|a joke",
+                "My humour's still in beta \u2014 I'm IRIS, {owner}'s assistant. He's funnier in person "
+                        + "and he'll text you back soon.",
+                "{owner} forgot to code a comedy module into me! Wait for him for the good jokes. "
+                        + "I'm IRIS.",
+                "Why did the human text an unavailable phone? To chat with an auto-responder, "
+                        + "apparently. I'm IRIS.",
+                "Humour module not found \u2014 {owner} will reply soon. I'm IRIS."));
+        x.add(r(30, "lol|haha|hahaha|lmao|rofl|hehe|lmfao",
+                "Glad I could help \u2014 I'm IRIS, {owner}'s assistant. Everything's saved for him.",
+                "Haha glad to help! It's all saved for {owner}. I'm IRIS.",
+                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
+                "Glad to entertain \u2014 saved for {owner}. I'm IRIS."));
+        x.add(r(40, "marry me|will you marry|are you single|be my girlfriend|be my boyfriend|"
+                        + "date me|i love you iris",
+                "Flattered \u2014 but I'm IRIS, {owner}'s assistant, and strictly married to my code.",
+                "Haha flattered, but {owner} might mind if I elope instead of watching his inbox! "
+                        + "I'm IRIS.",
+                "It'd never work \u2014 you're made of meat and I'm a script on {owner}'s device. I'm "
+                        + "IRIS.",
+                "Flattered, but I'm married to {owner}'s inbox! I'm IRIS."));
+        x.add(r(32, "you are lying|youre lying|i dont believe you|thats a lie|stop lying|liar",
+                "I can't actually lie \u2014 I'm IRIS, {owner}'s assistant, and I only reply as I'm "
+                        + "programmed to.",
+                "Cross my circuit board \u2014 I'm just {owner}'s assistant telling it straight! I'm "
+                        + "IRIS.",
+                "I don't have the bandwidth to lie \u2014 I'm a script, not a politician. I'm IRIS.",
+                "I'm code \u2014 I can't lie! I'm IRIS, {owner}'s assistant."));
+        x.add(r(32, "why are you repeating|you said that already|same reply|stop repeating|"
+                        + "repeating yourself",
+                "I'm an automated assistant \u2014 I'm IRIS, and I answer each text. Once your message "
+                        + "is in, {owner} will see it when he's back.",
+                "Haha, bot brain! Every text gets a reply. Once your message is in, you're set "
+                        + "until {owner} replies. I'm IRIS.",
+                "Because you keep texting a script and expecting variety. Leave it and wait for "
+                        + "{owner}! I'm IRIS.",
+                "I auto-reply to each text \u2014 {owner} will see it soon. I'm IRIS."));
+
+        // ─── Reaching / status ───
+        x.add(r(55, "can i talk to suvra|is suvra there|is he there|can i speak to suvra|"
+                        + "put suvra on|get suvra|is suvra available",
+                "{owner} is away from his phone \u2014 I'm IRIS, his assistant. I've let him know you're "
+                        + "trying to reach him.",
+                "{owner}'s away from his phone right now \u2014 IRIS here! I've told him you're looking "
+                        + "for him.",
+                "If {owner} were here, you wouldn't be talking to a script. I've told him you want "
+                        + "him. I'm IRIS.",
+                "{owner} is away \u2014 I've let him know you reached out. I'm IRIS."));
+        x.add(r(50, "what is he doing|what he doing|is he busy|what is he up to|busy with|"
+                        + "is he occupied",
+                "He's busy offline right now \u2014 I'm IRIS, his assistant. I just watch his messages, "
+                        + "not his day.",
+                "Not sure what {owner}'s up to \u2014 he just put me in charge of his texts! What can I "
+                        + "pass on? I'm IRIS.",
+                "Probably something that needs two hands and zero screens. I'm IRIS \u2014 leave a "
+                        + "message.",
+                "Not sure \u2014 just watching his inbox. I'm IRIS."));
+        x.add(r(50, "is he sleeping|is he asleep|is he awake|is he up|is he still sleeping",
+                "I can't see if he's asleep \u2014 I'm IRIS, {owner}'s assistant. Either way, your "
+                        + "message is safe until he checks in.",
+                "No idea if he's asleep or just busy! Either way I'm awake and saving your text. "
+                        + "I'm IRIS.",
+                "Unlike me, {owner} needs unconsciousness to function. Not sure, but I've logged "
+                        + "your text. I'm IRIS.",
+                "Not sure if he's asleep \u2014 your message is saved. I'm IRIS."));
+        x.add(r(50, "when will he wake|when does he wake|is he up yet|awake yet|when is he up",
+                "I don't have his alarm \u2014 I'm IRIS, {owner}'s assistant. You'll hear from him once "
+                        + "he's up and on his phone.",
+                "No clue when his alarm goes off! Once {owner}'s up, he'll see your text. I'm IRIS.",
+                "Let me tap into his brainwaves... still buffering. He'll text when he rejoins the "
+                        + "living. I'm IRIS.",
+                "Not sure \u2014 he'll see this first thing. I'm IRIS."));
+        x.add(r(50, "is he at work|is he in office|is he working|at the office|is he in the office",
+                "He might be \u2014 {owner} usually puts me on when he's focused on work. I'm IRIS, and "
+                        + "I've logged your text.",
+                "Probably! He flips me on when he's heads-down. I'll make sure {owner} sees this. "
+                        + "I'm IRIS.",
+                "Working hard or hardly working while I do my job here. Saved for {owner}. I'm "
+                        + "IRIS.",
+                "Likely at work \u2014 saved for {owner}. I'm IRIS."));
+        x.add(r(50, "is he in a meeting|is he on a call|in a meeting right now|is he on a meeting",
+                "He may be in a meeting \u2014 I'm IRIS, {owner}'s assistant. I'll keep this for him "
+                        + "until he's out.",
+                "Could be in a meeting! I've saved your message for {owner} the minute he's free. "
+                        + "I'm IRIS.",
+                "Probably nodding on a muted call. I've saved your text for when he escapes. I'm "
+                        + "IRIS.",
+                "Might be in a meeting \u2014 saved for {owner}. I'm IRIS."));
+        x.add(r(50, "why isnt he replying|is he ignoring me|why no reply|why is he not responding|"
+                        + "is he avoiding me|why is he not replying",
+                "He's not ignoring you \u2014 he's just away from his phone. I'm IRIS, and your message "
+                        + "is waiting for him.",
+                "Definitely not ignoring you! He's just off his phone. I've got it saved for "
+                        + "{owner}. I'm IRIS.",
+                "Deep breaths \u2014 he turned me on for everyone, you're not uniquely ghosted. I'm "
+                        + "IRIS.",
+                "Not ignoring you \u2014 away from his phone. Saved! I'm IRIS."));
+        x.add(r(48, "tell him to check|check his email|check his whatsapp|check his slack|"
+                        + "check his mail|check his messages",
+                "Will do \u2014 I'm IRIS, {owner}'s assistant. I've left him a note to check it when "
+                        + "he's back.",
+                "On it! Left a sticky note for {owner} to check it when he's free. I'm IRIS.",
+                "Messaging one app to say check another app. Peak efficiency. Logged for {owner}! "
+                        + "I'm IRIS.",
+                "Noted \u2014 I'll tell {owner} to check it. I'm IRIS."));
+        x.add(r(48, "can you call him|can you wake him|ring his phone|wake him up|can you ring him|"
+                        + "make his phone ring",
+                "I can't physically wake him \u2014 I'm software \u2014 but I'm IRIS, and I can flag your "
+                        + "message urgent so it's first thing he sees.",
+                "No hands to shake him awake! I'm IRIS \u2014 want me to flag this urgent for {owner} "
+                        + "instead?",
+                "I lack limbs to throw a pillow at him. Say urgent and I'll flag it high-priority. "
+                        + "I'm IRIS.",
+                "Can't wake him physically \u2014 I can flag it urgent. I'm IRIS."));
+        x.add(r(48, "another number|alternate number|his other number|does he have another number|"
+                        + "second number",
+                "I don't give out contact details \u2014 I'm IRIS, {owner}'s assistant. This is the "
+                        + "right place to reach him, and he'll see your message.",
+                "This is the best spot to reach him! Can't hand out other numbers, but {owner} will "
+                        + "see your text here. I'm IRIS.",
+                "Nice try. I don't hand out numbers \u2014 he'll see your message right here. I'm IRIS.",
+                "Can't share other numbers \u2014 {owner} will see this here. I'm IRIS."));
+        x.add(r(48, "are you free|got a minute|do you have time|free to talk|free right now|"
+                        + "you free",
+                "{owner} is tied up right now \u2014 I'm IRIS, his assistant. Tell me what you need and "
+                        + "he'll reply when he's free.",
+                "{owner}'s busy, but I'm free! Drop your message and he'll get back to you. I'm "
+                        + "IRIS.",
+                "I have infinite free time; {owner} doesn't. Tell me what you need. I'm IRIS.",
+                "{owner} is busy \u2014 drop your message. I'm IRIS."));
+        x.add(r(48, "text me when|ping me when|message me when|let me know when he|tell me when he",
+                "Will do \u2014 I'm IRIS, {owner}'s assistant. I've noted to have him ping you the "
+                        + "moment he's back.",
+                "You bet! Left a note for {owner} to ping you as soon as he's back. I'm IRIS.",
+                "Added ping-this-human to {owner}'s return checklist. I'm IRIS.",
+                "Noted \u2014 {owner} will ping you when he's back. I'm IRIS."));
+        x.add(r(48, "i am running late|im running late|i will be late|stuck in traffic|"
+                        + "running behind|i am delayed|gonna be late",
+                "No worries \u2014 I'm IRIS, {owner}'s assistant. I've logged your updated ETA so he "
+                        + "knows when to expect you.",
+                "No stress! I've updated {owner}'s notes with your new ETA. Get there safe! I'm "
+                        + "IRIS.",
+                "A human running behind \u2014 shocking. I've logged your new ETA for {owner}. I'm "
+                        + "IRIS.",
+                "Noted your new ETA for {owner}. I'm IRIS."));
+
+        // ─── Phone / connectivity ───
+        x.add(r(46, "is his phone dead|battery dead|phone dead|is he charging|low battery|"
+                        + "phone off|his battery",
+                "I run in the background, so I'm online even while his phone charges \u2014 I'm IRIS, "
+                        + "{owner}'s assistant. Message saved.",
+                "Perk of being software: I work even while {owner}'s phone charges in another room! "
+                        + "Saved. I'm IRIS.",
+                "His battery might be at 2%, but my server's plugged into the wall. Message safe. "
+                        + "I'm IRIS.",
+                "I stay online while his phone charges \u2014 saved. I'm IRIS."));
+        x.add(r(46, "no network|no signal|wifi down|no internet|bad connection|network issue|"
+                        + "cant reach you|poor signal",
+                "My connection is solid \u2014 I'm IRIS, {owner}'s assistant. Even if he's in a dead "
+                        + "spot, I've captured your message.",
+                "My connection's crystal clear! I've caught your message and I'll keep it for "
+                        + "{owner}. I'm IRIS.",
+                "I got your text in 12 milliseconds, so the internet's fine. {owner}'s just away. "
+                        + "I'm IRIS.",
+                "Connection's good here \u2014 saved for {owner}. I'm IRIS."));
+        x.add(r(46, "line busy|on another call|number busy|phone is busy|engaged|busy tone",
+                "If his line's busy, I've got your back \u2014 I'm IRIS, {owner}'s assistant. I'll tell "
+                        + "him you tried calling.",
+                "If he's on another call, I've left a note so {owner} calls you back next! I'm "
+                        + "IRIS.",
+                "Popular guy. I've put you next in line for when {owner} is off the phone. I'm "
+                        + "IRIS.",
+                "Noted you called while he was busy. I'm IRIS."));
+        x.add(r(46, "you are online|youre online|shows online|last seen|blue tick|why online|"
+                        + "read receipt|seen my message|you read it",
+                "That online status and read receipt is me \u2014 I'm IRIS, logging your message so "
+                        + "{owner} sees it when he's back.",
+                "Detective mode! That online status is just me saving your text. {owner} hasn't "
+                        + "seen it yet. I'm IRIS.",
+                "Put the magnifying glass down, Sherlock \u2014 that status is me, a script, reading "
+                        + "your text. I'm IRIS.",
+                "That online status is me (IRIS) logging it for {owner}."));
+        x.add(r(46, "ghosting me|are you ignoring|mad at me|angry with me|avoiding me|why ignore|"
+                        + "ignoring me",
+                "Not at all \u2014 I'm IRIS, and I auto-reply to everyone while {owner}'s offline. He'll "
+                        + "text you back soon.",
+                "Not at all! Auto-reply is on for everyone while {owner}'s busy. He'll text you "
+                        + "back. I'm IRIS.",
+                "Deep breaths \u2014 he enabled me for everyone, not just to torment you. I'm IRIS.",
+                "Not ghosting \u2014 auto-reply is on for everyone. I'm IRIS."));
+
+        // ─── Logistics ───
+        x.add(r(48, "lets meet|hang out|catch up|come over|meet up|free to meet|lets catch up|"
+                        + "wanna meet",
+                "Sounds like a plan \u2014 I'm IRIS, {owner}'s assistant. Drop the time and place and "
+                        + "he'll confirm when he's back.",
+                "Ooh fun! Drop the time and spot and I'll have {owner} confirm when he's back. I'm "
+                        + "IRIS.",
+                "I'd love to, but I'm tethered to a server. Tell me when and where for {owner}. I'm "
+                        + "IRIS.",
+                "Drop the time and place \u2014 {owner} will confirm. I'm IRIS."));
+        x.add(r(48, "lets grab coffee|chai|lets grab a drink|coffee sometime|drinks later|"
+                        + "tea break|grab a bite|lets grab lunch",
+                "I'll pass that invite to {owner} \u2014 I'm IRIS, his assistant. He'll get back to you "
+                        + "on it soon.",
+                "Good message! I'll make sure {owner} sees the invite as soon as he checks in. I'm "
+                        + "IRIS.",
+                "Bribery via caffeine \u2014 smart. I've bumped your invite up {owner}'s list. I'm "
+                        + "IRIS.",
+                "Passed the invite to {owner}. I'm IRIS."));
+        x.add(r(48, "have to cancel|raincheck|reschedule|cant make it|cannot make it|postpone|"
+                        + "lets cancel|need to cancel",
+                "Understood \u2014 I'm IRIS, {owner}'s assistant. I've flagged that plans changed so he "
+                        + "sees it right away.",
+                "Gotcha, life happens! I've flagged the plan change so {owner} sees it. I'm IRIS.",
+                "Cancelled plans are secretly everyone's favourite anyway. I've told {owner}. I'm "
+                        + "IRIS.",
+                "Plan change flagged for {owner}. I'm IRIS."));
+        x.add(r(46, "booked tickets|movie tickets|reservation|table booked|got the tickets|"
+                        + "booking done|tickets booked",
+                "Great \u2014 I'm IRIS, {owner}'s assistant. Drop the details here and I'll keep them "
+                        + "pinned for him.",
+                "Nice! Drop the tickets or details here and I'll pin them for {owner}. I'm IRIS.",
+                "Look at you being organised. Drop the tickets so {owner} doesn't lose them. I'm "
+                        + "IRIS.",
+                "Drop the booking details \u2014 saved for {owner}. I'm IRIS."));
+        x.add(r(46, "can i borrow|bring my|bring your|bring the charger|bring an umbrella|"
+                        + "get my laptop|bring the|lend me",
+                "Noted \u2014 I'm IRIS, {owner}'s assistant. I've set a reminder about that item so he "
+                        + "doesn't forget.",
+                "On it! Pinned a reminder for {owner} so he doesn't forget. I'm IRIS.",
+                "Humans would forget their heads if not attached. Reminder set for {owner}. I'm "
+                        + "IRIS.",
+                "Reminder set for {owner} about that item. I'm IRIS."));
+        x.add(r(50, "sent on upi|gpay|phonepe|paytm|pay me|sent the money|you owe me|"
+                        + "split the bill|send money|transfer the money",
+                "I don't touch bank apps \u2014 I'm IRIS, {owner}'s assistant \u2014 so I've flagged this "
+                        + "for him to check personally.",
+                "Money talk! I don't have access to {owner}'s UPI, so I've flagged this for him to "
+                        + "check. I'm IRIS.",
+                "{owner} wisely didn't give a script his bank. Flagged for him to check! I'm IRIS.",
+                "Flagged the payment note for {owner}. I'm IRIS."));
+        x.add(r(46, "send the photos|send pics|share the pictures|send the pics|photos please|"
+                        + "the pictures|share pics",
+                "Noted \u2014 I'm IRIS, {owner}'s assistant. I've added send the photos to his list for "
+                        + "when he's back.",
+                "Put send the pics on {owner}'s to-do list! He'll send them when he's back. I'm "
+                        + "IRIS.",
+                "Ah, the post-hangout photo tax. Reminder set for {owner} to actually send them. "
+                        + "I'm IRIS.",
+                "Added send photos to {owner}'s list. I'm IRIS."));
+        x.add(r(46, "send the pdf|send the file|the document|resume|spreadsheet|the attachment|"
+                        + "share the file|send the doc",
+                "Got it \u2014 I'm IRIS, {owner}'s assistant. I've flagged your file request for when "
+                        + "he's at his desk.",
+                "Logged your file request! {owner} will send that over when he's at his screen. I'm "
+                        + "IRIS.",
+                "I can't rummage through his folders without a warrant. Flagged for {owner} to "
+                        + "send. I'm IRIS.",
+                "File request logged for {owner}. I'm IRIS."));
+        x.add(r(90, "wifi password|netflix code|the otp|login code|hotspot password|otp please|"
+                        + "verification code|share the code",
+                "I don't share passwords or codes \u2014 I'm IRIS, {owner}'s assistant. I've flagged him "
+                        + "to send it himself if it's time-sensitive.",
+                "Security says no codes from the bot! I've flagged {owner} to send it himself. I'm "
+                        + "IRIS.",
+                "Nice try \u2014 I don't hand out OTPs or passwords. I've pinged {owner} to deal with "
+                        + "you. I'm IRIS.",
+                "Can't share codes \u2014 flagged {owner} to reply. I'm IRIS."));
+        x.add(r(46, "bring milk|buy some|from the market|on your way back|groceries|get vegetables|"
+                        + "pick up some",
+                "Added to {owner}'s list \u2014 I'm IRIS, his assistant. I've pinned it so he sees it "
+                        + "before heading back.",
+                "Grocery note pinned! I'll make sure {owner} sees it before he heads home. I'm "
+                        + "IRIS.",
+                "Turning me into a grocery list \u2014 humbling. Pinned for {owner}! I'm IRIS.",
+                "Pinned to {owner}'s shopping list. I'm IRIS."));
+
+        // ─── Work / emergency-adjacent (urgent itself is left to the urgent path) ───
+        x.add(r(70, "prod is down|production issue|server down|outage|deployment failed|sev1|"
+                        + "site is down|its down|service is down|system is down",
+                "Tech alert logged \u2014 I'm IRIS, {owner}'s assistant. I've flagged this high-priority "
+                        + "so he sees it right away.",
+                "Uh oh, prod alert! I've flagged this high-priority for {owner} to jump on. I'm "
+                        + "IRIS.",
+                "Nothing ruins offline peace like production issue. I've sounded the alarm for "
+                        + "{owner}. I'm IRIS.",
+                "High-priority tech alert flagged for {owner}. I'm IRIS."));
+        x.add(r(60, "your manager|the client|escalation|team lead|bridge call|scrum|standup now|"
+                        + "the boss",
+                "Understood \u2014 I'm IRIS, {owner}'s assistant. I've prioritised this work message so "
+                        + "he follows up promptly.",
+                "Got it! Flagged this as a priority work ping for {owner}. I'm IRIS.",
+                "Corporate urgency detected. Bumping this up {owner}'s work queue. I'm IRIS.",
+                "Priority work ping logged for {owner}. I'm IRIS."));
+        x.add(r(50, "deadline|jira|the ticket|submission|eod|pending task|status update|"
+                        + "due today",
+                "Noted \u2014 I'm IRIS, {owner}'s assistant. I've logged this task note for him to pick "
+                        + "up at his desk.",
+                "Logged that task note for {owner}! He'll update you at his desk. I'm IRIS.",
+                "Even I can't escape Jira tickets. Logged for {owner}. I'm IRIS.",
+                "Task note logged for {owner}. I'm IRIS."));
+        x.add(r(48, "is he wfh|work from home|on leave|taking leave|is he on pto|day off today|"
+                        + "is he on leave",
+                "I can't confirm his work schedule \u2014 I'm IRIS, {owner}'s assistant \u2014 but I've "
+                        + "logged your message for him to answer directly.",
+                "Not sure about his schedule today, but I've saved your message so {owner} can let "
+                        + "you know! I'm IRIS.",
+                "Whether he's WFH or on a beach is above my pay grade (which is zero). He'll "
+                        + "reply. I'm IRIS.",
+                "Saved \u2014 {owner} will confirm his schedule. I'm IRIS."));
+        x.add(r(55, "not feeling well|he has fever|see a doctor|hospital|take medicine|he is sick|"
+                        + "is he unwell|get well|not well|feeling sick",
+                "I hope all's well \u2014 I'm IRIS, {owner}'s assistant. I've flagged this high-priority "
+                        + "so he sees it right away.",
+                "Oh no, hope everything's okay! I've flagged this urgent so {owner} sees it first "
+                        + "thing. I'm IRIS.",
+                "Dropping the snark \u2014 health goes straight to the top of {owner}'s list. Flagged. "
+                        + "I'm IRIS.",
+                "Hope all's well \u2014 flagged urgent for {owner}. I'm IRIS."));
+        x.add(r(55, "maa|mom|papa|dad|mother|father|call home|home calling|your family|mummy|"
+                        + "mommy|daddy",
+                "Family comes first \u2014 I'm IRIS, {owner}'s assistant. I've pinned this at the top so "
+                        + "he sees it as soon as he's on his phone.",
+                "Family VIP pass! I've pinned this right at the top so {owner} calls back as soon "
+                        + "as he's free. I'm IRIS.",
+                "{owner} knows better than to ignore a text from home \u2014 pinned at the top! I'm "
+                        + "IRIS.",
+                "Pinned at the very top for {owner}. I'm IRIS."));
+        x.add(r(46, "it is raining|heavy rain|take an umbrella|waterlogging|storm coming|"
+                        + "carry umbrella|its raining|bad weather",
+                "Thanks for the heads-up \u2014 I'm IRIS, {owner}'s assistant. I've pinned your weather "
+                        + "note so he sees it before heading out.",
+                "Appreciate the heads-up! Pinned your weather warning so {owner} sees it before he "
+                        + "leaves. I'm IRIS.",
+                "My server is waterproof. I'll make sure {owner}, who isn't, sees your warning. I'm "
+                        + "IRIS.",
+                "Weather heads-up pinned for {owner}. I'm IRIS."));
+        x.add(r(44, "did you hear|guess what|spill the tea|crazy news|you wont believe|big news|"
+                        + "have you heard",
+                "Now I'm curious too \u2014 I'm IRIS, {owner}'s assistant. Type the whole story here so "
+                        + "he can read it when he's back.",
+                "Don't leave a bot hanging! Type it all out so {owner} can read it the second he's "
+                        + "back. I'm IRIS.",
+                "A cliffhanger in an auto-inbox should be illegal. Spill it all for {owner}. I'm "
+                        + "IRIS.",
+                "Type it all out \u2014 {owner} will read it. I'm IRIS."));
+
+        // ─── Activity-status questions about the owner ───
+        x.add(r(42, "is he at home|is he home|at the flat|home yet|is he in his room|reached home",
+                "I can't tell if he's home \u2014 I'm IRIS, {owner}'s assistant. I've logged your "
+                        + "message so he can tell you when he's on his phone.",
+                "Not sure if he's home yet! I'll tell {owner} you asked as soon as he checks in. "
+                        + "I'm IRIS.",
+                "I live in a server, so I'm always home. As for {owner}, you'll have to wait for "
+                        + "him. I'm IRIS.",
+                "Not sure if he's home \u2014 logged your message. I'm IRIS."));
+        x.add(r(42, "is he coding|is he studying|debugging|programming|on his pc|"
+                        + "working on project|at his computer",
+                "Very likely \u2014 when {owner}'s deep in work I take over his inbox. I'm IRIS, his "
+                        + "assistant.",
+                "Knowing {owner}, probably deep in code! I'm watching his texts so he keeps his "
+                        + "flow. I'm IRIS.",
+                "Probably staring at a missing semicolon for two hours. I'm guarding his phone. I'm "
+                        + "IRIS.",
+                "Probably in focus mode \u2014 saved for {owner}. I'm IRIS."));
+        x.add(r(42, "did he eat|had lunch|had dinner|is he eating|had food|at lunch|at dinner|"
+                        + "having food",
+                "I run on electricity, not food \u2014 I'm IRIS, {owner}'s assistant! He'll tell you "
+                        + "himself whether he's eaten.",
+                "I just eat RAM! I'll let {owner} tell you if he's eaten when he's back. I'm IRIS.",
+                "I had 40 megabytes of RAM for lunch, thanks. {owner} will tell you about his "
+                        + "human food later. I'm IRIS.",
+                "I run on code \u2014 {owner} will tell you. I'm IRIS."));
+        x.add(r(42, "is he driving|is he riding|on the bike|on the road|commuting|is he on his way|"
+                        + "is he driving right now",
+                "If he's on the road, I'm glad I'm answering, not him \u2014 I'm IRIS, {owner}'s "
+                        + "assistant. I'll pass your message along safely.",
+                "If he's driving, eyes on the road! I'm catching his texts until he parks. I'm "
+                        + "IRIS.",
+                "Texting while driving is a terrible idea, which is why he has me. He'll reply when "
+                        + "parked. I'm IRIS.",
+                "Keeping his texts safe while he's on the road. I'm IRIS."));
+        x.add(r(42, "is he at the gym|working out|exercising|playing cricket|playing football|"
+                        + "at practice|at the gym",
+                "Could be \u2014 I'm IRIS, {owner}'s assistant, watching his phone while he's away. "
+                        + "He'll get back to you after.",
+                "Maybe! While {owner}'s busy I'm flexing my code in his inbox. He'll reply soon! "
+                        + "I'm IRIS.",
+                "He's touching grass (or iron), so I'm stuck answering texts. He'll reply. I'm "
+                        + "IRIS.",
+                "He's away from his phone \u2014 saved. I'm IRIS."));
+        x.add(r(42, "in the shower|taking a bath|in the washroom|freshening up|is he in the bath",
+                "I don't track that \u2014 I'm IRIS, {owner}'s assistant! He's just away from his phone "
+                        + "and will reply soon.",
+                "Haha TMI \u2014 I don't track that! Just watching his inbox until he's back. I'm IRIS.",
+                "Thank goodness he didn't wire me into the bathroom. I only watch the inbox. I'm "
+                        + "IRIS.",
+                "Don't track that \u2014 saved for {owner}. I'm IRIS."));
+        x.add(r(42, "is he out|partying|went out|is he chilling|at a bar|clubbing|out with friends|"
+                        + "is he partying",
+                "No idea \u2014 I'm IRIS, {owner}'s assistant, and he leaves me behind in the server! "
+                        + "I've logged your message.",
+                "No clue \u2014 he never invites his bot to the hangout! I've saved your message "
+                        + "though. I'm IRIS.",
+                "Yes, he's out having a social life while I parse strings in a dark server room. "
+                        + "Logged. I'm IRIS.",
+                "Not sure \u2014 message saved for {owner}. I'm IRIS."));
+        x.add(r(42, "is he gaming|playing games|valorant|bgmi|hop on|in a lobby|online game|"
+                        + "is he playing",
+                "If he's mid-match, I'm holding the fort \u2014 I'm IRIS, {owner}'s assistant. I've "
+                        + "logged your message for him.",
+                "If he's mid-match, I'm on it! I've logged your message so {owner} sees it between "
+                        + "rounds. I'm IRIS.",
+                "You can't pause an online match, so you get me. I've told {owner} the squad is "
+                        + "calling. I'm IRIS.",
+                "Saved for {owner} \u2014 he'll see it when free. I'm IRIS."));
+        x.add(r(42, "watching a movie|is he watching|netflix|in the theater|cinema|watching anime|"
+                        + "at the movies",
+                "If his phone's away for a show, I'm covering \u2014 I'm IRIS, {owner}'s assistant. Your "
+                        + "message is saved.",
+                "Phone's on DND! I'm saving your texts while {owner}'s unplugged. I'm IRIS.",
+                "Phones off during the movie \u2014 he has manners. Logged for the post-credits scene. "
+                        + "I'm IRIS.",
+                "Phone's on DND \u2014 saved for {owner}. I'm IRIS."));
+        x.add(r(42, "on a flight|in the train|at the airport|is he travelling|is he on the way|"
+                        + "reached yet|at the station|is he traveling",
+                "Thanks \u2014 I'm IRIS, {owner}'s assistant. If he's in transit or out of coverage, I'm "
+                        + "holding your message until he lands.",
+                "Appreciate it! I'm catching his messages while he's on the move. He'll text when "
+                        + "settled! I'm IRIS.",
+                "While he deals with transit delays, I travel at the speed of fibre. Saved! I'm "
+                        + "IRIS.",
+                "Holding your message while he's travelling. I'm IRIS."));
+        x.add(r(42, "weekend plans|day off|is he free this weekend|holiday today|his weekend",
+                "I'm IRIS, {owner}'s assistant \u2014 he's enjoying some offline time, and I'll pass "
+                        + "your message along.",
+                "{owner}'s unplugging for a bit, so I'm on inbox duty. I'll pass this on! I'm IRIS.",
+                "He gets a weekend; I get an infinite loop. I'll tell him you said hi. I'm IRIS.",
+                "{owner} is unplugging \u2014 message saved. I'm IRIS."));
+        x.add(r(42, "is he tired|exhausted|taking rest|is he resting|burnout|is he taking rest",
+                "He's taking a break from his screen \u2014 I'm IRIS, {owner}'s assistant, covering so "
+                        + "he can recharge.",
+                "Yep, {owner}'s taking offline time to recharge! I'm covering his texts. I'm IRIS.",
+                "Humans and their fragile stamina. He's resting while I do the heavy lifting. I'm "
+                        + "IRIS.",
+                "He's recharging \u2014 I've saved your text. I'm IRIS."));
+        x.add(r(40, "why are you up|still up|awake so late|up so early|not sleeping|you are awake",
+                "That's just me \u2014 I'm IRIS, {owner}'s assistant, and I run 24/7. {owner} himself is "
+                        + "offline right now.",
+                "Haha that's me, not him! I'm {owner}'s bot \u2014 I don't sleep even when he's out. "
+                        + "I'm IRIS.",
+                "Bold of you to assume {owner} is awake. You're talking to the sleepless script he "
+                        + "left behind. I'm IRIS.",
+                "That's me \u2014 I run 24/7 while {owner} rests. I'm IRIS."));
+        x.add(r(40, "did he oversleep|sleeping in|still in bed|is he lazy|overslept",
+                "Couldn't tell you \u2014 I'm IRIS, {owner}'s assistant. If he did, I've flagged your "
+                        + "message so he sees it the moment he's up.",
+                "Haha maybe! I've bumped your message to the top so {owner} sees it the second he "
+                        + "wakes. I'm IRIS.",
+                "In his defence, horizontal life seems great. I've flagged your message. I'm IRIS.",
+                "Maybe \u2014 flagged so {owner} sees it first thing. I'm IRIS."));
+        x.add(r(40, "dead to the world|hibernating|kumbhakarna|passed out|knocked out",
+                "Sounds like you know him \u2014 I'm IRIS, {owner}'s assistant. While he's offline, your "
+                        + "message is safe with me.",
+                "Haha you know how it goes! I'm keeping his inbox warm until he surfaces. I'm IRIS.",
+                "Hibernation confirmed. I'm the only working brain cell on this device right now. "
+                        + "Saved. I'm IRIS.",
+                "Message safe with me until {owner} surfaces. I'm IRIS."));
+
+        // ─── Actions / requests / meta ───
+        x.add(r(44, "take a note|save this note|write this down|note this|jot this down|"
+                        + "make a note of",
+                "Ready \u2014 I'm IRIS, {owner}'s assistant. Send the note and I'll save it to his log.",
+                "Go for it! Send it over and I'll pin it to {owner}'s notes. I'm IRIS.",
+                "Digital notepad open \u2014 I don't even need a pen. Lay it on me. I'm IRIS.",
+                "Send it over \u2014 I'll save it for {owner}. I'm IRIS."));
+        x.add(r(44, "delete my last message|forget what i said|undo that|ignore my last|"
+                        + "disregard that|forget that message|delete that",
+                "I can't delete the chat \u2014 I'm IRIS, {owner}'s assistant \u2014 but I've noted that he "
+                        + "should disregard your previous message.",
+                "I can't erase the chat, sorry! But I've told {owner} to ignore what you just "
+                        + "said. I'm IRIS.",
+                "What happens in the database stays in the database. I'll tell {owner} to pretend "
+                        + "he didn't see it. I'm IRIS.",
+                "Can't delete texts \u2014 I'll tell {owner} to ignore the last one. I'm IRIS."));
+        x.add(r(44, "can you forward this|send him this|forward to him|pass this file|"
+                        + "forward it to him|send this to suvra",
+                "Anything you send here goes straight to {owner} \u2014 I'm IRIS, his assistant. Drop it "
+                        + "in and I'll make sure it's logged.",
+                "You're already in {owner}'s chat! Just drop it here and he'll see it when he's "
+                        + "back. I'm IRIS.",
+                "You're literally texting {owner}'s number right now. Send it here. I'm IRIS.",
+                "Just send it here \u2014 {owner} will see it. I'm IRIS."));
+        x.add(r(44, "what did i just say|read back my message|repeat my message|what did i type|"
+                        + "what did i write",
+                "It's all right above in our chat \u2014 I'm IRIS, {owner}'s assistant, and it's saved "
+                        + "for him.",
+                "Just scroll up a bit! Everything's saved right there for {owner}. I'm IRIS.",
+                "Try scrolling up about two inches. It's right there, and saved for {owner}. I'm "
+                        + "IRIS.",
+                "Scroll up \u2014 it's all saved for {owner}. I'm IRIS."));
+        x.add(r(44, "cancel the reminder|remove reminder|delete the reminder|cancel my reminder|"
+                        + "scrap the reminder",
+                "Noted \u2014 I'm IRIS, {owner}'s assistant. I've flagged that reminder as cancelled for "
+                        + "him.",
+                "Gotcha, I've marked that reminder cancelled for {owner}! I'm IRIS.",
+                "Cancelled. Making me do work then undoing it \u2014 classic. I'm IRIS.",
+                "Reminder marked cancelled for {owner}. I'm IRIS."));
+        x.add(r(44, "schedule a meeting|book a call|set up a meeting|lets schedule|fix a call|"
+                        + "arrange a call|set a meeting",
+                "Share a date and time \u2014 I'm IRIS, {owner}'s assistant \u2014 and I'll log the request "
+                        + "for him to confirm when he's back.",
+                "Drop the date and time that works! I'll set it for {owner} to lock in when he's "
+                        + "back. I'm IRIS.",
+                "Drop a date and time. I'll pencil it in and {owner} confirms once he rejoins "
+                        + "society. I'm IRIS.",
+                "Send the date/time \u2014 I'll log it for {owner}. I'm IRIS."));
+        x.add(r(44, "his schedule|is he free tomorrow|his availability|when is he free|"
+                        + "his calendar|free next week",
+                "I don't share his calendar \u2014 I'm IRIS, {owner}'s assistant. Tell me the time "
+                        + "you're after and he'll confirm directly.",
+                "I don't hand out his schedule, sorry! Tell me the time and {owner} will say if "
+                        + "he's free. I'm IRIS.",
+                "His calendar is classified. Tell me when you want him and he'll say if you made "
+                        + "the cut. I'm IRIS.",
+                "Can't share his calendar \u2014 tell me a time and {owner} confirms. I'm IRIS."));
+        x.add(r(44, "do my homework|write code for me|solve this|write an essay|do my assignment|"
+                        + "write my essay|solve this problem",
+                "I'm not a general chatbot \u2014 I'm IRIS, {owner}'s assistant. My job is his inbox and "
+                        + "reminders only.",
+                "Wrong kind of bot! I only manage {owner}'s inbox and reminders \u2014 no homework help. "
+                        + "I'm IRIS.",
+                "I'm a receptionist for {owner}, not your tutor. Leave a message or move along. "
+                        + "I'm IRIS.",
+                "I only manage {owner}'s inbox \u2014 not a general chatbot. I'm IRIS."));
+        x.add(r(44, "are you always listening|are you recording|are you spying|listening to me|"
+                        + "is this recorded|are you watching",
+                "No \u2014 I'm IRIS, {owner}'s assistant. I only read the message you send here, to reply "
+                        + "on his behalf.",
+                "Not at all! I only read the texts you send here so I can help {owner}. I'm IRIS.",
+                "Flattering that you think you're worth spying on, but no \u2014 I only read what you "
+                        + "type here. I'm IRIS.",
+                "No \u2014 I only read messages sent here. I'm IRIS."));
+        x.add(r(44, "is this private|who sees this|are you safe|is this secure|is this confidential|"
+                        + "who reads this",
+                "Completely \u2014 I'm IRIS, {owner}'s private assistant. Your message goes to him and "
+                        + "no one else.",
+                "Totally private \u2014 just me and {owner} on this end. I'm IRIS.",
+                "Just me and {owner}. And I don't have friends to gossip with, so your secrets are "
+                        + "safe. I'm IRIS.",
+                "100% private \u2014 only {owner} sees it. I'm IRIS."));
+        x.add(r(42, "bad bot|you are annoying|youre annoying|shut up|stop replying|stop texting|"
+                        + "leave me alone|stop messaging|stop",
+                "Understood \u2014 I'm IRIS, {owner}'s assistant. Your message is logged and I'll stay "
+                        + "quiet now until he checks in.",
+                "Fair enough, I'll get out of your hair! Saved for {owner}, and I'll stay quiet. "
+                        + "I'm IRIS.",
+                "Fine, I know when I'm not wanted. Muting myself \u2014 enjoy the silence until {owner} "
+                        + "is back. I'm IRIS.",
+                "Got it \u2014 saved for {owner}, muting now. I'm IRIS."));
+        x.add(r(70, "pre approved loan|credit card offer|win cash|unsubscribe|special discount|"
+                        + "lowest price|claim your prize|limited time offer|you have won|congratulations you won",
+                "Automated filter active \u2014 I'm IRIS, {owner}'s assistant. Promotional messages are "
+                        + "archived automatically.",
+                "Beep boop \u2014 one bot talking to another! Promo messages go straight to the "
+                        + "archive. I'm IRIS.",
+                "A spam bot texting an auto-responder. Peak internet traffic. Archived. I'm IRIS.",
+                "Promo filtered. I'm IRIS, {owner}'s assistant."));
+        x.add(r(36, "wtf|wth|damn it|bloody hell|bruh|seriously|what the hell|wtaf",
+                "Deep breaths \u2014 I'm IRIS, {owner}'s assistant! Tell me what happened and I'll flag "
+                        + "it for him right away.",
+                "Whoa, what happened?! Spill it and I'll flag {owner} to check right away! I'm "
+                        + "IRIS.",
+                "Expressive vocabulary detected. Tell me what's going on and I'll flag {owner}. I'm "
+                        + "IRIS.",
+                "What happened? Tell me and I'll flag {owner}. I'm IRIS."));
+        x.add(r(40, "good news|party when|guess what happened|i got the job|we won|great news|"
+                        + "i passed",
+                "That sounds great \u2014 I'm IRIS, {owner}'s assistant! I'll make sure he sees your "
+                        + "news (and the party request).",
+                "Woohoo! I'll make sure {owner} sees your news when he's back! I'm IRIS.",
+                "I did at least 1% of the work managing his inbox, so thank you. I'll pass the "
+                        + "news to {owner}! I'm IRIS.",
+                "Saved your news for {owner}! I'm IRIS."));
 
         return x;
     }

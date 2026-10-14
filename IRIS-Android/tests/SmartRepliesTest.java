@@ -70,6 +70,47 @@ public final class SmartRepliesTest {
         check(!SmartReplies.match("where is he right now", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
                 "where is he");
 
+        // Expanded coverage: identity extras, status, logistics, work, emotions, meta.
+        String[] shouldAnswer = {
+                "what is your gender", "how old are you", "do you sleep", "do you eat",
+                "do you have friends", "good morning iris", "how are you", "see you later",
+                "tell me a joke", "will you marry me", "you are lying", "can i talk to suvra",
+                "what is he doing", "is he sleeping", "when will he wake", "is he at work",
+                "why isnt he replying", "check his whatsapp", "can you wake him",
+                "does he have another number", "are you free", "ping me when he is back",
+                "i am running late", "is his phone dead", "no network here", "line busy",
+                "you are online", "are you ignoring me", "lets meet tomorrow",
+                "lets grab coffee", "i have to cancel", "i got the tickets",
+                "can i borrow your charger", "i sent you money on gpay", "send the photos",
+                "send the pdf", "whats the wifi password", "bring milk on your way back",
+                "server down now", "the client is asking", "the deadline is today",
+                "is he wfh today", "he has fever", "mom is calling", "it is raining heavily",
+                "did you hear the news", "is he at home", "is he coding", "did he eat",
+                "is he driving", "is he at the gym", "in the shower", "is he out",
+                "is he gaming", "watching a movie", "is he on a flight", "weekend plans",
+                "is he tired", "why are you up so late", "did he oversleep",
+                "take a note for me", "delete my last message", "can you forward this to him",
+                "what did i just say", "cancel the reminder", "schedule a meeting",
+                "is he free tomorrow", "do my homework", "are you always listening",
+                "is this private", "shut up", "congratulations you won a prize",
+                "wtf happened", "i got the job"};
+        for (String s : shouldAnswer) {
+            String r = SmartReplies.match(s, ReplyTone.Tone.PROFESSIONAL);
+            check(!r.isEmpty(), "answers: " + s);
+            check(namesIris(r), "names IRIS: " + s);
+        }
+
+        // Punctuation / emoji-only pings are answered.
+        check(!SmartReplies.match("???", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "question marks only");
+        check(!SmartReplies.match("...", ReplyTone.Tone.BRIEF).isEmpty(), "dots only");
+        check(!SmartReplies.match("\uD83D\uDC40", ReplyTone.Tone.CASUAL).isEmpty(), "emoji only");
+
+        // Tone variants genuinely differ for a rule with distinct columns.
+        check(!SmartReplies.match("who are you", ReplyTone.Tone.SARCASTIC)
+                        .equals(SmartReplies.match("who are you", ReplyTone.Tone.PROFESSIONAL)),
+                "sarcastic differs from professional for who-are-you");
+
         // No match stays silent, so ordinary messages are not answered by this layer.
         check(SmartReplies.match("the garden looks lovely this evening", ReplyTone.Tone.PROFESSIONAL)
                         .isEmpty(), "an ordinary message matches nothing");
