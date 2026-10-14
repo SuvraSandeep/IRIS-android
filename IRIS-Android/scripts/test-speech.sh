@@ -241,6 +241,13 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/ConversationContextTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ConversationContextTest
 
+# Learned replies: scope keys and precedence for replies the owner teaches from the decision log.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/LearnedReplies.java \
+  tests/LearnedRepliesTest.java
+java -cp "$test_dir/responder" com.iris.assistant.LearnedRepliesTest
+
 # Loose phrase matching. Synonyms, stopword drop and typo tolerance behind the smart reply layer.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \

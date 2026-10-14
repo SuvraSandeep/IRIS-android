@@ -126,6 +126,12 @@ public final class AutoResponder {
         // guard is skipped -- but only when there is real content, never for an empty body.
         String nameReply = settings.nameRuleReply(resolvedSender);
 
+        // A reply the owner TAUGHT IRIS from the decision log for this sender (and optionally this
+        // category). It is an explicit instruction, so it outranks the name rule, smart replies
+        // and templates. Specific sender+category beats a sender-wide one.
+        String learnedReply = new LearnedReplyStore(context)
+                .lookup(resolvedSender, category.kind.name());
+
         // If IRIS previously asked this sender for a reminder time, THIS message is the answer,
         // whatever it classified as -- a bare "at 5pm" is not a reminder phrase and would
         // otherwise be silenced before the reminder path could read it. Route it through, and
@@ -169,11 +175,13 @@ public final class AutoResponder {
         message.rollup = incoming.rollup;
         message.placeholder = incoming.placeholder;
         message.flaggedDeleted = false;
-        message.forceReply = ((!nameReply.isEmpty() || awaitingReminderTime
+        message.forceReply = ((!nameReply.isEmpty() || !learnedReply.isEmpty()
+                        || awaitingReminderTime
                         || confirmsRing || urgentFamily || ringRequest)
                 && category.kind != MessageCategory.Kind.NONE)
                 || smartMatched
-                || followUp != ConversationContext.FollowUp.NONE;
+                || followUp != ConversationContext.FollowUp.NONE
+                || !learnedReply.isEmpty();
 
         ResponderGuards.Policy policy = new ResponderGuards.Policy();
         policy.state = state;
@@ -240,9 +248,13 @@ public final class AutoResponder {
                             state == ResponderGuards.State.LIVE);
                 }
             } else {
-                // A fixed reply set by name is the whole reply; a smart keyword match is the next
-                // choice for the generic buckets; otherwise the category composer runs.
-                if (!nameReply.isEmpty()) {
+                // A learned reply (owner-taught) is the highest-precedence wording; then a fixed
+                // name-rule reply; then a smart keyword match; otherwise the category composer.
+                if (!learnedReply.isEmpty()) {
+                    reply = ReplyTemplates.fill(learnedReply, resolvedSender,
+                            ResponderWindow.formatMinute(minuteOfDay),
+                            ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                } else if (!nameReply.isEmpty()) {
                     reply = ReplyTemplates.fill(nameReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));

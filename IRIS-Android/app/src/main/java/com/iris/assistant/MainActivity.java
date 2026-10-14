@@ -2387,11 +2387,13 @@ public class MainActivity extends Activity {
             java.util.List<String> items = new java.util.ArrayList<>();
             items.add("Delete this entry");
             boolean hasSender = who2 != null && !who2.trim().isEmpty();
+            if (hasSender) items.add("Teach a reply for " + who2);
             if (hasSender) items.add("Set a rule for " + who2);
             new AlertDialog.Builder(this)
                     .setTitle(hasSender ? who2 : "This decision")
                     .setItems(items.toArray(new String[0]), (d, which) -> {
-                        if (which == 0) {
+                        String choice = items.get(which);
+                        if (choice.equals("Delete this entry")) {
                             ResponderLog log = new ResponderLog(this);
                             final java.util.List<ResponderLog.Entry> before = log.all();
                             log.deleteOne(entry.whenMs, entry.sender, entry.verdict);
@@ -2406,6 +2408,8 @@ public class MainActivity extends Activity {
                                     })
                                     .setPositiveButton("Keep removed", null)
                                     .show();
+                        } else if (choice.startsWith("Teach a reply")) {
+                            teachReplyDialog(entry, root);
                         } else {
                             editPhoneContact(new ResponderSettings(this), who2, root, null);
                         }
@@ -2413,6 +2417,44 @@ public class MainActivity extends Activity {
             return true;
         });
         return card;
+    }
+
+    /**
+     * Teach IRIS a reply for this sender and this kind of message, from the decision log. The
+     * learned reply outranks name rules, smart replies and templates next time. Device-
+     * authenticated, because it changes what IRIS says on the owner's behalf.
+     */
+    private void teachReplyDialog(final ResponderLog.Entry entry, final View root) {
+        final EditText input = new EditText(this);
+        input.setHint("what I should reply to " + entry.sender + " for messages like this");
+        if (entry.reply != null && !entry.reply.isEmpty()) input.setText(entry.reply);
+        input.setMinLines(2);
+        new AlertDialog.Builder(this)
+                .setTitle("Teach a reply")
+                .setMessage("I'll use this for " + entry.sender + " when a message is "
+                        + entry.category.toLowerCase(java.util.Locale.ROOT) + ". You can use "
+                        + "{name}, {time} and {part_of_day}.")
+                .setView(input)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (d, w) -> authenticateThen("Teach IRIS a reply", () -> {
+                    String text = input.getText().toString().trim();
+                    if (text.isEmpty()) {
+                        toast("Nothing to save.");
+                        return;
+                    }
+                    new LearnedReplyStore(this).teach(entry.sender, entry.category, text);
+                    toast("Learned \u2014 I'll use that for " + entry.sender + ".");
+                    if (!ReplyTemplates.identifiesIris(text)) {
+                        new AlertDialog.Builder(this)
+                                .setTitle("Saved, but they'll think it was you")
+                                .setMessage("That reply names neither me nor you, so whoever "
+                                        + "matches it will assume you typed it yourself. Saved as "
+                                        + "written.")
+                                .setPositiveButton("I know", null)
+                                .show();
+                    }
+                }))
+                .show();
     }
 
     /** Tint the active sub-tab. The inactive ones stay dim so the current section is obvious. */
