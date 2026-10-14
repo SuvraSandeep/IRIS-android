@@ -288,6 +288,14 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/VernacularTest.java
 java -cp "$test_dir/responder" com.iris.assistant.VernacularTest
 
+# Profile sharing: opt-in, privacy-gated answers about the owner (role/company/city only).
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ProfileShare.java \
+  tests/ProfileShareTest.java
+java -cp "$test_dir/responder" com.iris.assistant.ProfileShareTest
+
 # Image sizing and budget. Images are orders of magnitude larger than text rows, so the budget is a
 # fraction of the ceiling: a vault full of photos must never be the reason a deleted message goes
 # uncaptured. Sample size is computed from dimensions alone, before decoding, so a camera photo is
