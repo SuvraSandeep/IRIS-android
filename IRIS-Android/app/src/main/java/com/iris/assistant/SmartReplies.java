@@ -84,9 +84,22 @@ public final class SmartReplies {
 
         String flat = " " + MessageCategory.normalise(raw) + " ";
         if (flat.trim().isEmpty()) return "";
+        java.util.Set<String> canon = PhraseMatcher.canonicalContent(flat);
+        boolean negated = PhraseMatcher.hasNegation(flat);
         Rule best = null;
+        boolean bestExact = false;
         for (Rule r : RULES) {
-            if (matches(r, flat) && (best == null || r.priority > best.priority)) best = r;
+            boolean exact = matches(r, flat);
+            // Loose matching only when there is no exact hit and no negation. It requires every
+            // content token of a phrase (and at least two of them) to be present, so it broadens
+            // recall for paraphrases ("send me the pics") without firing on one coincidental word.
+            boolean loose = !exact && !negated && looselyMatches(r, canon);
+            if (!exact && !loose) continue;
+            if (best == null || r.priority > best.priority
+                    || (r.priority == best.priority && exact && !bestExact)) {
+                best = r;
+                bestExact = exact;
+            }
         }
         return best == null ? "" : pick(best.byTone, tone);
     }
@@ -103,6 +116,18 @@ public final class SmartReplies {
     private static boolean matches(Rule r, String paddedFlat) {
         for (String phrase : r.any) {
             if (paddedFlat.contains(" " + phrase + " ")) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Order-free, synonym- and typo-tolerant match. Only phrases with at least two content tokens
+     * take part, which keeps a one-word phrase ("who") from loosely claiming an unrelated message.
+     */
+    private static boolean looselyMatches(Rule r, java.util.Set<String> canon) {
+        for (String phrase : r.any) {
+            String[] content = PhraseMatcher.contentTokens(phrase);
+            if (content.length >= 2 && PhraseMatcher.containsAll(canon, content)) return true;
         }
         return false;
     }

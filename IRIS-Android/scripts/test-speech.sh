@@ -224,6 +224,14 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/ReminderParserTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ReminderParserTest
 
+# Loose phrase matching. Synonyms, stopword drop and typo tolerance behind the smart reply layer.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/PhraseMatcher.java \
+  tests/PhraseMatcherTest.java
+java -cp "$test_dir/responder" com.iris.assistant.PhraseMatcherTest
+
 # Smart keyword replies. The additive layer that answers messages aimed at IRIS, common scenarios
 # and links, for the generic buckets only. Depends on the pure normalise/tone/owner helpers.
 mkdir -p "$test_dir/responder"
@@ -232,6 +240,7 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/ReplyTone.java \
   app/src/main/java/com/iris/assistant/ReplyTemplates.java \
   app/src/main/java/com/iris/assistant/ResponderMode.java \
+  app/src/main/java/com/iris/assistant/PhraseMatcher.java \
   app/src/main/java/com/iris/assistant/SmartReplies.java \
   tests/SmartRepliesTest.java
 java -cp "$test_dir/responder" com.iris.assistant.SmartRepliesTest

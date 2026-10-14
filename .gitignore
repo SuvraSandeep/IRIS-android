@@ -33,8 +33,6 @@ desktop.ini
 *.zip
 
 # Kiro session exports — huge, must never be committed (they break GitHub's 100MB push limit)
-now.json
-now*.json
 now - Copy.json
 noe.json
 abu.json

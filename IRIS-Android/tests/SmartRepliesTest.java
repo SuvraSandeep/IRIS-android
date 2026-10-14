@@ -111,6 +111,31 @@ public final class SmartRepliesTest {
                         .equals(SmartReplies.match("who are you", ReplyTone.Tone.PROFESSIONAL)),
                 "sarcastic differs from professional for who-are-you");
 
+        // Loose matching: paraphrases hit the right rule even without the exact phrase.
+        check(!SmartReplies.match("send me the pics", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "loose: send me the pics -> photos rule");
+        check(!SmartReplies.match("can you share the pictures with me",
+                        ReplyTone.Tone.CASUAL).isEmpty(), "loose: share the pictures");
+        check(!SmartReplies.match("can you forward the document", ReplyTone.Tone.PROFESSIONAL)
+                        .isEmpty(), "loose: forward the document -> files rule");
+        check(!SmartReplies.match("lets grab a coffee sometime", ReplyTone.Tone.CASUAL).isEmpty(),
+                "loose: grab a coffee");
+        check(!SmartReplies.match("lets meet up this weekend", ReplyTone.Tone.PROFESSIONAL)
+                        .isEmpty(), "loose: lets meet up");
+
+        // Negation suppresses a loose request match.
+        check(SmartReplies.match("dont send me the photos", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "negation suppresses the photos request");
+
+        // Precision: a past-tense statement is not a request ('sent' != 'send').
+        check(SmartReplies.match("i already sent the photos to everyone",
+                        ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "a statement about having sent photos is not a request");
+        // Precision: a one-content-token identity phrase never loosely claims an unrelated message.
+        check(SmartReplies.match("who is coming over to the party tonight",
+                        ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "'who is coming' is not an identity question");
+
         // No match stays silent, so ordinary messages are not answered by this layer.
         check(SmartReplies.match("the garden looks lovely this evening", ReplyTone.Tone.PROFESSIONAL)
                         .isEmpty(), "an ordinary message matches nothing");
