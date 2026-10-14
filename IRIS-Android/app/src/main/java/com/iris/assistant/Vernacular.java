@@ -393,7 +393,7 @@ public final class Vernacular {
                 "Having a personal AI does make him look like a bada loka, I won't lie. I'll pass "
                         + "your roast along! IRIS.",
                 "No attitude, just offline! Pinned this for " + O + ". IRIS."));
-        x.add(r(42, "pagal hai kya|baya ki|pagla|dimag kharab|sanki|baya ta nuhan",
+        x.add(r(42, "pagal hai kya|baya ki|pagla|dimag kharab|sanki|baya ta nuhan|pagala",
                 "Maybe a little \u2014 he did spend his free time coding me! I'm IRIS, " + O + "'s "
                         + "assistant, and I'll pass your message along.",
                 "Haha he did code a personal bot, so you might have a point! I'll tell " + O

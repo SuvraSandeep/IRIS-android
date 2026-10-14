@@ -4942,11 +4942,13 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void handleNotificationSummary() {
-        java.util.List<NotificationSummary.Entry> entries = new java.util.ArrayList<>();
+        java.util.List<NotificationTriage.Item> entries = new java.util.ArrayList<>();
         for (NotificationStore.Item it : NotificationStore.recent(this, 100)) {
-            if (it != null) entries.add(new NotificationSummary.Entry(it.appLabel, it.title));
+            if (it != null) {
+                entries.add(new NotificationTriage.Item(it.appLabel, it.title, it.text, it.pkg));
+            }
         }
-        String summary = NotificationSummary.summarize(entries);
+        String summary = NotificationTriage.summarize(entries);
         LogStore.append(this, "NOTIF", "Summary of " + entries.size());
         broadcastMessage(summary);
         speakThenRun(summary, this::rearmAfterAction);

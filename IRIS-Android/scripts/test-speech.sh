@@ -224,6 +224,17 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/SmsSafetyTest.java
 java -cp "$test_dir/responder" com.iris.assistant.SmsSafetyTest
 
+# Triage digest: cluster waiting notifications by person, flag urgent, keep shortcodes out.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/SentimentScore.java \
+  app/src/main/java/com/iris/assistant/MessagingApp.java \
+  app/src/main/java/com/iris/assistant/SmsSafety.java \
+  app/src/main/java/com/iris/assistant/NotificationTriage.java \
+  tests/NotificationTriageTest.java
+java -cp "$test_dir/responder" com.iris.assistant.NotificationTriageTest
+
 # Reminder parsing. Task extraction plus a pure time grammar (in N, at a clock time, tomorrow,
 # tonight, a weekday) resolved against an injected clock, so no date class and no timezone bug.
 mkdir -p "$test_dir/responder"
