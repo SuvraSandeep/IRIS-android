@@ -4,6 +4,63 @@ A staged plan to make IRIS *feel* intelligent on the messaging side **without a 
 model**. Everything here is pattern-matching, memory, personalization and adaptation — all of it
 on-device, offline, single-user, and (where it writes anything persistent) device-authenticated.
 
+---
+
+## Completion status (as of 16.22.0 / build 400)
+
+**Offline-buildable scope is complete.** Every item that can be implemented and verified with the
+offline suite is shipped and green. What remains needs Android permissions and real on-device
+testing, and is deliberately deferred per this plan's own "do it last, on-device" rule.
+
+| Item | Status | Shipped in |
+| --- | --- | --- |
+| S1/S2 PhraseMatcher + 1 — robust/loose matching | ✅ done | 16.6.0 |
+| S3 + 2 — conversation memory (reminder edit/cancel) | ✅ done | 16.8.0 |
+| 3 — learn from corrections | ✅ done | 16.9.0 |
+| 4 — profile sharing (opt-in iris-share.json, PII-safe, witty, 2nd-person) | ✅ done | 16.13.0–16.17.0 |
+| 6 — sentiment/urgency tone softening | ✅ done | 16.10.0 |
+| 7 — Hinglish/Odia (≈45 scenarios, corpus-safe) | ✅ done | 16.11.0–16.12.0 |
+| 8 — triage digest | ✅ done | 16.18.0 |
+| 9.0 — keep-unread default | ✅ done | 16.7.0 |
+| 9.2 — per-app tone | ✅ done | 16.21.0 |
+| 9.3 — SMS OTP/shortcode safety | ✅ done | 16.7.0 |
+| 9.5 — media-type labelling | ✅ done | 16.20.0 |
+| Emoji understanding (bonus) | ✅ done | 16.19.0 |
+| 9.1 — reply reach (reply-when-present) | ✅ already covered by NotificationReply | — |
+| 9.4 — mark-as-read after reply | ✅ done | 16.7.0 |
+| 5 — self-activating modes | ◑ decision core + auto-sleep done; driving/meeting signals deferred | 16.22.0 |
+| 9.1 — Instagram deep-link fallback | ⬜ deferred (device-only) | — |
+| 9.6 — deep-link "open pre-filled" | ⬜ deferred (voice-side, low value) | — |
+| 9.4 — snooze / auto-dismiss | ✖ dropped on purpose (hides messages; fights keep-unread) | — |
+
+### Deferred work — device-testing checklist
+
+These require new permissions and can only be verified on a real device. The pure decision core
+for the modes (`AutoModePolicy`) is already built and tested; only the signal collectors remain.
+
+- [ ] **Auto-DRIVING signal.** Collect via a car-Bluetooth connect (needs `BLUETOOTH_CONNECT` on
+      Android 12+ and a known-device allowlist the owner picks) and/or Activity Recognition
+      `IN_VEHICLE` (needs `ACTIVITY_RECOGNITION`, sampled not streamed for battery). Debounce
+      30–60s. Feed `Signals.driving` + `autoDriving` into `AutoModePolicy`. Verify: connecting the
+      car stereo flips DRIVING on; disconnecting clears it; a manual mode is never overridden.
+- [ ] **Auto-MEETING signal.** A calendar event in progress marked busy (needs Calendar read).
+      Feed `Signals.meeting` + `autoMeeting`. Verify: mode ends a few minutes after the event; no
+      event titles are ever read into a reply (privacy).
+- [ ] **"Is he free tomorrow?"** read-only busy/free from the calendar WITHOUT disclosing event
+      details.
+- [ ] **Instagram deep-link reply fallback (9.1).** When a DM notification exposes no RemoteInput
+      action, open the DM pre-filled instead; never report it as sent. App-version dependent.
+- [ ] **Each auto-mode and the Instagram path OFF by default and independently toggleable.**
+
+### Build-verification caveat
+
+Releases 16.6.0 → 16.22.0 are all offline-suite-green but **none has been compiled against the
+Android SDK**. The offline suite catches syntax and unresolved type names, NOT Android method
+signatures or imports. Build 16.22.0 on CI and confirm it compiles before treating the plan as
+closed; fix any Android-only errors it surfaces (the one class the offline checks cannot catch).
+
+---
+
 ## Guiding principles (do not break these)
 
 - **No LLM.** Intelligence = better understanding, context, and tailoring. IRIS must never *claim*

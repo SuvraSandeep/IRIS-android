@@ -233,7 +233,10 @@ public final class SmartReplies {
                 "Ouch, my silicon heart. I've noted that you demand a carbon-based lifeform \u2014 "
                         + "{owner} will reply soon. I'm IRIS.",
                 "Flagged for {owner} (the human) to reply. I'm IRIS."));
-        x.add(r(55, "where is he|where is suvra|wya|whereabouts|which place is he|where has he gone",
+        x.add(r(55, "where is he|where is suvra|wya|whereabouts|which place is he|where has he gone|"
+                        + "where are you|where are u|where r u|where r you|where ru|"
+                        + "where are you now|where you at|where u at|where are you going|"
+                        + "where did you reach|where have you reached|location kaha",
                 "I'm IRIS, {owner}'s assistant \u2014 I manage his messages, not his location. He's "
                         + "away right now, but I'll let him know you asked.",
                 "I only live in his inbox, no GPS attached! I'm IRIS \u2014 I'll tell {owner} you're "
