@@ -224,6 +224,18 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/ReminderParserTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ReminderParserTest
 
+# Smart keyword replies. The additive layer that answers messages aimed at IRIS, common scenarios
+# and links, for the generic buckets only. Depends on the pure normalise/tone/owner helpers.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/ReplyTemplates.java \
+  app/src/main/java/com/iris/assistant/ResponderMode.java \
+  app/src/main/java/com/iris/assistant/SmartReplies.java \
+  tests/SmartRepliesTest.java
+java -cp "$test_dir/responder" com.iris.assistant.SmartRepliesTest
+
 # Image sizing and budget. Images are orders of magnitude larger than text rows, so the budget is a
 # fraction of the ceiling: a vault full of photos must never be the reason a deleted message goes
 # uncaptured. Sample size is computed from dimensions alone, before decoding, so a camera photo is

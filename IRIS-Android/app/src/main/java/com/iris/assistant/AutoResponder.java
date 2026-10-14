@@ -133,6 +133,14 @@ public final class AutoResponder {
         boolean awaitingReminderTime =
                 !new ReminderStore(context).awaitingTask(conversationKey).isEmpty();
 
+        // Smart keyword replies: an additive layer for messages the classifier left generic
+        // (someone talking to IRIS, a bare question, an unremarkable or unmatched message, or a
+        // link). It fires ONLY for those generic buckets, so greetings, thanks, festivals, urgent
+        // messages and reminders keep their existing wording untouched.
+        String smartReply = SmartReplies.match(incoming.body, tone);
+        boolean smartMatched = !smartReply.isEmpty()
+                && SmartReplies.handlesCategory(category.kind);
+
         // ─── Guards ───
         ResponderGuards.Message message = new ResponderGuards.Message();
         message.category = category.kind;
@@ -150,9 +158,10 @@ public final class AutoResponder {
         message.rollup = incoming.rollup;
         message.placeholder = incoming.placeholder;
         message.flaggedDeleted = false;
-        message.forceReply = (!nameReply.isEmpty() || awaitingReminderTime
+        message.forceReply = ((!nameReply.isEmpty() || awaitingReminderTime
                         || confirmsRing || urgentFamily || ringRequest)
-                && category.kind != MessageCategory.Kind.NONE;
+                && category.kind != MessageCategory.Kind.NONE)
+                || smartMatched;
 
         ResponderGuards.Policy policy = new ResponderGuards.Policy();
         policy.state = state;
@@ -212,13 +221,19 @@ public final class AutoResponder {
                             state == ResponderGuards.State.LIVE);
                 }
             } else {
-                // A fixed reply set by name is the whole reply: no classification, no template, no
-                // placeholders beyond the standard fill so {name} still works if the owner used it.
-                reply = message.forceReply
-                        ? ReplyTemplates.fill(nameReply, resolvedSender,
-                                ResponderWindow.formatMinute(minuteOfDay),
-                                ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now))
-                        : compose(settings, category, tone, resolvedSender, now, minuteOfDay);
+                // A fixed reply set by name is the whole reply; a smart keyword match is the next
+                // choice for the generic buckets; otherwise the category composer runs.
+                if (!nameReply.isEmpty()) {
+                    reply = ReplyTemplates.fill(nameReply, resolvedSender,
+                            ResponderWindow.formatMinute(minuteOfDay),
+                            ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                } else if (smartMatched) {
+                    reply = ReplyTemplates.fill(smartReply, resolvedSender,
+                            ResponderWindow.formatMinute(minuteOfDay),
+                            ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                } else {
+                    reply = compose(settings, category, tone, resolvedSender, now, minuteOfDay);
+                }
             }
             // A category with no text left to send is a silence, not an empty message.
             if (reply.isEmpty()) verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
