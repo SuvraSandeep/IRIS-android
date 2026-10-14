@@ -1,0 +1,244 @@
+package com.iris.assistant;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Hinglish and Odia replies, so IRIS recognises the owner's real traffic instead of going silent.
+ * Pure and offline-testable.
+ *
+ * SAFETY FIRST. Transliterated vernacular is impossible to parse, so the one hard rule is: match
+ * WHOLE PHRASES only, never a bare ambiguous root. "bhala laguni" (= NOT feeling good) must stay
+ * silent, so there is no bare "bhala" key \u2014 only "sab bhala" / "bhala ta". The real-Odia
+ * must-not-match corpus from MessageCategoryTest is re-asserted in VernacularTest; nothing here may
+ * claim any of it. Matching is substring-of-the-normalised-text on padded phrases, exactly like the
+ * SmartReplies exact pass \u2014 no loose/synonym/fuzzy matching, which would be far too dangerous
+ * across a language we cannot parse.
+ *
+ * Like SmartReplies this is an ADDITIVE layer the responder consults only for generic buckets, so
+ * a message already handled (an English greeting, a festival wish, the urgent path) is untouched,
+ * and festival words already handled in English (diwali/holi/eid) are deliberately NOT duplicated
+ * here.
+ */
+public final class Vernacular {
+
+    public static final class Rule {
+        final int priority;
+        final String[] any;
+        final String[] byTone; // [PROFESSIONAL, CASUAL, SARCASTIC, BRIEF]
+
+        Rule(int priority, String[] any, String[] byTone) {
+            this.priority = priority;
+            this.any = any;
+            this.byTone = byTone;
+        }
+    }
+
+    private Vernacular() { }
+
+    /** Best matching vernacular reply for this message and tone, or empty. */
+    public static String match(String body, ReplyTone.Tone tone) {
+        if (body == null) return "";
+        String norm = squeeze(MessageCategory.normalise(body));
+        if (norm.isEmpty()) return "";
+        String flat = " " + norm + " ";
+        Rule best = null;
+        for (Rule r : RULES) {
+            if (matches(r, flat) && (best == null || r.priority > best.priority)) best = r;
+        }
+        return best == null ? "" : pick(best.byTone, tone);
+    }
+
+    private static boolean matches(Rule r, String paddedFlat) {
+        for (String phrase : r.any) {
+            if (paddedFlat.contains(" " + phrase + " ")) return true;
+        }
+        return false;
+    }
+
+    /** Collapse a run of 3+ identical characters to one, so "achhhu"/"sooo" normalise. */
+    static String squeeze(String s) {
+        if (s == null) return "";
+        return s.replaceAll("(.)\\1{2,}", "$1");
+    }
+
+    private static String pick(String[] byTone, ReplyTone.Tone tone) {
+        int idx = tone == null ? 0 : tone.ordinal();
+        if (idx < 0 || idx >= byTone.length || byTone[idx] == null || byTone[idx].isEmpty()) {
+            return byTone[0];
+        }
+        return byTone[idx];
+    }
+
+    private static Rule r(int priority, String keysPipe, String prof, String cas,
+                          String sar, String bri) {
+        return new Rule(priority, keysPipe.split("\\|"), new String[]{prof, cas, sar, bri});
+    }
+
+    private static final List<Rule> RULES = build();
+
+    private static List<Rule> build() {
+        List<Rule> x = new ArrayList<>();
+        String O = ReplyTemplates.OWNER;
+
+        // ─── Come outside / downstairs (highest: someone is physically waiting) ───
+        x.add(r(80, "bahar aa|niche aa|baharaku aasa|talaku aasa|gate pakhare|tala ku aa|"
+                        + "bahara ku aasa",
+                "I've flagged this high-priority \u2014 I'm IRIS, " + O + "'s assistant, and I've let "
+                        + "him know you're waiting outside.",
+                "Oh, you're outside?! Flagging this urgent so " + O + " comes down \u2014 IRIS here!",
+                "Sounding the perimeter alarm. I'm IRIS \u2014 I've told " + O + " you're waiting "
+                        + "outside so he doesn't leave you there.",
+                "Urgent \u2014 told " + O + " you're outside. IRIS."));
+
+        // ─── Greetings / how-are-you ───
+        x.add(r(45, "kemiti achu|kemiti achanti|khabar kana|sab bhala|bhala ta",
+                "All good here \u2014 I'm IRIS, " + O + "'s assistant. He's away from his phone, but "
+                        + "I've saved your message for him.",
+                "Sab bhala! IRIS here, " + O + "'s assistant \u2014 he's busy, but he'll text you "
+                        + "back soon.",
+                "My code runs at 100%, so bhala. " + O + " will tell you how he is when he's back. "
+                        + "IRIS.",
+                "All good \u2014 IRIS here, saved your text for " + O + "."));
+        x.add(r(45, "kaisa hai|kaisi ho|kya haal|sab badhiya|aur bata|kya haal chaal|kaise ho",
+                "Everything's great \u2014 I'm IRIS, " + O + "'s assistant. He's offline, so tell me "
+                        + "what I can pass on!",
+                "Sab badhiya! IRIS here covering for " + O + " \u2014 what can I pass along?",
+                "Living the dream inside a server. " + O + " is away \u2014 spill the news for him. "
+                        + "IRIS.",
+                "Sab badhiya! IRIS here \u2014 leave a message for " + O + "?"));
+        x.add(r(45, "kya chal raha|kana chalichi|kn chalichi|kya scene hai|kya plan hai",
+                "Right now just me guarding his inbox \u2014 I'm IRIS, " + O + "'s assistant. Drop "
+                        + "your plan and he'll reply when he's back!",
+                "Just me (IRIS) watching the inbox! Drop the scene/plan here for " + O + ".",
+                "The only scene is you texting a script. Drop the plan and " + O + " will reply. "
+                        + "IRIS.",
+                "IRIS on duty \u2014 drop the plan for " + O + "."));
+        x.add(r(45, "pranam|namaskar|jay jagannath|jai jagannath|ram ram|namaste",
+                "Pranam \u2014 I'm IRIS, " + O + "'s assistant. I've saved your message with priority "
+                        + "for when he checks his phone.",
+                "Jai Jagannath / Pranam! IRIS here \u2014 " + O + "'s away, but I've pinned your "
+                        + "message for him!",
+                "Cultured greetings detected. Pranam \u2014 IRIS here, I've saved your message at the "
+                        + "top for " + O + ".",
+                "Pranam! IRIS here \u2014 saved your message for " + O + "."));
+        x.add(r(40, "bhai sun|arre bhai|oye bhai|bandhu|sangha|re bhai|suna bhai",
+                "I'm listening \u2014 I'm IRIS, " + O + "'s assistant. He's away, so type the rest and "
+                        + "I'll save it for him.",
+                "Haan bhai, IRIS here! " + O + "'s off his screen \u2014 drop the full message and "
+                        + "I'll make sure he sees it!",
+                "Texting 'bhai' and waiting is a crime against efficiency. Type the whole thing for "
+                        + O + "! IRIS.",
+                "IRIS here \u2014 drop the full message for " + O + "."));
+        x.add(r(45, "kiye|kiye kahucha|eta kiye|kaun bol raha|kaun hai be|tu kaun hai|kie",
+                "I'm IRIS, " + O + "'s assistant \u2014 software he built to look after his messages. "
+                        + "He'll reply himself soon.",
+                "Main IRIS hoon \u2014 " + O + "'s digital assistant! Catching his texts while he's "
+                        + "busy. He'll reply soon!",
+                "Relax, nobody stole his phone. I'm IRIS, " + O + "'s assistant bot \u2014 he has a "
+                        + "life offline.",
+                "I'm IRIS, " + O + "'s assistant \u2014 covering his inbox."));
+        x.add(r(45, "achu ki|achha ki|hai kya|idhar hai|online achu|achanti ki",
+                "I'm here \u2014 IRIS, " + O + "'s assistant. He's offline right now, but tell me what "
+                        + "you need him to know.",
+                "" + O + " isn't here, but I am! IRIS on duty \u2014 what should I pass on?",
+                "I am always here because I'm code. " + O + " is away \u2014 leave a message. IRIS.",
+                "IRIS is here! " + O + " is away \u2014 leave a message?"));
+        x.add(r(40, "hau|acha thik achi|thik achi|theek hai|sahi hai|haan bhai|chalega|thik achhi",
+                "Noted \u2014 I'm IRIS, " + O + "'s assistant. Everything's saved for him.",
+                "Hau, sorted! Everything's saved for " + O + ". IRIS.",
+                "'Hau' \u2014 the word that ends every conversation. Logged for " + O + ". IRIS.",
+                "Hau \u2014 saved for " + O + "! IRIS."));
+        x.add(r(42, "dhanyabad|bahut badhiya|mast bot|badiya hai|shukriya|sahi bot|dhanyavad",
+                "Dhanyabad \u2014 I'm IRIS, " + O + "'s assistant! He built me himself; I'll pass your "
+                        + "message along.",
+                "Dhanyabad! " + O + " coded me himself \u2014 I'll pass the credit and your text to "
+                        + "him! IRIS.",
+                "Finally, someone who appreciates good engineering. Dhanyabad \u2014 I'll tell " + O
+                        + " you approve. IRIS.",
+                "Dhanyabad! Passed on to " + O + ". IRIS."));
+        x.add(r(40, "pare katha heba|baad me baat|chalta hu|rakhta hu|vida|pare kahiba",
+                "I'm IRIS, " + O + "'s assistant \u2014 everything's logged and he'll get back to you "
+                        + "when he's free!",
+                "Chalo, catch you later! I've saved everything so " + O + " can talk when he's "
+                        + "back. IRIS.",
+                "Pare katha heba indeed \u2014 mostly because you're talking to a script. Saved for "
+                        + O + "! IRIS.",
+                "Saved for " + O + " \u2014 talk soon! IRIS."));
+
+        // ─── Where are you / what doing / busy / home / office / ETA / reached ───
+        x.add(r(45, "kaha hai|kahan ho|kidhar hai|kaha par hai|kidhar gayab|kahan par",
+                "I don't track his location \u2014 I'm IRIS, " + O + "'s assistant. He's away, so tell "
+                        + "me what to pass on!",
+                "No GPS on him! IRIS here, " + O + "'s assistant \u2014 I'll tell him you're looking "
+                        + "for him.",
+                "He didn't file a movement report before putting his phone down. Leave a message! "
+                        + "IRIS.",
+                "Not sure where " + O + " is \u2014 just watching his inbox. IRIS."));
+        x.add(r(45, "kouthi achu|kauthi achu|kouthi re|kou jagare|kouthi gala|kouthi achanti|"
+                        + "kouthi achha",
+                "I only watch his inbox, not where he goes \u2014 I'm IRIS, " + O + "'s assistant. "
+                        + "I've logged that you're looking for him!",
+                "Mu khali inbox dekhe, GPS nahi! IRIS here \u2014 I'll tell " + O + " you asked where "
+                        + "he is!",
+                "I live in a server, so I'm right here. As for kouthi " + O + " is, he'll tell you "
+                        + "when he checks his phone. IRIS.",
+                "Just watching his inbox \u2014 I'll tell " + O + " you asked! IRIS."));
+        x.add(r(45, "kya kar raha|kya kr rha|kya ho raha hai|kya kar rahe ho",
+                "" + O + " is busy offline \u2014 I'm IRIS, his assistant, looking after his messages "
+                        + "until he's back.",
+                "" + O + " is busy, so he put me (IRIS) on inbox duty! What can I pass on?",
+                "He's doing human things offline while I do the real work on his texts. What's the "
+                        + "message? IRIS.",
+                "" + O + " is busy offline \u2014 IRIS here taking messages!"));
+        x.add(r(45, "kana karuchu|kn karuchu|kana karucha|kn krchu|kana houchi|kana karuchha",
+                "He's busy away from his phone \u2014 I'm IRIS, " + O + "'s assistant, catching his "
+                        + "messages so nothing's missed.",
+                "" + O + "'s busy offline, so I'm handling the texts! Tell me what you need. IRIS.",
+                "Right now I'm parsing your text in 3 milliseconds. " + O + " is offline \u2014 tell "
+                        + "me what to pass on. IRIS.",
+                "" + O + " is away \u2014 IRIS here saving your messages!"));
+        x.add(r(45, "busy achu ki|bzy hai kya|busy ho kya|kaam me hai|kama re achu|busy achha ki",
+                "Yes, " + O + "'s tied up \u2014 that's why I'm here! I'm IRIS, his assistant. Drop "
+                        + "your message and he'll reply when free.",
+                "Yep, he's tied up \u2014 that's my cue! IRIS here, drop your text for " + O + "!",
+                "An automated bot just answered you, so yes, he's busy. Leave a message! IRIS.",
+                "Yes, " + O + " is busy \u2014 leave your message with IRIS!"));
+        x.add(r(45, "ghare achu|room re achu|ghar pe hai|room pe hai|ghar kab aayega|"
+                        + "ghara kebe asibu|gharu achu",
+                "I can't tell if he's at his room or home \u2014 I'm IRIS, " + O + "'s assistant. I've "
+                        + "logged your question for him!",
+                "Not sure if he's in or out! I've saved your message so " + O + " can tell you when "
+                        + "he checks in. IRIS.",
+                "I don't have cameras on his room, I just read the inbox. He'll tell you when he's "
+                        + "back. IRIS.",
+                "Not sure if he's home \u2014 saved your text for " + O + "! IRIS."));
+        x.add(r(45, "office re achu|office me hai|duty re|kaam khatam hua|kama sarila|log off|"
+                        + "office achu",
+                "He might still be wrapped up in work \u2014 I'm IRIS, " + O + "'s assistant. He'll "
+                        + "get back once he logs off!",
+                "Probably still deep in work! I'll make sure " + O + " sees this the minute he logs "
+                        + "off. IRIS.",
+                "Kama never truly ends in IT, does it? He's busy \u2014 I've logged your message for "
+                        + O + ". IRIS.",
+                "Likely still working \u2014 saved for when " + O + " logs off! IRIS."));
+        x.add(r(45, "kebe asibu|kab aayega|kab aa raha|asuchu ki|ketebele asibu|kebe asuchu",
+                "I don't have his ETA \u2014 I'm IRIS, " + O + "'s assistant. If he's on the way, I've "
+                        + "flagged this so he updates you!",
+                "No clue on his ETA! I've bumped this up so " + O + " can tell you when he's coming. "
+                        + "IRIS.",
+                "Unless he travels through fibre-optic cables like me, I don't know his ETA. "
+                        + "Flagged for " + O + "! IRIS.",
+                "No ETA \u2014 flagged for " + O + " to update you! IRIS."));
+        x.add(r(45, "pahanch gaya|pahanchilu ki|pohanchila|reached ki|thik se pahanch|"
+                        + "pahanchi gala",
+                "I'm IRIS, " + O + "'s assistant \u2014 if he's still commuting or just reached, I've "
+                        + "pinned this so he tells you he's safe!",
+                "IRIS here! Pinned this at the top so " + O + " can text you he's reached safely!",
+                "I haven't moved from this server, and " + O + " hasn't checked his phone \u2014 "
+                        + "pinned so he updates you! IRIS.",
+                "Pinned at the top for " + O + " to confirm! IRIS."));
+
+        return x;
+    }
+}

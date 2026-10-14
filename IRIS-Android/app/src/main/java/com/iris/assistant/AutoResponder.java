@@ -162,6 +162,13 @@ public final class AutoResponder {
         boolean smartMatched = !smartReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
+        // Hinglish/Odia layer: recognise the owner's real vernacular traffic instead of silence.
+        // Same gating as smart replies (generic buckets only), and whole-phrase matched so the
+        // real-Odia must-not-match corpus stays silent.
+        String vernReply = Vernacular.match(incoming.body, tone);
+        boolean vernMatched = !vernReply.isEmpty()
+                && SmartReplies.handlesCategory(category.kind);
+
         // ─── Guards ───
         ResponderGuards.Message message = new ResponderGuards.Message();
         message.category = category.kind;
@@ -188,6 +195,7 @@ public final class AutoResponder {
                         || confirmsRing || urgentFamily || ringRequest)
                 && category.kind != MessageCategory.Kind.NONE)
                 || smartMatched
+                || vernMatched
                 || followUp != ConversationContext.FollowUp.NONE
                 || !learnedReply.isEmpty();
 
@@ -264,6 +272,10 @@ public final class AutoResponder {
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
                 } else if (!nameReply.isEmpty()) {
                     reply = ReplyTemplates.fill(nameReply, resolvedSender,
+                            ResponderWindow.formatMinute(minuteOfDay),
+                            ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                } else if (vernMatched) {
+                    reply = ReplyTemplates.fill(vernReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
                 } else if (smartMatched) {
