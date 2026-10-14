@@ -369,8 +369,11 @@ public final class ResponderGuards {
         if (incomingText == null || lastSentReply == null) return false;
         String incoming = MessageCategory.normalise(incomingText);
         String sent = MessageCategory.normalise(lastSentReply);
-        // Short strings coincide too easily to be evidence of anything.
-        if (incoming.isEmpty() || sent.length() < 12) return false;
+        // Both strings must be substantial. A short incoming like "hi" is a substring of almost
+        // any reply (our replies contain "his", "this", etc.), so without this a double-texted
+        // "Hi" was wrongly read as our own reply echoing back and silenced \u2014 even with
+        // reply-to-every-message on. A genuine loop is a long reply coming back near-verbatim.
+        if (incoming.length() < 12 || sent.length() < 12) return false;
         return incoming.contains(sent) || sent.contains(incoming);
     }
 

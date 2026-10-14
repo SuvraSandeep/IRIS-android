@@ -21,6 +21,10 @@ public final class ReminderParserTest {
         relativeTimes();
         clockTimes();
         tomorrowAndTonight();
+        shortformsAndTypos();
+        bareTimes();
+        absoluteDates();
+        broaderTriggers();
         weekdays();
         noTime();
         taskExtraction();
@@ -74,6 +78,66 @@ public final class ReminderParserTest {
 
         ReminderParser.Result night = ReminderParser.parse("remind me to lock up tonight");
         equal(night.minuteOfDay, 20 * 60, "tonight defaults to 8pm");
+    }
+
+    private static void shortformsAndTypos() {
+        check(ReminderParser.parse("remind me to call tmrw").tomorrow, "tmrw is tomorrow");
+        check(ReminderParser.parse("remind me to call tomorow").tomorrow, "typo tomorow");
+        check(ReminderParser.parse("remind me to call 2moro").tomorrow, "2moro is tomorrow");
+        ReminderParser.Result today = ReminderParser.parse("remind me to call tdy at 5pm");
+        equal(today.when, ReminderParser.When.AT_TIME, "tdy is today, a timed reminder");
+        equal(today.daysAhead, 0, "today is zero days ahead");
+        equal(today.minuteOfDay, 17 * 60, "5pm on tdy");
+        ReminderParser.Result da = ReminderParser.parse("remind me to call day after tomorrow");
+        equal(da.daysAhead, 2, "day after tomorrow is two days ahead");
+        equal(ReminderParser.delayMinutes(da, 10 * 60, 4), 2 * 1440 - 10 * 60 + 9 * 60,
+                "day after tomorrow defaults to 9am two days out");
+    }
+
+    private static void bareTimes() {
+        ReminderParser.Result r = ReminderParser.parse("remind me to call 5pm");
+        equal(r.when, ReminderParser.When.AT_TIME, "bare 5pm is a time");
+        equal(r.minuteOfDay, 17 * 60, "bare 5pm is 17:00");
+        ReminderParser.Result tm = ReminderParser.parse("remind me to call tomorrow 8am");
+        check(tm.tomorrow, "tomorrow 8am without 'at'");
+        equal(tm.minuteOfDay, 8 * 60, "bare 8am parsed");
+    }
+
+    private static void absoluteDates() {
+        ReminderParser.Result slash = ReminderParser.parse("remind me to pay on 25/12 at 6pm");
+        equal(slash.when, ReminderParser.When.ON_DATE, "25/12 is a date");
+        equal(slash.day, 25, "day 25");
+        equal(slash.month, 12, "month 12");
+        equal(slash.minuteOfDay, 18 * 60, "6pm on the date");
+        // From 20 Dec 2026 09:00 to 25 Dec 2026 18:00.
+        equal(ReminderParser.delayMinutes(slash, 9 * 60, 1, 20, 12, 2026),
+                5 * 1440 + (18 * 60 - 9 * 60), "five days and nine hours to 25 Dec 6pm");
+
+        ReminderParser.Result dm = ReminderParser.parse("remind me to wish him 25 dec");
+        equal(dm.when, ReminderParser.When.ON_DATE, "25 dec is a date");
+        equal(dm.day, 25, "25 dec day");
+        equal(dm.month, 12, "25 dec month");
+        ReminderParser.Result md = ReminderParser.parse("remind me to wish him dec 25");
+        equal(md.day, 25, "dec 25 day");
+        equal(md.month, 12, "dec 25 month");
+
+        // Without the date overload, ON_DATE cannot resolve, so the responder asks.
+        equal(ReminderParser.delayMinutes(slash, 9 * 60, 1), -1,
+                "a date needs the date overload to resolve");
+
+        // A date already past this year rolls to next year.
+        ReminderParser.Result jan = ReminderParser.parse("remind me on 1/1");
+        check(ReminderParser.delayMinutes(jan, 9 * 60, 1, 25, 12, 2026) > 0,
+                "1 Jan from 25 Dec rolls into next year, positive");
+    }
+
+    private static void broaderTriggers() {
+        equal(ReminderParser.parse("set an alarm to take meds at 8am").when,
+                ReminderParser.When.AT_TIME, "set an alarm is a reminder time");
+        check(!ReminderParser.parse("ping me to review the doc tomorrow").task.isEmpty(),
+                "ping me extracts a task");
+        check(ReminderParser.parse("reminder submit form tomorrow").tomorrow,
+                "reminder ... tomorrow");
     }
 
     private static void weekdays() {

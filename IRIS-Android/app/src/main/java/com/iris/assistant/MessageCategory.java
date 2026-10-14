@@ -179,10 +179,13 @@ public final class MessageCategory {
      * "to"; a bare "remember" does not trigger. The test pins both directions.
      */
     private static final List<String> REMINDER_PHRASES = Arrays.asList(
-            "remind me", "remind him", "remind suvra", "remind stg",
+            "remind me", "remind him", "remind suvra", "remind stg", "remind",
+            "reminder", "reminder to", "set a reminder", "set an alarm", "set alarm",
             "dont forget to", "don t forget to", "do not forget to",
-            "remember to", "please remember", "set a reminder", "make a note to",
-            "note to self", "note that you need to");
+            "dont let me forget", "don t let me forget", "do not let me forget",
+            "remember to", "please remember", "make a note to", "make a note",
+            "note to self", "note that you need to", "ping me", "alert me", "nudge me",
+            "wake me up to", "wake me to");
 
     /**
      * Phrases that can only be addressing the responder.
@@ -196,15 +199,27 @@ public final class MessageCategory {
     private static final List<String> IRIS_PHRASES = Arrays.asList(
             "are you a bot", "are you a robot", "are you a machine", "are you real",
             "are you human", "are you an assistant", "are you his assistant",
+            "are you a chatbot", "are you chatbot", "are you a person", "are you alive",
+            "are you ai", "are you an ai", "are you siri", "are you alexa",
+            "are you google assistant", "are you a computer",
             "is this a bot", "is this a robot", "is this a machine", "is this automated",
-            "is this an auto reply", "is this an automated reply",
+            "is this an auto reply", "is this an automated reply", "is this a human",
+            "is this iris", "is this a real person",
             "am i talking to a bot", "am i talking to a robot", "am i talking to a machine",
-            "who am i talking to", "is anyone actually there",
+            "am i talking to a person", "am i speaking to a bot", "am i speaking to a human",
+            "who am i talking to", "who am i speaking to", "is anyone actually there",
+            "talk to a human", "speak to a human", "a real person",
             // Direct questions aimed at IRIS itself, which the owner wants answered interactively.
             "who are you", "what are you", "what is iris", "who is iris", "whats iris",
-            "what can you do", "what do you do", "can you help", "can you help me",
-            "who made you", "who created you", "who built you", "are you ai", "are you an ai",
-            "is iris there", "hello iris", "hi iris", "hey iris", "thanks iris", "thank you iris");
+            "what can you do", "what do you do", "what else can you do", "how can you help",
+            "can you help", "can you help me", "what are your features", "what are you capable of",
+            "who made you", "who created you", "who built you", "who programmed you",
+            "who do you work for", "whose assistant are you", "are you iris", "you are iris",
+            "whats your name", "what is your name", "what s your name", "do you have a name",
+            "introduce yourself", "tell me about yourself", "how do you work",
+            "is iris there", "hello iris", "hi iris", "hey iris", "hii iris", "thanks iris",
+            "thank you iris", "ok iris", "okay iris", "iris are you there", "iris you there",
+            "iris are you awake", "yo iris", "good morning iris", "good night iris");
 
     private static final List<String> URGENT_PHRASES = Arrays.asList(
             "call me", "need you", "right now", "very important", "pick up", "answer me");

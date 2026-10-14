@@ -157,6 +157,13 @@ public class MessageCategoryTest {
         kind("are you a robot?", MessageCategory.Kind.TO_IRIS, "asking whether it is a robot");
         kind("am i talking to a machine", MessageCategory.Kind.TO_IRIS, "asking what it is");
         kind("who am i talking to", MessageCategory.Kind.TO_IRIS, "asking who it is");
+        kind("what's your name", MessageCategory.Kind.TO_IRIS, "asking its name");
+        kind("introduce yourself", MessageCategory.Kind.TO_IRIS, "asking it to introduce itself");
+        kind("what can you do", MessageCategory.Kind.TO_IRIS, "asking its capabilities");
+        kind("are you siri", MessageCategory.Kind.TO_IRIS, "asking if it's another assistant");
+        kind("can i speak to a human", MessageCategory.Kind.TO_IRIS, "asking for a human");
+        kind("hey iris you there", MessageCategory.Kind.TO_IRIS, "named with a follow-on");
+        kind("good morning iris", MessageCategory.Kind.TO_IRIS, "greeting it by name");
 
         // Being named beats a mention of Suvra, because the sender has worked out what they are
         // talking to and answering as though the message were for Suvra is plainly wrong.
@@ -217,6 +224,10 @@ public class MessageCategoryTest {
         kind("remember to water the plants", MessageCategory.Kind.REMINDER, "remember to");
         kind("set a reminder for the dentist at 5", MessageCategory.Kind.REMINDER,
                 "set a reminder");
+        kind("reminder: submit the form tomorrow", MessageCategory.Kind.REMINDER, "reminder noun");
+        kind("set an alarm for 6am", MessageCategory.Kind.REMINDER, "set an alarm");
+        kind("ping me when it is 5", MessageCategory.Kind.REMINDER, "ping me");
+        kind("wake me up to catch the train", MessageCategory.Kind.REMINDER, "wake me up to");
 
         // Must NOT be reminders: reminiscence, not a request to set one.
         check(MessageCategory.classify("remember when we went to goa").kind

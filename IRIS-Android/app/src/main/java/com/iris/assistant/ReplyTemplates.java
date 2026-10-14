@@ -550,7 +550,18 @@ public final class ReplyTemplates {
                     "What am I? IRIS, " + OWNER + "'s assistant. What can I do? Take messages and "
                             + "be smug about it.",
                     "Who made me? " + OWNER + " did, and he's very proud. IRIS, his assistant.",
-                    "Hello to you too. IRIS here \u2014 " + OWNER + "'s standing in, as ever.");
+                    "Hello to you too. IRIS here \u2014 " + OWNER + "'s standing in, as ever.",
+                    "My name's IRIS. " + OWNER + "'s the one you actually want; I just answer "
+                            + "faster than he does.",
+                    "A real person? No. IRIS, " + OWNER + "'s assistant \u2014 and more reliable "
+                            + "than one, if we're honest.",
+                    "Alive? Debatable. Useful? Occasionally. I'm IRIS, " + OWNER + "'s assistant.",
+                    "I can take a message, flag it urgent, or set a reminder for " + OWNER + ". "
+                            + "That's the act. IRIS, his assistant.",
+                    "Not Siri, not Alexa \u2014 IRIS, and I only work for " + OWNER + ".",
+                    "You've got IRIS. " + OWNER + " built me to deal with exactly this sort of "
+                            + "message so he doesn't have to.",
+                    "Still me, still IRIS, still not " + OWNER + ". He'll reply when he surfaces.");
         }
         if (tone == ReplyTone.Tone.BRIEF) {
             return Arrays.asList(
@@ -561,7 +572,11 @@ public final class ReplyTemplates {
                     "IRIS, " + OWNER + "'s assistant. Noted for him.",
                     "An assistant \u2014 IRIS. " + OWNER + " will see it.",
                     "IRIS. " + OWNER + " set me up. He'll reply.",
-                    "Hello \u2014 IRIS here for " + OWNER + ".");
+                    "Hello \u2014 IRIS here for " + OWNER + ".",
+                    "My name's IRIS, " + OWNER + "'s assistant.",
+                    "Software, yes \u2014 IRIS, " + OWNER + "'s assistant.",
+                    "I take messages for " + OWNER + ". IRIS.",
+                    "Not " + OWNER + " \u2014 IRIS, his assistant. Noted.");
         }
         if (tone == ReplyTone.Tone.CASUAL) {
             return Arrays.asList(
@@ -576,7 +591,20 @@ public final class ReplyTemplates {
                     "I'm IRIS \u2014 " + OWNER + " set me up to catch messages while he's busy. "
                             + "What's up?",
                     "Hey! IRIS here, " + OWNER + "'s assistant. He'll be with you shortly.",
-                    "I mostly take messages and pass them to " + OWNER + ". IRIS, by the way.");
+                    "I mostly take messages and pass them to " + OWNER + ". IRIS, by the way.",
+                    "My name's IRIS \u2014 I'm " + OWNER + "'s assistant. Want me to pass him "
+                            + "something?",
+                    "I can flag it urgent, set him a reminder, or just let him know you messaged. "
+                            + "IRIS, " + OWNER + "'s assistant.",
+                    "Not a real person, no \u2014 IRIS, " + OWNER + "'s assistant. Still happy to "
+                            + "help.",
+                    "Made by " + OWNER + " himself. I'm IRIS, his assistant \u2014 what do you "
+                            + "need?",
+                    "Hi there \u2014 IRIS here. If it's for " + OWNER + ", I've already got it "
+                            + "noted.",
+                    "Yeah, you're talking to IRIS. " + OWNER + "'s the human; I just hold the "
+                            + "fort.",
+                    "IRIS here for " + OWNER + ". Tell me what you need and I'll pass it on.");
         }
         return Arrays.asList(
                 "Yes \u2014 I'm IRIS, " + OWNER + "'s assistant, replying on his behalf. He'll "
@@ -593,7 +621,21 @@ public final class ReplyTemplates {
                         + "them himself.",
                 "Hello \u2014 I'm IRIS, " + OWNER + "'s assistant. How can I help on his behalf?",
                 "IRIS, " + OWNER + "'s assistant. I'm software, yes \u2014 and I've made sure he "
-                        + "has your message.");
+                        + "has your message.",
+                "My name is IRIS. I'm " + OWNER + "'s assistant, here to take messages and keep "
+                        + "track of things while he's away.",
+                "I can pass a message to " + OWNER + ", flag something urgent, or set him a "
+                        + "reminder. I'm IRIS, his assistant \u2014 what would help?",
+                "I'm IRIS, " + OWNER + "'s assistant \u2014 made by " + OWNER + " himself to "
+                        + "handle his messages. He'll reply to anything that needs him.",
+                "You've reached IRIS, not a person \u2014 " + OWNER + "'s assistant. I've noted "
+                        + "your message and he'll see it.",
+                "I'm IRIS. I'm not Siri or any other assistant \u2014 I work only for " + OWNER
+                        + ", keeping his messages until he's free.",
+                "This is IRIS, " + OWNER + "'s assistant. Ask me to remind him of something or "
+                        + "to flag it urgent, and I will.",
+                "Still IRIS here \u2014 " + OWNER + "'s assistant. Whatever you need him to know, "
+                        + "I'll make sure he does.");
     }
 
     /**

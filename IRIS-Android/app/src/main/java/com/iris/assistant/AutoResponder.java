@@ -316,7 +316,15 @@ public final class AutoResponder {
         ResponderMode mode = settings.mode();
         boolean quiet;
         List<String> variants;
-        if (mode.isActive()) {
+        if (category.kind == MessageCategory.Kind.TO_IRIS) {
+            // Someone is addressing IRIS directly. It must answer AS itself, in full, regardless
+            // of quiet hours or an active mode \u2014 "who are you?" at 2am deserves "I'm IRIS,
+            // Suvra's assistant", not "Suvra is asleep". This is the one category that always
+            // speaks for itself, which is also why the owner kept finding it "not self-aware":
+            // at night or in a mode it was being answered with the blanket reply instead.
+            quiet = false;
+            variants = settings.variantsFor(MessageCategory.Kind.TO_IRIS, tone, false);
+        } else if (mode.isActive()) {
             variants = settings.modeVariantsFor(mode, category.kind, tone);
             quiet = mode == ResponderMode.SLEEPING;
         } else {
@@ -441,8 +449,23 @@ public final class AutoResponder {
         String task = answeringTimeQuestion ? awaiting
                 : (parsed.task.isEmpty() ? incoming.body.trim() : parsed.task);
 
-        int nowWeekday = weekday(now);
-        int delay = ReminderParser.delayMinutes(parsed, minuteOfDay, nowWeekday);
+        java.util.Calendar cal = java.util.Calendar.getInstance(TimeZone.getDefault());
+        cal.setTimeInMillis(now);
+        int nowWeekday = cal.get(java.util.Calendar.DAY_OF_WEEK);
+        int nowDay = cal.get(java.util.Calendar.DAY_OF_MONTH);
+        int nowMonth = cal.get(java.util.Calendar.MONTH) + 1;
+        int nowYear = cal.get(java.util.Calendar.YEAR);
+        int delay = ReminderParser.delayMinutes(parsed, minuteOfDay, nowWeekday,
+                nowDay, nowMonth, nowYear);
+
+        // When IRIS asked for a time and this reply still parses to one, use it against the
+        // remembered task even if the task text itself came back empty.
+        if (answeringTimeQuestion && !parsed.task.isEmpty() && delay <= 0) {
+            // The reply was treated as a fresh task with no time; re-read it purely as a time.
+            delay = ReminderParser.delayMinutes(
+                    ReminderParser.parse("remind me " + incoming.body),
+                    minuteOfDay, nowWeekday, nowDay, nowMonth, nowYear);
+        }
 
         if (delay > 0) {
             long dueMs = now + delay * 60_000L;
@@ -463,14 +486,18 @@ public final class AutoResponder {
         if (answeringTimeQuestion) {
             store.add(task, senderName, 0, now);
             store.clearAwaiting(conversationKey);
-            return "I couldn't make out a time, so I've saved it for " + ReplyTemplates.OWNER
-                    + " to see: \u201C" + task + "\u201D. I'm IRIS, his assistant.";
+            return "I still couldn't make out a date or time, so I've saved it for "
+                    + ReplyTemplates.OWNER + " to see: \u201C" + task + "\u201D. You can resend "
+                    + "with something like \u201Ctomorrow 5pm\u201D or \u201C25/12 6pm\u201D. I'm "
+                    + "IRIS, his assistant.";
         }
 
-        // First time with no time: ask.
+        // First time with no time: ask, stating the formats I understand so the reply is usable.
         store.setAwaitingTime(conversationKey, task);
-        return "I'll remind " + ReplyTemplates.OWNER + " to " + task + " \u2014 when would you "
-                + "like him reminded? I'm IRIS, his assistant.";
+        return "I'll remind " + ReplyTemplates.OWNER + " to " + task + " \u2014 when should I? You "
+                + "can say a time like \u201Cin 2 hours\u201D, \u201Ctomorrow 5pm\u201D, "
+                + "\u201CMonday 9am\u201D, or a date like \u201C25/12 6pm\u201D. I'm IRIS, his "
+                + "assistant.";
     }
 
     /** A human phrase for when a reminder is due, e.g. "in about 2 hours" or "tomorrow". */

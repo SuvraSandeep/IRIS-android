@@ -568,6 +568,12 @@ public class ResponderGuardsTest {
         check(!ResponderGuards.looksLikeLoop(null, reply), "null is not a loop");
         check(!ResponderGuards.looksLikeLoop("ok", "ok"),
                 "short strings coincide too easily to count as evidence");
+        // A short double-text like "hi" is a substring of almost any reply (our replies contain
+        // "his", "this"), which used to be wrongly flagged as our own reply echoing back.
+        check(!ResponderGuards.looksLikeLoop("hi", reply),
+                "a short 'hi' is not our reply coming back, even though the reply contains 'his'");
+        check(!ResponderGuards.looksLikeLoop("hi there", reply),
+                "a short greeting is not a loop");
 
         ResponderGuards.Message echo = sendableMessage();
         echo.incomingText = reply;
