@@ -65,6 +65,8 @@ public final class ResponderGuards {
         OWN_MESSAGE,
         /** A roll-up count, a deletion placeholder, or an already-deleted message. */
         BLOCKED_CONTENT,
+        /** A one-time code, verification SMS, or an SMS sender ID / shortcode. Never answered. */
+        SMS_SENSITIVE,
         /** The contact is marked NEVER. */
         CONTACT_BLOCKED,
         /** A rule on the contact's NAME refuses them, independently of the contact list. */
@@ -115,6 +117,8 @@ public final class ResponderGuards {
         public boolean placeholder;
         /** The archive has already flagged this message as deleted by its sender. */
         public boolean flaggedDeleted;
+        /** An SMS one-time code / verification message, or an unsaved SMS sender ID / shortcode. */
+        public boolean smsSensitive;
         /**
          * The owner set a fixed reply for this sender by name, so a reply is wanted regardless of
          * what the message says. Bypasses the category-silence guard and nothing else: every
@@ -215,6 +219,10 @@ public final class ResponderGuards {
         if (message.rollup || message.placeholder || message.flaggedDeleted) {
             return Verdict.BLOCKED_CONTENT;
         }
+
+        // A one-time code / verification SMS, or an SMS sender ID / shortcode, is never answered.
+        // Placed early, as a hard safety that no scope or setting can override.
+        if (message.smsSensitive) return Verdict.SMS_SENSITIVE;
 
         // ─── Has the owner excluded this contact? ───
         // NEVER outranks everything that follows, including mentions and urgency. If the owner has
@@ -407,6 +415,9 @@ public final class ResponderGuards {
             case BLOCKED_CONTENT:
                 return "That wasn't really a message \u2014 a notification count, a deleted-message "
                         + "placeholder, or something already taken back.";
+            case SMS_SENSITIVE:
+                return "A one-time code, a verification SMS, or an SMS sender ID / shortcode \u2014 "
+                        + "I never answer those.";
             case CONTACT_BLOCKED: return "You told me never to answer this contact.";
             case NAME_RULE_BLOCKED:
                 return "Their name matches one of your rules that says don't reply.";

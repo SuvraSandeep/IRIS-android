@@ -1747,6 +1747,9 @@ public class MainActivity extends Activity {
             host.addView(responderSwitch("Reply to every message, not one per burst",
                     settings.replyToEveryMessage(),
                     on -> settings.setReplyToEveryMessage(on), view));
+            host.addView(responderSwitch("Keep messages unread after I reply",
+                    settings.keepUnread(),
+                    on -> settings.setKeepUnread(on), view));
 
             host.addView(sectionLabel("TIMING"));
             host.addView(responderRow("Quiet hours",

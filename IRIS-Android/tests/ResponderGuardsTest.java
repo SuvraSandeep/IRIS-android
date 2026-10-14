@@ -75,6 +75,7 @@ public class ResponderGuardsTest {
         appsWithoutReplyAreSkipped();
         ownMessagesAreIgnored();
         nonMessagesAreRefused();
+        smsSensitiveIsNeverAnswered();
         neverOutranksEverything();
         nameRuleCanRefuse();
         fixedReplyBypassesOnlyCategorySilence();
@@ -98,6 +99,13 @@ public class ResponderGuardsTest {
     private static void theBaselineActuallySends() {
         verdict(sendableMessage(), sendablePolicy(), ResponderGuards.Verdict.SEND,
                 "the baseline sends, so every other test breaks exactly one thing");
+    }
+
+    private static void smsSensitiveIsNeverAnswered() {
+        ResponderGuards.Message m = sendableMessage();
+        m.smsSensitive = true;
+        verdict(m, sendablePolicy(), ResponderGuards.Verdict.SMS_SENSITIVE,
+                "a one-time code or SMS shortcode is never answered");
     }
 
     private static void offAndExpiredStatesRefuse() {

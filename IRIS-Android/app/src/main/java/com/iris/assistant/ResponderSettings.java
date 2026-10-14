@@ -36,6 +36,7 @@ public final class ResponderSettings {
     private static final String K_UNSAVED = "reply_unsaved";
     private static final String K_REPLY_IN_USE = "reply_in_use";
     private static final String K_REPLY_EVERY = "reply_every";
+    private static final String K_KEEP_UNREAD = "keep_unread";
     private static final String K_MODE = "mode";
     private static final String K_REMINDER_SCOPE = "reminder_scope";
     private static final String K_FAMILY_RING = "family_ring";
@@ -188,6 +189,18 @@ public final class ResponderSettings {
     public boolean replyToEveryMessage() { return prefs.getBoolean(K_REPLY_EVERY, false); }
     public void setReplyToEveryMessage(boolean v) {
         prefs.edit().putBoolean(K_REPLY_EVERY, v).apply();
+    }
+
+    /**
+     * Keep a message unread after IRIS replies, so the owner still sees which chats to open.
+     *
+     * ON by default, which matches what IRIS already does: it never marks a chat read and never
+     * dismisses the notification. Turning it OFF opts in to triggering the app's own "mark as read"
+     * action after a live reply, where the app offers one.
+     */
+    public boolean keepUnread() { return prefs.getBoolean(K_KEEP_UNREAD, true); }
+    public void setKeepUnread(boolean v) {
+        prefs.edit().putBoolean(K_KEEP_UNREAD, v).apply();
     }
 
     /**

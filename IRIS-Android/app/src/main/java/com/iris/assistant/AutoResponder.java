@@ -153,6 +153,10 @@ public final class AutoResponder {
         // as VM-HDFCBK contains letters, so "not a phone number" must never be read as "therefore
         // a saved contact".
         message.savedContact = ContactResolver.isSaved(context, incoming.sender);
+        // SMS one-time codes / verification messages and unsaved SMS sender-IDs are never answered.
+        message.smsSensitive = SmsSafety.blocksAutoReply(
+                MessagingApp.fromPackage(incoming.pkg), incoming.sender, incoming.body,
+                message.savedContact);
         message.hasReplyAction = IrisNotificationListener.replyAction(incoming.sbn) != null;
         message.fromOwner = incoming.fromOwner;
         message.rollup = incoming.rollup;
@@ -299,6 +303,11 @@ public final class AutoResponder {
                                 "Auto-reply to " + incoming.pkg + " not sent: " + result.name(),
                                 "", "", false);
                     } catch (Throwable ignored) { }
+                } else if (!settings.keepUnread()) {
+                    // The owner opted out of keeping messages unread: best-effort trigger the app's
+                    // own "mark as read" action. By default this does NOT run, so the message stays
+                    // unread and visible, which is what the owner asked for.
+                    tryMarkRead(incoming.sbn);
                 }
             }
         }
@@ -597,5 +606,29 @@ public final class AutoResponder {
     /** Forget a notification once it is gone, so a later conversation can be answered again. */
     public static synchronized void forget(String notifKey) {
         if (notifKey != null) ANSWERED_KEYS.remove(notifKey);
+    }
+
+    /**
+     * Best-effort: fire the app's own "mark as read" action, used only when the owner has turned
+     * OFF "keep messages unread". App-dependent and silently a no-op when no such plain action
+     * exists; a reply action (one carrying a RemoteInput) is never fired here.
+     */
+    private static void tryMarkRead(StatusBarNotification sbn) {
+        try {
+            if (sbn == null) return;
+            android.app.Notification n = sbn.getNotification();
+            if (n == null || n.actions == null) return;
+            for (android.app.Notification.Action a : n.actions) {
+                if (a == null || a.title == null || a.actionIntent == null) continue;
+                if (a.getRemoteInputs() != null && a.getRemoteInputs().length > 0) continue;
+                String t = a.title.toString().toLowerCase(java.util.Locale.ROOT);
+                if (t.contains("mark as read") || t.contains("mark read")) {
+                    a.actionIntent.send();
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {
+            // Marking read is a convenience; never let it affect the reply decision or crash.
+        }
     }
 }

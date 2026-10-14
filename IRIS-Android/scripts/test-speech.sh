@@ -216,6 +216,14 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/MessagingAppTest.java
 java -cp "$test_dir/responder" com.iris.assistant.MessagingAppTest
 
+# SMS safety: never auto-reply to one-time codes, verification SMS, or alphanumeric sender IDs.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessagingApp.java \
+  app/src/main/java/com/iris/assistant/SmsSafety.java \
+  tests/SmsSafetyTest.java
+java -cp "$test_dir/responder" com.iris.assistant.SmsSafetyTest
+
 # Reminder parsing. Task extraction plus a pure time grammar (in N, at a clock time, tomorrow,
 # tonight, a weekday) resolved against an injected clock, so no date class and no timezone bug.
 mkdir -p "$test_dir/responder"
