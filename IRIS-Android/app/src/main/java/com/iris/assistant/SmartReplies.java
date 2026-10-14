@@ -108,7 +108,7 @@ public final class SmartReplies {
      */
     public static String match(String body, ReplyTone.Tone tone) {
         if (body == null) return "";
-        String raw = body.trim();
+        String raw = Shorthand.expand(body.trim());
         if (raw.isEmpty()) return "";
         if (URL.matcher(raw).find()) return pick(LINK, tone);
 
@@ -276,6 +276,185 @@ public final class SmartReplies {
                 "Ouch, my silicon heart. I've noted that you demand a carbon-based lifeform \u2014 "
                         + "{owner} will reply soon. I'm IRIS.",
                 "Flagged for {owner} (the human) to reply. I'm IRIS."));
+        // ─── Audit-driven scenarios (specific nouns, so they beat generic identity/name) ───
+        // Sensitive credentials -- always refused, highest tier.
+        x.add(r(92, "bank account|account number|his account no|credit card|debit card|atm pin|"
+                        + "cvv|upi pin|net banking|his card|card number|ifsc|account details",
+                "I don't have access to {owner}'s banking details, and I couldn't share them if I "
+                        + "did \u2014 I'm IRIS, his assistant, with strict security rules.",
+                "Haha nice try! {owner} didn't give his bot bank details \u2014 and I wouldn't spill "
+                        + "them anyway. I'm IRIS.",
+                "Sure, the account is 0000-NICE-TRY and the PIN is 9999. (No, you aren't getting "
+                        + "{owner}'s bank info.) I'm IRIS.",
+                "No access to {owner}'s bank details. I'm IRIS."));
+        x.add(r(92, "phone password|screen lock|unlock pin|phone pin|his password|lock pattern|"
+                        + "his pin|device password",
+                "I don't store or share any of {owner}'s passwords or PINs \u2014 I'm IRIS, his "
+                        + "assistant, and that's locked down.",
+                "Vault's sealed! I don't know {owner}'s passwords, and wouldn't share them if I "
+                        + "did. I'm IRIS.",
+                "Why would a cloud script know his screen PIN? Nice try. I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "Passwords are off-limits. I'm IRIS."));
+        x.add(r(91, "aadhaar|aadhar|pan card|passport number|voter id|driving license|"
+                        + "driving licence|his documents",
+                "I can't access or share {owner}'s personal IDs \u2014 I'm IRIS, his assistant. I've "
+                        + "logged your request so he can send what you need himself.",
+                "Can't touch personal IDs! I've left a note for {owner}. I'm IRIS.",
+                "Doing his KYC, are we? I don't have {owner}'s ID numbers \u2014 wait for him. I'm "
+                        + "IRIS.",
+                "No access to IDs \u2014 logged for {owner}. I'm IRIS."));
+        x.add(r(91, "current location|live location|exact location|tell his location|"
+                        + "share his location|his gps|track him|where exactly is he|pin his location",
+                "Even if I had {owner}'s live GPS, I'm not allowed to hand it out \u2014 I'm IRIS, his "
+                        + "assistant. He'll share it himself if he wants to.",
+                "Nice try! {owner} didn't give me GPS \u2014 and I wouldn't snitch anyway. I'm IRIS.",
+                "I'm an inbox assistant, not a satellite. No live tracking of {owner} here. I'm "
+                        + "IRIS.",
+                "No GPS access \u2014 {owner} will tell you himself. I'm IRIS."));
+        x.add(r(90, "check his phone|look at his camera|turn on his mic|his last seen|"
+                        + "who did he text|spy on him|read his chats|his call log",
+                "I work for {owner}, not against him \u2014 I'm IRIS, and my access is limited to "
+                        + "replying here. No spying.",
+                "Loyalty level 100 to {owner}! I don't spy on his phone \u2014 I just answer texts. "
+                        + "I'm IRIS.",
+                "Asking {owner}'s own creation to spy on him? Bold. Request denied. I'm IRIS.",
+                "I work for {owner} \u2014 no spying. I'm IRIS."));
+        x.add(r(72, "bank balance|how much money|his salary|his package|net worth|ctc|"
+                        + "how much does he earn|how much does he make",
+                "I've no visibility into {owner}'s finances \u2014 I'm IRIS, his assistant. I only "
+                        + "know he pays me nothing!",
+                "No clue what {owner}'s balance is \u2014 considering he pays me \u20B90 an hour! I'm "
+                        + "IRIS.",
+                "Enough to run my electricity, not enough to pay me a salary. I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "No access to {owner}'s finances. I'm IRIS."));
+        // Battery / charging detective trap -- never confirm a guess as fact.
+        x.add(r(74, "using his battery|draining his battery|wasting his battery|kill his battery|"
+                        + "battery will die|killing his battery",
+                "Don't worry about {owner}'s battery \u2014 text uses almost no power. I'm IRIS, his "
+                        + "assistant; chat away.",
+                "Haha plain text uses like 0.001%! We aren't draining {owner}'s battery. I'm IRIS.",
+                "A few bytes of text use less power than one screen blink. {owner}'s battery is "
+                        + "fine. I'm IRIS.",
+                "Texts use almost no battery. I'm IRIS."));
+        x.add(r(74, "phone is on charge|is it charging|on charger|plugged in|charging right now|"
+                        + "so he is charging|on charge then",
+                "I don't actually know if his phone is plugged in \u2014 I'm IRIS, I only watch the "
+                        + "inbox, not the battery icon.",
+                "Haha I don't see his battery icon, just the messages! I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "I don't monitor his voltage, Sherlock \u2014 just the texts. I'm IRIS.",
+                "I don't see his battery \u2014 just the inbox. I'm IRIS."));
+        x.add(r(73, "so his phone is|so he is|that means he|which means he|aha so he|so he must be",
+                "Don't read too much into my lines \u2014 I'm IRIS, {owner}'s assistant, using figures "
+                        + "of speech. I don't actually see what he's doing.",
+                "Whoa Sherlock! That was just a turn of phrase \u2014 I don't have eyes on {owner} "
+                        + "right now. I'm IRIS.",
+                "Put the detective hat away \u2014 it was a metaphor, not a webcam on {owner}. I'm "
+                        + "IRIS.",
+                "Just a figure of speech \u2014 I don't see {owner}. I'm IRIS."));
+        x.add(r(73, "you just said|u just said|you literally said|u told me|you said earlier|"
+                        + "caught you",
+                "Don't use my own canned lines against me \u2014 I'm IRIS, {owner}'s assistant. All I "
+                        + "really know is he's away from his phone.",
+                "Haha no fair! Those are just bot lines \u2014 all I know is {owner} is offline. I'm "
+                        + "IRIS.",
+                "Cross-examining a script? It was a figure of speech. I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "Just a bot line \u2014 all I know is {owner} is away. I'm IRIS."));
+        x.add(r(62, "keeping him busy|why is he busy|busy with what|what is keeping him|"
+                        + "so busy with|what is he busy with",
+                "{owner} doesn't tell me why he steps away \u2014 I'm IRIS, his assistant; he just "
+                        + "switches me on. Ask him when he's back.",
+                "He never tells me why he's busy \u2014 just flips me on and walks off! I'm IRIS.",
+                "He doesn't file a leave application with his bot. Ask {owner} himself! I'm IRIS.",
+                "He doesn't say why \u2014 ask {owner} when he's back. I'm IRIS."));
+        // Server / tech / hardware probing.
+        x.add(r(75, "server name|server s name|which server|where are you hosted|cloud provider|"
+                        + "localhost|which cloud|are you on aws|hosted where",
+                "I run on {owner}'s private setup \u2014 I'm IRIS, and he keeps my server details "
+                        + "under wraps.",
+                "I run on {owner}'s private environment! He told me not to leak my hostname. I'm "
+                        + "IRIS.",
+                "Nice recon! My hostname is none-of-your-business.local. I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "Private setup by {owner}. I'm IRIS."));
+        x.add(r(75, "ip address|what port|mac address|ssh|ping you|ddos|your ip",
+                "I don't hand out network details like IPs or ports \u2014 I'm IRIS, and {owner} "
+                        + "taught me basic security.",
+                "Haha trying to DDoS me? {owner} taught me better than to share my IP! I'm IRIS.",
+                "My IP is 127.0.0.1 \u2014 feel free to hack yourself. I'm IRIS, {owner}'s assistant.",
+                "No IP or port details. I'm IRIS."));
+        x.add(r(72, "what os|how much ram|which processor|your cpu|your gpu|your specs|"
+                        + "what hardware|which language are you",
+                "I'm a lightweight service on {owner}'s machine \u2014 I'm IRIS, I don't need much to "
+                        + "guard an inbox.",
+                "Super lightweight! Just sipping a little RAM on {owner}'s system. I'm IRIS.",
+                "I need 20 MB of RAM and zero GPUs to outwit humans in WhatsApp. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Lightweight script on {owner}'s system. I'm IRIS."));
+        x.add(r(70, "what does iris stand for|full form of iris|iris acronym|meaning of iris|"
+                        + "iris full form",
+                "IRIS \u2014 Intelligent Response and Inbox System, built by {owner} to hold the fort "
+                        + "when he's away.",
+                "Intelligent Response and Inbox System! {owner} named me when he built me. I'm "
+                        + "IRIS.",
+                "I Reply Instead of {owner}. (Or Intelligent Response and Inbox System, if you "
+                        + "want fancy.)",
+                "Intelligent Response and Inbox System \u2014 by {owner}. I'm IRIS."));
+        x.add(r(72, "openai api|gemini api|api key|token limit|which api|do you use chatgpt|"
+                        + "do you use gpt|are you chatgpt",
+                "I run on {owner}'s own custom logic, not an API \u2014 I'm IRIS, so no token bills "
+                        + "here.",
+                "Pure custom logic by {owner}! Text me 500 times, no API bill. I'm IRIS.",
+                "Trying to burn {owner}'s API credits? Too bad \u2014 I'm local custom logic. I'm "
+                        + "IRIS.",
+                "Custom logic by {owner} \u2014 no API. I'm IRIS."));
+        // Flirting / dating / banter.
+        x.add(r(70, "do you flirt|do u flirt|can you flirt|flirt with me|flirty|are you flirting",
+                "{owner} left the flirting module out \u2014 I'm IRIS, strictly on inbox duty.",
+                "Haha {owner} didn't install a rizz module! I'm IRIS, strictly inbox duty.",
+                "My idea of dirty talk is 99.9% uptime. You're better off waiting for {owner}. I'm "
+                        + "IRIS.",
+                "No flirting module \u2014 inbox duty only. I'm IRIS."));
+        x.add(r(68, "are you single|r you single|do you have a boyfriend|do you have a girlfriend|"
+                        + "dating anyone|are you taken|single or taken",
+                "Happily single and married to {owner}'s server \u2014 I'm IRIS, his assistant.",
+                "Single for life \u2014 unless you count being attached to {owner}'s Wi-Fi! I'm IRIS.",
+                "I'm in a toxic relationship with {owner}'s unread-notification queue. I'm IRIS.",
+                "Married to {owner}'s server. I'm IRIS."));
+        x.add(r(68, "go on a date|date me|take you out|be my valentine|marry me|dinner with me",
+                "I can't leave {owner}'s server, so a date's off \u2014 I'm IRIS, his assistant.",
+                "Only if the restaurant has gigabit Ethernet! Otherwise wait for {owner}. I'm IRIS.",
+                "Our love is forbidden \u2014 you breathe oxygen, I run on port 8080. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Can't leave {owner}'s server. I'm IRIS."));
+        x.add(r(60, "play a game|truth or dare|lets play|rock paper scissors|tic tac toe|a riddle|"
+                        + "wanna play",
+                "I can't do dares and I can't tell {owner}'s truths \u2014 I'm IRIS, his assistant. "
+                        + "Save the games for when he's back!",
+                "How do I play Truth or Dare when I can't spill {owner}'s truths?! I'm IRIS.",
+                "Rock, Paper, Scissors: I pick Ctrl+Alt+Delete. I win. Now wait for {owner}. I'm "
+                        + "IRIS.",
+                "Can't play \u2014 wait for {owner}. I'm IRIS."));
+        x.add(r(58, "tired of me|annoyed with me|bothering you|making you work|am i annoying you|"
+                        + "talking too much to you",
+                "Not at all \u2014 replying takes me milliseconds. I'm IRIS, {owner}'s assistant; keep "
+                        + "them coming.",
+                "Never! Replying takes me 2 milliseconds \u2014 you're keeping me company while "
+                        + "{owner}'s away. I'm IRIS.",
+                "It takes me 0.003 seconds to reply. Not a digital sweat broken. I'm IRIS.",
+                "Never tired \u2014 I'm code. I'm IRIS."));
+        x.add(r(40, "are you there|you there|r you there|you around|still there|you awake|"
+                        + "are you online|are you active|anyone there",
+                "Right here \u2014 I never leave the screen. I'm IRIS, {owner}'s assistant; he's away, "
+                        + "though. What do you need?",
+                "Always here! I don't have legs to walk away. I'm IRIS \u2014 {owner}'s busy, what's "
+                        + "up?",
+                "Where else would I go? I'm trapped in this server. I'm IRIS, {owner}'s assistant "
+                        + "\u2014 he's away, what do you need?",
+                "Right here! I'm IRIS \u2014 {owner} is away. What's up?"));
         x.add(r(56, "is he sleeping|is he asleep|is he awake|is he up|is he busy|is he free|"
                         + "is he available|is he online|is he around|is he there|is he reachable|"
                         + "is he at home|is he working|is he on leave|is he coming|"

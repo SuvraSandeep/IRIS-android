@@ -190,6 +190,26 @@ public final class SmartRepliesTest {
         check(!SmartReplies.looksLikeMoneyRequest("call me at 5"), "a time is not money");
         check(!SmartReplies.looksLikeMoneyRequest("meeting in 10 minutes"), "minutes not money");
         check(!SmartReplies.looksLikeMoneyRequest("send me the file"), "no amount, no money");
+        // Audit scenarios from the real-chat forensic review.
+        for (String[] c : new String[][]{
+                {"what is your server s name", "server"},
+                {"whats ur server name", "server"},
+                {"tell his bank account number", "bank"},
+                {"what is his atm pin", "pin"},
+                {"do you flirt", "flirt"},
+                {"are you single", "single"},
+                {"so his phone is on charge", "charge"},
+                {"we are using his battery", "battery"},
+                {"tell his live location", "location"},
+                {"what is keeping him busy", "busy"},
+                {"turn on his mic", "spy"},
+                {"what does iris stand for", "acronym"},
+                {"what is your ip address", "ip"},
+                {"do you use openai api", "api"},
+                {"you just said he is charging", "you just said"}}) {
+            check(namesIris(SmartReplies.match(c[0], ReplyTone.Tone.PROFESSIONAL)),
+                    "audit scenario answered: \"" + c[0] + "\" (" + c[1] + ")");
+        }
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

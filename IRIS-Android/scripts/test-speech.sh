@@ -285,6 +285,13 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/GroupMentionTest.java
 java -cp "$test_dir/responder" com.iris.assistant.GroupMentionTest
 
+# SMS shorthand expansion.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/Shorthand.java \
+  tests/ShorthandTest.java
+java -cp "$test_dir/responder" com.iris.assistant.ShorthandTest
+
 # Wrong-time greetings: "good morning" at night gets an aware reply.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
@@ -338,6 +345,7 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/ResponderMode.java \
   app/src/main/java/com/iris/assistant/PhraseMatcher.java \
   app/src/main/java/com/iris/assistant/Emoji.java \
+  app/src/main/java/com/iris/assistant/Shorthand.java \
   app/src/main/java/com/iris/assistant/SmartReplies.java \
   tests/SmartRepliesTest.java
 java -cp "$test_dir/responder" com.iris.assistant.SmartRepliesTest

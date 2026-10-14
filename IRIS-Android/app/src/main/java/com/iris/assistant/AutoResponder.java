@@ -107,8 +107,11 @@ public final class AutoResponder {
         }
 
         // ─── Category ───
+        // Expand SMS shorthand first ("r u there" -> "are you there") so the classifier and the
+        // matchers see full words. Numbers are untouched, so group-mention matching still uses raw.
+        String normBody = Shorthand.expand(incoming.body);
         MessageCategory.Result category = MessageCategory.classify(
-                incoming.body, settings.mentionKeywords(),
+                normBody, settings.mentionKeywords(),
                 settings.irisSpokeLast(conversationKey, now));
 
         // In a group, an @-handle or phone-number mention of the owner counts as being named,
@@ -172,7 +175,7 @@ public final class AutoResponder {
         // messages and reminders keep their existing wording untouched.
         // The owner's own name is understood like a pronoun for the generic matchers, so "is
         // Suvra free", "where is Suvra" and "Suvra's email" hit the same rules written for "he".
-        String aliasedBody = OwnerAlias.toThirdPerson(incoming.body, ReplyTemplates.OWNER);
+        String aliasedBody = OwnerAlias.toThirdPerson(normBody, ReplyTemplates.OWNER);
 
         String smartReply = SmartReplies.match(aliasedBody, tone);
         boolean smartMatched = !smartReply.isEmpty()
