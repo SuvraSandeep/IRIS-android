@@ -1768,6 +1768,9 @@ public class MainActivity extends Activity {
             host.addView(responderRow("Situation",
                     settings.mode().isActive() ? settings.mode().label() : "none",
                     () -> editMode(settings, view)));
+            host.addView(responderSwitch("Auto-sleep during quiet hours",
+                    settings.autoSleepInQuietHours(),
+                    on -> settings.setAutoSleepInQuietHours(on), view));
             host.addView(sectionLabel("SCOPE"));
             host.addView(responderSwitch("Answer one-to-one chats",
                     settings.replyToPersonal(), on -> settings.setReplyToPersonal(on), view));

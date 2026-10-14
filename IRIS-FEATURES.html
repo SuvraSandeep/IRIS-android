@@ -135,12 +135,14 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "16.21.0";
+const BUILD_VERSION = "16.22.0";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
 
 const FEATURES = [
+
+  {"id": "automode16220", "cat": "Communication", "icon": "\uD83C\uDF19", "title": "Modes that switch themselves on", "tagline": "Auto-sleep during quiet hours now; the decision core is ready for driving and meetings.", "desc": "The groundwork for modes that activate themselves, so they stop being a manual chore. A pure, offline-tested decision core resolves which situational mode should be on from the owner's manual choice plus whatever signals are available \u2014 a mode you set by hand is never overridden, and among automatic signals the order is driving, then meeting, then sleeping. The one signal that needs no extra permission is wired now: a new RESPONDER \u2192 MODE switch, \u201CAuto-sleep during quiet hours\u201D (off by default), makes IRIS answer as if Sleeping during your quiet-hours window \u2014 so an urgent sender is told to call rather than wait \u2014 without you remembering to flip it. The driving and meeting signals (car Bluetooth / in-vehicle, a calendar event in progress) are built into the same decision core but need device permissions and on-device testing, so they're enabled separately. Nothing activates itself unless you turn it on.", "examples": ["RESPONDER \u2192 MODE \u2192 Auto-sleep during quiet hours", "During quiet hours \u2192 urgent senders are told to call, automatically", "A mode you set by hand always wins over an automatic one", "Driving/meeting auto-modes: decision core ready, device wiring next"], "version": "16.22.0"},
 
   {"id": "apptone16210", "cat": "Communication", "icon": "\uD83C\uDF9A", "title": "A different tone per app", "tagline": "Professional on SMS, casual on WhatsApp \u2014 set how IRIS sounds per channel.", "desc": "You can now set the tone IRIS uses by messaging app. Under RESPONDER \u2192 VOICE, \u201CTone by app\u201D lets you choose professional, casual, sarcastic or brief for WhatsApp, SMS, Telegram, Signal, Instagram or Messenger individually \u2014 so work-leaning SMS can stay professional while WhatsApp is casual. It slots into the existing tone order in the right place: a tone you've set on a specific person, their relationship, or a name rule still wins over the per-app tone, and the per-app tone in turn beats the work-hours window and the global default. Leave an app on \u201Cdefault\u201D and nothing changes for it. The resolution order is a pure, offline-tested unit and the old five-way resolver still works unchanged.", "examples": ["RESPONDER \u2192 Tone by app \u2192 SMS \u2192 Professional", "WhatsApp \u2192 Casual, Instagram \u2192 Casual", "Mom (family) still gets the casual family tone whatever the app", "Leave an app on default \u2192 unchanged"], "version": "16.21.0"},
 

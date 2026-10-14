@@ -228,6 +228,16 @@ public final class ResponderSettings {
     private static final String P_APP_TONE = "app_tone_";
 
     /**
+     * Auto-activate SLEEPING mode during quiet hours, so urgent senders are told to call rather
+     * than wait. Off by default; the one self-activating mode that needs no extra permission.
+     */
+    public boolean autoSleepInQuietHours() { return prefs.getBoolean(K_AUTO_SLEEP, false); }
+    public void setAutoSleepInQuietHours(boolean v) {
+        prefs.edit().putBoolean(K_AUTO_SLEEP, v).apply();
+    }
+    private static final String K_AUTO_SLEEP = "auto_sleep_quiet";
+
+    /**
      * The situational mode the owner has switched on, or NONE.
      *
      * A mode overrides the category content and the time windows while it is active. Stored by

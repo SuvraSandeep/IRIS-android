@@ -400,6 +400,16 @@ public final class AutoResponder {
         // handled inside modeVariants by reusing the quiet-hours wording, so the hours-to-wake
         // placeholder still needs filling for it.
         ResponderMode mode = settings.mode();
+        // Self-activating modes: when the owner hasn't set one by hand, let the enabled signals
+        // decide. Only auto-sleep (quiet hours) needs no extra permission and is wired here;
+        // driving/meeting signals require device permissions and are added separately.
+        if (mode == ResponderMode.NONE) {
+            AutoModePolicy.Signals sig = new AutoModePolicy.Signals();
+            sig.autoSleep = settings.autoSleepInQuietHours();
+            sig.quietHours = ResponderWindow.isQuiet(
+                    settings.quietStart(), settings.quietEnd(), minuteOfDay);
+            mode = AutoModePolicy.resolve(ResponderMode.NONE, AutoModePolicy.Source.NONE, sig).mode;
+        }
         boolean quiet;
         List<String> variants;
         if (category.kind == MessageCategory.Kind.TO_IRIS) {

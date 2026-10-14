@@ -263,6 +263,14 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/ConversationContextTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ConversationContextTest
 
+# Self-activating modes: decide the mode from manual choice + available signals.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/ResponderMode.java \
+  app/src/main/java/com/iris/assistant/AutoModePolicy.java \
+  tests/AutoModePolicyTest.java
+java -cp "$test_dir/responder" com.iris.assistant.AutoModePolicyTest
+
 # Learned replies: scope keys and precedence for replies the owner teaches from the decision log.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
