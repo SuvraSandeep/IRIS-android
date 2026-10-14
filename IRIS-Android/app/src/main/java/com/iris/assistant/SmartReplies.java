@@ -79,7 +79,9 @@ public final class SmartReplies {
         String stripped = raw.replaceAll("\\s+", "");
         if (!stripped.isEmpty()
                 && stripped.replaceAll("[\\p{L}\\p{N}]", "").length() == stripped.length()) {
-            return pick(PUNCT, tone);
+            // If the dominant emoji carries a clear meaning, answer to that; otherwise a plain ping.
+            String emojiReply = Emoji.reply(raw, tone);
+            return emojiReply.isEmpty() ? pick(PUNCT, tone) : emojiReply;
         }
 
         String flat = " " + MessageCategory.normalise(raw) + " ";

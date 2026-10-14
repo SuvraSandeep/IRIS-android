@@ -104,11 +104,12 @@ public final class SentimentScore {
             }
         }
 
-        double emojiDistress = countEmoji(raw, "\uD83D\uDE22\uD83D\uDE2D\uD83D\uDE30\uD83D\uDE28"
-                + "\uD83D\uDE31\uD83D\uDE13\uD83D\uDE16");
-        double emojiAnger = countEmoji(raw, "\uD83D\uDE20\uD83D\uDE21\uD83E\uDD2C");
-        double emojiPos = countEmoji(raw, "\uD83D\uDE0A\uD83D\uDE01\uD83D\uDE0D\uD83D\uDC4D"
-                + "\uD83C\uDF89\u2764");
+        double emojiDistress = Emoji.countIn(raw, Emoji.Category.SAD, Emoji.Category.SCARED,
+                Emoji.Category.SICK);
+        double emojiAnger = Emoji.countIn(raw, Emoji.Category.ANGRY);
+        double emojiPos = Emoji.countIn(raw, Emoji.Category.POSITIVE, Emoji.Category.LOVE,
+                Emoji.Category.LAUGH, Emoji.Category.CELEBRATE, Emoji.Category.THANKS,
+                Emoji.Category.PRAISE, Emoji.Category.OK);
 
         double distress = banter ? 0 : clamp01(0.6 * distressHits + 0.4 * emojiDistress);
         double anger = banter ? 0 : clamp01(0.5 * angerHits + 0.4 * emojiAnger);
@@ -139,14 +140,6 @@ public final class SentimentScore {
     private static boolean containsAny(Set<String> tokens, Set<String> candidates) {
         for (String t : tokens) if (candidates.contains(t)) return true;
         return false;
-    }
-
-    private static double countEmoji(String raw, String emojis) {
-        int n = 0;
-        for (int i = 0; i < raw.length(); i++) {
-            if (emojis.indexOf(raw.charAt(i)) >= 0) n++;
-        }
-        return n;
     }
 
     private static double clamp01(double v) { return clamp(v, 0, 1); }

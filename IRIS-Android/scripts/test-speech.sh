@@ -228,6 +228,8 @@ java -cp "$test_dir/responder" com.iris.assistant.SmsSafetyTest
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/Emoji.java \
   app/src/main/java/com/iris/assistant/SentimentScore.java \
   app/src/main/java/com/iris/assistant/MessagingApp.java \
   app/src/main/java/com/iris/assistant/SmsSafety.java \
@@ -263,6 +265,8 @@ java -cp "$test_dir/responder" com.iris.assistant.LearnedRepliesTest
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/Emoji.java \
   app/src/main/java/com/iris/assistant/SentimentScore.java \
   tests/SentimentScoreTest.java
 java -cp "$test_dir/responder" com.iris.assistant.SentimentScoreTest
@@ -275,6 +279,15 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/PhraseMatcherTest.java
 java -cp "$test_dir/responder" com.iris.assistant.PhraseMatcherTest
 
+# Emoji meaning / sentiment. Popular emoji -> category, plus emoji-only replies.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/Emoji.java \
+  tests/EmojiTest.java
+java -cp "$test_dir/responder" com.iris.assistant.EmojiTest
+
 # Smart keyword replies. The additive layer that answers messages aimed at IRIS, common scenarios
 # and links, for the generic buckets only. Depends on the pure normalise/tone/owner helpers.
 mkdir -p "$test_dir/responder"
@@ -284,6 +297,7 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/ReplyTemplates.java \
   app/src/main/java/com/iris/assistant/ResponderMode.java \
   app/src/main/java/com/iris/assistant/PhraseMatcher.java \
+  app/src/main/java/com/iris/assistant/Emoji.java \
   app/src/main/java/com/iris/assistant/SmartReplies.java \
   tests/SmartRepliesTest.java
 java -cp "$test_dir/responder" com.iris.assistant.SmartRepliesTest
