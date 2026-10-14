@@ -167,6 +167,16 @@ public final class Vernacular {
                 "Saved for " + O + " \u2014 talk soon! IRIS."));
 
         // ─── Where are you / what doing / busy / home / office / ETA / reached ───
+        x.add(r(50, "pagal h kya|pagal ho kya|pagal hai kya|tu pagal hai|tu pagal hai kya|"
+                        + "pagal ho|pagal kya|dimag kharab|dimaag kharab|sanki ho kya|"
+                        + "are you mad|are you crazy|r u mad",
+                "Ha! No \u2014 just a program doing its job. I'm IRIS, " + O + "'s assistant. He's "
+                        + "away, so I'm minding his messages.",
+                "Haha pagal toh nahi, bas IRIS hoon \u2014 " + O + "'s assistant! He's away, your "
+                        + "message is saved.",
+                "Pagal? I'm a script \u2014 I don't have the range for that. I'm IRIS, " + O + "'s "
+                        + "assistant. Message saved.",
+                "Haha \u2014 I'm IRIS, " + O + "'s assistant. Saved for him."));
         x.add(r(45, "kaha hai|kahan ho|kidhar hai|kaha par hai|kidhar gayab|kahan par",
                 "I don't track his location \u2014 I'm IRIS, " + O + "'s assistant. He's away, so tell "
                         + "me what to pass on!",

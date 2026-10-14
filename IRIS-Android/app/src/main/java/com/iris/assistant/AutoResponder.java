@@ -159,14 +159,18 @@ public final class AutoResponder {
         // (someone talking to IRIS, a bare question, an unremarkable or unmatched message, or a
         // link). It fires ONLY for those generic buckets, so greetings, thanks, festivals, urgent
         // messages and reminders keep their existing wording untouched.
-        String smartReply = SmartReplies.match(incoming.body, tone);
+        // The owner's own name is understood like a pronoun for the generic matchers, so "is
+        // Suvra free", "where is Suvra" and "Suvra's email" hit the same rules written for "he".
+        String aliasedBody = OwnerAlias.toThirdPerson(incoming.body, ReplyTemplates.OWNER);
+
+        String smartReply = SmartReplies.match(aliasedBody, tone);
         boolean smartMatched = !smartReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
         // Hinglish/Odia layer: recognise the owner's real vernacular traffic instead of silence.
         // Same gating as smart replies (generic buckets only), and whole-phrase matched so the
         // real-Odia must-not-match corpus stays silent.
-        String vernReply = Vernacular.match(incoming.body, tone);
+        String vernReply = Vernacular.match(aliasedBody, tone);
         boolean vernMatched = !vernReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
@@ -174,7 +178,7 @@ public final class AutoResponder {
         // city) ONLY from facts he put under "share" in iris-me.json. Nothing is disclosed unless
         // he opted in, and no question maps to a phone/address/email, so PII can never leak.
         String profileReply = ProfileShare.reply(
-                ProfileShare.fieldFor(incoming.body), ShareProfile.fields(context),
+                ProfileShare.fieldFor(aliasedBody), ShareProfile.fields(context),
                 ReplyTemplates.OWNER);
         boolean profileMatched = !profileReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
@@ -395,6 +399,16 @@ public final class AutoResponder {
     private static String compose(ResponderSettings settings, MessageCategory.Result category,
                                   ReplyTone.Tone tone, String senderName, long nowMs,
                                   int minuteOfDay) {
+        // A greeting that doesn't match the clock -- "good morning" sent at night -- gets an aware
+        // reply rather than echoing the wrong part of day. Only clear conflicts trigger this.
+        if (category.kind == MessageCategory.Kind.TIME_GREETING && !category.detail.isEmpty()) {
+            String actualPart = ResponderWindow.partOfDay(minuteOfDay);
+            if (TimeGreeting.mistimed(category.detail, actualPart)) {
+                return ReplyTemplates.fill(
+                        TimeGreeting.reply(category.detail, actualPart, tone), senderName,
+                        ResponderWindow.formatMinute(minuteOfDay), actualPart, -1, dayName(nowMs));
+            }
+        }
         // An active mode overrides both the time window and the category: the owner has stated the
         // situation outright, and that beats whatever the hour would otherwise imply. SLEEPING is
         // handled inside modeVariants by reusing the quiet-hours wording, so the hours-to-wake
@@ -620,7 +634,7 @@ public final class AutoResponder {
 
         // EDIT_REMINDER_TIME: re-read the new time and reschedule, keeping the original task.
         String task = store.taskOf(lastId);
-        ReminderParser.Result parsed = ReminderParser.parse(incoming.body);
+        ReminderParser.Result parsed = ConversationContext.editTime(incoming.body);
         java.util.Calendar cal = java.util.Calendar.getInstance(TimeZone.getDefault());
         cal.setTimeInMillis(now);
         int delay = ReminderParser.delayMinutes(parsed, minuteOfDay,

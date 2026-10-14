@@ -45,6 +45,12 @@ public final class ConversationContextTest {
         eq(ConversationContext.classify(null, true),
                 ConversationContext.FollowUp.NONE, "null is not a follow-up");
 
+        // "make it 6" with a bare hour is an edit (regression: it used to return NONE).
+        eq(ConversationContext.classify("make it 6", true),
+                ConversationContext.FollowUp.EDIT_REMINDER_TIME, "bare-hour edit is detected");
+        eq(ConversationContext.editTime("make it 6").minuteOfDay, 360, "make it 6 -> 06:00");
+        eq(ConversationContext.classify("change it to 6:30", true),
+                ConversationContext.FollowUp.EDIT_REMINDER_TIME, "change it to 6:30 is an edit");
         System.out.println("Passed " + checks + " conversation context checks");
     }
 }

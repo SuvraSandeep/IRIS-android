@@ -56,11 +56,27 @@ public final class ConversationContext {
 
         // An edit only counts if the message also carries a parseable time, so a bare "change it"
         // with no time falls through to a normal reply rather than silently editing nothing.
-        if (containsAny(flat, EDIT) && ReminderParser.parse(body).hasTime()) {
+        if (containsAny(flat, EDIT) && editTime(body).hasTime()) {
             return FollowUp.EDIT_REMINDER_TIME;
         }
         return FollowUp.NONE;
     }
+
+    /**
+     * The reminder time implied by an edit, tolerant of a bare hour. "make it 6" has no "at" and
+     * the main parser reads no time from it, so a trailing "6" / "6:30" / "6pm" is re-read as "at
+     * 6". This is the exact phrasing the follow-up feature exists for.
+     */
+    public static ReminderParser.Result editTime(String body) {
+        ReminderParser.Result r = ReminderParser.parse(body);
+        if (r.hasTime() || body == null) return r;
+        java.util.regex.Matcher m = BARE_TIME.matcher(body.trim());
+        if (m.find()) return ReminderParser.parse("at " + m.group(1));
+        return r;
+    }
+
+    private static final java.util.regex.Pattern BARE_TIME = java.util.regex.Pattern.compile(
+            "(?i)\\b(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\s*$");
 
     private static boolean containsAny(String paddedFlat, String[] phrases) {
         for (String p : phrases) {

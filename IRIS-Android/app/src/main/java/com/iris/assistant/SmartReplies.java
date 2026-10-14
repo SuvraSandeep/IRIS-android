@@ -233,6 +233,28 @@ public final class SmartReplies {
                 "Ouch, my silicon heart. I've noted that you demand a carbon-based lifeform \u2014 "
                         + "{owner} will reply soon. I'm IRIS.",
                 "Flagged for {owner} (the human) to reply. I'm IRIS."));
+        x.add(r(56, "is he sleeping|is he asleep|is he awake|is he up|is he busy|is he free|"
+                        + "is he available|is he online|is he around|is he there|is he reachable|"
+                        + "is he at home|is he working|is he on leave|is he coming|"
+                        + "what is he doing|whats he doing|what s he doing|what he doing|"
+                        + "where is he now|how is he",
+                "He's away from his phone right now \u2014 I'm IRIS, {owner}'s assistant. I've logged "
+                        + "that you're asking after him and he'll reply when he's back.",
+                "He's away from his phone at the moment! IRIS here \u2014 I'll tell {owner} you asked "
+                        + "after him.",
+                "I don't get status updates on the human \u2014 I just mind his inbox. I'm IRIS, and "
+                        + "I'll let {owner} know you asked.",
+                "{owner} is away right now \u2014 I'll let him know you asked. I'm IRIS."));
+        x.add(r(50, "is it raining|its raining|how is the weather|how s the weather|"
+                        + "hows the weather|weather there|weather today|whats the weather|"
+                        + "is it hot|is it cold|too hot|too cold|mausam kaisa|mausam kaisa hai",
+                "I've no window where I live, so I can't check \u2014 I'm IRIS, {owner}'s assistant. "
+                        + "He's away, but I'll pass on your message.",
+                "No idea \u2014 I live in a server with no weather! IRIS here \u2014 want me to pass "
+                        + "something to {owner}?",
+                "I run on electricity, not sunshine, so weather's lost on me. I'm IRIS, {owner}'s "
+                        + "assistant \u2014 message for him?",
+                "Can't check the weather from in here \u2014 I'm IRIS. Message for {owner}?"));
         x.add(r(55, "where is he|where is suvra|wya|whereabouts|which place is he|where has he gone|"
                         + "where are you|where are u|where r u|where r you|where ru|"
                         + "where are you now|where you at|where u at|where are you going|"

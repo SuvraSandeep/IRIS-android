@@ -37,10 +37,22 @@ public final class EmojiTest {
                         java.util.Locale.ROOT).contains("sorry")
                 || Emoji.reply("\uD83D\uDE2D", ReplyTone.Tone.SARCASTIC).contains("flagged"),
                 "sad reply is gentle even in sarcastic tone");
-        check(Emoji.reply("\uD83D\uDC40", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
-                "eyes emoji has no clear reply (falls back to a plain ping)");
+        check(!Emoji.reply("\uD83D\uDC40", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "eyes emoji now gets an \"I see you\" reply");
         check(Emoji.reply("plain", ReplyTone.Tone.PROFESSIONAL).isEmpty(), "no emoji -> no reply");
 
+        // Newly covered emojis must produce a reply, not fall through to the generic ping.
+        check(!Emoji.reply("\uD83E\uDD79", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "\uD83E\uDD79 (holding back tears) is recognised");
+        check(!Emoji.reply("\uD83D\uDE48\uD83D\uDE49\uD83D\uDE4A", ReplyTone.Tone.CASUAL).isEmpty(),
+                "three wise monkeys recognised");
+        check(!Emoji.reply("\uD83D\uDC12", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "\uD83D\uDC12 monkey recognised");
+        check(!Emoji.reply("\uD83C\uDF19", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "\uD83C\uDF19 moon recognised");
+        check(!Emoji.reply("\uD83C\uDF1D", ReplyTone.Tone.BRIEF).isEmpty(),
+                "\uD83C\uDF1D full moon recognised");
+        check(Emoji.dominant("\uD83C\uDF19") == Emoji.Category.NIGHT, "moon is NIGHT");
         System.out.println("Passed " + checks + " emoji checks");
     }
 }

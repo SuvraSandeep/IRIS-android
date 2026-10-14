@@ -271,6 +271,22 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/AutoModePolicyTest.java
 java -cp "$test_dir/responder" com.iris.assistant.AutoModePolicyTest
 
+# Owner-name aliasing: the owner's name is understood like a pronoun by the generic matchers.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/OwnerAlias.java \
+  tests/OwnerAliasTest.java
+java -cp "$test_dir/responder" com.iris.assistant.OwnerAliasTest
+
+# Wrong-time greetings: "good morning" at night gets an aware reply.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/TimeGreeting.java \
+  tests/TimeGreetingTest.java
+java -cp "$test_dir/responder" com.iris.assistant.TimeGreetingTest
+
 # Learned replies: scope keys and precedence for replies the owner teaches from the decision log.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \

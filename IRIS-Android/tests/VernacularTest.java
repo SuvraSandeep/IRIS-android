@@ -55,6 +55,11 @@ public final class VernacularTest {
         check(Vernacular.match("", ReplyTone.Tone.PROFESSIONAL).isEmpty(), "empty");
         check(Vernacular.match(null, ReplyTone.Tone.PROFESSIONAL).isEmpty(), "null");
 
+        // "are you crazy?" in Hinglish now gets a playful reply (not silence).
+        check(names(Vernacular.match("pagal h kya", ReplyTone.Tone.CASUAL)),
+                "pagal h kya answered, names IRIS");
+        check(!Vernacular.match("pagal ho kya", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "pagal ho kya answered");
         System.out.println("Passed " + checks + " vernacular checks");
     }
 }

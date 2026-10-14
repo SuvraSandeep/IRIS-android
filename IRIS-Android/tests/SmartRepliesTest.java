@@ -167,6 +167,17 @@ public final class SmartRepliesTest {
         check(!SmartReplies.handlesCategory(MessageCategory.Kind.REMINDER), "never touches REMINDER");
         check(!SmartReplies.handlesCategory(MessageCategory.Kind.FESTIVAL), "never touches FESTIVAL");
 
+        // Availability and weather small-talk now get a reply instead of a generic template.
+        check(!SmartReplies.match("is he sleeping", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "availability: is he sleeping");
+        check(!SmartReplies.match("is he free", ReplyTone.Tone.CASUAL).isEmpty(),
+                "availability: is he free");
+        check(!SmartReplies.match("whats he doing", ReplyTone.Tone.BRIEF).isEmpty(),
+                "status: whats he doing");
+        check(!SmartReplies.match("is it raining there", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "weather: raining");
+        check(!SmartReplies.match("how's the weather", ReplyTone.Tone.SARCASTIC).isEmpty(),
+                "weather: how's the weather");
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

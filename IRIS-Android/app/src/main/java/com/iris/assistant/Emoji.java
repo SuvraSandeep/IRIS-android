@@ -16,8 +16,8 @@ public final class Emoji {
 
     public enum Category {
         NONE, POSITIVE, LOVE, LAUGH, CELEBRATE, THANKS, PRAISE, OK, GREET,
-        SAD, ANGRY, SCARED, SICK, THINKING, SLEEP, NEUTRAL, MONEY
-    }
+        SAD, ANGRY, SCARED, SICK, THINKING, SLEEP, NEUTRAL, MONEY,
+        PLAYFUL, NIGHT, MOVED, LOOK }
 
     private Emoji() { }
 
@@ -51,8 +51,17 @@ public final class Emoji {
         p(m, Category.SICK, "\uD83E\uDD12", "\uD83E\uDD22", "\uD83E\uDD15", "\uD83E\uDD2E");
         p(m, Category.THINKING, "\uD83E\uDD14", "\uD83E\uDD28", "\uD83D\uDE44");
         p(m, Category.SLEEP, "\uD83D\uDE34", "\uD83D\uDCA4");
-        p(m, Category.NEUTRAL, "\uD83E\uDD37", "\uD83D\uDE10", "\uD83D\uDE36", "\uD83D\uDC40");
+        p(m, Category.NEUTRAL, "\uD83E\uDD37", "\uD83D\uDE10", "\uD83D\uDE36");
+        p(m, Category.LOOK, "\uD83D\uDC40");
         p(m, Category.MONEY, "\uD83D\uDCB0", "\uD83D\uDCB8");
+        // 🥹 face holding back tears -- touched/overwhelmed, usually warm.
+        p(m, Category.MOVED, "\uD83E\uDD79");
+        // 🙈🙉🙊 three wise monkeys + 🐒🐵 -- playful / shy / "oops".
+        p(m, Category.PLAYFUL, "\uD83D\uDE48", "\uD83D\uDE49", "\uD83D\uDE4A",
+                "\uD83D\uDC12", "\uD83D\uDC35");
+        // Moons -- night / goodnight / "heading to bed".
+        p(m, Category.NIGHT, "\uD83C\uDF19", "\uD83C\uDF1B", "\uD83C\uDF1C", "\uD83C\uDF1D",
+                "\uD83C\uDF1A", "\uD83C\uDF03", "\uD83C\uDF0C");
         return m;
     }
 
@@ -166,6 +175,46 @@ public final class Emoji {
                 "Yikes \u2014 IRIS here. I've flagged this so {owner} sees it fast.",
                 "Understood \u2014 I'm IRIS, {owner}'s assistant. Flagged for him.",
                 "Flagged for {owner}. IRIS."});
+        // 🥹 touched / overwhelmed -- warm, gentle in every tone.
+        m.put(Category.MOVED, new String[]{
+                "That means a lot \u2014 I'm IRIS, {owner}'s assistant. I've saved it right at the "
+                        + "top for him.",
+                "Aw, that's lovely \u2014 IRIS here, I've pinned it for {owner}.",
+                "Getting emotional at a script \u2014 I'm touched too (figuratively). Saved for "
+                        + "{owner}. I'm IRIS.",
+                "Noted warmly \u2014 saved for {owner}. IRIS."});
+        // 🙈🙉🙊🐒🐵 playful / shy.
+        m.put(Category.PLAYFUL, new String[]{
+                "Ha \u2014 I'm IRIS, {owner}'s assistant. I've logged your message for him.",
+                "Hehe, noted! IRIS here \u2014 {owner} will see it.",
+                "Monkeying around with a bot, I see. Logged for {owner}. I'm IRIS.",
+                "Noted with a grin \u2014 saved for {owner}. IRIS."});
+        // Moons -- treat as a good-night / signing-off wish.
+        m.put(Category.NIGHT, new String[]{
+                "Good night \u2014 I'm IRIS, {owner}'s assistant. I'll make sure he sees your "
+                        + "message in the morning.",
+                "Night night! IRIS here \u2014 saved for {owner} to see when he's up.",
+                "A moon for the night shift \u2014 I'm IRIS, I never sleep. {owner} will see it "
+                        + "tomorrow.",
+                "Good night \u2014 saved for {owner}. IRIS."});
+        m.put(Category.SLEEP, new String[]{
+                "Rest well \u2014 I'm IRIS, {owner}'s assistant. Your message is saved for him.",
+                "Sleep tight! IRIS here \u2014 saved for {owner}.",
+                "Nap time, understood \u2014 I'll be here regardless. Saved for {owner}. I'm IRIS.",
+                "Rest well \u2014 saved for {owner}. IRIS."});
+        m.put(Category.THINKING, new String[]{
+                "Take your time \u2014 I'm IRIS, {owner}'s assistant. I've logged your message "
+                        + "for him.",
+                "No rush! IRIS here \u2014 saved for {owner} whenever you're ready.",
+                "Deep thoughts at my inbox \u2014 I'll hold the message for {owner}. I'm IRIS.",
+                "Noted \u2014 saved for {owner}. IRIS."});
+        m.put(Category.LOOK, new String[]{
+                "I see you \u2014 I'm IRIS, {owner}'s assistant. He's away, but I've logged this "
+                        + "for him.",
+                "Eyes! IRIS here \u2014 {owner} is away, but your message is saved.",
+                "I'm watching the inbox, not much else. {owner} is away \u2014 saved for him. I'm "
+                        + "IRIS.",
+                "Noted \u2014 {owner} is away, saved for him. IRIS."});
         return m;
     }
 
