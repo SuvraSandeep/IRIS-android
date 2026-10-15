@@ -71,6 +71,39 @@ public class ResponderGuardsTest {
 
     private static long ResponderGuards_defaultWindow() { return Debounce.DEFAULT_WINDOW_MS; }
 
+    private static void banterSnoozeAfterCap() {
+        // At the cap, a banter message is snoozed.
+        ResponderGuards.Message m = sendableMessage();   // GREETING = banter
+        ResponderGuards.Policy p = sendablePolicy();
+        p.cooldownMs = 0;
+        p.banterCap = 10;
+        p.banterCount = 10;
+        verdict(m, p, ResponderGuards.Verdict.BANTER_SNOOZE, "banter snoozed at cap");
+
+        // Below the cap, it still sends.
+        ResponderGuards.Policy under = sendablePolicy();
+        under.cooldownMs = 0;
+        under.banterCap = 10;
+        under.banterCount = 3;
+        verdict(sendableMessage(), under, ResponderGuards.Verdict.SEND, "banter sends below cap");
+
+        // An URGENT message is NEVER snoozed, even past the cap.
+        ResponderGuards.Message urgent = sendableMessage();
+        urgent.category = MessageCategory.Kind.URGENT;
+        ResponderGuards.Policy up = sendablePolicy();
+        up.cooldownMs = 0;
+        up.banterCap = 10;
+        up.banterCount = 50;
+        verdict(urgent, up, ResponderGuards.Verdict.SEND, "urgent bypasses banter snooze");
+
+        // Cap of 0 disables the feature.
+        ResponderGuards.Policy off = sendablePolicy();
+        off.cooldownMs = 0;
+        off.banterCap = 0;
+        off.banterCount = 99;
+        verdict(sendableMessage(), off, ResponderGuards.Verdict.SEND, "cap 0 disables snooze");
+    }
+
     private static ResponderGuards.Policy sendablePolicy() {
         ResponderGuards.Policy p = new ResponderGuards.Policy();
         p.state = ResponderGuards.State.LIVE;
@@ -114,6 +147,7 @@ public class ResponderGuardsTest {
         sameTextIsNotAnsweredTwice();
         familyPriorityBypassesRateLimitsOnly();
         rapidFireIsDebounced();
+        banterSnoozeAfterCap();
         cooldownBlocksAndThenReleases();
         capsBlockIncludingZero();
         loopDetection();

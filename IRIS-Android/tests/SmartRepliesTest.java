@@ -316,6 +316,21 @@ public final class SmartRepliesTest {
                     "scenario covered: \"" + s + "\"");
         }
 
+        // Audit batch 3 scenarios.
+        for (String[] c : new String[][]{
+                {"production is down", "prod"},
+                {"i know you snitch on him", "snitch"},
+                {"send screenshot of this chat", "screenshot"},
+                {"ok pin it", "pin"},
+                {"who is he in a meeting with", "meeting-with"},
+                {"is he still in meeting", "still-in-meeting"},
+                {"this message was deleted", "deleted"},
+                {"bhai khana khailu", "food"},
+                {"chai piba?", "chai"},
+                {"party de yaar", "party"}}) {
+            check(namesIris(SmartReplies.match(c[0], ReplyTone.Tone.PROFESSIONAL)),
+                    "batch-3 scenario answered: \"" + c[0] + "\" (" + c[1] + ")");
+        }
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

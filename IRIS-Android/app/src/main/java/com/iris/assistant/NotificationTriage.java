@@ -107,6 +107,69 @@ public final class NotificationTriage {
     }
 
     /**
+     * A structured, line-based digest for when the owner returns: an URGENT bucket, a PEOPLE
+     * bucket (per sender with message counts), and an OTHER bucket (app alerts). Complements the
+     * one-line {@link #summarize}; this is the "shift summary" form. Urgency uses both the
+     * category classifier and the implicit-urgency scorer, so "ACCIDENT PLS CALL" lands in URGENT
+     * even without the word.
+     */
+    public static String shiftSummary(List<Item> items) {
+        if (items == null || items.isEmpty()) return "Nothing waited while you were away.";
+
+        List<String> urgentLines = new ArrayList<>();
+        Map<String, Integer> people = new LinkedHashMap<>();
+        Set<String> urgentSenders = new LinkedHashSet<>();
+        Map<String, Integer> apps = new LinkedHashMap<>();
+
+        for (Item it : items) {
+            if (it == null) continue;
+            MessagingApp ch = MessagingApp.fromPackage(it.pkg);
+            boolean person = ch != MessagingApp.OTHER
+                    && !it.sender.isEmpty()
+                    && !(ch.isSms() && looksLikeSenderId(it.sender));
+            if (person) {
+                people.merge(it.sender, 1, Integer::sum);
+                if (looksUrgent(it.text) || UrgencyScore.isUrgent(it.text, 1)) {
+                    if (urgentSenders.add(it.sender)) {
+                        urgentLines.add(it.sender + ": \"" + trim(it.text) + "\"");
+                    }
+                }
+            } else {
+                String app = it.app.isEmpty() ? "another app" : it.app;
+                apps.merge(app, 1, Integer::sum);
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("While you were away:\n");
+
+        sb.append("URGENT (").append(urgentLines.size()).append("):");
+        if (urgentLines.isEmpty()) sb.append(" none.");
+        else for (String l : urgentLines) sb.append("\n  - ").append(l);
+
+        sb.append("\nPEOPLE WAITING (").append(people.size()).append("):");
+        if (people.isEmpty()) sb.append(" none.");
+        else for (Map.Entry<String, Integer> e : people.entrySet()) {
+            sb.append("\n  - ").append(e.getKey()).append(" (")
+              .append(e.getValue()).append(e.getValue() == 1 ? " msg" : " msgs").append(")");
+            if (urgentSenders.contains(e.getKey())) sb.append(" [urgent]");
+        }
+
+        int appTotal = 0;
+        for (int v : apps.values()) appTotal += v;
+        sb.append("\nAPP ALERTS (").append(appTotal).append("): ");
+        sb.append(apps.isEmpty() ? "none." : appTail(apps));
+
+        return sb.toString();
+    }
+
+    /** Shorten a message for a digest line. */
+    private static String trim(String text) {
+        String t = text == null ? "" : text.replaceAll("\\s+", " ").trim();
+        return t.length() <= 60 ? t : t.substring(0, 57) + "...";
+    }
+
+    /**
      * An SMS sender-ID / shortcode rather than a saved person's name. A real contact name is
      * title-case and often spaced ("Mom", "Boss", "Ravi K"); a sender ID is a short, spaceless,
      * all-caps / hyphenated / digit-bearing token ("VM-HDFCBK", "AMAZON", "AX-SBIINB").

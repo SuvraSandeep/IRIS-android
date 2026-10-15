@@ -242,6 +242,7 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/MessagingApp.java \
   app/src/main/java/com/iris/assistant/SmsSafety.java \
   app/src/main/java/com/iris/assistant/MediaType.java \
+  app/src/main/java/com/iris/assistant/UrgencyScore.java \
   app/src/main/java/com/iris/assistant/NotificationTriage.java \
   tests/NotificationTriageTest.java
 java -cp "$test_dir/responder" com.iris.assistant.NotificationTriageTest
@@ -291,6 +292,13 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/Shorthand.java \
   tests/ShorthandTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ShorthandTest
+
+# Implicit-urgency scorer (burst / shouting / panic punctuation / distress).
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/UrgencyScore.java \
+  tests/UrgencyScoreTest.java
+java -cp "$test_dir/responder" com.iris.assistant.UrgencyScoreTest
 
 # Intro-stripping once IRIS has already introduced itself in a conversation.
 mkdir -p "$test_dir/responder"

@@ -39,6 +39,42 @@ public final class ConversationContext {
 
     private ConversationContext() { }
 
+    /** The owner-offer IRIS last made in this conversation, that the next message may answer. */
+    public enum Offer {
+        /** No pending offer. */
+        NONE,
+        /** IRIS asked "shall I flag this as urgent?" and is waiting for yes/no. */
+        OFFERED_ESCALATION
+    }
+
+    /** How the sender answered a pending offer. */
+    public enum OfferReply { NONE, ACCEPT, REFUSE }
+
+    private static final String[] REFUSE = {
+            "no", "nah", "nope", "dont", "no no", "no dont", "dont flag", "dont disturb",
+            "not urgent", "no need", "let him work", "let him finish", "its fine", "it s fine",
+            "leave it", "rehne do", "rehnde", "chhod", "chhod de", "no thanks", "nvm",
+            "never mind", "dont bother"};
+
+    private static final String[] ACCEPT = {
+            "yes", "yes please", "yeah", "yep", "yup", "please do", "do it", "flag it",
+            "flag it please", "yes flag", "please flag", "go ahead", "haan", "haan kar do",
+            "kar do", "escalate", "mark it urgent", "its urgent", "it s urgent"};
+
+    /**
+     * Classify the answer to a pending offer. Only meaningful when {@code offer} is not NONE, i.e.
+     * IRIS just asked something and this message is the reply. Refuse wins over accept on a mixed
+     * message, because the safe direction is NOT to escalate a stranger past the cooldown.
+     */
+    public static OfferReply classifyOffer(String body, Offer offer) {
+        if (offer == null || offer == Offer.NONE || body == null) return OfferReply.NONE;
+        String flat = " " + MessageCategory.normalise(body) + " ";
+        if (flat.trim().isEmpty()) return OfferReply.NONE;
+        if (containsAny(flat, REFUSE)) return OfferReply.REFUSE;
+        if (containsAny(flat, ACCEPT)) return OfferReply.ACCEPT;
+        return OfferReply.NONE;
+    }
+
     /**
      * Classify a message as a follow-up to a recent reminder, or not.
      *
@@ -77,6 +113,22 @@ public final class ConversationContext {
 
     private static final java.util.regex.Pattern BARE_TIME = java.util.regex.Pattern.compile(
             "(?i)\\b(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\s*$");
+
+    /**
+     * Whether an answer to this message should arm an escalation offer -- i.e. the sender is
+     * asking after the owner's availability, so IRIS's reply ("he's busy; say 'urgent' if needed")
+     * invites a yes/no the next message can answer. A small, self-contained keyword set.
+     */
+    public static boolean armsEscalationOffer(String body) {
+        if (body == null) return false;
+        String flat = " " + MessageCategory.normalise(body) + " ";
+        return containsAny(flat, ARMS);
+    }
+
+    private static final String[] ARMS = {
+            "is he busy", "is he free", "is he available", "is he on a call", "on a work call",
+            "in a meeting", "is he in a meeting", "can i talk to him", "can he talk",
+            "is he there", "is he reachable", "need to reach him", "is he working"};
 
     private static boolean containsAny(String paddedFlat, String[] phrases) {
         for (String p : phrases) {

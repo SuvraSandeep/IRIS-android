@@ -192,6 +192,31 @@ status, ring/stop finder, request-talk) over BLE -> Zepp Side Service -> authent
 
 ---
 
+---
+
+## 7a. Device-only task: the 3-second double-text debouncer (NOT done)
+The **policy** for coalescing is pure and tested (`Debounce.withinWindow` / `Debounce.combine`,
+plus a `DEBOUNCED` guard verdict that suppresses a rapid 2nd reply). What is **not** implemented,
+because it can only be built and verified on a device, is the **input-coalescing glue**: buffering
+a sender's rapid bubbles and running the responder **once** on the joined text (so "Iris r u there"
++ "u there??" 1 s apart become one reply to the combined message, not two).
+
+Reference design (from the owner's Python `DebouncedListener`): keep a per-sender buffer + a 3 s
+timer; each new bubble cancels the pending timer and appends; on timeout, join the buffer (e.g.
+with " . " or a space via `Debounce.combine`) and call `AutoResponder` once.
+
+Android implementation sketch (in the notification listener, device-verify required):
+- Per-conversation `Handler.postDelayed(flush, Debounce.DEFAULT_WINDOW_MS)`; cancel+reschedule on
+  each new notification from the same key.
+- On flush, pass `Debounce.combine(buffered)` as the incoming body to the existing pipeline.
+- Must survive the listener process being killed mid-window (persist the buffer, or accept that a
+  kill flushes immediately). Verify timing, ordering, and that URGENT still bypasses on a device.
+
+Until this is wired, the shipped behaviour is: the 2nd rapid message is **suppressed** (one reply),
+not **merged** (the 2nd message's content isn't added to the first reply's context).
+
+---
+
 ## 8. Key reference docs in-repo
 `RESPONDER-INTELLIGENCE-PLAN.md` (responder roadmap + completion status) · `SERVER-MODE.md` /
 `SERVER-MODE-IMPLEMENTATION.md` · `CONVERSATIONAL-AGENT.md` / `AGENT-ARCHITECTURE.md` ·

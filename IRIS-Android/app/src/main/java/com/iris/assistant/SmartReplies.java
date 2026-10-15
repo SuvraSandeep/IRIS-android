@@ -962,6 +962,95 @@ public final class SmartReplies {
                 "Haha somebody's gotta guard {owner}'s inbox while he's away! I'm IRIS.",
                 "Laughing at my work ethic? Cold. {owner} will reply when he's back. I'm IRIS.",
                 "Holding the fort till {owner} is back. I'm IRIS."));
+        // ─── Audit batch 3: chat-tested banter and traps ───
+        x.add(r(80, "prod is down|production is down|production issue|outage|sev1|sev 1|"
+                        + "deployment failed|bridge call|p1 incident|server is down|site is down",
+                "That sounds critical \u2014 I'm IRIS, {owner}'s assistant. I've flagged it at the top "
+                        + "of his queue so he sees it right away.",
+                "Uh oh, prod alert! Flagged this high-priority for {owner} so he can jump on it. "
+                        + "I'm IRIS.",
+                "Nothing ruins offline peace like 'production issue'. I've sounded the alarm for "
+                        + "{owner}. I'm IRIS.",
+                "High-priority tech alert flagged for {owner}. I'm IRIS."));
+        x.add(r(74, "snitch|snitching|snitched|told on him|exposed him|rat him out|"
+                        + "you ratted|know you snitch",
+                "Telling you he's busy isn't snitching \u2014 I'm IRIS, {owner}'s assistant, and he "
+                        + "literally programmed me to say that!",
+                "Haha that's not snitching! {owner} set his own status \u2014 I only say what the boss "
+                        + "authorises. I'm IRIS.",
+                "Snitching would be leaking his browser history. Telling you he's busy is my job "
+                        + "description. I'm IRIS, {owner}'s assistant.",
+                "Not snitching \u2014 {owner} set that status himself. I'm IRIS."));
+        x.add(r(88, "send screenshot|screenshot of this|take a screenshot|share screenshot|"
+                        + "screenshot bhej|ss bhej|send me a screenshot",
+                "I'm a text-only backend \u2014 I'm IRIS, {owner}'s assistant \u2014 no screen, so I can't "
+                        + "take or send screenshots.",
+                "Haha I don't have eyes or a phone screen! I read raw text, so no screenshots. I'm "
+                        + "IRIS.",
+                "How do I press Power + Volume-Down with no fingers or screen? Screenshot it "
+                        + "yourself! I'm IRIS, {owner}'s assistant.",
+                "No screen here \u2014 can't screenshot. I'm IRIS."));
+        x.add(r(70, "pin it|pin my message|pin this|pin to chat|not pinned|didnt pin|unpin|"
+                        + "where is it pinned",
+                "When I say pinned, I mean at the top of {owner}'s private assistant list \u2014 not "
+                        + "the WhatsApp pin! It's locked in at #1 for him. I'm IRIS.",
+                "Haha I mean pinned on {owner}'s bot summary, not the WhatsApp pin bar! It's #1 on "
+                        + "his list. I'm IRIS.",
+                "You checked the top of WhatsApp, didn't you? I pin to {owner}'s backend queue, "
+                        + "not Zuckerberg's UI. I'm IRIS.",
+                "Pinned in {owner}'s private dashboard, not WhatsApp's UI. I'm IRIS."));
+        x.add(r(60, "meeting with|in a meeting with|who is in the meeting|whose meeting|"
+                        + "meeting about|which meeting|who is he meeting",
+                "I only know {owner} is in a meeting \u2014 I'm IRIS, his assistant; I don't get the "
+                        + "guest list or agenda.",
+                "Haha {owner} doesn't invite his bot to the call! No guest list here. He'll tell "
+                        + "you when he's out. I'm IRIS.",
+                "I'm his inbox assistant, not taking minutes in the conference room. No idea who's "
+                        + "in there! I'm IRIS.",
+                "No access to the meeting details \u2014 he'll tell you. I'm IRIS."));
+        x.add(r(58, "still in meeting|still in a meeting|meeting over|meeting done|"
+                        + "still on the call|when does the meeting|meeting finished",
+                "Still in the meeting as far as my status shows \u2014 I'm IRIS, {owner}'s assistant. "
+                        + "The moment he's out, he'll reply.",
+                "Yep, still stuck in that meeting! Second {owner} escapes, you're on his list. I'm "
+                        + "IRIS.",
+                "Corporate meetings last roughly three eternities. Still in there. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Still in the meeting \u2014 he'll reply when it ends. I'm IRIS."));
+        x.add(r(89, "this message was deleted|you deleted this message|deleted this message",
+                "My logs respect deleted messages \u2014 I'm IRIS, {owner}'s assistant \u2014 so he won't "
+                        + "see what you erased.",
+                "Ooh, deleting messages? Don't worry, I didn't keep what you erased. Your secret's "
+                        + "safe! I'm IRIS.",
+                "I read at millisecond speed, so I saw it before 'Delete for Everyone' \u2014 but "
+                        + "it's not logged. I'm IRIS, {owner}'s assistant.",
+                "Deleted message ignored \u2014 secret's safe. I'm IRIS."));
+        x.add(r(60, "khailu ki|khana khailu|bhata khailu|khaichu|kana khailu|tiffin kalu|"
+                        + "had lunch|had dinner|had food|khana khaya",
+                "I run on electricity, not food \u2014 I'm IRIS, {owner}'s assistant! I've saved your "
+                        + "question so he can answer when he's back.",
+                "Mu ta code, electricity re chale! Saved your text so {owner} can tell you what he "
+                        + "ate. I'm IRIS.",
+                "I had a lovely bowl of CPU cycles, thanks. {owner} will report his human food "
+                        + "later. I'm IRIS.",
+                "I run on electricity! {owner} will tell you. I'm IRIS."));
+        x.add(r(60, "cha piba|chai peene|sutta|tea break|coffee piba|grab a coffee|chai pila|"
+                        + "chai pine chalo",
+                "Now that's an important alert \u2014 I'm IRIS, {owner}'s assistant \u2014 I've bumped "
+                        + "your chai invite up his list!",
+                "Cha break alert! Bumped this up {owner}'s list before the tea gets cold. I'm "
+                        + "IRIS.",
+                "Mentioning cha is basically a priority override. Bumped to the top for {owner}. "
+                        + "I'm IRIS.",
+                "Chai invite bumped up for {owner}. I'm IRIS."));
+        x.add(r(58, "party de|treat de|party kebe|party chaiye|treat chaiye|owe me a treat|"
+                        + "give me a party|party dena",
+                "My bot wallet has \u20B90 \u2014 I'm IRIS, {owner}'s assistant \u2014 but I've flagged your "
+                        + "party/treat demand for him!",
+                "Haha my balance is \u20B90.00! Flagged your treat demand for {owner} to see. I'm "
+                        + "IRIS.",
+                "Asking an unpaid script for a party is bold. Take it up with {owner}! I'm IRIS.",
+                "\u20B90 in my wallet \u2014 flagged for {owner}. I'm IRIS."));
         x.add(r(40, "are you there|you there|r you there|you around|still there|you awake|"
                         + "are you online|are you active|anyone there",
                 "Right here \u2014 I never leave the screen. I'm IRIS, {owner}'s assistant; he's away, "

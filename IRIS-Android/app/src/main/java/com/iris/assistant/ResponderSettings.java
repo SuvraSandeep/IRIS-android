@@ -70,6 +70,10 @@ public final class ResponderSettings {
     private static final String P_CONV_COUNT = "ccount_";
     private static final String P_CONV_IRIS = "ciris_";
     private static final String P_CONV_TEXT = "ctext_";
+    // Rapid-incoming tracking (for implicit-urgency burst detection) and running banter count
+    // (for the N-message auto-snooze). Both are per-conversation.
+    private static final String P_CONV_INWINDOW = "cinwin_";   // "count:windowStartMs"
+    private static final String P_CONV_BANTER = "cbanter_";    // consecutive answered banter msgs
     private static final String P_CONV_INTRO = "cintro_";
     private static final String P_RING_WORD = "cring_";
 
@@ -971,6 +975,76 @@ public final class ResponderSettings {
                 .putInt(K_REPLIES_TODAY, prefs.getInt(K_REPLIES_TODAY, 0) + 1)
                 .apply();
     }
+
+    /**
+     * Record an INCOMING message and return how many have arrived from this conversation within
+     * the given window (including this one). Feeds the implicit-urgency burst signal.
+     */
+    public int recordIncomingAndCountBurst(String conversationKey, long nowMs, long windowMs) {
+        String key = P_CONV_INWINDOW + safe(conversationKey);
+        String raw = prefs.getString(key, "");
+        int count = 0;
+        long start = nowMs;
+        int sep = raw.indexOf(':');
+        if (sep > 0) {
+            try {
+                int prevCount = Integer.parseInt(raw.substring(0, sep));
+                long prevStart = Long.parseLong(raw.substring(sep + 1));
+                if (nowMs - prevStart <= windowMs && nowMs >= prevStart) {
+                    count = prevCount;
+                    start = prevStart;
+                }
+            } catch (NumberFormatException ignore) { /* reset */ }
+        }
+        count += 1;
+        prefs.edit().putString(key, count + ":" + start).apply();
+        return count;
+    }
+
+    /** Consecutive answered banter messages in this conversation (for the auto-snooze). */
+    public int banterCount(String conversationKey) {
+        return prefs.getInt(P_CONV_BANTER + safe(conversationKey), 0);
+    }
+
+    public void bumpBanterCount(String conversationKey) {
+        String key = P_CONV_BANTER + safe(conversationKey);
+        prefs.edit().putInt(key, prefs.getInt(key, 0) + 1).apply();
+    }
+
+    public void resetBanterCount(String conversationKey) {
+        prefs.edit().remove(P_CONV_BANTER + safe(conversationKey)).apply();
+    }
+
+    /** A pending IRIS offer (e.g. OFFERED_ESCALATION) awaiting the sender's yes/no, with a window. */
+    public ConversationContext.Offer pendingOffer(String conversationKey, long nowMs) {
+        String raw = prefs.getString(P_CONV_OFFER + safe(conversationKey), "");
+        int sep = raw.indexOf(':');
+        if (sep <= 0) return ConversationContext.Offer.NONE;
+        try {
+            long when = Long.parseLong(raw.substring(sep + 1));
+            if (nowMs - when > OFFER_WINDOW_MS || nowMs < when) return ConversationContext.Offer.NONE;
+            return ConversationContext.Offer.valueOf(raw.substring(0, sep));
+        } catch (RuntimeException e) {
+            return ConversationContext.Offer.NONE;
+        }
+    }
+
+    public void setPendingOffer(String conversationKey, ConversationContext.Offer offer, long nowMs) {
+        String key = P_CONV_OFFER + safe(conversationKey);
+        if (offer == null || offer == ConversationContext.Offer.NONE) {
+            prefs.edit().remove(key).apply();
+        } else {
+            prefs.edit().putString(key, offer.name() + ":" + nowMs).apply();
+        }
+    }
+
+    public void clearPendingOffer(String conversationKey) {
+        prefs.edit().remove(P_CONV_OFFER + safe(conversationKey)).apply();
+    }
+
+    private static final String P_CONV_OFFER = "coffer_";
+    /** How long a pending offer stays answerable. */
+    private static final long OFFER_WINDOW_MS = 20L * 60 * 1000;
 
     /**
      * The exact text IRIS last answered in this conversation, normalised, or empty.

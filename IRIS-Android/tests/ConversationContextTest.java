@@ -51,6 +51,19 @@ public final class ConversationContextTest {
         eq(ConversationContext.editTime("make it 6").minuteOfDay, 360, "make it 6 -> 06:00");
         eq(ConversationContext.classify("change it to 6:30", true),
                 ConversationContext.FollowUp.EDIT_REMINDER_TIME, "change it to 6:30 is an edit");
+        // Two-turn escalation offer: accept / refuse / arming.
+        eq(ConversationContext.classifyOffer("no no don't", ConversationContext.Offer.OFFERED_ESCALATION),
+                ConversationContext.OfferReply.REFUSE, "'no no don't' refuses the offer");
+        eq(ConversationContext.classifyOffer("yes please flag it", ConversationContext.Offer.OFFERED_ESCALATION),
+                ConversationContext.OfferReply.ACCEPT, "'yes please flag it' accepts");
+        eq(ConversationContext.classifyOffer("yes please", ConversationContext.Offer.NONE),
+                ConversationContext.OfferReply.NONE, "no pending offer -> NONE");
+        eq(ConversationContext.classifyOffer("what's the weather", ConversationContext.Offer.OFFERED_ESCALATION),
+                ConversationContext.OfferReply.NONE, "unrelated message -> NONE");
+        eq(ConversationContext.armsEscalationOffer("is he busy right now"), true,
+                "availability question arms the offer");
+        eq(ConversationContext.armsEscalationOffer("happy birthday"), false,
+                "a greeting does not arm the offer");
         System.out.println("Passed " + checks + " conversation context checks");
     }
 }

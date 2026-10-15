@@ -32,6 +32,9 @@ public final class AutoResponder {
     private static final Set<String> ANSWERED_KEYS = new LinkedHashSet<>();
     private static final int ANSWERED_MAX = 200;
 
+    /** Step back after this many consecutive banter replies to one conversation. */
+    private static final int BANTER_SNOOZE_CAP = 10;
+
     private AutoResponder() { }
 
     /** Facts the listener already has, passed in so this class does no parsing of its own. */
@@ -125,6 +128,17 @@ public final class AutoResponder {
             category = new MessageCategory.Result(MessageCategory.Kind.MENTION, "");
         }
 
+        // Implicit urgency: a panicked message that never says "urgent" (shouting, "!!!",
+        // distress words, or a frantic burst) is promoted to URGENT -- but only from the generic
+        // buckets, so a reminder, a greeting or a direct IRIS question keeps its own handling.
+        int burst = settings.recordIncomingAndCountBurst(
+                conversationKey, now, UrgencyScore.BURST_WINDOW_MS);
+        if (SmartReplies.handlesCategory(category.kind)
+                && category.kind != MessageCategory.Kind.TO_IRIS
+                && UrgencyScore.isUrgent(incoming.body, burst)) {
+            category = new MessageCategory.Result(MessageCategory.Kind.URGENT, "");
+        }
+
         // ─── Family ring ───
         // A saved family contact gets full priority: an urgent message is offered a word to make
         // the phone ring, and replying that word rings it. Computed before everything else so it
@@ -168,6 +182,12 @@ public final class AutoResponder {
         long recentReminderId = new ReminderStore(context).lastReminderId(conversationKey, now);
         ConversationContext.FollowUp followUp =
                 ConversationContext.classify(incoming.body, recentReminderId > 0);
+
+        // Two-turn offer: if IRIS last asked "shall I flag this urgent?" in this conversation,
+        // THIS message may be the yes/no answer. Classified only while that offer is pending.
+        ConversationContext.Offer pendingOffer = settings.pendingOffer(conversationKey, now);
+        ConversationContext.OfferReply offerReply =
+                ConversationContext.classifyOffer(incoming.body, pendingOffer);
 
         // Smart keyword replies: an additive layer for messages the classifier left generic
         // (someone talking to IRIS, a bare question, an unremarkable or unmatched message, or a
@@ -226,6 +246,7 @@ public final class AutoResponder {
                 || vernMatched
                 || profileMatched
                 || followUp != ConversationContext.FollowUp.NONE
+                || offerReply != ConversationContext.OfferReply.NONE
                 || !learnedReply.isEmpty();
 
         ResponderGuards.Policy policy = new ResponderGuards.Policy();
@@ -245,6 +266,8 @@ public final class AutoResponder {
         policy.cooldownMs = settings.cooldownMs();
         policy.lastReplyToConversationMs = settings.lastReplyTo(conversationKey);
         policy.coalesceWindowMs = Debounce.DEFAULT_WINDOW_MS;
+        policy.banterCount = settings.banterCount(conversationKey);
+        policy.banterCap = BANTER_SNOOZE_CAP;
         policy.burstAlreadyAnswered = alreadyAnswered(incoming.sbn.getKey());
         policy.replyToEveryMessage = settings.replyToEveryMessage();
         policy.lastAnsweredText = settings.lastAnsweredText(conversationKey);
@@ -273,6 +296,17 @@ public final class AutoResponder {
                 // Family ring takes precedence over every other interpretation of the message.
                 reply = handleFamilyRing(context, settings, conversationKey, resolvedSender,
                         confirmsRing || ringRequest, state == ResponderGuards.State.LIVE);
+            } else if (offerReply != ConversationContext.OfferReply.NONE) {
+                // The sender is answering IRIS's "shall I flag this urgent?" offer. Consume it.
+                if (state == ResponderGuards.State.LIVE) settings.clearPendingOffer(conversationKey);
+                if (offerReply == ConversationContext.OfferReply.ACCEPT) {
+                    reply = "Done \u2014 I've flagged this as high-priority for " + ReplyTemplates.OWNER
+                            + ". I'm IRIS, his assistant.";
+                } else {
+                    reply = "Understood \u2014 I won't disturb " + ReplyTemplates.OWNER
+                            + " with an urgent alert. Your message is saved for when he's free. I'm "
+                            + "IRIS, his assistant.";
+                }
             } else if (followUp != ConversationContext.FollowUp.NONE) {
                 // A follow-up edits or cancels the reminder just set in this conversation. Checked
                 // before the reminder branch, because "cancel that reminder" also classifies as a
@@ -355,6 +389,28 @@ public final class AutoResponder {
             // the same day starts with some allowance already spent, which errs toward fewer
             // messages and is therefore the safe direction.
             settings.recordReply(conversationKey, now);
+            // Track consecutive banter replies for the auto-snooze: bump for a banter category,
+            // reset the run for anything substantive (urgent, mention, reminder, offer answer).
+            if (state == ResponderGuards.State.LIVE) {
+                if (ResponderGuards.isBanter(category.kind)
+                        && offerReply == ConversationContext.OfferReply.NONE) {
+                    settings.bumpBanterCount(conversationKey);
+                } else {
+                    settings.resetBanterCount(conversationKey);
+                }
+            }
+            // Arm or clear the escalation offer: if this reply answered an availability question,
+            // the next message may be a yes/no about flagging it urgent. If we just consumed an
+            // offer answer, it was already cleared above.
+            if (offerReply == ConversationContext.OfferReply.NONE) {
+                if (ConversationContext.armsEscalationOffer(incoming.body)) {
+                    settings.setPendingOffer(conversationKey,
+                            ConversationContext.Offer.OFFERED_ESCALATION, now);
+                } else if (pendingOffer != ConversationContext.Offer.NONE) {
+                    // The sender moved on without answering; drop the stale offer.
+                    settings.clearPendingOffer(conversationKey);
+                }
+            }
             // Remember exactly what was answered, so the identical message re-arriving is not
             // answered again, and mark that IRIS has now introduced itself to this thread so the
             // next reply can be short.

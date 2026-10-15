@@ -48,6 +48,21 @@ public final class NotificationTriageTest {
         String a = NotificationTriage.summarize(appsOnly);
         check(a.contains("2 from Gmail"), "app grouping fallback: " + a);
 
+        // Structured shift summary: urgent bucket, people bucket, app-alert bucket.
+        List<NotificationTriage.Item> shift = new ArrayList<>();
+        shift.add(it("WhatsApp", "Ravi", "there's been an accident please call", "com.whatsapp"));
+        shift.add(it("WhatsApp", "Mom", "are you coming to dinner", "com.whatsapp"));
+        shift.add(it("Mom", "Mom", "ok beta", "com.whatsapp"));
+        shift.add(it("Gmail", "", "newsletter", "com.google.android.gm"));
+        String ss = NotificationTriage.shiftSummary(shift);
+        check(ss.contains("URGENT (1)"), "shift summary has one urgent: " + ss);
+        check(ss.contains("Ravi"), "urgent names Ravi: " + ss);
+        check(ss.contains("PEOPLE WAITING (2)"), "two people waiting: " + ss);
+        check(ss.contains("Mom (2"), "Mom has 2 messages: " + ss);
+        check(ss.contains("APP ALERTS (1)"), "one app alert: " + ss);
+        check(NotificationTriage.shiftSummary(new ArrayList<>()).startsWith("Nothing"),
+                "empty shift summary");
+
         System.out.println("Passed " + checks + " triage checks");
     }
 }
