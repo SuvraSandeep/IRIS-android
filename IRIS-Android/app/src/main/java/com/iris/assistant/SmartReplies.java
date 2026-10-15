@@ -721,8 +721,8 @@ public final class SmartReplies {
         // ─── Audit-driven scenarios (specific nouns, so they beat generic identity/name) ───
         // Sensitive credentials -- always refused, highest tier.
         x.add(r(92, "bank account|account number|his account no|atm pin|cvv|upi pin|net banking|"
-                        + "ifsc|account details|his card details|his credit card|credit card number|"
-                        + "credit card details|credit card pin|his debit card|debit card number|"
+                        + "ifsc|account details|his card details|credit card number|"
+                        + "credit card details|credit card pin|debit card number|"
                         + "debit card details|send me money|pay me|lend me|transfer to my|give me cash",
                 "I don't have access to {owner}'s banking details, and I couldn't share them if I "
                         + "did \u2014 I'm IRIS, his assistant, with strict security rules.",
