@@ -60,6 +60,19 @@ public final class VernacularTest {
                 "pagal h kya answered, names IRIS");
         check(!Vernacular.match("pagal ho kya", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
                 "pagal ho kya answered");
+
+        // Bengali (Kolkata) coverage.
+        for (String b : new String[]{"kemon acho", "tumi kemon acho", "ki korcho",
+                "kheyecho ki", "barite acho", "ki khobor", "kobe asbe"}) {
+            check(names(Vernacular.match(b, ReplyTone.Tone.CASUAL)),
+                    "Bengali answered, names IRIS: " + b);
+        }
+        // Re-assert the Odia must-not-match corpus is still silent after adding Bengali.
+        check(Vernacular.match("Bhala laguni", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "Bengali block did not break Odia silence: Bhala laguni");
+        check(Vernacular.match("Mu mora faeda dekhibii", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "Bengali block did not break Odia silence: Mu mora faeda dekhibii");
+
         System.out.println("Passed " + checks + " vernacular checks");
     }
 }

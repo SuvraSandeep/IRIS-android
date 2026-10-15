@@ -1802,6 +1802,8 @@ public class MainActivity extends Activity {
         if (host != null) {
             host.removeAllViews();
             host.addView(sectionLabel("MODE"));
+            host.addView(sectionNote("How IRIS answers right now. Auto-sleep answers as "
+                    + "\u201Casleep\u201D during your quiet hours."));
             host.addView(responderRow("Situation",
                     settings.mode().isActive() ? settings.mode().label() : "none",
                     () -> editMode(settings, view)));
@@ -1809,6 +1811,8 @@ public class MainActivity extends Activity {
                     settings.autoSleepInQuietHours(),
                     on -> settings.setAutoSleepInQuietHours(on), view));
             host.addView(sectionLabel("SCOPE"));
+            host.addView(sectionNote("Who IRIS may reply to. In groups it stays quiet unless "
+                    + "you're named by name, @handle or number."));
             host.addView(responderSwitch("Answer one-to-one chats",
                     settings.replyToPersonal(), on -> settings.setReplyToPersonal(on), view));
             host.addView(responderSwitch("Answer group chats",
@@ -2209,6 +2213,16 @@ public class MainActivity extends Activity {
         label.setTextColor(getColor(R.color.magenta));
         label.setPadding(0, dp(14), 0, dp(4));
         return label;
+    }
+
+    /** A small, dim explanatory line under a section label or row. */
+    private TextView sectionNote(String text) {
+        TextView note = new TextView(this);
+        note.setText(text);
+        note.setTextSize(11f);
+        note.setTextColor(getColor(R.color.deck_text_dim));
+        note.setPadding(0, 0, 0, dp(6));
+        return note;
     }
 
     /** Callback for a boolean responder setting. */

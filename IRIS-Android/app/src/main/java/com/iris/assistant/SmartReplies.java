@@ -1051,6 +1051,70 @@ public final class SmartReplies {
                         + "IRIS.",
                 "Asking an unpaid script for a party is bold. Take it up with {owner}! I'm IRIS.",
                 "\u20B90 in my wallet \u2014 flagged for {owner}. I'm IRIS."));
+        // ─── Audit batch 4: more everyday scenarios ───
+        x.add(r(52, "did you get my message|did you get my msg|did you see my message|"
+                        + "got my message|did you read my|see my text|did he see my|got my text",
+                "I've logged it for {owner} \u2014 I'm IRIS, his assistant \u2014 but I can't tell if he's "
+                        + "read it yet. He'll reply once he's free.",
+                "Saved it for {owner}! Can't see read receipts from here, but it's at the top of "
+                        + "his list. I'm IRIS.",
+                "It's logged \u2014 whether {owner} has looked is between him and his lock screen. I'm "
+                        + "IRIS, his assistant.",
+                "Logged for {owner} \u2014 he'll see it soon. I'm IRIS."));
+        x.add(r(52, "are you coming|will you come|you coming to|invite you|invited you|"
+                        + "come to my|join us|see you at the|be there|rsvp|save the date",
+                "Thanks for the invite \u2014 I'm IRIS, {owner}'s assistant. I've flagged it so he can "
+                        + "RSVP himself when he's back.",
+                "Ooh an invite! I've saved it for {owner} to confirm \u2014 I can't RSVP on his behalf. "
+                        + "I'm IRIS.",
+                "I'd come, but I'm a script with no plus‑one. Flagged for {owner} to reply. I'm "
+                        + "IRIS, his assistant.",
+                "Invite saved for {owner} to RSVP. I'm IRIS."));
+        x.add(r(50, "when will you pay|pending payment|pending amount|clear the dues|"
+                        + "payment is due|outstanding amount|you owe|settle the bill|pay the pending",
+                "I don't handle money \u2014 I'm IRIS, {owner}'s assistant \u2014 but I've flagged your "
+                        + "payment note for him to deal with personally.",
+                "Flagged your payment reminder for {owner}! I'm just the inbox bot, no wallet here. "
+                        + "I'm IRIS.",
+                "A bot can't settle bills \u2014 I've put your payment note at the top for {owner}. I'm "
+                        + "IRIS, his assistant.",
+                "Payment note flagged for {owner}. I'm IRIS."));
+        x.add(r(50, "this is regarding a job|job opportunity|job opening|hiring for|"
+                        + "we are recruiting|your resume|your cv|job vacancy|interview opportunity|"
+                        + "placement|hr from",
+                "Thanks \u2014 I'm IRIS, {owner}'s assistant. I've saved your opportunity so he can "
+                        + "look at it himself; I can't speak for his career.",
+                "A job pitch! Saved it for {owner} to review \u2014 I don't handle his career moves. "
+                        + "I'm IRIS.",
+                "I'm his inbox bot, not his agent. Saved the opportunity for {owner} to judge. I'm "
+                        + "IRIS, his assistant.",
+                "Opportunity saved for {owner}. I'm IRIS."));
+        x.add(r(50, "forward this to|forward to everyone|share this message|chain message|"
+                        + "send this to 10|good morning forward|forward it to all",
+                "I don't forward chain messages \u2014 I'm IRIS, {owner}'s assistant \u2014 but I've noted "
+                        + "it for him.",
+                "Haha I don't do forwards! Saved it for {owner} though. I'm IRIS.",
+                "Chain messages die with me \u2014 I'm a responsible script. Noted for {owner}. I'm "
+                        + "IRIS, his assistant.",
+                "No forwards from me \u2014 noted for {owner}. I'm IRIS."));
+        x.add(r(50, "very disappointed|this is unacceptable|worst service|i am angry|"
+                        + "you people are|complaint against|not happy with|really upset with him",
+                "I'm sorry you're upset \u2014 I'm IRIS, {owner}'s assistant. I've flagged this as "
+                        + "important so he addresses it first.",
+                "Oh no, I hear you \u2014 I've flagged this for {owner} to sort out as a priority. I'm "
+                        + "IRIS.",
+                "Understood, and I'm not going to argue with an upset human \u2014 flagged for {owner} "
+                        + "to handle. I'm IRIS, his assistant.",
+                "Sorry \u2014 flagged as priority for {owner}. I'm IRIS."));
+        x.add(r(48, "can we meet|can we catch up|lets meet|meet tomorrow|free to meet|"
+                        + "meeting tomorrow|catch up this week|lets catch up|coffee sometime",
+                "Sounds good \u2014 I'm IRIS, {owner}'s assistant. I've flagged your meet‑up so he can "
+                        + "pick a time himself.",
+                "A catch‑up! Saved it for {owner} to lock a time \u2014 I can't manage his calendar. "
+                        + "I'm IRIS.",
+                "I'd join, but I don't leave the server. Flagged for {owner} to set a time. I'm "
+                        + "IRIS, his assistant.",
+                "Meet‑up flagged for {owner}. I'm IRIS."));
         x.add(r(40, "are you there|you there|r you there|you around|still there|you awake|"
                         + "are you online|are you active|anyone there",
                 "Right here \u2014 I never leave the screen. I'm IRIS, {owner}'s assistant; he's away, "

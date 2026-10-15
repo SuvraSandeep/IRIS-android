@@ -121,11 +121,13 @@ public final class MessageCategory {
 
     private static final Set<String> GREETING_WORDS = words(
             "hi", "hii", "hiii", "hiiii", "hello", "helo", "hellooo", "hlo", "hey", "heyy",
-            "heyyy", "yo", "namaste", "namaskar", "hola", "sup", "wassup", "whatsup", "wasup");
+            "heyyy", "yo", "namaste", "namaskar", "hola", "sup", "wassup", "whatsup", "wasup",
+            "hiya", "heya", "nomoskar", "nomoshkar", "aadab", "ola", "heyo");
 
     private static final Set<String> THANKS_WORDS = words(
             "thanks", "thankyou", "thanku", "thanx", "thnx", "thx", "ty", "tysm", "tq", "tqsm",
-            "thankz", "dhanyavad", "dhanyabad", "shukriya");
+            "thankz", "dhanyavad", "dhanyabad", "shukriya", "thnks", "thnq", "tnx", "dhonnobad",
+            "dhanyawad", "nandri", "meherbani");
 
     private static final Set<String> URGENT_WORDS = words(
             "urgent", "urgently", "asap", "emergency", "immediately", "important");
@@ -160,7 +162,9 @@ public final class MessageCategory {
      */
     private static final Set<String> ACK_WORDS = words(
             "ok", "okay", "okey", "k", "kk", "okk", "hmm", "hm", "hmmm", "fine", "cool", "nice",
-            "sure", "achha", "accha", "theek", "thik", "haan", "haa", "yep", "yup", "noted");
+            "sure", "achha", "accha", "theek", "thik", "haan", "haa", "yep", "yup", "noted",
+            "okie", "oki", "kkk", "hmmmm", "alright", "aight", "roger", "done",
+            "thike", "thikache", "hanji", "hanjee");
 
     // ─── Phrase sets. Matched as whole-word sequences. ───
 
@@ -233,7 +237,9 @@ public final class MessageCategory {
             "sent a photo", "sent a picture", "sent a video", "sent a sticker", "sent an audio",
             "sent a document", "sent a file", "sent a gif", "sent a voice message",
             "voice message", "voice note", "photo", "picture", "sticker", "gif",
-            "shared a contact", "sent a contact", "live location", "shared live location");
+            "shared a contact", "sent a contact", "live location", "shared live location",
+            "sent a reel", "shared a reel", "sent an image", "sent a pdf", "sent a location",
+            "missed voice call", "missed video call", "sent a status", "forwarded a message");
 
     private static final List<String> WEEKEND_PHRASES = Arrays.asList(
             "happy weekend", "good weekend", "happy friday", "enjoy your weekend",
@@ -260,6 +266,9 @@ public final class MessageCategory {
             "happy rakhi", "happy raksha bandhan", "happy ganesh chaturthi",
             "happy makar sankranti", "happy ugadi", "happy baisakhi", "happy vaisakhi",
             "happy lohri", "happy independence day", "happy republic day", "happy gandhi jayanti",
+            "subho noboborsho", "shubho noboborsho", "happy poila boishakh", "happy nabobarsha",
+            "happy saraswati puja", "happy kali puja", "happy bhai phonta", "happy bhai dooj",
+            "happy janmashtami", "happy mahashivratri", "happy karva chauth", "happy chhath",
             "happy bihu", "happy nabobarsho", "subho nababarsha");
 
     private MessageCategory() { }

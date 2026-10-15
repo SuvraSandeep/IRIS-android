@@ -444,6 +444,54 @@ public final class Vernacular {
                         + "top for " + O + "! IRIS.",
                 "Thanks! Festive wishes pinned for " + O + "! IRIS."));
 
+        // ─── Bengali (Kolkata) ───
+        // Whole-phrase matched; distinct from the Odia must-not-match corpus.
+        x.add(r(45, "kemon acho|kemon achho|kemon acha|bhalo acho to|bhalo acho|kemon aco|"
+                        + "tumi kemon acho",
+                "I run on electricity, so always 'bhalo'! I'm IRIS, " + O + "'s assistant. He's "
+                        + "away \u2014 what can I pass on?",
+                "Bhalo achi! IRIS here \u2014 " + O + " is away, so I'm minding his inbox. Ki bolbo "
+                        + "take?",
+                "A script is always bhalo \u2014 no bad days in here. I'm IRIS, " + O + "'s assistant.",
+                "Bhalo achi! Saved for " + O + ". IRIS."));
+        x.add(r(45, "ki korcho|ki korcho tumi|ki korchho|ki korish|ki kaj korcho",
+                "" + O + " is busy offline \u2014 I'm IRIS, his assistant, watching his messages till "
+                        + "he's back.",
+                "" + O + " is busy, so he put me (IRIS) on inbox duty! Ki pass korbo take?",
+                "I'm answering texts while " + O + " does human things. I'm IRIS, his assistant.",
+                "On inbox duty for " + O + ". IRIS."));
+        x.add(r(45, "kheyecho ki|khawa hoyeche|kheyecho|bhat kheyecho|khabar kheyecho|"
+                        + "lunch korecho|dinner korecho",
+                "I only eat electricity! I'm IRIS, " + O + "'s assistant \u2014 I've saved your "
+                        + "question so he can tell you when he's back.",
+                "Mu to current e chale! IRIS here \u2014 saved it so " + O + " can reply. Tumi kheyecho "
+                        + "to?",
+                "A bowl of CPU cycles, thanks. " + O + " will report his human food later. I'm "
+                        + "IRIS.",
+                "I run on power! Saved for " + O + ". IRIS."));
+        x.add(r(45, "barite acho|bari te acho|basay acho|office e acho|office acho|kothay acho|"
+                        + "tumi kothay",
+                "I don't track where he is \u2014 I'm IRIS, " + O + "'s assistant, I just watch the "
+                        + "inbox. I've logged that you asked!",
+                "No GPS on him! IRIS here \u2014 I'll tell " + O + " you were looking for him.",
+                "I live in a server, so I'm 'home' always. Where " + O + " is, he'll tell you. I'm "
+                        + "IRIS.",
+                "Just watching his inbox \u2014 told " + O + " you asked. IRIS."));
+        x.add(r(45, "ki khobor|khobor ki|ki khobor tomar|sob bhalo to|sob thik thak",
+                "All systems bhalo \u2014 I'm IRIS, " + O + "'s assistant! He's away, so what can I "
+                        + "pass on?",
+                "Sob bhalo! IRIS here \u2014 " + O + " is away, drop your message!",
+                "Zero bugs, low CPU \u2014 khobor bhalo. I'm IRIS, " + O + "'s assistant.",
+                "Sob bhalo! Message for " + O + "? IRIS."));
+        x.add(r(45, "kobe asbe|kobe asbi|kokhon asbe|phirbe kobe|kobe firbe|kobe phirbe",
+                "No exact time \u2014 I'm IRIS, " + O + "'s assistant. As soon as he's free, you're on "
+                        + "his list!",
+                "Hard to say when " + O + " is back \u2014 humans don't keep a timer! Saved for him. "
+                        + "I'm IRIS.",
+                "My crystal ball returned 404. He'll reply when he checks his phone. I'm IRIS, "
+                        + O + "'s assistant.",
+                "No exact ETA \u2014 saved for " + O + ". IRIS."));
+
         return x;
     }
 }

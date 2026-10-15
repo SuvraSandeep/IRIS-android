@@ -331,6 +331,18 @@ public final class SmartRepliesTest {
             check(namesIris(SmartReplies.match(c[0], ReplyTone.Tone.PROFESSIONAL)),
                     "batch-3 scenario answered: \"" + c[0] + "\" (" + c[1] + ")");
         }
+        // Audit batch 4 scenarios.
+        for (String[] c : new String[][]{
+                {"did you get my message", "read-receipt"},
+                {"are you coming to my party", "invitation"},
+                {"when will you pay the pending amount", "payment"},
+                {"this is regarding a job opportunity", "recruiter"},
+                {"please forward this to everyone", "chain"},
+                {"this is unacceptable i am very disappointed", "complaint"},
+                {"can we meet tomorrow", "meetup"}}) {
+            check(namesIris(SmartReplies.match(c[0], ReplyTone.Tone.PROFESSIONAL)),
+                    "batch-4 scenario answered: \"" + c[0] + "\" (" + c[1] + ")");
+        }
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

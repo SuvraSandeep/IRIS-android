@@ -56,6 +56,20 @@ public class MessageCategoryTest {
         unrecognisedMeansSilence();
         edgeInputsFailSafe();
         normalisationBehaviour();
+        // Tuning: new shortforms and phrases.
+        kind("hiya", MessageCategory.Kind.GREETING, "hiya is a greeting");
+        kind("nomoskar", MessageCategory.Kind.GREETING, "nomoskar is a greeting");
+        kind("thnq", MessageCategory.Kind.THANKS, "thnq is thanks");
+        kind("dhonnobad", MessageCategory.Kind.THANKS, "dhonnobad is thanks");
+        kind("alright", MessageCategory.Kind.ACKNOWLEDGEMENT, "alright is an ack");
+        kind("hanji", MessageCategory.Kind.ACKNOWLEDGEMENT, "hanji is an ack");
+        kind("subho noboborsho", MessageCategory.Kind.FESTIVAL, "bengali new year is a festival");
+        kind("happy kali puja", MessageCategory.Kind.FESTIVAL, "kali puja is a festival");
+        kind("sent a reel", MessageCategory.Kind.MEDIA_ONLY, "sent a reel is media");
+        kind("missed voice call", MessageCategory.Kind.MEDIA_ONLY, "missed voice call is media");
+        // Guard: a real word containing a shortform must NOT be mis-ack'd.
+        kind("alrighty then lets go now", MessageCategory.Kind.OTHER, "longer msg not an ack");
+
         System.out.println("Passed " + checks + " message category checks");
     }
 
