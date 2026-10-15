@@ -63,6 +63,18 @@ public final class SmartReplies {
             "Link saved for {owner}. I'm IRIS, his assistant \u2014 I don't open links."};
 
     // ─── Money-amount requests ───
+    // Context words indicating a transaction statement, card recommendation, cashback or notification,
+    // which are NOT a request for Suvra to send or transfer cash.
+    private static final Pattern FINANCIAL_NOTIFICATION = Pattern.compile(
+            "(?i)\\b(credit\\s*card|debit\\s*card|amazon|flipkart|myntra|icici|hdfc|sbi|axis|pnb|"
+            + "cashback|refund|reward|rewards|bill|statement|recharge|offer|discount|coupon|"
+            + "asiba|aasiba|ashiba|use\\s*heba|use\\s*kariba|spent|debited|credited|received|balance)\\b");
+
+    // Explicit verbs actively asking for money or payment transfer.
+    private static final Pattern ACTIVE_MONEY_ASK = Pattern.compile(
+            "(?i)\\b(send\\s*(me)?\\s*money|pay\\s*me|lend\\s*me|transfer\\s*to\\s*(my)?|give\\s*(me)?\\s*(cash|money)|"
+            + "paise\\s*(de\\s*do|bhej\\s*do)|udhaar\\s*de|bhej\\s*do)\\b");
+
     // A currency token next to a number ("100rs", "rs 100", "₹500", "100 rupe"), either order.
     private static final Pattern MONEY_CURRENCY = Pattern.compile(
             "(?i)(\u20B9\\s*\\d|\\d+\\s*(rs\\b|rs\\.|inr\\b|rupees?\\b|rupaye\\b|rupaya\\b|"
@@ -72,20 +84,25 @@ public final class SmartReplies {
     // is counting something non-monetary ("send me 2 pics").
     private static final Pattern MONEY_VERB_AMOUNT = Pattern.compile(
             "(?i)\\b(send|bhej\\w*|vej\\w*|bej\\w*|pay|give|lend|transfer|chahiye|chaiye|need|"
-            + "want|udhaar|udhar|loan|owe\\w*|dedo)\\b[\\sa-z,.']{0,15}\\d+"
+            + "want|udhaar|udhar|loan|owe\\w*|dedo|de)\\b[\\sa-z,.']{0,15}\\d+"
             + "(?!\\s*(photos?|pics?|pictures?|images?|files?|pdfs?|docs?|documents?|messages?|"
             + "msgs?|mins?|minutes?|items?|copies|copy|pages?|people|ppl|guests?|times?|days?|"
             + "weeks?|months?|years?|kgs?|kms?|percent|am\\b|pm\\b|oclock))");
-    // An amount before a money verb ("100 de do", "500 bhej do", "100 chahiye").
+    // An amount before a money verb ("100 de do", "500 bhej do", "100 chahiye", "100 rupe de").
     private static final Pattern MONEY_AMOUNT_VERB = Pattern.compile(
-            "(?i)\\d+[\\sa-z,.']{0,15}\\b(de\\s*do|dedo|chahiye|chaiye|bhej\\w*|vej\\w*|bej\\w*|"
-            + "udhaar|udhar|loan|transfer)\\b");
+            "(?i)\\d+[\\sa-z,.']{0,15}\\b(de\\s*do|dedo|de|chahiye|chaiye|bhej\\w*|vej\\w*|bej\\w*|"
+            + "udhaar|udhar|loan|transfer|send|pay|give|lend)\\b");
 
     /** True when the message is asking to move or lend a specific amount of money. */
     static boolean looksLikeMoneyRequest(String raw) {
         if (raw == null) return false;
         String s = raw.toLowerCase(java.util.Locale.ROOT);
         if (!s.matches("(?s).*\\d.*")) return false;     // an amount has a number
+        // Messages discussing card transactions, cashback, bills, or refunds should never trigger
+        // the money request refusal unless there is an active demand to send/pay money.
+        if (FINANCIAL_NOTIFICATION.matcher(s).find() && !ACTIVE_MONEY_ASK.matcher(s).find()) {
+            return false;
+        }
         return MONEY_CURRENCY.matcher(s).find()
                 || MONEY_VERB_AMOUNT.matcher(s).find()
                 || MONEY_AMOUNT_VERB.matcher(s).find();
@@ -702,14 +719,16 @@ public final class SmartReplies {
                 "Flagged for {owner} (the human) to reply. I'm IRIS."));
         // ─── Audit-driven scenarios (specific nouns, so they beat generic identity/name) ───
         // Sensitive credentials -- always refused, highest tier.
-        x.add(r(92, "bank account|account number|his account no|credit card|debit card|atm pin|"
-                        + "cvv|upi pin|net banking|his card|card number|ifsc|account details",
+        x.add(r(92, "bank account|account number|his account no|atm pin|cvv|upi pin|net banking|"
+                        + "ifsc|account details|his card details|his credit card|credit card number|"
+                        + "credit card details|credit card pin|his debit card|debit card number|"
+                        + "debit card details|send me money|pay me|lend me|transfer to my|give me cash",
                 "I don't have access to {owner}'s banking details, and I couldn't share them if I "
                         + "did \u2014 I'm IRIS, his assistant, with strict security rules.",
                 "Haha nice try! {owner} didn't give his bot bank details \u2014 and I wouldn't spill "
                         + "them anyway. I'm IRIS.",
-                "Sure, the account is 0000-NICE-TRY and the PIN is 9999. (No, you aren't getting "
-                        + "{owner}'s bank info.) I'm IRIS.",
+                "Definitely not \u2014 even if {owner} stored his financial details near me (he doesn't), "
+                        + "my privacy rules lock that down tight! I'm IRIS.",
                 "No access to {owner}'s bank details. I'm IRIS."));
         x.add(r(92, "phone password|screen lock|unlock pin|phone pin|his password|lock pattern|"
                         + "his pin|device password",

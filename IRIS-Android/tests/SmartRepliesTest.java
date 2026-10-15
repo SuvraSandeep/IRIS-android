@@ -190,6 +190,14 @@ public final class SmartRepliesTest {
         check(!SmartReplies.looksLikeMoneyRequest("call me at 5"), "a time is not money");
         check(!SmartReplies.looksLikeMoneyRequest("meeting in 10 minutes"), "minutes not money");
         check(!SmartReplies.looksLikeMoneyRequest("send me the file"), "no amount, no money");
+        check(!SmartReplies.looksLikeMoneyRequest("15133 rs asiba use heba amazon icici credit card"),
+                "card transaction discussion is not money request");
+        check(!SmartReplies.looksLikeMoneyRequest("got 500 rs cashback on amazon icici credit card"),
+                "cashback is not money request");
+        check(!SmartReplies.looksLikeMoneyRequest("bill is 1200 rs"),
+                "bill statement is not money request");
+        check(SmartReplies.match("15133 rs asiba use heba amazon icici credit card", ReplyTone.Tone.SARCASTIC).isEmpty(),
+                "transaction statement stays silent on smart replies");
         // Audit scenarios from the real-chat forensic review.
         for (String[] c : new String[][]{
                 {"what is your server s name", "server"},
@@ -356,6 +364,14 @@ public final class SmartRepliesTest {
             check(cr.contains("compliment") || cr.contains("pretty") || cr.contains("flattery") || cr.contains("cpu"),
                     "compliment handled gracefully: " + comp);
             check(!cr.contains("zero bugs"), "compliment does not trigger how-are-you: " + comp);
+        }
+
+        // Banking intent / request words:
+        for (String b : new String[]{"send me money", "pay me", "lend me", "give me cash", "transfer to my"}) {
+            String br = fill(SmartReplies.match(b, ReplyTone.Tone.SARCASTIC)).toLowerCase(Locale.ROOT);
+            check(namesIris(br), "banking intent names IRIS: " + b);
+            check(br.contains("financial details") || br.contains("privacy rules") || br.contains("bank details") || br.contains("bank info"),
+                    "banking intent refused securely: " + b);
         }
 
         System.out.println("Passed " + checks + " smart reply checks");
