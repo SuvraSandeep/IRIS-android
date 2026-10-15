@@ -134,12 +134,39 @@ public final class SmartReplies {
         if (top.size() == 1) return pick(top.get(0).byTone, tone);
         Rule a = top.get(0), b = top.get(1);
         // Only stitch two genuine scenario rules (both reasonably specific), so ordinary chatter
-        // never gets a bolted-together reply.
-        if (a.priority >= STITCH_MIN && b.priority >= STITCH_MIN) {
+        // never gets a bolted-together reply. Never stitch contradictory refusal and action/flag rules.
+        if (a.priority >= STITCH_MIN && b.priority >= STITCH_MIN && !isContradictory(a, b)) {
             return pick(a.byTone, ReplyTone.Tone.BRIEF) + " "
                     + pick(b.byTone, ReplyTone.Tone.BRIEF);
         }
         return pick(a.byTone, tone);
+    }
+
+    private static boolean isContradictory(Rule a, Rule b) {
+        boolean aRefusal = isRefusal(a), bRefusal = isRefusal(b);
+        boolean aAffirm = isAffirmation(a), bAffirm = isAffirmation(b);
+        return (aRefusal && bAffirm) || (aAffirm && bRefusal);
+    }
+
+    private static boolean isRefusal(Rule r) {
+        for (String p : r.any) {
+            if (p.contains("dont") || p.contains("don't") || p.contains("no need")
+                    || p.contains("nevermind") || p.contains("leave it") || p.contains("let him work")
+                    || p.contains("don t")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isAffirmation(Rule r) {
+        for (String p : r.any) {
+            if (p.contains("yes please") || p.contains("flag") || p.contains("escalate")
+                    || p.contains("urgent") || p.contains("do that")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static final int STITCH_MIN = 55;
@@ -216,6 +243,7 @@ public final class SmartReplies {
         return out;
     }
 
+
     private static void matchAgainst(String text, java.util.List<Rule> matched,
                                      java.util.Map<Rule, Boolean> exactness) {
         String flat = " " + MessageCategory.normalise(text) + " ";
@@ -234,6 +262,7 @@ public final class SmartReplies {
             }
         }
     }
+
 
     private static final String[] PUNCT = {
             "I'm here \u2014 IRIS, {owner}'s assistant. {owner} is away from his phone right now, but "
@@ -586,7 +615,12 @@ public final class SmartReplies {
                 "Logged normally for {owner}! I'm IRIS."));
 
         // Scenario 24: "Yes please" / "Do that" (Accepting bot's offer)
-        x.add(r(80, "yes please|yes do that|flag it|yes flag|please do|go ahead|do that please|pls flag",
+        // NOTE: "flag it" alone and "please do" alone are excluded: they are too short and
+        // collide with "no dont flag it" (which contains "flag it" as a substring). Only
+        // unambiguous multi-word positive phrases are used here.
+        x.add(r(80, "yes please|yes do that|yes flag|go ahead|do that please|pls flag"
+                        + "|yes please flag|please flag it|flag it please|haan kar do"
+                        + "|escalate it|mark it urgent|yes escalate",
                 "Understood. I have prioritized your message for {owner}. I'm IRIS, his assistant.",
                 "You got it! Flagged and bumped to the top for {owner}. IRIS here.",
                 "Affirmation received. IRIS is bumping your message to the VIP lane for {owner}.",
@@ -956,14 +990,18 @@ public final class SmartReplies {
                 "My bad \u2014 keyword misfire! {owner} will reply soon. I'm IRIS."));
         x.add(r(45, "you are cute|cute bot|sweet bot|lovely bot|i like you iris|love you iris|"
                         + "you are smart|good bot|nice bot|you are the best|best bot|so cute|"
-                        + "cutie|adorable|you are adorable|love u iris|like u iris",
+                        + "cutie|adorable|you are adorable|love u iris|like u iris|"
+                        + "u look pretty|you look pretty|look beautiful|you look beautiful|"
+                        + "you look nice|looking good iris|you re pretty|ur pretty|you are pretty|"
+                        + "pretty bot|you are beautiful|beautiful bot|you look great",
                 "Flattery will get your message saved a little higher on {owner}'s list \u2014 thank "
                         + "you! I'm IRIS.",
-                "Stop it, you're making my CPU overheat! Don't tell {owner} you like me better. "
-                        + "I'm IRIS.",
+                "Haha, pretty code running on a clean terminal, you mean! Thanks \u2014 I'll log that "
+                        + "compliment for {owner}. I'm IRIS.",
                 "Careful \u2014 if you say I'm better than {owner}, he might unplug my power cord out "
                         + "of jealousy. I'm IRIS.",
                 "Flattery noted \u2014 CPU blushing. I'm IRIS."));
+
         x.add(r(44, "busy again|away again|bot again|not again|you again|always busy",
                 "Laugh all you want \u2014 I take inbox duty seriously! I'm IRIS, {owner}'s assistant; "
                         + "he'll get back to you soon.",

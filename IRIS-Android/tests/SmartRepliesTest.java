@@ -343,6 +343,21 @@ public final class SmartRepliesTest {
             check(namesIris(SmartReplies.match(c[0], ReplyTone.Tone.PROFESSIONAL)),
                     "batch-4 scenario answered: \"" + c[0] + "\" (" + c[1] + ")");
         }
+
+        // Double-tap & Mutual Exclusion checks:
+        String noFlagReply = fill(SmartReplies.matchMulti("no don't flag it", ReplyTone.Tone.BRIEF)).toLowerCase(Locale.ROOT);
+        check(noFlagReply.contains("disturb"), "no don't flag it contains refusal");
+        check(!noFlagReply.contains("flagged for"), "no don't flag it does NOT contain flagged-for contradiction");
+
+        // Compliment checks:
+        for (String comp : new String[]{"u look pretty", "you look pretty", "What more IRIS. IRIS u look pretty", "you are beautiful", "smart bot", "good bot"}) {
+            String cr = fill(SmartReplies.match(comp, ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT);
+            check(namesIris(cr), "compliment names IRIS: " + comp);
+            check(cr.contains("compliment") || cr.contains("pretty") || cr.contains("flattery") || cr.contains("cpu"),
+                    "compliment handled gracefully: " + comp);
+            check(!cr.contains("zero bugs"), "compliment does not trigger how-are-you: " + comp);
+        }
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }
