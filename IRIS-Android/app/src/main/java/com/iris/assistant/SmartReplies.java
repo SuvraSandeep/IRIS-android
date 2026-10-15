@@ -993,7 +993,8 @@ public final class SmartReplies {
                         + "cutie|adorable|you are adorable|love u iris|like u iris|"
                         + "u look pretty|you look pretty|look beautiful|you look beautiful|"
                         + "you look nice|looking good iris|you re pretty|ur pretty|you are pretty|"
-                        + "pretty bot|you are beautiful|beautiful bot|you look great",
+                        + "pretty bot|you are beautiful|beautiful bot|you look great|"
+                        + "smart bot|cool iris|smart iris|pretty iris",
                 "Flattery will get your message saved a little higher on {owner}'s list \u2014 thank "
                         + "you! I'm IRIS.",
                 "Haha, pretty code running on a clean terminal, you mean! Thanks \u2014 I'll log that "
