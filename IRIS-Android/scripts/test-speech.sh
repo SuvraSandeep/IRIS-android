@@ -300,6 +300,13 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/UrgencyScoreTest.java
 java -cp "$test_dir/responder" com.iris.assistant.UrgencyScoreTest
 
+# Per-chat rolling history buffer (customizable context depth).
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/ChatHistory.java \
+  tests/ChatHistoryTest.java
+java -cp "$test_dir/responder" com.iris.assistant.ChatHistoryTest
+
 # Intro-stripping once IRIS has already introduced itself in a conversation.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \

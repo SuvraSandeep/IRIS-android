@@ -1423,6 +1423,30 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    /** Human label for the stored context depth. */
+    private String contextDepthLabel(int depth) {
+        if (depth <= 0) return "just this message";
+        if (depth == 1) return "just this message";
+        return "last " + depth + " messages";
+    }
+
+    /** Pick how many recent messages of a chat IRIS keeps as context. */
+    private void editContextDepth(final ResponderSettings settings, final View root) {
+        final int[] options = {1, 2, 3, 5, 10};
+        final String[] labels = new String[options.length];
+        for (int i = 0; i < options.length; i++) {
+            labels[i] = options[i] == 1 ? "Just this message"
+                    : "Last " + options[i] + " messages";
+        }
+        choiceDialog("Context memory",
+                "How many recent messages of a chat I read together, so a thought split across "
+                        + "quick bubbles is understood as one. Stored on your phone.",
+                labels, which -> {
+                    settings.setContextDepth(options[which]);
+                    renderResponder(root);
+                });
+    }
+
     private void editDefaultTone(final ResponderSettings settings, final View root) {
         final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
         String[] labels = new String[tones.length];
@@ -1810,6 +1834,9 @@ public class MainActivity extends Activity {
             host.addView(responderSwitch("Auto-sleep during quiet hours",
                     settings.autoSleepInQuietHours(),
                     on -> settings.setAutoSleepInQuietHours(on), view));
+            host.addView(responderRow("Context memory",
+                    contextDepthLabel(settings.contextDepth()),
+                    () -> editContextDepth(settings, view)));
             host.addView(sectionLabel("SCOPE"));
             host.addView(sectionNote("Who IRIS may reply to. In groups it stays quiet unless "
                     + "you're named by name, @handle or number."));

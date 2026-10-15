@@ -116,6 +116,8 @@ public final class AutoResponder {
         MessageCategory.Result category = MessageCategory.classify(
                 normBody, settings.mentionKeywords(),
                 settings.irisSpokeLast(conversationKey, now));
+        // Keep a short rolling history of this chat (customizable depth) for multi-bubble context.
+        settings.recordIncomingHistory(conversationKey, normBody);
 
         // In a group, an @-handle or phone-number mention of the owner counts as being named,
         // even though it isn't his saved name. Checked on the raw body (not normalised, which
@@ -200,6 +202,24 @@ public final class AutoResponder {
         String smartReply = SmartReplies.matchMulti(aliasedBody, tone);
         boolean smartMatched = !smartReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
+
+        // Multi-bubble context: if the single message matched nothing and the owner keeps a
+        // context window, retry over the combined last-N messages of this chat, so a thought
+        // split across quick bubbles ("hey" / "are you free" / "tomorrow?") is read as one.
+        if (!smartMatched && settings.contextDepth() > 1
+                && SmartReplies.handlesCategory(category.kind)) {
+            java.util.List<String> hist = ChatHistory.window(
+                    settings.chatHistory(conversationKey), settings.contextDepth());
+            if (hist.size() > 1) {
+                String windowBody = OwnerAlias.toThirdPerson(
+                        ChatHistory.combine(hist), ReplyTemplates.OWNER);
+                String windowReply = SmartReplies.matchMulti(windowBody, tone);
+                if (!windowReply.isEmpty()) {
+                    smartReply = windowReply;
+                    smartMatched = true;
+                }
+            }
+        }
 
         // Hinglish/Odia layer: recognise the owner's real vernacular traffic instead of silence.
         // Same gating as smart replies (generic buckets only), and whole-phrase matched so the

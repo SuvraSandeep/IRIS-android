@@ -1047,6 +1047,48 @@ public final class ResponderSettings {
     private static final long OFFER_WINDOW_MS = 20L * 60 * 1000;
 
     /**
+     * How many recent messages of a chat IRIS keeps as context (the "context depth"). Default 3,
+     * clamped 0..MAX_DEPTH. 0 means "just this message". Persisted.
+     */
+    public int contextDepth() {
+        return ChatHistory.clampDepth(prefs.getInt(K_CONTEXT_DEPTH, 3));
+    }
+    public void setContextDepth(int depth) {
+        prefs.edit().putInt(K_CONTEXT_DEPTH, ChatHistory.clampDepth(depth)).apply();
+    }
+
+    /** The stored rolling history for a conversation (oldest first), honouring the depth. */
+    public List<String> chatHistory(String conversationKey) {
+        String raw = prefs.getString(P_CONV_HIST + safe(conversationKey), "");
+        List<String> out = new ArrayList<>();
+        if (raw.isEmpty()) return out;
+        for (String line : raw.split("\n")) {
+            if (!line.trim().isEmpty()) out.add(line);
+        }
+        return out;
+    }
+
+    /** Append an incoming message to the conversation's rolling history (trimmed to the depth). */
+    public void recordIncomingHistory(String conversationKey, String message) {
+        int depth = contextDepth();
+        if (depth <= 0) {
+            prefs.edit().remove(P_CONV_HIST + safe(conversationKey)).apply();
+            return;
+        }
+        String clean = message == null ? "" : message.replace('\n', ' ').replace('\r', ' ').trim();
+        List<String> next = ChatHistory.append(chatHistory(conversationKey), clean, depth);
+        StringBuilder sb = new StringBuilder();
+        for (String m : next) {
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(m);
+        }
+        prefs.edit().putString(P_CONV_HIST + safe(conversationKey), sb.toString()).apply();
+    }
+
+    private static final String K_CONTEXT_DEPTH = "context_depth";
+    private static final String P_CONV_HIST = "chist_";
+
+    /**
      * The exact text IRIS last answered in this conversation, normalised, or empty.
      *
      * Used to refuse answering the identical message twice. Stored normalised so the comparison in
