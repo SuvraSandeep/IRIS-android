@@ -63,6 +63,9 @@ public class MessageCategoryTest {
         kind("dhonnobad", MessageCategory.Kind.THANKS, "dhonnobad is thanks");
         kind("alright", MessageCategory.Kind.ACKNOWLEDGEMENT, "alright is an ack");
         kind("hanji", MessageCategory.Kind.ACKNOWLEDGEMENT, "hanji is an ack");
+        kind("yes", MessageCategory.Kind.ACKNOWLEDGEMENT, "bare yes is an ack (not TO_IRIS)");
+        kind("no", MessageCategory.Kind.ACKNOWLEDGEMENT, "bare no is an ack");
+        kind("yeah", MessageCategory.Kind.ACKNOWLEDGEMENT, "yeah is an ack");
         kind("subho noboborsho", MessageCategory.Kind.FESTIVAL, "bengali new year is a festival");
         kind("happy kali puja", MessageCategory.Kind.FESTIVAL, "kali puja is a festival");
         kind("sent a reel", MessageCategory.Kind.MEDIA_ONLY, "sent a reel is media");

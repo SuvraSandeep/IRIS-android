@@ -164,7 +164,8 @@ public final class MessageCategory {
             "ok", "okay", "okey", "k", "kk", "okk", "hmm", "hm", "hmmm", "fine", "cool", "nice",
             "sure", "achha", "accha", "theek", "thik", "haan", "haa", "yep", "yup", "noted",
             "okie", "oki", "kkk", "hmmmm", "alright", "aight", "roger", "done",
-            "thike", "thikache", "hanji", "hanjee");
+            "thike", "thikache", "hanji", "hanjee",
+            "yes", "yess", "yesss", "yeah", "yeahh", "yea", "no", "nope", "nah", "naah", "noo");
 
     // ─── Phrase sets. Matched as whole-word sequences. ───
 
