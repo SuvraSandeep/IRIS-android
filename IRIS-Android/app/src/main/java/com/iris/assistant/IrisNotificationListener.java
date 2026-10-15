@@ -493,6 +493,8 @@ public class IrisNotificationListener extends NotificationListenerService {
                                   final String sender, final String body, final boolean group,
                                   final int messageCount) {
         try {
+            // An emoji reaction (tapback) to a sent message is not a message — never reply to it.
+            if (ReactionText.looksLikeReaction(body)) return;
             final AutoResponder.Incoming incoming = new AutoResponder.Incoming();
             incoming.sbn = sbn;
             incoming.pkg = pkg;

@@ -307,6 +307,13 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/ChatHistoryTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ChatHistoryTest
 
+# Emoji-reaction (tapback) detection — the responder must never reply to a reaction.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/ReactionText.java \
+  tests/ReactionTextTest.java
+java -cp "$test_dir/responder" com.iris.assistant.ReactionTextTest
+
 # Intro-stripping once IRIS has already introduced itself in a conversation.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
