@@ -203,10 +203,14 @@ public final class AutoResponder {
         boolean smartMatched = !smartReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
-        // Multi-bubble context: if the single message matched nothing and the owner keeps a
-        // context window, retry over the combined last-N messages of this chat, so a thought
-        // split across quick bubbles ("hey" / "are you free" / "tomorrow?") is read as one.
-        if (!smartMatched && settings.contextDepth() > 1
+        // Multi-bubble context: ONLY when the current message is a short fragment (a split-off
+        // continuation like "tomorrow" or "6pm") that matched nothing on its own. A full,
+        // standalone message must never be answered via the window, or IRIS re-answers a question
+        // from an earlier bubble -- the cause of surprising replies. Gated hard to <=3 words.
+        int currentWords = normBody.trim().isEmpty() ? 0 : normBody.trim().split("\\s+").length;
+        if (!smartMatched
+                && currentWords > 0 && currentWords <= 3
+                && settings.contextDepth() > 1
                 && SmartReplies.handlesCategory(category.kind)) {
             java.util.List<String> hist = ChatHistory.window(
                     settings.chatHistory(conversationKey), settings.contextDepth());
