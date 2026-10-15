@@ -697,8 +697,9 @@ public final class SmartReplies {
                 "Someone's at the perimeter. I'm IRIS \u2014 I've set off the top-priority flag so "
                         + "{owner} doesn't leave you stranded.",
                 "Flagged high-priority \u2014 letting {owner} know you're outside. I'm IRIS."));
-        x.add(r(80, "delivery|parcel|courier|swiggy|zomato|amazon|flipkart|blinkit|package|"
-                        + "food is here|order is here",
+        x.add(r(80, "delivery|parcel|courier|swiggy|zomato|blinkit|amazon delivery|flipkart delivery|"
+                        + "amazon parcel|flipkart parcel|amazon package|flipkart package|"
+                        + "food is here|order is here|package arrived|courier arrived",
                 "I'm IRIS, {owner}'s assistant \u2014 I've flagged your delivery for him. If you can "
                         + "leave it at the door or with security, let me know here.",
                 "Delivery alert! I'm IRIS \u2014 I've pinged {owner}. Can you leave it at the door or "
