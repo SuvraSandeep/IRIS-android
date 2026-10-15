@@ -107,7 +107,11 @@ public final class SmartReplies {
      * @param tone the resolved tone
      */
     public static String match(String body, ReplyTone.Tone tone) {
-        String special = specialReply(body, tone);
+        return match(body, tone, 0);
+    }
+
+    public static String match(String body, ReplyTone.Tone tone, int rotation) {
+        String special = specialReply(body, tone, rotation);
         if (special != null) return special;
         java.util.List<Rule> top = topRules(body, 1);
         return top.isEmpty() ? "" : pick(top.get(0).byTone, tone);
@@ -119,7 +123,11 @@ public final class SmartReplies {
      * question gets a two-part answer instead of only the higher-priority half.
      */
     public static String matchMulti(String body, ReplyTone.Tone tone) {
-        String special = specialReply(body, tone);
+        return matchMulti(body, tone, 0);
+    }
+
+    public static String matchMulti(String body, ReplyTone.Tone tone, int rotation) {
+        String special = specialReply(body, tone, rotation);
         if (special != null) return special;
         java.util.List<Rule> top = topRules(body, 2);
         if (top.isEmpty()) return "";
@@ -153,27 +161,27 @@ public final class SmartReplies {
     }
 
     /** URL / money / emoji-or-punctuation handling shared by match and matchMulti, or null. */
-    private static String specialReply(String body, ReplyTone.Tone tone) {
+    private static String specialReply(String body, ReplyTone.Tone tone, int rotation) {
         if (body == null) return "";
         String raw = Shorthand.expand(body.trim());
         if (raw.isEmpty()) return "";
-        String reply = checkSpecial(raw, tone);
+        String reply = checkSpecial(raw, tone, rotation);
         if (reply != null) return reply;
         String unaddressed = Shorthand.expand(stripBotAddressing(body).trim());
         if (!unaddressed.equals(raw)) {
-            reply = checkSpecial(unaddressed, tone);
+            reply = checkSpecial(unaddressed, tone, rotation);
             if (reply != null) return reply;
         }
         return null;   // no special case; caller should run the keyword rules
     }
 
-    private static String checkSpecial(String text, ReplyTone.Tone tone) {
+    private static String checkSpecial(String text, ReplyTone.Tone tone, int rotation) {
         if (URL.matcher(text).find()) return pick(LINK, tone);
         if (looksLikeMoneyRequest(text)) return pick(MONEY_AMOUNT, tone);
         String stripped = text.replaceAll("\\s+", "");
         if (!stripped.isEmpty()
                 && stripped.replaceAll("[\\p{L}\\p{N}]", "").length() == stripped.length()) {
-            String emojiReply = Emoji.reply(text, tone);
+            String emojiReply = Emoji.reply(text, tone, rotation);
             return emojiReply.isEmpty() ? pick(PUNCT, tone) : emojiReply;
         }
         return null;

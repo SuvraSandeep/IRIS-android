@@ -92,6 +92,13 @@ public final class AutoResponder {
         // which key a rule was stored under.
         String conversationKey = ResponderSettings.conversationKey(incoming.pkg, resolvedSender);
 
+        // Never process IRIS's own reply coming back as a notification. In a group, WhatsApp
+        // re-surfaces the latest message -- which may be the line IRIS just sent -- and because
+        // that line contains "IRIS" it would otherwise be re-classified as TO_IRIS and considered
+        // again (visible as the "You (group)" entries in the decision log). Match it against the
+        // reply we last sent to this conversation and drop it before any work.
+        if (isOwnEcho(context, conversationKey, incoming.body)) return;
+
         // ─── Tone first, because it decides whether some categories speak at all ───
         ReplyTone.Tone tone = ReplyTone.resolve(
                 settings.contactTone(conversationKey),
@@ -199,7 +206,7 @@ public final class AutoResponder {
         // Suvra free", "where is Suvra" and "Suvra's email" hit the same rules written for "he".
         String aliasedBody = OwnerAlias.toThirdPerson(normBody, ReplyTemplates.OWNER);
 
-        String smartReply = SmartReplies.matchMulti(aliasedBody, tone);
+        String smartReply = SmartReplies.matchMulti(aliasedBody, tone, settings.nextRotation());
         boolean smartMatched = !smartReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
@@ -820,6 +827,27 @@ public final class AutoResponder {
     }
 
     /** The last reply sent to this conversation, for loop detection. */
+    /**
+     * Whether this incoming text is actually a reply IRIS recently sent to this conversation,
+     * echoed back by the app (common in groups). Compared on the normalised text against the
+     * recent decision log for the same conversation, so it's independent of how the sender is
+     * labelled ("You", a name, blank).
+     */
+    private static boolean isOwnEcho(Context context, String conversationKey, String body) {
+        if (body == null || body.trim().isEmpty()) return false;
+        String want = MessageCategory.normalise(body);
+        if (want.isEmpty()) return false;
+        int scanned = 0;
+        for (ResponderLog.Entry entry : new ResponderLog(context).newestFirst()) {
+            if (++scanned > 20) break;                 // only recent history
+            if (entry.reply == null || entry.reply.isEmpty()) continue;
+            if (entry.sender == null || entry.sender.isEmpty()) continue;
+            if (!conversationKey.contains(entry.sender)) continue;
+            if (MessageCategory.normalise(entry.reply).equals(want)) return true;
+        }
+        return false;
+    }
+
     private static String lastReplyText(Context context, String conversationKey) {
         for (ResponderLog.Entry entry : new ResponderLog(context).newestFirst()) {
             if (entry.reply.isEmpty()) continue;

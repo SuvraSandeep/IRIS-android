@@ -108,7 +108,21 @@ public final class Emoji {
      * {owner} is left literal for the caller's fill().
      */
     public static String reply(String text, ReplyTone.Tone tone) {
-        String[] byTone = REPLIES.get(dominant(text));
+        return reply(text, tone, 0);
+    }
+
+    /**
+     * A reply for an emoji-only message, with a rotation index so a common emoji (especially 😂)
+     * doesn't always get the identical line. For LAUGH there is a pool of 15 variants picked by
+     * rotation; other categories rotate through their per-tone set. {owner} is left literal.
+     */
+    public static String reply(String text, ReplyTone.Tone tone, int rotation) {
+        Category dom = dominant(text);
+        if (dom == Category.LAUGH) {
+            int i = Math.floorMod(rotation, LAUGH_POOL.length);
+            return LAUGH_POOL[i];
+        }
+        String[] byTone = REPLIES.get(dom);
         if (byTone == null) return "";
         int idx = tone == null ? 0 : tone.ordinal();
         if (idx < 0 || idx >= byTone.length || byTone[idx] == null || byTone[idx].isEmpty()) {
@@ -116,6 +130,28 @@ public final class Emoji {
         }
         return byTone[idx];
     }
+
+    /**
+     * Fifteen replies for a laughing emoji (😂🤣), so the commonest reaction-style ping feels
+     * varied. Every line names IRIS; most name {owner}. Tone-agnostic on purpose — variety matters
+     * more than tone for a bare laugh, and they read fine in any tone.
+     */
+    private static final String[] LAUGH_POOL = {
+            "Glad that landed \u2014 I'm IRIS, {owner}'s assistant. I've logged it for him.",
+            "Haha, I'll take the credit on {owner}'s behalf. I'm IRIS \u2014 he'll see it soon.",
+            "Laughing at an auto-reply? {owner} really needs to text you back. I'm IRIS.",
+            "I aim to amuse (it's in my code). I'm IRIS, {owner}'s assistant \u2014 saved for him.",
+            "Comedy gold, apparently. I'm IRIS \u2014 I've passed the laugh to {owner}.",
+            "Even {owner} doesn't laugh at my jokes that fast. I'm IRIS \u2014 noted for him.",
+            "That's a win for the script. I'm IRIS, {owner}'s assistant \u2014 logged it.",
+            "Making humans laugh with if-else statements \u2014 peak engineering. I'm IRIS.",
+            "Glad to entertain the inbox. I'm IRIS, {owner}'s assistant \u2014 saved for him.",
+            "Haha \u2014 I'll be here all week (literally, I can't leave the server). I'm IRIS.",
+            "Noted with a grin. I'm IRIS, {owner}'s assistant \u2014 he'll catch up soon.",
+            "A laugh for the robot. I'll treasure it in RAM. I'm IRIS \u2014 saved for {owner}.",
+            "Careful, {owner} gets jealous when I'm the funny one. I'm IRIS \u2014 logged it.",
+            "Ha! Filed under 'made someone's day'. I'm IRIS, {owner}'s assistant.",
+            "Glad that hit \u2014 I'm IRIS. {owner}'s away, but your laugh is saved for him."};
 
     private static final Map<Category, String[]> REPLIES = buildReplies();
 

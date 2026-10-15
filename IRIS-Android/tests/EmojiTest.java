@@ -56,6 +56,20 @@ public final class EmojiTest {
         check(!Emoji.reply("\uD83D\uDE18", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
                 "\uD83D\uDE18 kiss emoji gets a (deflecting) reply");
         check(Emoji.dominant("\uD83D\uDE09") == Emoji.Category.FLIRT, "wink is FLIRT");
+
+        // Laughing emoji now rotates through many variants (fix: not always the same reply).
+        java.util.Set<String> laughs = new java.util.HashSet<>();
+        for (int r = 0; r < 15; r++) {
+            laughs.add(Emoji.reply("\uD83D\uDE02\uD83D\uDE02", ReplyTone.Tone.SARCASTIC, r));
+        }
+        check(laughs.size() >= 10, "laugh emoji has at least 10 distinct variants: " + laughs.size());
+        for (String l : laughs) {
+            check(l.toLowerCase(java.util.Locale.ROOT).contains("iris"), "each laugh variant names IRIS");
+        }
+        // Same rotation is stable.
+        check(Emoji.reply("\uD83D\uDE02", ReplyTone.Tone.CASUAL, 3)
+                        .equals(Emoji.reply("\uD83D\uDE02", ReplyTone.Tone.CASUAL, 3)),
+                "same rotation gives same reply");
         System.out.println("Passed " + checks + " emoji checks");
     }
 }
