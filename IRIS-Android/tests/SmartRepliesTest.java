@@ -238,6 +238,84 @@ public final class SmartRepliesTest {
         // A single-intent message is NOT stitched (one clean reply).
         check(!SmartReplies.matchMulti("tell his live location", ReplyTone.Tone.PROFESSIONAL)
                 .isEmpty(), "single intent still answered by matchMulti");
+
+        // Bot-addressing stripper checks.
+        check(SmartReplies.stripBotAddressing("IRIS is he still in meeting").equals("is he still in meeting"),
+                "strips leading IRIS");
+        check(SmartReplies.stripBotAddressing("hey iris what are you doing").equals("what are you doing"),
+                "strips leading hey iris");
+        check(SmartReplies.stripBotAddressing("what are you doing IRIS").equals("what are you doing"),
+                "strips trailing IRIS");
+        check(SmartReplies.stripBotAddressing("IRIS").equals("IRIS"), "preserves bare IRIS");
+
+        // Forensic chat bug tests (9 specific real-chat cases).
+        // Bug 1: Sender call apology ignored.
+        check(namesIris(SmartReplies.match("sry call aa gaya tha ek", ReplyTone.Tone.CASUAL)),
+                "sender call apology answered");
+        check(fill(SmartReplies.match("call aa gaya tha", ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT)
+                .contains("patience") || fill(SmartReplies.match("call aa gaya tha", ReplyTone.Tone.CASUAL))
+                .toLowerCase(Locale.ROOT).contains("take your calls"), "call apology reply content");
+
+        // Bug 2 & 3: Meeting guest-list collisions.
+        for (String q : new String[]{"Who is in a meeting with?", "Who is he in meeting with",
+                "meeting with", "who is in the meeting"}) {
+            String r = fill(SmartReplies.match(q, ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT);
+            check(namesIris(r), "meeting with answered for: " + q);
+            check(r.contains("guest list") || r.contains("conference room") || r.contains("participants"),
+                    "meeting guest list deflected: " + q);
+        }
+
+        // Bug 4: Bot addressing prefix hijack.
+        check(namesIris(SmartReplies.match("IRIS is he still in meeting", ReplyTone.Tone.CASUAL)),
+                "IRIS prefix stripped and meeting status answered");
+        check(fill(SmartReplies.match("IRIS is he still in meeting", ReplyTone.Tone.CASUAL))
+                .toLowerCase(Locale.ROOT).contains("meeting"), "answers meeting status not generic intro");
+
+        // Bug 5: Snitch banter.
+        for (String q : new String[]{"He will now know u snitch on him", "you snitched", "snitch on him"}) {
+            String r = fill(SmartReplies.match(q, ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT);
+            check(namesIris(r), "snitch banter answered: " + q);
+            check(r.contains("snitch"), "recognises snitching tease: " + q);
+        }
+
+        // Bug 6: Refusal turns ("no no don't").
+        for (String q : new String[]{"No no don't", "no dont flag", "don't disturb him", "not urgent"}) {
+            String r = fill(SmartReplies.match(q, ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT);
+            check(namesIris(r), "refusal turn answered: " + q);
+            check(r.contains("chill") || r.contains("alert") || r.contains("queue") || r.contains("disturb"),
+                    "polite refusal acknowledged: " + q);
+        }
+
+        // Bug 7: Pin it traps.
+        for (String q : new String[]{"Ok pin it", "Pin my msg", "Pin to chat", "pin this"}) {
+            String r = fill(SmartReplies.match(q, ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT);
+            check(namesIris(r), "pin demand answered: " + q);
+            check(r.contains("dashboard") || r.contains("queue") || r.contains("internal") || r.contains("ui"),
+                    "explains internal pin vs whatsapp ui: " + q);
+        }
+
+        // Bug 8: Screenshot proof demand.
+        for (String q : new String[]{"Send screenshot", "Send screenshot of this chat to me", "ss bhej"}) {
+            String r = fill(SmartReplies.match(q, ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT);
+            check(namesIris(r), "screenshot demand answered: " + q);
+            check(r.contains("screen") || r.contains("screenshot"), "explains no screen/camera: " + q);
+        }
+
+        // Additional audit scenarios from the 52-scenario suite.
+        String[] moreScenarios = {
+                "what is the meeting about", "when does the meeting end", "so he is on a work call",
+                "tell suvra you messed up", "tell him to leave the meeting", "is this a fake meeting",
+                "can you get free 5g data", "did he tell you to say that", "are you in the meeting too",
+                "why isn't it pinned", "unpin my message", "prove it to me", "can you send a photo",
+                "let him finish his work", "no need to flag", "just tell him i texted",
+                "yes please flag it", "i am back now", "hold on a sec",
+                "why are you still here iris", "did he see my messages yet"
+        };
+        for (String s : moreScenarios) {
+            check(namesIris(SmartReplies.match(s, ReplyTone.Tone.PROFESSIONAL)),
+                    "scenario covered: \"" + s + "\"");
+        }
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

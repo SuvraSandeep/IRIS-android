@@ -51,6 +51,10 @@ public final class ProfileShareTest {
         check(ProfileShare.fieldFor("what is his number").isEmpty(),
                 "his number maps to nothing");
         check(ProfileShare.fieldFor("the weather is nice").isEmpty(), "unrelated -> nothing");
+        check(ProfileShare.fieldFor("who is he in meeting with").isEmpty(),
+                "who is he in meeting with -> empty (not bio)");
+        check(ProfileShare.fieldFor("who is he with").isEmpty(), "who is he with -> empty");
+        check(ProfileShare.fieldFor("who is he dating").isEmpty(), "who is he dating -> empty");
 
         Map<String, String> share = new HashMap<>();
         // Nothing shared -> nothing disclosed.
