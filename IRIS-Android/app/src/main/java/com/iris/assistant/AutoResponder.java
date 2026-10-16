@@ -541,10 +541,17 @@ public final class AutoResponder {
                 if (flagResult.action == FlagDetector.Action.FLAG) {
                     String flagText = incoming.body;
                     if (offerReply == ConversationContext.OfferReply.ACCEPT) {
-                        java.util.List<String> hist = new ChatHistory(context).recent(conversationKey, 2);
+                        java.util.List<String> hist = settings.chatHistory(conversationKey, now);
                         if (hist != null && !hist.isEmpty()) {
-                            String prev = hist.get(hist.size() - 1);
-                            if (!prev.isEmpty() && !prev.equalsIgnoreCase(incoming.body)) {
+                            String prev = "";
+                            for (int i = hist.size() - 1; i >= 0; i--) {
+                                String h = hist.get(i);
+                                if (h != null && !h.equalsIgnoreCase(incoming.body)) {
+                                    prev = h;
+                                    break;
+                                }
+                            }
+                            if (!prev.isEmpty()) {
                                 flagText = prev + "  [escalated: " + incoming.body + "]";
                             }
                         }

@@ -3059,7 +3059,36 @@ public class MainActivity extends Activity {
                             String whenStr = timeInput.getText().toString().trim();
                             long due = 0;
                             if (!whenStr.isEmpty()) {
-                                due = ReminderParser.parse(whenStr, now);
+                                java.util.Calendar cal = java.util.Calendar.getInstance();
+                                cal.setTimeInMillis(now);
+                                int minuteOfDay = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE);
+                                int nowWeekday = cal.get(java.util.Calendar.DAY_OF_WEEK);
+                                int nowDay = cal.get(java.util.Calendar.DAY_OF_MONTH);
+                                int nowMonth = cal.get(java.util.Calendar.MONTH) + 1;
+                                int nowYear = cal.get(java.util.Calendar.YEAR);
+
+                                String cleanWhen = whenStr;
+                                if (cleanWhen.matches("(?i)^\\d+\\s*m$")) {
+                                    cleanWhen = cleanWhen.replaceFirst("(?i)m$", " mins");
+                                } else if (cleanWhen.matches("(?i)^\\d+\\s*h$")) {
+                                    cleanWhen = cleanWhen.replaceFirst("(?i)h$", " hours");
+                                }
+
+                                ReminderParser.Result parsed = ReminderParser.parse(cleanWhen);
+                                int delay = ReminderParser.delayMinutes(parsed, minuteOfDay, nowWeekday, nowDay, nowMonth, nowYear);
+                                if (delay <= 0) {
+                                    delay = ReminderParser.delayMinutes(
+                                            ReminderParser.parse("in " + cleanWhen),
+                                            minuteOfDay, nowWeekday, nowDay, nowMonth, nowYear);
+                                }
+                                if (delay <= 0) {
+                                    delay = ReminderParser.delayMinutes(
+                                            ReminderParser.parse("remind me " + cleanWhen),
+                                            minuteOfDay, nowWeekday, nowDay, nowMonth, nowYear);
+                                }
+                                if (delay > 0) {
+                                    due = now + delay * 60_000L;
+                                }
                             }
                             ReminderStore store = new ReminderStore(this);
                             long id = store.add(text, "Owner", due, now);
