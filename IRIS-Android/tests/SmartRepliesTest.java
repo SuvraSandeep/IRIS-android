@@ -395,6 +395,17 @@ public final class SmartRepliesTest {
                 "meet link -> meeting reply");
         check(namesIris(SmartReplies.match("https://some-blog.com/post", ReplyTone.Tone.BRIEF)),
                 "generic link still handled");
+        // Rotation pools: location and availability vary across rotations (fix repetition).
+        java.util.Set<String> locs = new java.util.HashSet<>();
+        java.util.Set<String> avails = new java.util.HashSet<>();
+        for (int r = 0; r < 10; r++) {
+            locs.add(SmartReplies.match("where is he", ReplyTone.Tone.PROFESSIONAL, r));
+            avails.add(SmartReplies.match("is he busy", ReplyTone.Tone.PROFESSIONAL, r));
+        }
+        check(locs.size() >= 6, "location rotates through many variants: " + locs.size());
+        check(avails.size() >= 6, "availability rotates through many variants: " + avails.size());
+        for (String s : locs) check(namesIris(s), "each location variant names IRIS");
+        for (String s : avails) check(namesIris(s), "each availability variant names IRIS");
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

@@ -1837,6 +1837,9 @@ public class MainActivity extends Activity {
             host.addView(responderRow("Context memory",
                     contextDepthLabel(settings.contextDepth()),
                     () -> editContextDepth(settings, view)));
+            host.addView(responderSwitch("Time-of-day flavour in replies",
+                    settings.timeFlavorEnabled(),
+                    on -> settings.setTimeFlavorEnabled(on), view));
             host.addView(sectionLabel("SCOPE"));
             host.addView(sectionNote("Who IRIS may reply to. In groups it stays quiet unless "
                     + "you're named by name, @handle or number."));

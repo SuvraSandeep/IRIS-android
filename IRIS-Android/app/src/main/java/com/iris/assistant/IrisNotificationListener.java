@@ -495,6 +495,8 @@ public class IrisNotificationListener extends NotificationListenerService {
         try {
             // An emoji reaction (tapback) to a sent message is not a message — never reply to it.
             if (ReactionText.looksLikeReaction(body)) return;
+            // An edited-message re-notification is a re-trigger of an already-seen message — skip.
+            if (EditedMessage.looksEdited(body)) return;
             final AutoResponder.Incoming incoming = new AutoResponder.Incoming();
             incoming.sbn = sbn;
             incoming.pkg = pkg;

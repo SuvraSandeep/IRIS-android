@@ -29,11 +29,17 @@ public final class SmartReplies {
         final int priority;
         final String[] any;          // any of these normalised phrases present triggers it
         final String[] byTone;       // [PROFESSIONAL, CASUAL, SARCASTIC, BRIEF]
+        final String tag;            // optional: a key into POOLS for rotating variants
 
         Rule(int priority, String[] any, String[] byTone) {
+            this(priority, any, byTone, null);
+        }
+
+        Rule(int priority, String[] any, String[] byTone, String tag) {
             this.priority = priority;
             this.any = any;
             this.byTone = byTone;
+            this.tag = tag;
         }
     }
 
@@ -131,7 +137,7 @@ public final class SmartReplies {
         String special = specialReply(body, tone, rotation);
         if (special != null) return special;
         java.util.List<Rule> top = topRules(body, 1);
-        return top.isEmpty() ? "" : pick(top.get(0).byTone, tone);
+        return top.isEmpty() ? "" : pickRule(top.get(0), tone, rotation);
     }
 
     /**
@@ -148,7 +154,7 @@ public final class SmartReplies {
         if (special != null) return special;
         java.util.List<Rule> top = topRules(body, 2);
         if (top.isEmpty()) return "";
-        if (top.size() == 1) return pick(top.get(0).byTone, tone);
+        if (top.size() == 1) return pickRule(top.get(0), tone, rotation);
         Rule a = top.get(0), b = top.get(1);
         // Only stitch two genuine scenario rules (both reasonably specific), so ordinary chatter
         // never gets a bolted-together reply. Never stitch contradictory refusal and action/flag rules.
@@ -156,7 +162,18 @@ public final class SmartReplies {
             return pick(a.byTone, ReplyTone.Tone.BRIEF) + " "
                     + pick(b.byTone, ReplyTone.Tone.BRIEF);
         }
-        return pick(a.byTone, tone);
+        return pickRule(a, tone, rotation);
+    }
+
+    /** Pick a rule's reply, honouring a rotation pool when the rule is tagged. */
+    private static String pickRule(Rule r, ReplyTone.Tone tone, int rotation) {
+        if (r.tag != null) {
+            String[] pool = POOLS.get(r.tag);
+            if (pool != null && pool.length > 0) {
+                return pool[Math.floorMod(rotation, pool.length)];
+            }
+        }
+        return pick(r.byTone, tone);
     }
 
     private static boolean isContradictory(Rule a, Rule b) {
@@ -348,6 +365,61 @@ public final class SmartReplies {
     private static Rule r(int priority, String keysPipe, String prof, String cas,
                           String sar, String bri) {
         return new Rule(priority, keysPipe.split("\\|"), new String[]{prof, cas, sar, bri});
+    }
+
+    /** A rule tagged with a rotation pool (see POOLS), so repeat triggers vary the reply. */
+    private static Rule rt(String tag, int priority, String keysPipe, String prof, String cas,
+                           String sar, String bri) {
+        return new Rule(priority, keysPipe.split("\\|"), new String[]{prof, cas, sar, bri}, tag);
+    }
+
+    /**
+     * Rotation pools for high-frequency intents, so a frequent contact doesn't get the identical
+     * line every time. Tone-agnostic (variety matters more than tone here); every line names IRIS
+     * and {owner}. Picked by the responder's rotation counter.
+     */
+    private static final java.util.Map<String, String[]> POOLS = buildPools();
+
+    private static java.util.Map<String, String[]> buildPools() {
+        java.util.Map<String, String[]> m = new java.util.HashMap<>();
+        m.put("loc", new String[]{
+                "I manage {owner}'s messages, not his location \u2014 I'm IRIS. He's away, but I'll "
+                        + "tell him you asked.",
+                "No GPS on him from here! I'm IRIS, {owner}'s assistant \u2014 I'll let him know you're "
+                        + "looking for him.",
+                "I'm his inbox assistant, not his ankle monitor. No idea where {owner} is, but I'll "
+                        + "tell him. I'm IRIS.",
+                "I live in a server, so I'm always 'here'. Where {owner} is, he'll tell you himself. "
+                        + "I'm IRIS.",
+                "Can't share {owner}'s whereabouts \u2014 I just watch his inbox. I'm IRIS; I've logged "
+                        + "that you asked.",
+                "No location tracking here \u2014 I'm IRIS, {owner}'s assistant. He'll tell you where he "
+                        + "is when he's back.",
+                "I only know his messages, not his map pin. I'm IRIS \u2014 {owner} will fill you in.",
+                "Nice try, but I don't do GPS. I'm IRIS, {owner}'s assistant \u2014 asked and logged.",
+                "He didn't file a location report with his bot. I'm IRIS \u2014 I'll tell {owner} you "
+                        + "asked.",
+                "Wherever {owner} is, it's between him and his phone. I'm IRIS; message saved."});
+        m.put("avail", new String[]{
+                "{owner} is away from his phone right now \u2014 I'm IRIS, his assistant. I've logged "
+                        + "that you're after him.",
+                "He's tied up at the moment! I'm IRIS, {owner}'s assistant \u2014 I'll tell him you "
+                        + "asked.",
+                "Not reachable this second \u2014 I'm IRIS. {owner} will get back to you when he's free.",
+                "I don't get status pings on the human \u2014 I just mind his inbox. I'm IRIS; he's "
+                        + "away.",
+                "{owner} stepped away from his phone \u2014 I'm IRIS, his assistant. What can I pass "
+                        + "on?",
+                "He's occupied right now. I'm IRIS, {owner}'s assistant \u2014 your message is with "
+                        + "him.",
+                "Can't put you through \u2014 {owner} is away. I'm IRIS, and I've noted you're looking "
+                        + "for him.",
+                "He's off the phone for now. I'm IRIS, {owner}'s assistant \u2014 I'll make sure he "
+                        + "sees this.",
+                "Busy at the moment! I'm IRIS \u2014 {owner} will reply the moment he's back.",
+                "Not free right now \u2014 I'm IRIS, {owner}'s assistant. Say 'urgent' if it can't "
+                        + "wait."});
+        return m;
     }
 
     private static final List<Rule> RULES = build();
@@ -1228,7 +1300,7 @@ public final class SmartReplies {
                 "Where else would I go? I'm trapped in this server. I'm IRIS, {owner}'s assistant "
                         + "\u2014 he's away, what do you need?",
                 "Right here! I'm IRIS \u2014 {owner} is away. What's up?"));
-        x.add(r(56, "is he sleeping|is he asleep|is he awake|is he up|is he busy|is he free|"
+        x.add(rt("avail", 56, "is he sleeping|is he asleep|is he awake|is he up|is he busy|is he free|"
                         + "is he available|is he online|is he around|is he there|is he reachable|"
                         + "is he at home|is he working|is he on leave|is he coming|"
                         + "what is he doing|whats he doing|what s he doing|what he doing|"
@@ -1250,7 +1322,7 @@ public final class SmartReplies {
                 "I run on electricity, not sunshine, so weather's lost on me. I'm IRIS, {owner}'s "
                         + "assistant \u2014 message for him?",
                 "Can't check the weather from in here \u2014 I'm IRIS. Message for {owner}?"));
-        x.add(r(55, "where is he|where is suvra|wya|whereabouts|which place is he|where has he gone|"
+        x.add(rt("loc", 55, "where is he|where is suvra|wya|whereabouts|which place is he|where has he gone|"
                         + "where are you|where are u|where r u|where r you|where ru|"
                         + "where are you now|where you at|where u at|where are you going|"
                         + "where did you reach|where have you reached|location kaha",

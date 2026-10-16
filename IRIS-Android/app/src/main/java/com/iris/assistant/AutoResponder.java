@@ -391,6 +391,15 @@ public final class AutoResponder {
                     reply = ReplyTemplates.fill(profileReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                } else if (category.kind == MessageCategory.Kind.MEDIA_ONLY
+                        && !MediaType.reply(MediaType.classify(null, incoming.body), tone)
+                                .isEmpty()) {
+                    // Media gets a witty, per-type reply (voice note / photo / sticker / doc /
+                    // contact / location) when the owner has media replies enabled.
+                    reply = ReplyTemplates.fill(
+                            MediaType.reply(MediaType.classify(null, incoming.body), tone),
+                            resolvedSender, ResponderWindow.formatMinute(minuteOfDay),
+                            ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
                 } else {
                     reply = compose(settings, category, tone, resolvedSender, now, minuteOfDay);
                 }
@@ -583,6 +592,16 @@ public final class AutoResponder {
         if (variants.isEmpty()) return "";
 
         String chosen = ReplyTemplates.choose(variants, settings.nextRotation());
+
+        // Optional time/day flavour ("It's Friday evening\u2026"), opt-in and only on the generic
+        // template path, so witty category replies are untouched. Prepended once.
+        if (settings.timeFlavorEnabled() && category.kind != MessageCategory.Kind.TO_IRIS) {
+            java.util.Calendar cal = java.util.Calendar.getInstance(TimeZone.getDefault());
+            cal.setTimeInMillis(nowMs);
+            String flavour = TimeFlavor.of(cal.get(java.util.Calendar.DAY_OF_WEEK),
+                    cal.get(java.util.Calendar.HOUR_OF_DAY));
+            if (!flavour.isEmpty()) chosen = flavour + " " + chosen;
+        }
 
         int hoursToWake = quiet
                 ? ResponderWindow.hoursUntil(settings.quietEnd(), minuteOfDay)

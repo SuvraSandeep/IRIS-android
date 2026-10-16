@@ -1089,6 +1089,16 @@ public final class ResponderSettings {
     private static final String P_CONV_HIST = "chist_";
 
     /**
+     * Prepend a short time/day-aware line ("It's Friday evening\u2026") to generic replies. Off by
+     * default so nothing changes unless the owner opts in.
+     */
+    public boolean timeFlavorEnabled() { return prefs.getBoolean(K_TIME_FLAVOR, false); }
+    public void setTimeFlavorEnabled(boolean v) {
+        prefs.edit().putBoolean(K_TIME_FLAVOR, v).apply();
+    }
+    private static final String K_TIME_FLAVOR = "time_flavor";
+
+    /**
      * The exact text IRIS last answered in this conversation, normalised, or empty.
      *
      * Used to refuse answering the identical message twice. Stored normalised so the comparison in

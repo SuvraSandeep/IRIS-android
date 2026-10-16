@@ -41,6 +41,25 @@ public final class MediaTypeTest {
         eq(MediaType.label(MediaType.Kind.NONE), "", "none has no label");
         eq(MediaType.label("video/mp4", null), "a video", "convenience label");
 
+        // Per-type witty replies: present for real media, empty for NONE, and name IRIS.
+        for (MediaType.Kind k : MediaType.Kind.values()) {
+            String r = MediaType.reply(k, ReplyTone.Tone.CASUAL);
+            if (k == MediaType.Kind.NONE) {
+                eq(r, "", "NONE has no reply");
+            } else {
+                checks++;
+                if (r.isEmpty() || !r.toLowerCase(java.util.Locale.ROOT).contains("iris")) {
+                    throw new AssertionError("FAILED: " + k + " reply must name IRIS: " + r);
+                }
+            }
+        }
+        // A voice note reply mentions not hearing it; sarcastic differs from professional.
+        checks++;
+        if (MediaType.reply(MediaType.Kind.VOICE_NOTE, ReplyTone.Tone.PROFESSIONAL)
+                .equals(MediaType.reply(MediaType.Kind.VOICE_NOTE, ReplyTone.Tone.SARCASTIC))) {
+            throw new AssertionError("FAILED: voice-note tones should differ");
+        }
+
         System.out.println("Passed " + checks + " media type checks");
     }
 }

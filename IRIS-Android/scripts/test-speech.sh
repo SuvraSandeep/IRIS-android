@@ -228,6 +228,7 @@ java -cp "$test_dir/responder" com.iris.assistant.SmsSafetyTest
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
   app/src/main/java/com/iris/assistant/MediaType.java \
   tests/MediaTypeTest.java
 java -cp "$test_dir/responder" com.iris.assistant.MediaTypeTest
@@ -306,6 +307,20 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/ChatHistory.java \
   tests/ChatHistoryTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ChatHistoryTest
+
+# Edited-message re-notification detection (skip re-reply).
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/EditedMessage.java \
+  tests/EditedMessageTest.java
+java -cp "$test_dir/responder" com.iris.assistant.EditedMessageTest
+
+# Time/day-aware flavour line.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/TimeFlavor.java \
+  tests/TimeFlavorTest.java
+java -cp "$test_dir/responder" com.iris.assistant.TimeFlavorTest
 
 # Link-domain classification and per-category replies.
 mkdir -p "$test_dir/responder"
