@@ -97,7 +97,7 @@ public final class AutoResponder {
         // that line contains "IRIS" it would otherwise be re-classified as TO_IRIS and considered
         // again (visible as the "You (group)" entries in the decision log). Match it against the
         // reply we last sent to this conversation and drop it before any work.
-        if (isOwnEcho(context, conversationKey, incoming.body)) return;
+        if (isOwnEcho(context, incoming.pkg, resolvedSender, incoming.body)) return;
 
         // Group Chat Silence Rule: In group chats (like You (group) in Comms Deck),
         // IRIS should never auto-respond unless someone explicitly tags @Suvra or IRIS.
@@ -105,6 +105,61 @@ public final class AutoResponder {
                 incoming.body, ReplyTemplates.OWNER, settings.mentionKeywords(),
                 settings.mentionHandles(), settings.mentionNumbers())) {
             return;
+        }
+
+        // ─── Root-Level Interceptor for Deleted Messages ───
+        // A deletion placeholder from a messaging app ("This message was deleted") is a system
+        // notification update, NOT human conversational intent. Intercept it here at the root level,
+        // completely bypassing category classification, modes, and bedtime/quiet hours so IRIS never
+        // declares "Past Suvra's bedtime... your message is safe with me" to an erased message!
+        String rawBody = incoming.body == null ? "" : incoming.body.trim();
+        if (DeletedMessageRules.isOwnDeletion(rawBody)) {
+            return;
+        }
+        if (DeletedMessageRules.isSenderDeletion(rawBody)) {
+            boolean hasReplyAction = IrisNotificationListener.replyAction(incoming.sbn) != null;
+            if (!hasReplyAction) return;
+
+            ResponderGuards.ContactRule contactRule =
+                    settings.effectiveContactRule(conversationKey, resolvedSender);
+            if (contactRule == ResponderGuards.ContactRule.NEVER) return;
+
+            boolean savedContact = ContactResolver.isSaved(context, incoming.sender);
+            if (!savedContact && !settings.replyToUnsaved()) return;
+
+            String privacyReply = "I can never access those deleted messages; privacy matters the most. I'm IRIS, "
+                    + ReplyTemplates.OWNER + "'s assistant.";
+
+            String lastSent = lastReplyText(context, incoming.pkg, resolvedSender);
+            if (!lastSent.isEmpty()
+                    && MessageCategory.normalise(privacyReply).equals(MessageCategory.normalise(lastSent))) {
+                return;
+            }
+
+            ResponderLog.Entry delEntry = new ResponderLog.Entry();
+            delEntry.whenMs = now;
+            delEntry.appLabel = incoming.appLabel;
+            delEntry.pkg = incoming.pkg;
+            delEntry.sender = resolvedSender;
+            delEntry.group = incoming.group;
+            delEntry.category = "DELETED";
+            delEntry.tone = settings.defaultTone().name();
+            delEntry.incoming = rawBody;
+            delEntry.verdict = "SEND";
+            delEntry.reply = privacyReply;
+            delEntry.dryRun = (state == ResponderGuards.State.DRY_RUN);
+            delEntry.reason = "Root deletion interceptor: Sender revoked message -> direct privacy reply (bypassed sleep/bedtime)";
+
+            if (state == ResponderGuards.State.LIVE) {
+                NotificationReply.Result sendRes = IrisNotificationListener.sendReply(
+                        context, incoming.sbn, privacyReply);
+                delEntry.sendResult = sendRes.name();
+                settings.recordReply(conversationKey, now);
+                rememberAnswered(incoming.sbn.getKey());
+            }
+
+            new ResponderLog(context).record(delEntry);
+            return; // CRITICAL: Stop execution here so it NEVER hits Bedtime, modes, or category composer!
         }
 
         // ─── Tone first, because it decides whether some categories speak at all ───
@@ -132,7 +187,7 @@ public final class AutoResponder {
                 normBody, settings.mentionKeywords(),
                 !incoming.group && settings.irisSpokeLast(conversationKey, now));
         // Keep a short rolling history of this chat (customizable depth) for multi-bubble context.
-        settings.recordIncomingHistory(conversationKey, normBody);
+        settings.recordIncomingHistory(conversationKey, normBody, now);
 
         // In a group, an @-handle or phone-number mention of the owner counts as being named,
         // even though it isn't his saved name. Checked on the raw body (not normalised, which
@@ -228,7 +283,7 @@ public final class AutoResponder {
                 && settings.contextDepth() > 1
                 && SmartReplies.handlesCategory(category.kind)) {
             java.util.List<String> hist = ChatHistory.window(
-                    settings.chatHistory(conversationKey), settings.contextDepth());
+                    settings.chatHistory(conversationKey, now), settings.contextDepth());
             if (hist.size() > 1) {
                 String windowBody = OwnerAlias.toThirdPerson(
                         ChatHistory.combine(hist), ReplyTemplates.OWNER);
@@ -261,7 +316,7 @@ public final class AutoResponder {
         message.category = category.kind;
         message.tone = tone;
         message.incomingText = incoming.body;
-        message.lastSentReply = lastReplyText(context, conversationKey);
+        message.lastSentReply = lastReplyText(context, incoming.pkg, resolvedSender);
         message.group = incoming.group;
         message.mentionsOwner = GroupMention.isExplicitlyAddressed(
                 incoming.body, ReplyTemplates.OWNER, settings.mentionKeywords(),
@@ -335,11 +390,13 @@ public final class AutoResponder {
         }
 
         String reply = "";
+        String decisionReason = "";
         if (ResponderGuards.sends(verdict)) {
             if (confirmsRing || urgentFamily || ringRequest) {
                 // Family ring takes precedence over every other interpretation of the message.
                 reply = handleFamilyRing(context, settings, conversationKey, resolvedSender,
                         confirmsRing || ringRequest, state == ResponderGuards.State.LIVE);
+                decisionReason = "Family priority: Emergency ring triggered for saved family contact";
             } else if (offerReply != ConversationContext.OfferReply.NONE) {
                 // The sender is answering IRIS's "shall I flag this urgent?" offer. Consume it.
                 if (state == ResponderGuards.State.LIVE) settings.clearPendingOffer(conversationKey);
@@ -352,10 +409,12 @@ public final class AutoResponder {
                     }
                     reply = "Done \u2014 I've flagged this as high-priority for " + ReplyTemplates.OWNER
                             + ". I'm IRIS, his assistant.";
+                    decisionReason = "Escalation accepted: sender requested urgent flag for " + ReplyTemplates.OWNER;
                 } else {
                     reply = "Understood \u2014 I won't disturb " + ReplyTemplates.OWNER
                             + " with an urgent alert. Your message is saved for when he's free. I'm "
                             + "IRIS, his assistant.";
+                    decisionReason = "Escalation declined: sender opted not to disturb " + ReplyTemplates.OWNER;
                 }
             } else if (followUp != ConversationContext.FollowUp.NONE) {
                 // A follow-up edits or cancels the reminder just set in this conversation. Checked
@@ -364,6 +423,7 @@ public final class AutoResponder {
                 reply = handleFollowUp(context, incoming, conversationKey, resolvedSender, now,
                         minuteOfDay, followUp, recentReminderId,
                         state == ResponderGuards.State.LIVE);
+                decisionReason = "Follow-up action: " + followUp.name() + " on recent reminder";
             } else if (category.kind == MessageCategory.Kind.REMINDER || awaitingReminderTime) {
                 // Reminders are their own path: parse, (in LIVE) store and schedule, and reply to
                 // the sender confirming or asking for a time. The scope check is separate from the
@@ -372,10 +432,12 @@ public final class AutoResponder {
                 if (!settings.reminderAllowed(message.savedContact,
                         settings.effectiveContactRelation(conversationKey, resolvedSender))) {
                     verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
+                    decisionReason = "Reminder withheld: sender not authorized to schedule alarms";
                 } else {
                     reply = handleReminder(context, settings, incoming, conversationKey,
                             resolvedSender, now, minuteOfDay,
                             state == ResponderGuards.State.LIVE);
+                    decisionReason = "Reminder: parsed and scheduled confirmation";
                 }
             } else {
                 // A learned reply (owner-taught) is the highest-precedence wording; then a fixed
@@ -384,22 +446,27 @@ public final class AutoResponder {
                     reply = ReplyTemplates.fill(learnedReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                    decisionReason = "Learned reply: owner-taught response for " + resolvedSender + " (" + category.kind.name() + ")";
                 } else if (!nameReply.isEmpty()) {
                     reply = ReplyTemplates.fill(nameReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                    decisionReason = "Name rule: fixed reply assigned for " + resolvedSender;
                 } else if (smartMatched) {
                     reply = ReplyTemplates.fill(smartReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                    decisionReason = "Smart reply: rule matched keyword intent in category " + category.kind.name();
                 } else if (vernMatched) {
                     reply = ReplyTemplates.fill(vernReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                    decisionReason = "Vernacular: Odia/Hinglish phrase matched";
                 } else if (profileMatched) {
                     reply = ReplyTemplates.fill(profileReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                    decisionReason = "Profile share: shared safe bio detail from iris-me.json";
                 } else if (category.kind == MessageCategory.Kind.MEDIA_ONLY
                         && !MediaType.reply(MediaType.classify(null, incoming.body), tone)
                                 .isEmpty()) {
@@ -409,8 +476,11 @@ public final class AutoResponder {
                             MediaType.reply(MediaType.classify(null, incoming.body), tone),
                             resolvedSender, ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
+                    decisionReason = "Media acknowledgement: per-type reply for media attachment";
                 } else {
                     reply = compose(settings, category, tone, resolvedSender, now, minuteOfDay);
+                    decisionReason = "Category composer: template generated for " + category.kind.name()
+                            + " (tone: " + tone.name() + ")";
                 }
                 // Once IRIS has already introduced itself in this conversation (or the sender is
                 // clearly addressing IRIS by name), drop the "I'm IRIS, Suvra's assistant" intro
@@ -424,17 +494,23 @@ public final class AutoResponder {
                 // conversation (e.g. "Aita" after a link re-firing the link intro, or a repeated
                 // direct-address line). Owner-defined/learned wording is exempt.
                 if (learnedReply.isEmpty() && nameReply.isEmpty() && !reply.isEmpty()) {
-                    String lastSent = lastReplyText(context, conversationKey);
+                    String lastSent = lastReplyText(context, incoming.pkg, resolvedSender);
                     if (!lastSent.isEmpty()
                             && MessageCategory.normalise(reply)
                                     .equals(MessageCategory.normalise(lastSent))) {
                         reply = "Caught that too \u2014 I'm IRIS, " + ReplyTemplates.OWNER
                                 + "'s assistant, keeping it all together for him.";
+                        decisionReason += " (Outgoing dedup applied: avoiding repeat of previous reply)";
                     }
                 }
             }
             // A category with no text left to send is a silence, not an empty message.
-            if (reply.isEmpty()) verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
+            if (reply.isEmpty()) {
+                verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
+                decisionReason = "Silence: category composer produced empty reply for " + category.kind.name();
+            }
+        } else {
+            decisionReason = "Guard refusal: " + ResponderGuards.explain(verdict);
         }
 
         ResponderLog.Entry entry = new ResponderLog.Entry();
@@ -449,6 +525,7 @@ public final class AutoResponder {
         entry.verdict = verdict.name();
         entry.reply = reply;
         entry.dryRun = state == ResponderGuards.State.DRY_RUN;
+        entry.reason = decisionReason;
 
         if (ResponderGuards.sends(verdict)) {
             // Counters are advanced in BOTH states, deliberately.
@@ -876,14 +953,13 @@ public final class AutoResponder {
         }
     }
 
-    /** The last reply sent to this conversation, for loop detection. */
     /**
      * Whether this incoming text is actually a reply IRIS recently sent to this conversation,
      * echoed back by the app (common in groups). Compared on the normalised text against the
-     * recent decision log for the same conversation, so it's independent of how the sender is
-     * labelled ("You", a name, blank).
+     * recent decision log for the same pkg and sender, so it's independent of how the sender is
+     * labelled ("You", a name, blank) and cannot falsely substring match.
      */
-    private static boolean isOwnEcho(Context context, String conversationKey, String body) {
+    private static boolean isOwnEcho(Context context, String pkg, String resolvedSender, String body) {
         if (body == null || body.trim().isEmpty()) return false;
         String want = MessageCategory.normalise(body);
         if (want.isEmpty()) return false;
@@ -892,16 +968,19 @@ public final class AutoResponder {
             if (++scanned > 20) break;                 // only recent history
             if (entry.reply == null || entry.reply.isEmpty()) continue;
             if (entry.sender == null || entry.sender.isEmpty()) continue;
-            if (!conversationKey.contains(entry.sender)) continue;
+            if (entry.pkg != null && !entry.pkg.equals(pkg)) continue;
+            if (!entry.sender.equals(resolvedSender)) continue;
             if (MessageCategory.normalise(entry.reply).equals(want)) return true;
         }
         return false;
     }
 
-    private static String lastReplyText(Context context, String conversationKey) {
+    private static String lastReplyText(Context context, String pkg, String resolvedSender) {
         for (ResponderLog.Entry entry : new ResponderLog(context).newestFirst()) {
-            if (entry.reply.isEmpty()) continue;
-            if (conversationKey.contains(entry.sender) && !entry.sender.isEmpty()) {
+            if (entry.reply == null || entry.reply.isEmpty()) continue;
+            if (entry.sender == null || entry.sender.isEmpty()) continue;
+            if (entry.pkg != null && !entry.pkg.equals(pkg)) continue;
+            if (entry.sender.equals(resolvedSender)) {
                 return entry.reply;
             }
         }

@@ -49,6 +49,15 @@ public final class ChatHistoryTest {
                 "hey. are you free. tomorrow", "combine joins in order");
         t(ChatHistory.combine(new ArrayList<>()).isEmpty(), "combine empty -> empty");
 
+        // TTL checks (3 minutes = 180,000 ms)
+        eq(ChatHistory.TTL_MS, 180000L, "TTL_MS is 3 minutes");
+        long now = 1000000L;
+        t(!ChatHistory.isStale(0L, now), "0 lastTimestamp is not stale");
+        t(!ChatHistory.isStale(now - 60000L, now), "1 minute ago is not stale");
+        t(!ChatHistory.isStale(now - 180000L, now), "exactly 3 minutes ago is not stale");
+        t(ChatHistory.isStale(now - 180001L, now), "3 minutes + 1ms is stale");
+        t(ChatHistory.isStale(now - 600000L, now), "10 minutes ago is stale");
+
         System.out.println("Passed " + checks + " chat history checks");
     }
 }

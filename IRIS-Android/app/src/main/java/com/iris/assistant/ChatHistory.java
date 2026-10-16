@@ -17,7 +17,19 @@ public final class ChatHistory {
     /** Hard ceiling so a mis‑set depth can't make the buffer unbounded. */
     public static final int MAX_DEPTH = 10;
 
+    /**
+     * Time-to-live for a rolling conversation burst (3 minutes).
+     * Bubbles arriving further apart than this belong to separate conversational moments and must
+     * never be combined into a multi-bubble context window.
+     */
+    public static final long TTL_MS = 3L * 60L * 1000L;
+
     private ChatHistory() { }
+
+    /** True when the elapsed time since the previous message in this thread exceeds the burst TTL. */
+    public static boolean isStale(long lastTimestampMs, long nowMs) {
+        return lastTimestampMs > 0 && (nowMs - lastTimestampMs > TTL_MS);
+    }
 
     /** Clamp a requested depth to a sane range. 0 means "no history, just this message". */
     public static int clampDepth(int depth) {

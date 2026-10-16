@@ -1059,6 +1059,16 @@ public final class ResponderSettings {
 
     /** The stored rolling history for a conversation (oldest first), honouring the depth. */
     public List<String> chatHistory(String conversationKey) {
+        return chatHistory(conversationKey, System.currentTimeMillis());
+    }
+
+    /** The stored rolling history for a conversation, expiring if stale (older than 3 minutes). */
+    public List<String> chatHistory(String conversationKey, long nowMs) {
+        long lastTime = prefs.getLong(P_CONV_HIST_TIME + safe(conversationKey), 0L);
+        if (ChatHistory.isStale(lastTime, nowMs)) {
+            clearChatHistory(conversationKey);
+            return new ArrayList<>();
+        }
         String raw = prefs.getString(P_CONV_HIST + safe(conversationKey), "");
         List<String> out = new ArrayList<>();
         if (raw.isEmpty()) return out;
@@ -1068,25 +1078,45 @@ public final class ResponderSettings {
         return out;
     }
 
+    /** Clear rolling history for this conversation. */
+    public void clearChatHistory(String conversationKey) {
+        prefs.edit()
+                .remove(P_CONV_HIST + safe(conversationKey))
+                .remove(P_CONV_HIST_TIME + safe(conversationKey))
+                .apply();
+    }
+
     /** Append an incoming message to the conversation's rolling history (trimmed to the depth). */
     public void recordIncomingHistory(String conversationKey, String message) {
+        recordIncomingHistory(conversationKey, message, System.currentTimeMillis());
+    }
+
+    /** Append an incoming message to the conversation's rolling history with timestamp. */
+    public void recordIncomingHistory(String conversationKey, String message, long nowMs) {
         int depth = contextDepth();
         if (depth <= 0) {
-            prefs.edit().remove(P_CONV_HIST + safe(conversationKey)).apply();
+            clearChatHistory(conversationKey);
             return;
         }
+        long lastTime = prefs.getLong(P_CONV_HIST_TIME + safe(conversationKey), 0L);
+        List<String> prev = ChatHistory.isStale(lastTime, nowMs)
+                ? new ArrayList<>() : chatHistory(conversationKey, nowMs);
         String clean = message == null ? "" : message.replace('\n', ' ').replace('\r', ' ').trim();
-        List<String> next = ChatHistory.append(chatHistory(conversationKey), clean, depth);
+        List<String> next = ChatHistory.append(prev, clean, depth);
         StringBuilder sb = new StringBuilder();
         for (String m : next) {
             if (sb.length() > 0) sb.append('\n');
             sb.append(m);
         }
-        prefs.edit().putString(P_CONV_HIST + safe(conversationKey), sb.toString()).apply();
+        prefs.edit()
+                .putString(P_CONV_HIST + safe(conversationKey), sb.toString())
+                .putLong(P_CONV_HIST_TIME + safe(conversationKey), nowMs)
+                .apply();
     }
 
     private static final String K_CONTEXT_DEPTH = "context_depth";
     private static final String P_CONV_HIST = "chist_";
+    private static final String P_CONV_HIST_TIME = "chist_time_";
 
     /**
      * Prepend a short time/day-aware line ("It's Friday evening\u2026") to generic replies. Off by

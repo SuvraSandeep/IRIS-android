@@ -2471,7 +2471,10 @@ public class MainActivity extends Activity {
         ResponderGuards.Verdict verdict;
         try { verdict = ResponderGuards.Verdict.valueOf(entry.verdict); }
         catch (Exception e) { verdict = null; }
-        reason.setText(ResponderGuards.explain(verdict));
+        String whyText = (entry.reason != null && !entry.reason.trim().isEmpty())
+                ? entry.reason.trim()
+                : ResponderGuards.explain(verdict);
+        reason.setText(whyText);
         reason.setTextSize(11f);
         reason.setTypeface(android.graphics.Typeface.MONOSPACE);
         reason.setTextColor(getColor(R.color.deck_text_dim));
@@ -2522,6 +2525,7 @@ public class MainActivity extends Activity {
         final String who2 = entry.sender;
         card.setOnLongClickListener(v -> {
             java.util.List<String> items = new java.util.ArrayList<>();
+            items.add("Why was this decision taken?");
             items.add("Delete this entry");
             boolean hasSender = who2 != null && !who2.trim().isEmpty();
             if (hasSender) items.add("Teach a reply for " + who2);
@@ -2530,7 +2534,9 @@ public class MainActivity extends Activity {
                     .setTitle(hasSender ? who2 : "This decision")
                     .setItems(items.toArray(new String[0]), (d, which) -> {
                         String choice = items.get(which);
-                        if (choice.equals("Delete this entry")) {
+                        if (choice.equals("Why was this decision taken?")) {
+                            showDecisionWhyDialog(entry);
+                        } else if (choice.equals("Delete this entry")) {
                             ResponderLog log = new ResponderLog(this);
                             final java.util.List<ResponderLog.Entry> before = log.all();
                             log.deleteOne(entry.whenMs, entry.sender, entry.verdict);
@@ -2554,6 +2560,39 @@ public class MainActivity extends Activity {
             return true;
         });
         return card;
+    }
+
+    private void showDecisionWhyDialog(final ResponderLog.Entry entry) {
+        StringBuilder sb = new StringBuilder();
+        if (entry.incoming != null && !entry.incoming.trim().isEmpty()) {
+            sb.append("Message:\n\"").append(entry.incoming.trim()).append("\"\n\n");
+        }
+        sb.append("Sender: ").append(entry.sender.isEmpty() ? "Unknown" : entry.sender);
+        if (entry.group) sb.append(" (group)");
+        sb.append("\nApp: ").append(entry.appLabel.isEmpty() ? entry.pkg : entry.appLabel).append("\n");
+        sb.append("Category: ").append(entry.category).append(" | Tone: ").append(entry.tone).append("\n");
+        sb.append("Verdict: ").append(entry.verdict);
+        if (entry.dryRun) sb.append(" (DRY RUN)");
+        sb.append("\n\n");
+
+        if (entry.wouldHaveSent()) {
+            sb.append("Reply:\n\"").append(entry.reply).append("\"\n\n");
+        }
+
+        sb.append("Decision Rationale:\n");
+        if (entry.reason != null && !entry.reason.trim().isEmpty()) {
+            sb.append(entry.reason.trim());
+        } else {
+            ResponderGuards.Verdict v;
+            try { v = ResponderGuards.Verdict.valueOf(entry.verdict); } catch (Exception e) { v = null; }
+            sb.append(ResponderGuards.explain(v));
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Why this decision was taken")
+                .setMessage(sb.toString())
+                .setPositiveButton("Close", null)
+                .show();
     }
 
     /**

@@ -452,6 +452,24 @@ public final class SmartRepliesTest {
         for (int r = 0; r < 12; r++) mocks.add(SmartReplies.match("this message is deleted",
                 ReplyTone.Tone.CASUAL, r));
         check(mocks.size() >= 8, "deletion mock rotates: " + mocks.size());
+
+        // Multi-rule matching & deduplication:
+        String multiHelloAvail = SmartReplies.matchMulti("hey is he busy", ReplyTone.Tone.PROFESSIONAL, 0);
+        check(!multiHelloAvail.isEmpty(), "multi matched compound intent");
+
+        // Verify no duplicate self-stitching in single intent messages
+        for (String single : new String[]{"no don't flag it", "screenshot bhejo", "u look pretty", "haha lol"}) {
+            String multiRes = SmartReplies.matchMulti(single, ReplyTone.Tone.CASUAL, 0);
+            if (!multiRes.isEmpty()) {
+                // Ensure the reply doesn't duplicate itself verbatim
+                String[] sentences = multiRes.split("(?<=[.!?])\\s+");
+                if (sentences.length > 1) {
+                    check(!sentences[0].trim().equalsIgnoreCase(sentences[1].trim()),
+                            "no self-stitching duplicate sentence in: " + single + " -> " + multiRes);
+                }
+            }
+        }
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }
