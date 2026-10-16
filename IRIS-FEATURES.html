@@ -135,12 +135,14 @@
 /* ============================================================
    IRIS FEATURE DATA  —  keep this in sync with the app (RULE 1)
    ============================================================ */
-const BUILD_VERSION = "16.32.0";
+const BUILD_VERSION = "16.32.1";
 
 const CATS = ["Voice & Recognition","Communication","Productivity","Info & Awareness",
   "Intelligence & Memory","Personalization & UI","Privacy, Safety & Robustness"];
 
 const FEATURES = [
+
+  {"id": "ackvariety16321", "cat": "Communication", "icon": "\uD83C\uDFAD", "title": "22 comebacks for one-word replies", "tagline": "A bare \u201Cok\u201D/\u201Chm\u201D in sarcastic mode no longer gets the same line every time.", "desc": "Suvra noticed a one-word acknowledgement (\u201Cok\u201D, \u201Chm\u201D, \u201Cyes\u201D) in sarcastic tone always drew the same \u201CNoted, and barely\u2026\u201D line. The acknowledgement pool (sarcastic-only by design \u2014 IRIS stays polite in other tones) now has 22 rotating comebacks instead of 5, each still naming IRIS and Suvra. Verified by the full reply-template sweep (1367 checks), which enforces that every single variant identifies IRIS and the owner.", "examples": ["\u201Cok\u201D \u2192 \u201CBreathtaking brevity. Logged for Suvra. I'm IRIS.\u201D", "\u201Chm\u201D \u2192 \u201CI've seen novels shorter than that. Barely.\u201D", "\u201Cyes\u201D \u2192 \u201COne for the history books. Saved for Suvra.\u201D", "\u201Ck\u201D \u2192 \u201CNoted \u2014 I'd clap, but I only have a CPU.\u201D"], "version": "16.32.1"},
 
   {"id": "linkcat16320", "cat": "Communication", "icon": "\uD83D\uDD17", "title": "Knows what kind of link it is", "tagline": "Amazon, Zoom, Maps, Zomato, GitHub, Spotify\u2026 each gets a fitting reply instead of one generic line.", "desc": "Shared links are now classified by domain and answered accordingly, instead of the single generic \u201Cgot the link\u201D line. A new pure `LinkCategory` sorts a URL into shopping (Amazon/Flipkart/Myntra/\u2026), social/reels (Instagram/YouTube Shorts/X/Reddit/\u2026), meeting (Google Meet/Zoom/Teams/Webex), maps (Google/Apple Maps), food (Swiggy/Zomato), tech (GitHub/GitLab/Stack Overflow/\u2026), docs (Drive/Dropbox/OneDrive/\u2026), music (Spotify/YouTube Music/JioSaavn/\u2026), entertainment (Netflix/Hotstar/BookMyShow/\u2026), payments (Splitwise/PayPal.me/\u2026), or generic \u2014 each with its own per\u2011tone reply. A meeting link reads as high\u2011priority (\u201Celevated to the top of his queue\u201D). YouTube Shorts and youtu.be route to social. Fully offline\u2011tested (106 link checks across every category and tone).", "examples": ["amazon.in link \u2192 \u201CShopping link \u2014 saved for Suvra to check the deal\u201D", "meet.google.com \u2192 \u201CMeeting link \u2014 elevated to the top of his queue\u201D", "zomato.com \u2192 \u201CFood link \u2014 pinned so he doesn't miss the order\u201D", "unknown link \u2192 generic \u201Csaved, I didn't click it (basic cybersecurity)\u201D"], "version": "16.32.0"},
 

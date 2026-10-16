@@ -810,7 +810,28 @@ public final class ReplyTemplates {
                 "Noted, and barely. I'm IRIS, " + OWNER + "'s assistant, and even I "
                         + "expected more.",
                 "Such eloquence. I'll be sure " + OWNER + " savours it. IRIS, his assistant.",
-                "Received, all one syllable of it. I'm IRIS, " + OWNER + "'s assistant \u2014 he'll be thrilled.");
+                "Received, all one syllable of it. I'm IRIS, " + OWNER + "'s assistant \u2014 he'll "
+                        + "be thrilled.",
+                "Breathtaking brevity. Logged for " + OWNER + ". I'm IRIS, his assistant.",
+                "I'll frame that one. I'm IRIS, " + OWNER + "'s assistant \u2014 he loves a classic.",
+                "Noted. The Pulitzer committee has been informed. I'm IRIS, " + OWNER + "'s "
+                        + "assistant.",
+                "Two letters, maximum impact. Saved for " + OWNER + ". I'm IRIS, his assistant.",
+                "I've seen novels shorter than that. Barely. Logged for " + OWNER + " \u2014 I'm IRIS.",
+                "Understood, in the loosest sense. I'm IRIS, " + OWNER + "'s assistant.",
+                "Processing\u2026 done, there wasn't much. Saved for " + OWNER + ". I'm IRIS.",
+                "A reply of rare economy. " + OWNER + " will be moved. I'm IRIS, his assistant.",
+                "Logged, though my parser blinked and missed it. I'm IRIS, " + OWNER + "'s "
+                        + "assistant.",
+                "Crisp. I'll let " + OWNER + " interpret the depths of it. I'm IRIS, his assistant.",
+                "That's going straight into the archive. All of it. I'm IRIS, " + OWNER + "'s "
+                        + "assistant.",
+                "Minimalism. Very on-trend. Noted for " + OWNER + " \u2014 I'm IRIS, his assistant.",
+                "I'll pass the full transcript to " + OWNER + ". It won't take long. I'm IRIS.",
+                "Acknowledged with the enthusiasm it earned. I'm IRIS, " + OWNER + "'s assistant.",
+                "Got it. Riveting stuff for " + OWNER + " to come back to. I'm IRIS, his assistant.",
+                "One for the history books. Saved for " + OWNER + ". I'm IRIS, his assistant.",
+                "Noted \u2014 I'd clap, but I only have a CPU. For " + OWNER + ". I'm IRIS.");
     }
 
     // ─── Situational modes ───
