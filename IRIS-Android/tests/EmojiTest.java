@@ -70,6 +70,35 @@ public final class EmojiTest {
         check(Emoji.reply("\uD83D\uDE02", ReplyTone.Tone.CASUAL, 3)
                         .equals(Emoji.reply("\uD83D\uDE02", ReplyTone.Tone.CASUAL, 3)),
                 "same rotation gives same reply");
+        // Offensive / dismissive emoji get a sarcastic, rotating, passive-aggressive reply.
+        check(Emoji.dominant("\uD83D\uDD95") == Emoji.Category.OFFENSIVE, "middle finger is OFFENSIVE");
+        check(Emoji.dominant("\uD83D\uDCA9") == Emoji.Category.OFFENSIVE, "poop is OFFENSIVE");
+        check(Emoji.dominant("\uD83E\uDD21") == Emoji.Category.OFFENSIVE, "clown is OFFENSIVE");
+        check(Emoji.dominant("\uD83D\uDC4E") == Emoji.Category.OFFENSIVE, "thumbs down is OFFENSIVE");
+        for (String e : new String[]{"\uD83E\uDDE2", "\uD83E\uDD71", "\uD83D\uDE12", "\uD83D\uDE44"}) {
+            check(Emoji.dominant(e) == Emoji.Category.OFFENSIVE, "dismissive emoji is OFFENSIVE: " + e);
+            check(!Emoji.reply(e, ReplyTone.Tone.PROFESSIONAL).isEmpty(), "offensive emoji replies: " + e);
+        }
+        java.util.Set<String> rude = new java.util.HashSet<>();
+        for (int r = 0; r < 15; r++) {
+            rude.add(Emoji.reply("\uD83D\uDD95", ReplyTone.Tone.PROFESSIONAL, r));
+        }
+        check(rude.size() >= 10, "offensive emoji has >=10 distinct comebacks: " + rude.size());
+        for (String l : rude) {
+            check(l.toLowerCase(java.util.Locale.ROOT).contains("iris"), "each offensive variant names IRIS");
+        }
+        // An offensive emoji is NOT answered warmly regardless of tone (tone ignored by the pool).
+        check(Emoji.reply("\uD83D\uDD95", ReplyTone.Tone.CASUAL, 2)
+                        .equals(Emoji.reply("\uD83D\uDD95", ReplyTone.Tone.PROFESSIONAL, 2)),
+                "offensive reply is tone-agnostic");
+
+        // Newly added glyphs across friendly categories are recognised.
+        check(Emoji.dominant("\uD83D\uDC93") == Emoji.Category.LOVE, "beating heart is LOVE");
+        check(Emoji.dominant("\uD83D\uDC51") == Emoji.Category.PRAISE, "crown is PRAISE");
+        check(Emoji.dominant("\uD83E\uDD1D") == Emoji.Category.GREET, "handshake is GREET");
+        check(Emoji.dominant("\uD83D\uDE47") == Emoji.Category.THANKS, "bowing is THANKS");
+        check(Emoji.dominant("\uD83C\uDF88") == Emoji.Category.CELEBRATE, "balloon is CELEBRATE");
+
         System.out.println("Passed " + checks + " emoji checks");
     }
 }

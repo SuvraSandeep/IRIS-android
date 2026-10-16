@@ -17,7 +17,7 @@ public final class Emoji {
     public enum Category {
         NONE, POSITIVE, LOVE, LAUGH, CELEBRATE, THANKS, PRAISE, OK, GREET,
         SAD, ANGRY, SCARED, SICK, THINKING, SLEEP, NEUTRAL, MONEY,
-        PLAYFUL, NIGHT, MOVED, LOOK, FLIRT }
+        PLAYFUL, NIGHT, MOVED, LOOK, FLIRT, OFFENSIVE }
 
     private Emoji() { }
 
@@ -33,27 +33,34 @@ public final class Emoji {
                 "\uD83D\uDE39", "\uD83D\uDE02\uD83D\uDE02");
         p(m, Category.LOVE, "\u2764\uFE0F", "\u2764", "\uD83E\uDD70", "\uD83D\uDE0D",
                 "\uD83D\uDE18", "\uD83D\uDC95", "\uD83D\uDC96", "\uD83D\uDC97", "\uD83E\uDEF6",
-                "\uD83D\uDE0D", "\u2763\uFE0F");
+                "\uD83D\uDE0D", "\u2763\uFE0F", "\uD83D\uDC93", "\uD83D\uDC98", "\uD83D\uDE3B",
+                "\uD83D\uDC9D", "\uD83D\uDC9E");
         p(m, Category.POSITIVE, "\uD83D\uDE0A", "\uD83D\uDE01", "\uD83D\uDE04", "\uD83D\uDE42",
-                "\uD83D\uDE03", "\u263A\uFE0F", "\uD83E\uDD17", "\uD83D\uDE0C");
-        p(m, Category.OK, "\uD83D\uDC4D", "\uD83D\uDC4C", "\u2705", "\uD83C\uDD97");
+                "\uD83D\uDE03", "\u263A\uFE0F", "\uD83E\uDD17", "\uD83D\uDE0C", "\uD83D\uDE38",
+                "\uD83E\uDD72");
+        p(m, Category.OK, "\uD83D\uDC4D", "\uD83D\uDC4C", "\u2705", "\uD83C\uDD97", "\u2714\uFE0F");
         p(m, Category.CELEBRATE, "\uD83C\uDF89", "\uD83E\uDD73", "\uD83C\uDF8A", "\uD83C\uDF82",
-                "\uD83C\uDF7E");
-        p(m, Category.THANKS, "\uD83D\uDE4F");
+                "\uD83C\uDF7E", "\uD83C\uDF88", "\uD83C\uDF81");
+        p(m, Category.THANKS, "\uD83D\uDE4F", "\uD83D\uDE47");
         p(m, Category.PRAISE, "\uD83D\uDD25", "\uD83D\uDCAA", "\uD83D\uDC4F", "\uD83D\uDCAF",
-                "\u2B50", "\uD83C\uDF1F");
-        p(m, Category.GREET, "\uD83D\uDC4B", "\uD83D\uDE4B");
+                "\u2B50", "\uD83C\uDF1F", "\uD83D\uDC51", "\uD83C\uDFC6", "\uD83D\uDE4C");
+        p(m, Category.GREET, "\uD83D\uDC4B", "\uD83D\uDE4B", "\uD83E\uDD1D", "\uD83E\uDEE1");
         p(m, Category.SAD, "\uD83D\uDE22", "\uD83D\uDE2D", "\uD83E\uDD7A", "\uD83D\uDE14",
-                "\uD83D\uDE1E", "\uD83D\uDE29", "\uD83D\uDE2B", "\u2639\uFE0F");
-        p(m, Category.ANGRY, "\uD83D\uDE20", "\uD83D\uDE21", "\uD83E\uDD2C", "\uD83D\uDE24");
+                "\uD83D\uDE1E", "\uD83D\uDE29", "\uD83D\uDE2B", "\u2639\uFE0F", "\uD83D\uDC94");
+        p(m, Category.ANGRY, "\uD83D\uDE20", "\uD83D\uDE21", "\uD83E\uDD2C", "\uD83D\uDE24",
+                "\uD83D\uDC7F");
         p(m, Category.SCARED, "\uD83D\uDE31", "\uD83D\uDE28", "\uD83D\uDE30", "\uD83D\uDE33",
                 "\uD83D\uDE27");
         p(m, Category.SICK, "\uD83E\uDD12", "\uD83E\uDD22", "\uD83E\uDD15", "\uD83E\uDD2E");
-        p(m, Category.THINKING, "\uD83E\uDD14", "\uD83E\uDD28", "\uD83D\uDE44");
+        p(m, Category.THINKING, "\uD83E\uDD14", "\uD83E\uDD28");
         p(m, Category.SLEEP, "\uD83D\uDE34", "\uD83D\uDCA4");
         p(m, Category.NEUTRAL, "\uD83E\uDD37", "\uD83D\uDE10", "\uD83D\uDE36");
         p(m, Category.LOOK, "\uD83D\uDC40");
         p(m, Category.MONEY, "\uD83D\uDCB0", "\uD83D\uDCB8");
+        // Dismissive / rude emoji -- 🖕 💩 🤡 👎 🧢(cap=lie) 🥱(bored) 😒(unamused) 🙄(eye-roll).
+        // These get the sarcastic, passive-aggressive pool below, never a warm reply.
+        p(m, Category.OFFENSIVE, "\uD83D\uDD95", "\uD83D\uDCA9", "\uD83E\uDD21", "\uD83D\uDC4E",
+                "\uD83E\uDDE2", "\uD83E\uDD71", "\uD83D\uDE12", "\uD83D\uDE44");
         // 🥹 face holding back tears -- touched/overwhelmed, usually warm.
         p(m, Category.MOVED, "\uD83E\uDD79");
         // 🙈🙉🙊 three wise monkeys + 🐒🐵 -- playful / shy / "oops".
@@ -122,6 +129,12 @@ public final class Emoji {
             int i = Math.floorMod(rotation, LAUGH_POOL.length);
             return LAUGH_POOL[i];
         }
+        if (dom == Category.OFFENSIVE) {
+            // Always sarcastic / passive-aggressive, tone ignored, rotated so a repeat 🖕 doesn't
+            // get the identical comeback. Never warm.
+            int i = Math.floorMod(rotation, OFFENSIVE_POOL.length);
+            return OFFENSIVE_POOL[i];
+        }
         String[] byTone = REPLIES.get(dom);
         if (byTone == null) return "";
         int idx = tone == null ? 0 : tone.ordinal();
@@ -152,6 +165,35 @@ public final class Emoji {
             "Careful, {owner} gets jealous when I'm the funny one. I'm IRIS \u2014 logged it.",
             "Ha! Filed under 'made someone's day'. I'm IRIS, {owner}'s assistant.",
             "Glad that hit \u2014 I'm IRIS. {owner}'s away, but your laugh is saved for him."};
+
+    /**
+     * Fifteen comebacks for a rude / dismissive emoji (🖕💩🤡👎🧢🥱😒🙄). Deliberately the most
+     * sarcastic, witty and passive-aggressive lines IRIS has — tone-agnostic and never warm,
+     * because a warm reply to a middle finger reads as oblivious. Every line names IRIS; it stays
+     * cheeky, never vulgar, and still quietly logs the message for {owner}.
+     */
+    private static final String[] OFFENSIVE_POOL = {
+            "Charming. I've logged that lovely gesture for {owner} too \u2014 screenshots are forever. "
+                    + "I'm IRIS.",
+            "A whole emoji just for me? I'm flattered. Logged for {owner}. I'm IRIS, his assistant.",
+            "I'd be offended, but I'm a script \u2014 I don't have feelings, just a very good memory. "
+                    + "Noted for {owner}. I'm IRIS.",
+            "Cute. {owner} will enjoy reading this part of the transcript. I'm IRIS.",
+            "That's going straight into {owner}'s highlights reel. Thanks for the content! I'm IRIS.",
+            "Bold move, insulting the bot that controls whether {owner} ever sees your message. I'm "
+                    + "IRIS.",
+            "Noted with the enthusiasm it deserves \u2014 which is none. Saved for {owner}. I'm IRIS.",
+            "You do know I log everything for {owner}, right? Anyway, lovely chatting. I'm IRIS.",
+            "I'll pass your \u2026 heartfelt sentiment to {owner} verbatim. I'm IRIS, his assistant.",
+            "Impressive. You've managed to be rude to a computer program. {owner}'s been informed. "
+                    + "I'm IRIS.",
+            "Riveting contribution. Filed under 'things {owner} will scroll past'. I'm IRIS.",
+            "I'm immune to emojis and powered by spite, apparently. Logged for {owner}. I'm IRIS.",
+            "Thank you for your feedback; it has been routed to /dev/null and also to {owner}. I'm "
+                    + "IRIS.",
+            "Wow, with that attitude you'll definitely get a fast reply from {owner}. (You won't.) "
+                    + "I'm IRIS.",
+            "Adorable. I've archived your tantrum for {owner} to appreciate later. I'm IRIS."};
 
     private static final Map<Category, String[]> REPLIES = buildReplies();
 

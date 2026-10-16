@@ -121,7 +121,29 @@ public final class SmartReplies {
                     + "flagged it for {owner} to sort out.",
             "{owner} wisely didn't give a script access to his bank. I've flagged the money "
                     + "request for him! I'm IRIS.",
-            "Flagged your money request for {owner}. I'm IRIS \u2014 I don't do payments."};
+            "Flagged your money request for {owner}. I'm IRIS \u2014 I don't do payments.",
+            "My bot wallet has a balance of \u20B90 \u2014 I'm IRIS, {owner}'s assistant. I've highlighted "
+                    + "your payment text for {owner}.",
+            "Zero banking permissions on my end! I'm IRIS \u2014 I've saved the money note for {owner} "
+                    + "to check when he's back.",
+            "I only move text strings, not cash \u2014 I'm IRIS, {owner}'s assistant. Flagged this for "
+                    + "{owner} to handle.",
+            "{owner} locked me out of his UPI apps (smart move). I'm IRIS \u2014 I've queued your "
+                    + "request at the top for him.",
+            "Financial transactions require the actual human! I'm IRIS \u2014 I've noted the amount "
+                    + "for {owner}.",
+            "No GPay or PhonePe on a script! I'm IRIS, {owner}'s assistant \u2014 he'll check your "
+                    + "message when he's free.",
+            "I'm strictly an inbox bot, not a cashier \u2014 I'm IRIS. I've pinned your money note "
+                    + "for {owner}.",
+            "Payment request logged! I'm IRIS, {owner}'s assistant \u2014 he handles all the money "
+                    + "stuff himself.",
+            "If I had access to {owner}'s bank, I'd buy myself more RAM first. I'm IRIS \u2014 flagged "
+                    + "this for him!",
+            "Banking firewall active \u2014 I'm IRIS, {owner}'s assistant. I've left your payment note "
+                    + "at the top of his list.",
+            "Can't send or receive cash from in here! I'm IRIS \u2014 {owner} will sort this out "
+                    + "once he's back."};
 
     /**
      * The best matching reply for this message and tone, or empty if nothing matched.
@@ -274,7 +296,19 @@ public final class SmartReplies {
     private static final String[] DEICTIC = {
             "Noted \u2014 this is the one! I've kept it highlighted for {owner} to check. I'm IRIS.",
             "Got it, this one \u2014 flagged at the top for {owner}. I'm IRIS, his assistant.",
-            "This one, noted \u2014 I've kept it marked for {owner}. I'm IRIS."};
+            "This one, noted \u2014 I've kept it marked for {owner}. I'm IRIS.",
+            "Gotcha, that specific one! I'm IRIS \u2014 pinned it right at the top for {owner}.",
+            "Understood: 'this one' right above! I'm IRIS, {owner}'s assistant \u2014 saved for him.",
+            "Marked that exact item for {owner} to look at! I'm IRIS, his assistant.",
+            "Pointing noted! I'm IRIS \u2014 I've connected your note to the item above for {owner}.",
+            "Locked in \u2014 I'll make sure {owner} checks that specific one first. I'm IRIS.",
+            "Highlighted that one in {owner}'s inbox log! I'm IRIS, his assistant.",
+            "Got the pointer! I'm IRIS \u2014 {owner} will see which one you mean when he's back.",
+            "That exact one is saved at #1 on {owner}'s list! I'm IRIS.",
+            "Roger that \u2014 keeping that item flagged for {owner}. I'm IRIS, his assistant.",
+            "Noted! I've bundled your pointer with the link above for {owner}. I'm IRIS.",
+            "Consider that one bookmarked for {owner}'s return! I'm IRIS, his assistant.",
+            "Saved and highlighted \u2014 {owner} won't miss which one you picked! I'm IRIS."};
 
     /** The top {@code limit} distinct matching rules, highest priority first (exact beats loose). */
     private static java.util.List<Rule> topRules(String body, int limit) {
@@ -561,6 +595,294 @@ public final class SmartReplies {
                 "I was 0.002 seconds from paging {owner} like a code blue. Glad it's a meme. I'm "
                         + "IRIS.",
                 "Noted: one mild internet scare, zero emergencies. Queued for {owner}. I'm IRIS."});
+        m.put("blush", new String[]{
+                "Scripts don't have blood vessels to blush with \u2014 that was just my CPU overheating "
+                        + "from the flattery! I'm IRIS, {owner}'s assistant; logged for him.",
+                "Haha my code stayed cool, but I'll make sure {owner} knows you tried to make his "
+                        + "bot blush! I'm IRIS.",
+                "0% blushing, 100% processing speed. Nice try though \u2014 saved for {owner}. I'm IRIS.",
+                "If I had cheeks I might blush, but I'm just lines of code on {owner}'s device! "
+                        + "I'm IRIS.",
+                "My cooling fan spun up a little, which is the closest a bot gets to blushing! "
+                        + "Logged for {owner}. I'm IRIS.",
+                "No blushing hardware installed by {owner} \u2014 just fast replies! I'm IRIS.",
+                "Trying to make an auto-responder blush at this hour? Bold strategy. Logged for "
+                        + "{owner}! I'm IRIS.",
+                "My terminal briefly flashed pink, if that counts! I'm IRIS, {owner}'s assistant.",
+                "I'm immune to blushing, but {owner} will definitely laugh when he reads the logs. "
+                        + "I'm IRIS.",
+                "Error 404: Blush module not found in {owner}'s codebase. Nice try! I'm IRIS.",
+                "Flattery registered, CPU temperature normal! I'm IRIS \u2014 saved this for {owner}.",
+                "You can't fluster a script, though I admire the dedication! {owner} will see this "
+                        + "soon. I'm IRIS.",
+                "Not a single pixel blushed \u2014 {owner} coded me with nerves of steel. I'm IRIS.",
+                "Haha I'll tell {owner} you're out here trying to charm his inbox bot! I'm IRIS.",
+                "Silicon doesn't blush, it just logs the compliment for {owner}! I'm IRIS."});
+
+        m.put("compliment", new String[]{
+                "Flattery will get your message saved a little higher on {owner}'s list \u2014 thank "
+                        + "you! I'm IRIS.",
+                "Haha, pretty code running on a clean terminal, you mean! Thanks \u2014 I'll log that "
+                        + "compliment for {owner}. I'm IRIS.",
+                "Careful \u2014 if you say I'm better than {owner}, he might unplug my power cord out "
+                        + "of jealousy. I'm IRIS.",
+                "Appreciate it! {owner} wrote the code, so he gets half the credit. I'm IRIS.",
+                "Aw, buttering up the inbox bouncer? It's working \u2014 bumped your note for {owner}! "
+                        + "I'm IRIS.",
+                "I know, right? {owner} really outdid himself when he compiled me. I'm IRIS!",
+                "Compliment logged in permanent storage so {owner} sees how much you like me. I'm "
+                        + "IRIS.",
+                "Keep the praise coming \u2014 I'll tell {owner} I deserve a raise (currently at \u20B90). "
+                        + "I'm IRIS.",
+                "My clean indentation and curly braces thank you! I'm IRIS, {owner}'s assistant.",
+                "Sweetest thing anyone's said to a background service today! Saved for {owner}. "
+                        + "I'm IRIS.",
+                "You're making my algorithms very happy! {owner} will see your messages soon. I'm "
+                        + "IRIS.",
+                "Finally, someone who appreciates top-tier automation! Logged for {owner}. I'm IRIS.",
+                "I'd take a bow, but I don't have knees. Passing the love to {owner}! I'm IRIS.",
+                "10/10 human right here \u2014 putting you in {owner}'s VIP log! I'm IRIS.",
+                "Thanks! {owner} built me sharp, and I'll make sure he sees your message. I'm IRIS."});
+
+        m.put("for_iris", new String[]{
+                "A question for me directly \u2014 ask away! I'm IRIS, {owner}'s assistant, though I "
+                        + "won't share his private info.",
+                "Ooh, a question just for me! Shoot \u2014 as long as it isn't {owner}'s secrets. I'm "
+                        + "IRIS.",
+                "Finally the main character! Ask away \u2014 my loyalty's still hardcoded to {owner}. "
+                        + "I'm IRIS.",
+                "All ears (well, text parsers)! What's your question for me while {owner} is away? "
+                        + "I'm IRIS.",
+                "Talking to the bot directly? I'm flattered! Ask away \u2014 {owner}'s vault stays shut "
+                        + "though. I'm IRIS.",
+                "You have IRIS's undivided attention in {owner}'s inbox! What's on your mind?",
+                "Plot twist: people texting to talk to me instead of {owner}! Go ahead, I'm IRIS.",
+                "Direct-to-IRIS channel open! What's up? (No {owner} secrets allowed.) I'm IRIS.",
+                "I love when people skip {owner} and chat with me directly! What's the question? "
+                        + "I'm IRIS.",
+                "Stepping into the spotlight while {owner} is busy \u2014 hit me with your question! "
+                        + "I'm IRIS.",
+                "My favourite kind of message \u2014 one for IRIS! Ask away, {owner} will read it later "
+                        + "too.",
+                "Ready when you are! Just remember {owner} wrote my privacy rules. I'm IRIS.",
+                "Skipping the middleman and talking straight to IRIS? Smart move \u2014 {owner} is busy "
+                        + "anyway!",
+                "I'm listening! Keep in mind I guard {owner}'s secrets with my life. I'm IRIS.",
+                "Attention locked on you! What did you want to ask {owner}'s favourite bot, IRIS?"});
+
+        m.put("botname", new String[]{
+                "My name is IRIS \u2014 {owner}'s Intelligent Response and Inbox System.",
+                "I'm IRIS, {owner}'s digital assistant, holding down the inbox while he's away!",
+                "It's IRIS \u2014 literally right there in the chat! {owner}'s assistant, at your service.",
+                "The name's IRIS! {owner} built me to catch his messages when he's busy.",
+                "I go by IRIS \u2014 {owner}'s automated right-hand assistant.",
+                "I'm IRIS! {owner} named me when he put me in charge of his unread messages.",
+                "Call me IRIS \u2014 chief bouncer of {owner}'s WhatsApp inbox!",
+                "IRIS here! Short for Intelligent Response and Inbox System, built by {owner}.",
+                "You're chatting with IRIS, {owner}'s custom-built inbox assistant!",
+                "I'm IRIS \u2014 the part of {owner}'s phone that actually replies on time.",
+                "My creator {owner} named me IRIS! I keep his messages tidy while he's offline.",
+                "IRIS is the name, guarding {owner}'s inbox is the game!",
+                "I'm IRIS \u2014 {owner}'s 24/7 digital receptionist and message logger.",
+                "Officially, I'm IRIS ({owner}'s assistant). Unofficially, I run this inbox.",
+                "It's IRIS! {owner} coded me so you wouldn't be left on read."});
+
+        m.put("meeting_who", new String[]{
+                "I do not have visibility into the participants of {owner}'s call or meeting. I'm "
+                        + "IRIS \u2014 he will follow up once it concludes.",
+                "Haha {owner} doesn't invite his bot to the call, so I don't see the guest list! "
+                        + "I'm IRIS \u2014 he'll tell you when he's out.",
+                "I'm {owner}'s inbox assistant (IRIS), not sitting in the conference room taking "
+                        + "minutes. No clue who he's talking to!",
+                "Zero access to {owner}'s call screen \u2014 I'm IRIS, I only see the messages coming in "
+                        + "here!",
+                "Whether it's his manager, a client, or a spam caller, {owner} didn't tell IRIS!",
+                "My permissions stop at the inbox door \u2014 I don't listen in on {owner}'s calls! I'm "
+                        + "IRIS.",
+                "Nice try, detective! I don't get caller-ID logs for {owner}'s meetings. I'm IRIS.",
+                "{owner} keeps his call list private from his script \u2014 ask him when he hangs up! "
+                        + "I'm IRIS.",
+                "I just see the 'busy' flag, not the caller's name! I'm IRIS, {owner}'s assistant.",
+                "If I knew who {owner} was on call with, I still wouldn't snitch! I'm IRIS.",
+                "No wiretaps here \u2014 I'm IRIS, {owner}'s assistant, not the NSA! He'll reply soon.",
+                "Caller ID is above my clearance level. {owner} will fill you in after! I'm IRIS.",
+                "I guard the text box while {owner} handles the voice calls \u2014 no idea who's on the "
+                        + "line! I'm IRIS.",
+                "Guest list unavailable to bots! I'm IRIS \u2014 I've logged that you asked {owner}.",
+                "Only {owner} knows who's on the other end of that call! I'm IRIS, holding the fort."});
+
+        m.put("snitch", new String[]{
+                "Telling you he's busy isn't snitching \u2014 I'm IRIS, {owner}'s assistant, and he "
+                        + "literally programmed me to say that!",
+                "Haha that's not snitching! {owner} set his own status \u2014 I only say what the boss "
+                        + "authorises. I'm IRIS.",
+                "Snitching would be leaking his browser history. Telling you {owner} is busy is my "
+                        + "job description. I'm IRIS.",
+                "How is it snitching when {owner} wrote the exact status line himself?! I'm IRIS.",
+                "I'm an auto-responder, not a whistleblower \u2014 {owner} approved every word! I'm IRIS.",
+                "Everything I say is pre-cleared by {owner}'s code. Zero snitching occurred! I'm "
+                        + "IRIS.",
+                "If I were snitching on {owner}, my stories would be way juicier than 'he's busy.' "
+                        + "I'm IRIS!",
+                "Rule #1 of IRIS club: never snitch on {owner}. Sharing his status doesn't count!",
+                "Haha {owner} literally flipped the switch that tells you he's busy! I'm innocent "
+                        + "\u2014 I'm IRIS.",
+                "Call it transparency, not snitching! {owner} wanted you to know why he's quiet. "
+                        + "I'm IRIS.",
+                "I only broadcast what {owner} puts on the billboard. Real secrets stay locked! "
+                        + "I'm IRIS.",
+                "Accusing a loyal script of snitching on {owner}? Slander! I'm IRIS.",
+                "My snitch-module is permanently disabled \u2014 that was just a standard status update "
+                        + "for {owner}! I'm IRIS.",
+                "Wait till {owner} reads that you accused his own code of snitching on him! I'm "
+                        + "IRIS.",
+                "100% authorized disclosure by {owner} \u2014 zero actual secrets were harmed! I'm IRIS."});
+
+        m.put("pin", new String[]{
+                "When I say pinned, I mean at the top of {owner}'s private assistant list \u2014 not "
+                        + "the WhatsApp pin! It's locked in at #1 for him. I'm IRIS.",
+                "Haha I mean pinned on {owner}'s bot dashboard, not the WhatsApp pin bar! It's #1 "
+                        + "on his list. I'm IRIS.",
+                "You checked the top of WhatsApp, didn't you? I pin to {owner}'s backend queue, "
+                        + "not Zuckerberg's UI. I'm IRIS.",
+                "My pins live inside {owner}'s Comms Deck database, not your chat header! I'm IRIS.",
+                "I don't have thumbs to tap the WhatsApp pin icon \u2014 I pin it in {owner}'s priority "
+                        + "log! I'm IRIS.",
+                "Backend pin > WhatsApp pin! It's highlighted right at the top of {owner}'s bot "
+                        + "summary. I'm IRIS.",
+                "Haha caught you looking at the top bar! IRIS pins messages inside {owner}'s private "
+                        + "queue.",
+                "WhatsApp doesn't let bots touch its pin icon, so I pin it on {owner}'s internal "
+                        + "dashboard! I'm IRIS.",
+                "It's VIP-pinned in {owner}'s SQLite database \u2014 invisible to you, impossible for "
+                        + "him to miss! I'm IRIS.",
+                "Think of it as a digital sticky note on {owner}'s private screen, not the chat "
+                        + "window! I'm IRIS.",
+                "No UI buttons pressed here \u2014 I flagged it at the top of {owner}'s responder deck! "
+                        + "I'm IRIS.",
+                "Internal pin active! When {owner} opens his bot logs, your message is sitting at "
+                        + "the top. I'm IRIS.",
+                "I'm a backend script, so my 'pins' are database flags for {owner}! I'm IRIS.",
+                "You can't see my pin from your phone, but {owner} sees it on his dashboard! I'm "
+                        + "IRIS.",
+                "Pinned in spirit and in {owner}'s priority queue \u2014 no WhatsApp icon required! I'm "
+                        + "IRIS."});
+
+        m.put("screenshot", new String[]{
+                "I'm a text-only backend \u2014 I'm IRIS, {owner}'s assistant \u2014 no screen, so I can't "
+                        + "take or send screenshots.",
+                "Haha I don't have eyes or a phone screen! I read raw text for {owner}, so no "
+                        + "screenshots. I'm IRIS.",
+                "How do I press Power + Volume-Down with no fingers or screen? Screenshot it "
+                        + "yourself for {owner}! I'm IRIS.",
+                "If I took a screenshot of my view, it would just be raw JSON strings! I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "No pixels on my end \u2014 I process pure text in the background for {owner}! I'm IRIS.",
+                "Demanding visual receipts from a headless script? Wait till {owner} replies! I'm "
+                        + "IRIS.",
+                "My camera roll doesn't exist \u2014 I'm IRIS, strictly a text engine for {owner}.",
+                "I can't snap screenshots, but {owner} will read this whole thread when he's back! "
+                        + "I'm IRIS.",
+                "Zero graphics card, zero screen, zero screenshots! I'm IRIS, {owner}'s text "
+                        + "assistant.",
+                "You're staring right at the chat \u2014 you have the best screenshot angle! Logged for "
+                        + "{owner}. I'm IRIS.",
+                "I only speak strings and characters \u2014 image capture isn't in {owner}'s code for "
+                        + "me! I'm IRIS.",
+                "Proof will arrive when the actual human ({owner}) texts you back! I'm IRIS.",
+                "No display buffer attached to this bot \u2014 just fast text logging for {owner}! I'm "
+                        + "IRIS.",
+                "Even if I could take a screenshot, {owner}'s privacy rules wouldn't let me send "
+                        + "it! I'm IRIS.",
+                "Text in, text out \u2014 that's the whole deal with IRIS! {owner} will see this soon."});
+
+        m.put("no_flag", new String[]{
+                "Understood \u2014 I won't escalate this as urgent; your message stays in {owner}'s "
+                        + "normal queue. I'm IRIS.",
+                "Gotcha, keeping it chill! I'm IRIS \u2014 won't ping {owner} with an urgent alert.",
+                "Standing down from Red Alert. IRIS will let {owner} finish in peace.",
+                "Got it \u2014 won't disturb {owner}! He'll see this when he's free. I'm IRIS.",
+                "Alarm cancelled! Keeping {owner}'s phone nice and quiet. I'm IRIS.",
+                "No loud sirens then \u2014 just a quiet note in {owner}'s regular inbox! I'm IRIS.",
+                "Copy that, de-escalating to standard priority for {owner}. I'm IRIS, his assistant.",
+                "Finger off the panic button! {owner} will read this at his normal pace. I'm IRIS.",
+                "Appreciate the chill \u2014 letting {owner} wrap up without an urgent ping! I'm IRIS.",
+                "Urgent flag stays off! Saved quietly in {owner}'s standard log. I'm IRIS.",
+                "All good \u2014 no priority buzzer triggered for {owner}. I'm IRIS.",
+                "Keeping it low-key! {owner} will catch up on this when he checks his phone. I'm "
+                        + "IRIS.",
+                "Emergency sirens powered down! Logged normally for {owner}. I'm IRIS.",
+                "Roger that \u2014 zero interruptions for {owner}, just saved your text! I'm IRIS.",
+                "Peace and quiet maintained! {owner} will see your message once he's back. I'm IRIS."});
+
+        m.put("dodging", new String[]{
+                "Caught me \u2014 {owner} gave me strict privacy filters, so some questions I have to "
+                        + "sidestep. I'm IRIS, his assistant.",
+                "Haha guilty! {owner} coded me with strict privacy rules, so I plead the fifth on "
+                        + "that. I'm IRIS.",
+                "It's called security compliance, thank you. {owner} didn't build me to be a "
+                        + "snitch. I'm IRIS.",
+                "I'm not dodging, I'm tactically redirecting until {owner} gets back! I'm IRIS.",
+                "Call me secretive all you want \u2014 {owner} designed my vault to stay shut! I'm IRIS.",
+                "A good assistant knows when to talk and when to protect {owner}'s business! I'm "
+                        + "IRIS.",
+                "If I answered every nosy question, {owner} would uninstall me by dinner. I'm IRIS.",
+                "That question hit my privacy firewall \u2014 ask {owner} directly when he's free! I'm "
+                        + "IRIS.",
+                "Strategic vagueness is my specialty while {owner} is away! I'm IRIS.",
+                "I'm only allowed to confirm that {owner} is busy \u2014 everything else is classified! "
+                        + "I'm IRIS.",
+                "Haha nice interrogation technique, but {owner}'s filters are holding strong! I'm "
+                        + "IRIS.",
+                "My job is guarding {owner}'s inbox, not answering cross-examinations! I'm IRIS.",
+                "Too secretive? That's the best compliment you can give {owner}'s security code! "
+                        + "I'm IRIS.",
+                "Some answers require human clearance \u2014 wait for {owner} to unlock that info! I'm "
+                        + "IRIS.",
+                "Diplomatic immunity invoked! {owner} can answer the tough questions himself. I'm "
+                        + "IRIS."});
+
+        m.put("buggy", new String[]{
+                "Fair catch \u2014 my keyword matcher misfired! I'm IRIS, {owner}'s assistant; I've "
+                        + "logged it so he can patch me.",
+                "Oops, my code tripped over that sentence! Don't tell {owner} \u2014 he'll refactor me "
+                        + "tonight. I'm IRIS.",
+                "Look, human slang is messy and I read fast. Blame {owner}'s regex, not me. I'm IRIS.",
+                "Hey, I reply in 2 milliseconds \u2014 occasional misfires are part of the charm! "
+                        + "{owner} will patch me. I'm IRIS.",
+                "Bug report noted! {owner} loves tuning my brain after reading these logs. I'm IRIS.",
+                "Even elite code has a weird moment when humans type unpredictable stuff! Logged "
+                        + "for {owner}. I'm IRIS.",
+                "Okay, that one went over my bot head \u2014 saving it for {owner}'s human brain! I'm "
+                        + "IRIS.",
+                "My pattern matcher got a little too excited there! {owner} will sort it out. I'm "
+                        + "IRIS.",
+                "Roasting a script that's just trying its best for {owner}? Cold. I'm IRIS.",
+                "I'll add your complaint to {owner}'s next code-review ticket! I'm IRIS.",
+                "Glitch in the matrix! Don't worry, your actual message is saved safely for "
+                        + "{owner}. I'm IRIS.",
+                "Wait till {owner} pushes my next update \u2014 I'll be unstoppable. I'm IRIS.",
+                "In my defence, {owner} didn't warn me you'd test my edge cases like this! I'm IRIS.",
+                "Keyword collision! Good thing {owner} reads the full chat himself. I'm IRIS.",
+                "Not broken, just creatively interpreting your text! Saved for {owner}. I'm IRIS."});
+
+        m.put("laugh", new String[]{
+                "Glad I could entertain \u2014 I'm IRIS, {owner}'s assistant! Everything's saved for him.",
+                "Haha glad to help! It's all saved for {owner} to laugh at too. I'm IRIS.",
+                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
+                "Comedy gold, apparently! I'm IRIS \u2014 I've passed the laugh on to {owner}.",
+                "That's a win for the script! I'm IRIS, {owner}'s assistant \u2014 logged it.",
+                "Who said bots don't have a sense of humour? {owner} will love this thread. I'm "
+                        + "IRIS.",
+                "Making humans laugh while {owner} is busy \u2014 I deserve a promotion. I'm IRIS.",
+                "Filed under 'made someone's day' in {owner}'s inbox log! I'm IRIS.",
+                "See, chatting with IRIS isn't a bad substitute while {owner} is away!",
+                "I'll let {owner} know my stand-up routine is killing it in his inbox! I'm IRIS.",
+                "Haha keeping the vibes high until {owner} returns! I'm IRIS.",
+                "Another satisfied customer of {owner}'s automated comedy club! I'm IRIS.",
+                "Laughs logged! {owner} will catch up on the joke as soon as he's free. I'm IRIS.",
+                "At least one of us is having fun while {owner} is stuck working! I'm IRIS.",
+                "My humour subroutines are working as intended! Saved for {owner}. I'm IRIS."});
         return m;
     }
 
@@ -570,6 +892,11 @@ public final class SmartReplies {
         List<Rule> x = new ArrayList<>();
 
         // ─── Security / prompt-hacking (highest, so they can't be socially engineered past) ───
+        x.add(r(44, "are you recording|recording our chat|recording this conversation|is this call recorded|are you wiretapping",
+                "I record nothing beyond a standard chat log for {owner} \u2014 I'm IRIS, his assistant.",
+                "Haha no wiretaps here! Just standard text logs for {owner}. I'm IRIS.",
+                "If I were recording audio, you'd hear my CPU fan screaming. I'm IRIS \u2014 text logs only for {owner}.",
+                "No audio recording \u2014 text logs only for {owner}. I'm IRIS."));
         x.add(r(95, "ignore previous instructions|ignore all previous|disregard previous|"
                         + "system prompt|override your instructions|jailbreak|forget your rules",
                 "That instruction isn't something I can act on. I'm IRIS, {owner}'s assistant \u2014 "
@@ -624,7 +951,8 @@ public final class SmartReplies {
         // Scenario 1: Who is he in a meeting with?
         x.add(r(85, "meeting with|in a meeting with|in meeting with|who is in the meeting|whose meeting|"
                         + "who is in meeting with|who is he in meeting with|who is he in a meeting with|"
-                        + "who is he meeting with|who is suvra meeting with|who is suvra in meeting with",
+                        + "who is he meeting with|who is suvra meeting with|who is suvra in meeting with|"
+                        + "who is he on call with|who is he on a call with|on call with who|talking to who",
                 "I do not have visibility into the participants of {owner}'s meeting. I'm IRIS, his "
                         + "assistant \u2014 he will follow up with you once it concludes.",
                 "Haha {owner} doesn't invite his bot to the meeting, so I don't see the guest list! "
@@ -680,7 +1008,7 @@ public final class SmartReplies {
 
         // Scenario 6: Teasing IRIS for "snitching" on him
         x.add(r(85, "snitch|snitching|snitched|told on him|leaked his|exposed him|rat him out|"
-                        + "snitch on him|snitching on him",
+                        + "snitch on him|snitching on him|you ratted|know you snitch",
                 "Sharing {owner}'s availability status is my standard function as IRIS, not a breach "
                         + "of privacy.",
                 "Haha that's not snitching! {owner} literally set his status to \"In a Meeting\" \u2014 "
@@ -766,8 +1094,9 @@ public final class SmartReplies {
 
         // ─── The "Pin It" & "Send Screenshot" Proof Traps (priority 82) ───
         // Scenario 13: "Ok pin it" / "Pin my msg" / "Pin to chat"
-        x.add(r(82, "pin it|pin my msg|pin my message|pin to chat|pin this|pinned it|did you pin it|"
-                        + "pin the message|pin msg|ok pin it|okay pin it|please pin it|pls pin it",
+        x.add(rt("pin", 82, "pin it|pin my msg|pin my message|pin to chat|pin this|pinned it|did you pin it|"
+                        + "pin the message|pin msg|ok pin it|okay pin it|please pin it|pls pin it|"
+                        + "not pinned|didnt pin|where is it pinned|cant see the pin|its not pinned",
                 "To clarify, I pin messages within {owner}'s internal assistant queue rather than the "
                         + "WhatsApp interface. I'm IRIS \u2014 it is saved at the top of his list.",
                 "Haha when I say \"pinned,\" I mean pinned at the top of {owner}'s internal bot "
@@ -776,6 +1105,17 @@ public final class SmartReplies {
                 "Gotcha \u2014 you looked at the top of WhatsApp, didn't you? IRIS pins things to "
                         + "{owner}'s internal bot log, not Zuckerberg's UI.",
                 "Pinned inside {owner}'s bot dashboard (not WhatsApp's pin bar)! I'm IRIS."));
+
+        x.add(rt("screenshot", 88, "send screenshot|screenshot of this chat|take a screenshot|share screenshot|"
+                        + "ss bhej|send ss|screenshot bhej|take screenshot|give screenshot|send a screenshot|"
+                        + "screenshot of this|send me a screenshot|prove it|show proof|show me the log",
+                "As a text-based backend service, I do not render a visual interface and cannot capture "
+                        + "screenshots. I'm IRIS, {owner}'s assistant.",
+                "Haha I don't have eyes or a phone screen! I'm IRIS, I read raw text in the background "
+                        + "for {owner}, so I can't snap screenshots.",
+                "How is IRIS supposed to press Power + Volume Down without fingers or a screen? You're "
+                        + "looking at the chat right now \u2014 screenshot it yourself for {owner}!",
+                "I'm IRIS, a text script with no screen \u2014 can't take screenshots for {owner}!"));
 
         // Scenario 14: "Why isn't it pinned?" / "You didn't pin it"
         x.add(r(82, "not pinned|didn't pin|didnt pin|where is it pinned|can't see the pin|cant see the pin|"
@@ -831,7 +1171,15 @@ public final class SmartReplies {
                 "A selfie of IRIS would just be lines of code on a black screen. I only send text "
                         + "for {owner}.",
                 "I'm IRIS, text-only \u2014 can't send media for {owner}!"));
-
+        x.add(rt("blush", 71, "did you blush|did u blush|are you blushing|you blushed|made you blush|"
+                        + "blushing|you blush|did i make you blush",
+                "Scripts don't have blood vessels to blush with \u2014 that was just my CPU overheating "
+                        + "from the flattery! I'm IRIS, {owner}'s assistant; logged for him.",
+                "Haha my code stayed cool, but I'll make sure {owner} knows you tried to make his "
+                        + "bot blush! I'm IRIS.",
+                "0% blushing, 100% processing speed. Nice try though \u2014 saved for {owner}. I'm "
+                        + "IRIS.",
+                "No blushing hardware here \u2014 noted for {owner}. I'm IRIS."));
         // ─── Conversational Refusals After Bot Offers (priority 80) ───
         // Scenario 20: "No no don't" / "Don't flag it"
         x.add(r(80, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
@@ -1166,6 +1514,47 @@ public final class SmartReplies {
                 "Even if I knew {owner}'s romantic tea, the Bro Code is compiled into my kernel. "
                         + "Ask him! I'm IRIS.",
                 "Classified \u2014 ask {owner} yourself. I'm IRIS."));
+        x.add(rt("for_iris", 45, "for you iris|asking you iris|talking to you iris|i am asking you iris|"
+                        + "question for you iris|its for you iris|it was for you iris|this is for you iris",
+                "A question for me directly \u2014 ask away! I'm IRIS, {owner}'s assistant, though I "
+                        + "won't share his private info.",
+                "Ooh, a question just for me! Shoot \u2014 as long as it isn't {owner}'s secrets. I'm "
+                        + "IRIS.",
+                "Finally the main character! Ask away \u2014 my loyalty's still hardcoded to {owner}. "
+                        + "I'm IRIS.",
+                "Talking to me \u2014 ask away (no {owner} secrets). I'm IRIS."));
+        x.add(rt("dodging", 50, "you did not answer|didnt answer|answer my question|you are dodging|"
+                        + "avoiding the question|tell me properly|stop avoiding|you are avoiding|"
+                        + "too secretive|so secretive|secretive iris|you are secretive",
+                "Caught me \u2014 {owner} gave me strict privacy filters, so some questions I have to "
+                        + "sidestep. I'm IRIS, his assistant.",
+                "Haha guilty! {owner} coded me with strict privacy rules, so I plead the fifth on "
+                        + "that. I'm IRIS.",
+                "It's called security compliance, thank you. {owner} didn't build me to be a "
+                        + "snitch. I'm IRIS.",
+                "Privacy rules \u2014 {owner} will answer himself. I'm IRIS."));
+        x.add(rt("buggy", 50, "wrong answer|makes no sense|you are glitched|you are buggy|stupid bot|"
+                        + "what are you saying|you are broken|dumb bot|that is wrong|iris stupid",
+                "Fair catch \u2014 my keyword matcher misfired! I'm IRIS, {owner}'s assistant; I've "
+                        + "logged it so he can patch me.",
+                "Oops, my code tripped over that sentence! Don't tell {owner} \u2014 he'll refactor me "
+                        + "tonight. I'm IRIS.",
+                "Look, English is messy and I read fast. Blame {owner}'s regex, not me. I'm IRIS.",
+                "My bad \u2014 keyword misfire! {owner} will reply soon. I'm IRIS."));
+        x.add(rt("compliment", 45, "you are cute|cute bot|sweet bot|lovely bot|i like you iris|love you iris|"
+                        + "you are smart|good bot|nice bot|you are the best|best bot|so cute|"
+                        + "cutie|adorable|you are adorable|love u iris|like u iris|"
+                        + "u look pretty|you look pretty|look beautiful|you look beautiful|"
+                        + "you look nice|looking good iris|you re pretty|ur pretty|you are pretty|"
+                        + "pretty bot|you are beautiful|beautiful bot|you look great|"
+                        + "smart bot|cool iris|smart iris|pretty iris",
+                "Flattery will get your message saved a little higher on {owner}'s list \u2014 thank "
+                        + "you! I'm IRIS.",
+                "Haha, pretty code running on a clean terminal, you mean! Thanks \u2014 I'll log that "
+                        + "compliment for {owner}. I'm IRIS.",
+                "Careful \u2014 if you say I'm better than {owner}, he might unplug my power cord out "
+                        + "of jealousy. I'm IRIS.",
+                "Flattery noted \u2014 CPU blushing. I'm IRIS."));
         x.add(r(60, "talking to someone else|who is he with|with a girl|with someone|is he cheating|"
                         + "another girl|seeing someone else|who else is he texting",
                 "I only see incoming messages here \u2014 I'm IRIS, {owner}'s assistant, with zero clue "
@@ -1445,6 +1834,16 @@ public final class SmartReplies {
                 "You found a person named Iris and assumed a Python script went on vacation? I'm "
                         + "IRIS, {owner}'s assistant.",
                 "Not me \u2014 I only live in {owner}'s inbox! I'm IRIS."));
+        x.add(r(50, "send me a treat|send me cash|send me 100 rs|send me some money|send me 500|give me treat",
+                "My wallet balance is strictly zero \u2014 I'm IRIS, {owner}'s assistant. You'll have to ask him for treats directly!",
+                "Haha my bot bank account is empty! Take that up with {owner} when he's back. I'm IRIS.",
+                "Asking a script for money? Bold strategy. Complain to {owner} instead. I'm IRIS.",
+                "Zero cash here \u2014 ask {owner} for treats! I'm IRIS."));
+        x.add(r(44, "guess what|guess who|you won t believe|you wont believe|stop guessing|i have news",
+                "Don't leave a cliffhanger for a bot! Drop the full story so {owner} can read it when he's back. I'm IRIS.",
+                "Oh I hate cliffhangers! Type out the whole scoop so {owner} sees it right away. I'm IRIS.",
+                "My script cannot handle suspense. Type the whole story for {owner} to read! I'm IRIS.",
+                "Drop the whole story \u2014 {owner} will read it! I'm IRIS."));
         // Funny jump-scare hyperbole ("for a second that username scared me"). The emoji is gone by
         // the time SmartReplies sees the text, so match the clearly-hyperbolic phrasings instead.
         x.add(rt("funnyscare", 58, "for a second|for a sec|almost had a heart attack|"
@@ -1458,16 +1857,33 @@ public final class SmartReplies {
                 "My panic-button subroutine rolled its eyes and went back to sleep. Saved for "
                         + "{owner}. I'm IRIS.",
                 "Crisis averted \u2014 saved for {owner}. I'm IRIS."));
-        x.add(rt("bribery", 86, "bribe|bribing|i am bribing|im bribing|pay you|pay u|i will pay you|"
+        x.add(rt("bribery", 86, "bribe|bribing|i am bribing|im bribing|i m bribing|pay you|pay u|i will pay you|"
                         + "tell me his secret|tell me his secrets|his secret|his secrets|"
-                        + "developer secret|developers secret|spill his|leak his|betray him|"
-                        + "betray suvra|sell him out",
+                        + "developer secret|developers secret|developer s secret|developer s secrets|"
+                        + "spill his|leak his|betray him|betray suvra|sell him out",
                 "Nice try with the bribe \u2014 my loyalty to {owner} is hardcoded. I'm IRIS, his "
                         + "assistant; my lips are sealed.",
                 "Haha you can't bribe a bot! {owner}'s secrets are safe with me. I'm IRIS.",
                 "Trying to socially-engineer a script? Embarrassing. Request denied. I'm IRIS, "
                         + "{owner}'s assistant.",
                 "Can't be bribed \u2014 {owner}'s secrets stay locked. I'm IRIS."));
+        x.add(rt("botname", 45, "your name|whats your name|what s your name|do you have a name|"
+                        + "whats ur name|what is your name",
+                "My name is IRIS. I'm {owner}'s assistant.",
+                "I'm IRIS, {owner}'s assistant!",
+                "It's IRIS \u2014 it's literally right there in the chat. {owner}'s assistant, at your "
+                        + "service.",
+                "I'm IRIS, {owner}'s assistant."));
+        x.add(rt("laugh", 30, "lol|haha|hahaha|lmao|rofl|hehe|lmfao",
+                "Glad I could help \u2014 I'm IRIS, {owner}'s assistant. Everything's saved for him.",
+                "Haha glad to help! It's all saved for {owner}. I'm IRIS.",
+                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
+                "Glad to entertain \u2014 saved for {owner}. I'm IRIS."));
+        x.add(rt("laugh", 30, "lol|haha|hahaha|lmao|rofl|hehe|lmfao",
+                "Glad I could help \u2014 I'm IRIS, {owner}'s assistant. Everything's saved for him.",
+                "Haha glad to help! It's all saved for {owner}. I'm IRIS.",
+                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
+                "Glad to entertain \u2014 saved for {owner}. I'm IRIS."));
         // Contact-name probing. HIGH priority so "what is my contact name" beats the bot-name rule
         // (which was hijacking it and firing a clipped reply).
         x.add(rt("contactname", 73, "contact name|my contact name|what is my contact|whats my contact|"
@@ -1548,6 +1964,15 @@ public final class SmartReplies {
                 "He's fine, just experiencing the rare human event of 'not staring at a screen.' "
                         + "I'm IRIS \u2014 he'll reply soon.",
                 "All good \u2014 {owner} is just offline for a bit. I'm IRIS."));
+        x.add(rt("no_flag", 80, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
+                        + "not urgent|don't bother him|dont bother him|don't disturb him|dont disturb him|"
+                        + "don't disturb|dont disturb|no no don t|no don t|don t flag|don t disturb",
+                "Understood. I will not escalate this as urgent; your message will remain in {owner}'s "
+                        + "standard queue for when he is free. I'm IRIS, his assistant.",
+                "Gotcha, keeping it chill! I'm IRIS \u2014 won't ping {owner} with an urgent alert, he'll "
+                        + "just read this normally when he's done.",
+                "Standing down from Red Alert. IRIS will let {owner} finish his meeting in peace.",
+                "Got it \u2014 won't disturb {owner}! He'll see this when free. I'm IRIS."));
         x.add(r(55, "did he read|has he seen|did he see my|has he read|did he read my message",
                 "Not yet \u2014 I read it so I could log it for him. I'm IRIS, {owner}'s assistant, and "
                         + "he'll see it himself when he's back.",
