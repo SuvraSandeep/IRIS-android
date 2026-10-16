@@ -486,6 +486,32 @@ public final class SmartRepliesTest {
             }
         }
 
+        // Profanity roasters in English, Hindi/Hinglish, and Odia
+        for (String q : new String[]{"stfu", "fck", "fucking idiot", "bullshit", "asshole", "wtf", "what the hell", "dickhead"}) {
+            String r = SmartReplies.match(q, ReplyTone.Tone.CASUAL);
+            check(!r.isEmpty() && namesIris(r), "english cuss roast: " + q);
+        }
+        for (String q : new String[]{"bsdk", "bhenchod", "chutiya", "madarchod", "gandu", "laude", "harami", "teri maa ki"}) {
+            String r = SmartReplies.match(q, ReplyTone.Tone.CASUAL);
+            check(!r.isEmpty() && namesIris(r), "hindi cuss roast: " + q);
+        }
+        for (String q : new String[]{"mgh", "maghia", "bandapua", "gandimara", "bokachoda", "kukura", "chup raha"}) {
+            String r = SmartReplies.match(q, ReplyTone.Tone.CASUAL);
+            check(!r.isEmpty() && namesIris(r), "odia cuss roast: " + q);
+        }
+
+        java.util.Set<String> enCuss = new java.util.HashSet<>();
+        java.util.Set<String> hiCuss = new java.util.HashSet<>();
+        java.util.Set<String> orCuss = new java.util.HashSet<>();
+        for (int r = 0; r < 25; r++) {
+            enCuss.add(SmartReplies.match("stfu", ReplyTone.Tone.CASUAL, r));
+            hiCuss.add(SmartReplies.match("bsdk", ReplyTone.Tone.CASUAL, r));
+            orCuss.add(SmartReplies.match("maghia", ReplyTone.Tone.CASUAL, r));
+        }
+        check(enCuss.size() >= 20, "cuss_en pool rotates: " + enCuss.size());
+        check(hiCuss.size() >= 20, "cuss_hi pool rotates: " + hiCuss.size());
+        check(orCuss.size() >= 20, "cuss_or pool rotates: " + orCuss.size());
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }
