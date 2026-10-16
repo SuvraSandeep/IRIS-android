@@ -461,14 +461,16 @@ public class MainActivity extends Activity {
         View toArchive = shell.findViewById(R.id.commsTabArchive);
         View toResponder = shell.findViewById(R.id.commsTabResponder);
         View toContacts = shell.findViewById(R.id.commsTabContacts);
+        View toFlagged = shell.findViewById(R.id.commsTabFlagged);
         if (toArchive != null) toArchive.setOnClickListener(v -> showCommsSection(shell, 0));
         if (toResponder != null) toResponder.setOnClickListener(v -> showCommsSection(shell, 1));
         if (toContacts != null) toContacts.setOnClickListener(v -> showCommsSection(shell, 2));
+        if (toFlagged != null) toFlagged.setOnClickListener(v -> showCommsSection(shell, 3));
 
         showCommsSection(shell, commsSection);
     }
 
-    /** Which COMMS DECK sub-tab is open: 0 archive, 1 responder, 2 contacts. */
+    /** Which COMMS DECK sub-tab is open: 0 archive, 1 responder, 2 contacts, 3 flagged. */
     private int commsSection;
 
     /**
@@ -490,6 +492,7 @@ public class MainActivity extends Activity {
 
         int layout = section == 1 ? R.layout.view_comms_responder
                 : section == 2 ? R.layout.view_comms_contacts
+                : section == 3 ? R.layout.view_comms_flagged
                 : R.layout.view_archive;
         View body = LayoutInflater.from(this).inflate(layout, host, false);
         host.addView(body);
@@ -497,6 +500,7 @@ public class MainActivity extends Activity {
         if (section == 0) bindArchiveSection(body);
         if (section == 1) bindResponderSection(body);
         if (section == 2) bindContactsSection(body);
+        if (section == 3) bindFlaggedSection(body);
     }
 
     /** Wire the CONTACTS section. */
@@ -2575,6 +2579,8 @@ public class MainActivity extends Activity {
             java.util.List<String> items = new java.util.ArrayList<>();
             items.add("Why was this decision taken?");
             items.add("Delete this entry");
+            items.add("\uD83D\uDCCC Pin to assistant queue");
+            items.add("\uD83D\uDEA9 Flag as urgent");
             boolean hasSender = who2 != null && !who2.trim().isEmpty();
             if (hasSender) items.add("Teach a reply for " + who2);
             if (hasSender) items.add("Set a rule for " + who2);
@@ -2591,7 +2597,7 @@ public class MainActivity extends Activity {
                             responderLogSignature = log.signature();
                             renderResponderLog(root);
                             new AlertDialog.Builder(this)
-                                    .setMessage("Removed one decision from the log.")
+                                     .setMessage("Removed one decision from the log.")
                                     .setNegativeButton("Undo", (dd, ww) -> {
                                         log.overwrite(before);
                                         responderLogSignature = log.signature();
@@ -2599,6 +2605,14 @@ public class MainActivity extends Activity {
                                     })
                                     .setPositiveButton("Keep removed", null)
                                     .show();
+                        } else if (choice.contains("Pin to assistant queue")) {
+                            FlaggedStore.get(this).addPinned(
+                                    entry.incoming, who2, entry.appLabel, "Pinned from decision log", System.currentTimeMillis());
+                            toast("Pinned to assistant queue");
+                        } else if (choice.contains("Flag as urgent")) {
+                            FlaggedStore.get(this).addFlagged(
+                                    entry.incoming, who2, entry.appLabel, "Flagged from decision log", System.currentTimeMillis());
+                            toast("Flagged as urgent");
                         } else if (choice.startsWith("Teach a reply")) {
                             teachReplyDialog(entry, root);
                         } else {
@@ -2683,7 +2697,7 @@ public class MainActivity extends Activity {
 
     /** Tint the active sub-tab. The inactive ones stay dim so the current section is obvious. */
     private void highlightCommsTab(View shell, int section) {
-        int[] ids = {R.id.commsTabArchive, R.id.commsTabResponder, R.id.commsTabContacts};
+        int[] ids = {R.id.commsTabArchive, R.id.commsTabResponder, R.id.commsTabContacts, R.id.commsTabFlagged};
         for (int i = 0; i < ids.length; i++) {
             TextView tab = shell.findViewById(ids[i]);
             if (tab == null) continue;
@@ -2692,6 +2706,375 @@ public class MainActivity extends Activity {
             tab.setTypeface(android.graphics.Typeface.MONOSPACE,
                     active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
         }
+    }
+
+    /** Filter for FLAGGED section: 0 ALL, 1 PINNED, 2 FLAGGED, 3 REMINDERS */
+    private int flaggedFilter = 0;
+    private String flaggedSearch = "";
+
+    private void bindFlaggedSection(final View view) {
+        final Button btnAll = view.findViewById(R.id.flaggedFilterAll);
+        final Button btnPinned = view.findViewById(R.id.flaggedFilterPinned);
+        final Button btnFlagged = view.findViewById(R.id.flaggedFilterFlagged);
+        final Button btnReminders = view.findViewById(R.id.flaggedFilterReminders);
+
+        View.OnClickListener filterListener = v -> {
+            if (v == btnAll) flaggedFilter = 0;
+            else if (v == btnPinned) flaggedFilter = 1;
+            else if (v == btnFlagged) flaggedFilter = 2;
+            else if (v == btnReminders) flaggedFilter = 3;
+            updateFlaggedFilterButtons(view);
+            renderFlaggedItems(view);
+        };
+
+        if (btnAll != null) btnAll.setOnClickListener(filterListener);
+        if (btnPinned != null) btnPinned.setOnClickListener(filterListener);
+        if (btnFlagged != null) btnFlagged.setOnClickListener(filterListener);
+        if (btnReminders != null) btnReminders.setOnClickListener(filterListener);
+
+        EditText search = view.findViewById(R.id.flaggedSearch);
+        if (search != null) {
+            search.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
+                    flaggedSearch = s == null ? "" : s.toString().trim();
+                    renderFlaggedItems(view);
+                }
+                @Override public void afterTextChanged(android.text.Editable s) { }
+            });
+        }
+
+        View addBtn = view.findViewById(R.id.flaggedAddButton);
+        if (addBtn != null) addBtn.setOnClickListener(v -> showAddFlaggedItemDialog(view));
+
+        View clearBtn = view.findViewById(R.id.flaggedClearCompletedButton);
+        if (clearBtn != null) clearBtn.setOnClickListener(v -> {
+            new AlertDialog.Builder(this)
+                    .setTitle("Clear completed items?")
+                    .setMessage("This will remove all completed pins, flags, and fired reminders.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Clear", (d, w) -> {
+                        FlaggedStore.get(this).clearCompleted();
+                        ReminderStore store = new ReminderStore(this);
+                        for (ReminderStore.Reminder r : store.all()) {
+                            if (r.fired) {
+                                store.remove(r.id);
+                                ReminderStore.cancel(this, r.id);
+                            }
+                        }
+                        renderFlaggedItems(view);
+                    })
+                    .show();
+        });
+
+        updateFlaggedFilterButtons(view);
+        renderFlaggedItems(view);
+    }
+
+    private void updateFlaggedFilterButtons(View root) {
+        int[] btnIds = {R.id.flaggedFilterAll, R.id.flaggedFilterPinned,
+                R.id.flaggedFilterFlagged, R.id.flaggedFilterReminders};
+        for (int i = 0; i < btnIds.length; i++) {
+            Button b = root.findViewById(btnIds[i]);
+            if (b == null) continue;
+            boolean active = i == flaggedFilter;
+            b.setTextColor(getColor(active ? R.color.magenta : R.color.deck_inactive));
+            b.setTypeface(android.graphics.Typeface.MONOSPACE,
+                    active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        }
+    }
+
+    private static class DisplayQueueItem {
+        long id;
+        String kind = "";
+        String text = "";
+        String sender = "";
+        String appLabel = "";
+        String reason = "";
+        long createdMs;
+        long dueMs;
+        boolean completed;
+        Object rawRef;
+    }
+
+    private void renderFlaggedItems(final View root) {
+        TextView summary = root.findViewById(R.id.flaggedSummary);
+        int numPinned = FlaggedStore.get(this).totalPinned();
+        int numFlagged = FlaggedStore.get(this).totalFlagged();
+        int numReminders = new ReminderStore(this).all().size();
+        if (summary != null) {
+            summary.setText(numPinned + " PINNED \u00b7 " + numFlagged + " FLAGGED \u00b7 "
+                    + numReminders + " REMINDERS");
+        }
+
+        LinearLayout host = root.findViewById(R.id.flaggedListHost);
+        if (host == null) return;
+        host.removeAllViews();
+
+        java.util.List<DisplayQueueItem> list = new java.util.ArrayList<>();
+        String query = flaggedSearch.toLowerCase(java.util.Locale.ROOT);
+
+        for (FlaggedStore.Item it : FlaggedStore.get(this).all()) {
+            if (flaggedFilter == 1 && !it.isPinned()) continue;
+            if (flaggedFilter == 2 && !it.isFlagged()) continue;
+            if (flaggedFilter == 3) continue;
+
+            if (!query.isEmpty()) {
+                String full = (it.text + " " + it.sender + " " + it.appLabel + " " + it.reason)
+                        .toLowerCase(java.util.Locale.ROOT);
+                if (!full.contains(query)) continue;
+            }
+
+            DisplayQueueItem d = new DisplayQueueItem();
+            d.id = it.id;
+            d.kind = it.kind;
+            d.text = it.text;
+            d.sender = it.sender;
+            d.appLabel = it.appLabel;
+            d.reason = it.reason;
+            d.createdMs = it.createdMs;
+            d.dueMs = 0;
+            d.completed = it.completed;
+            d.rawRef = it;
+            list.add(d);
+        }
+
+        if (flaggedFilter == 0 || flaggedFilter == 3) {
+            for (ReminderStore.Reminder r : new ReminderStore(this).all()) {
+                if (!query.isEmpty()) {
+                    String full = (r.task + " " + r.sender).toLowerCase(java.util.Locale.ROOT);
+                    if (!full.contains(query)) continue;
+                }
+
+                DisplayQueueItem d = new DisplayQueueItem();
+                d.id = r.id;
+                d.kind = "REMINDER";
+                d.text = r.task.isEmpty() ? "(reminder)" : r.task;
+                d.sender = r.sender;
+                d.appLabel = "IRIS";
+                d.reason = r.undated() ? "Undated reminder" : "Scheduled alarm";
+                d.createdMs = r.createdMs;
+                d.dueMs = r.dueMs;
+                d.completed = r.fired;
+                d.rawRef = r;
+                list.add(d);
+            }
+        }
+
+        java.util.Collections.sort(list, (a, b) -> {
+            if (a.completed != b.completed) return a.completed ? 1 : -1;
+            if (a.dueMs > 0 && b.dueMs > 0) return Long.compare(a.dueMs, b.dueMs);
+            return Long.compare(b.createdMs, a.createdMs);
+        });
+
+        if (list.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("No pinned messages, flagged pings, or reminders matching current filters.");
+            empty.setTextSize(11f);
+            empty.setTypeface(android.graphics.Typeface.MONOSPACE);
+            empty.setTextColor(getColor(R.color.deck_text_dim));
+            empty.setPadding(0, dp(16), 0, dp(16));
+            host.addView(empty);
+            return;
+        }
+
+        for (final DisplayQueueItem item : list) {
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setBackgroundResource(R.drawable.bg_cyber_panel);
+            card.setPadding(dp(12), dp(10), dp(12), dp(10));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(8);
+            card.setLayoutParams(lp);
+
+            LinearLayout topRow = new LinearLayout(this);
+            topRow.setOrientation(LinearLayout.HORIZONTAL);
+
+            TextView badge = new TextView(this);
+            badge.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+            badge.setTextSize(10f);
+            if (item.completed) {
+                badge.setText("[✓ DONE]");
+                badge.setTextColor(getColor(R.color.deck_inactive));
+            } else if ("PINNED".equalsIgnoreCase(item.kind)) {
+                badge.setText("[\uD83D\uDCCC PINNED]");
+                badge.setTextColor(getColor(R.color.deck_accent));
+            } else if ("FLAGGED".equalsIgnoreCase(item.kind)) {
+                badge.setText("[\uD83D\uDEA9 FLAGGED]");
+                badge.setTextColor(getColor(R.color.danger));
+            } else {
+                badge.setText("[\u23F0 REMINDER]");
+                badge.setTextColor(getColor(R.color.magenta));
+            }
+            topRow.addView(badge);
+
+            View spacer = new View(this);
+            LinearLayout.LayoutParams spacerLp = new LinearLayout.LayoutParams(0, 1, 1f);
+            spacer.setLayoutParams(spacerLp);
+            topRow.addView(spacer);
+
+            TextView timeTv = new TextView(this);
+            timeTv.setTypeface(android.graphics.Typeface.MONOSPACE);
+            timeTv.setTextSize(10f);
+            timeTv.setTextColor(getColor(R.color.deck_text_dim));
+            if (item.dueMs > 0) {
+                timeTv.setText("Due: " + DeletedMessageRules.formatTime(item.dueMs, java.util.TimeZone.getDefault()));
+            } else {
+                timeTv.setText(DeletedMessageRules.formatTime(item.createdMs, java.util.TimeZone.getDefault()));
+            }
+            topRow.addView(timeTv);
+            card.addView(topRow);
+
+            TextView bodyTv = new TextView(this);
+            bodyTv.setText(item.text);
+            bodyTv.setTextSize(13f);
+            bodyTv.setTypeface(android.graphics.Typeface.MONOSPACE,
+                    item.completed ? android.graphics.Typeface.NORMAL : android.graphics.Typeface.BOLD);
+            bodyTv.setTextColor(getColor(item.completed ? R.color.deck_inactive : R.color.text_primary));
+            bodyTv.setPadding(0, dp(6), 0, dp(4));
+            bodyTv.setTextIsSelectable(true);
+            card.addView(bodyTv);
+
+            String who = (item.sender != null && !item.sender.isEmpty()) ? item.sender : "Self";
+            String app = (item.appLabel != null && !item.appLabel.isEmpty()) ? item.appLabel : "IRIS";
+            String meta = who + "  \u00b7  " + app;
+            if (item.reason != null && !item.reason.isEmpty()) {
+                meta += "  \u00b7  " + item.reason;
+            }
+            TextView metaTv = new TextView(this);
+            metaTv.setText(meta);
+            metaTv.setTextSize(10f);
+            metaTv.setTypeface(android.graphics.Typeface.MONOSPACE);
+            metaTv.setTextColor(getColor(R.color.deck_text_dim));
+            card.addView(metaTv);
+
+            card.setOnClickListener(v -> showQueueItemDetailDialog(item, root));
+            card.setOnLongClickListener(v -> {
+                showQueueItemDeleteDialog(item, root);
+                return true;
+            });
+
+            host.addView(card);
+        }
+    }
+
+    private void showQueueItemDetailDialog(final DisplayQueueItem item, final View root) {
+        String title = "PINNED".equalsIgnoreCase(item.kind) ? "\uD83D\uDCCC Pinned Message"
+                : "FLAGGED".equalsIgnoreCase(item.kind) ? "\uD83D\uDEA9 Flagged Message" : "\u23F0 Scheduled Reminder";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(item.text).append("\n\n");
+        sb.append("Sender: ").append(item.sender.isEmpty() ? "Self" : item.sender).append("\n");
+        sb.append("App: ").append(item.appLabel.isEmpty() ? "IRIS" : item.appLabel).append("\n");
+        if (item.dueMs > 0) {
+            sb.append("Due: ").append(DeletedMessageRules.formatTime(item.dueMs, java.util.TimeZone.getDefault())).append("\n");
+        }
+        sb.append("Created: ").append(DeletedMessageRules.formatTime(item.createdMs, java.util.TimeZone.getDefault())).append("\n");
+        if (item.reason != null && !item.reason.isEmpty()) {
+            sb.append("Context: ").append(item.reason).append("\n");
+        }
+        sb.append("Status: ").append(item.completed ? "Completed / Fired" : "Active / Pending");
+
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(sb.toString())
+                .setPositiveButton("Close", null)
+                .setNeutralButton(item.completed ? "Mark Active" : "Mark Done", (d, w) -> {
+                    if (item.rawRef instanceof FlaggedStore.Item) {
+                        FlaggedStore.get(this).setCompleted(item.id, !item.completed);
+                    } else if (item.rawRef instanceof ReminderStore.Reminder) {
+                        ReminderStore store = new ReminderStore(this);
+                        if (item.completed) {
+                            ReminderStore.Reminder r = (ReminderStore.Reminder) item.rawRef;
+                            r.fired = false;
+                            store.remove(r.id);
+                            store.add(r.task, r.sender, r.dueMs, r.id);
+                        } else {
+                            store.markFired(item.id);
+                        }
+                    }
+                    renderFlaggedItems(root);
+                })
+                .setNegativeButton("Delete", (d, w) -> {
+                    deleteQueueItem(item);
+                    renderFlaggedItems(root);
+                })
+                .show();
+    }
+
+    private void showQueueItemDeleteDialog(final DisplayQueueItem item, final View root) {
+        new AlertDialog.Builder(this)
+                .setTitle("Delete this item?")
+                .setMessage("\u201C" + item.text + "\u201D")
+                .setNegativeButton("Keep", null)
+                .setPositiveButton("Delete", (d, w) -> {
+                    deleteQueueItem(item);
+                    renderFlaggedItems(root);
+                })
+                .show();
+    }
+
+    private void deleteQueueItem(DisplayQueueItem item) {
+        if (item.rawRef instanceof FlaggedStore.Item) {
+            FlaggedStore.get(this).remove(item.id);
+        } else if (item.rawRef instanceof ReminderStore.Reminder) {
+            ReminderStore store = new ReminderStore(this);
+            store.remove(item.id);
+            ReminderStore.cancel(this, item.id);
+        }
+    }
+
+    private void showAddFlaggedItemDialog(final View root) {
+        final String[] types = {"\uD83D\uDCCC Pinned Note", "\uD83D\uDEA9 Urgent Flag", "\u23F0 Reminder"};
+        choiceDialog("+ New Item", "Choose what kind of item to add:", types, which -> {
+            final boolean isReminder = which == 2;
+            final boolean isPinned = which == 0;
+
+            final LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(dp(16), dp(10), dp(16), dp(6));
+
+            final EditText textInput = new EditText(this);
+            textInput.setHint(isReminder ? "Remind me to..." : isPinned ? "Note to pin..." : "Urgent matter to flag...");
+            textInput.setMaxLines(3);
+            box.addView(textInput);
+
+            final EditText timeInput = new EditText(this);
+            if (isReminder) {
+                timeInput.setHint("When? (e.g. 10m, 1h, 18:00, or blank for undated)");
+                timeInput.setMaxLines(1);
+                box.addView(timeInput);
+            }
+
+            new AlertDialog.Builder(this)
+                    .setTitle(types[which])
+                    .setView(box)
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Save", (d, w) -> {
+                        String text = textInput.getText().toString().trim();
+                        if (text.isEmpty()) return;
+                        long now = System.currentTimeMillis();
+                        if (isReminder) {
+                            String whenStr = timeInput.getText().toString().trim();
+                            long due = 0;
+                            if (!whenStr.isEmpty()) {
+                                due = ReminderParser.parse(whenStr, now);
+                            }
+                            ReminderStore store = new ReminderStore(this);
+                            long id = store.add(text, "Owner", due, now);
+                            if (due > 0) {
+                                ReminderStore.schedule(this, id, text, due);
+                            }
+                        } else if (isPinned) {
+                            FlaggedStore.get(this).addPinned(text, "Owner", "IRIS", "Manual note", now);
+                        } else {
+                            FlaggedStore.get(this).addFlagged(text, "Owner", "IRIS", "Manual urgent flag", now);
+                        }
+                        renderFlaggedItems(root);
+                    })
+                    .show();
+        });
     }
 
     /** Wire the ARCHIVE section. Unchanged behaviour; only the host view moved. */
@@ -3283,17 +3666,36 @@ public class MainActivity extends Activity {
         attachSwipeToDelete(card, row, root);
 
         card.setOnLongClickListener(v -> {
+            java.util.List<String> act = new java.util.ArrayList<>();
+            act.add("\uD83D\uDCCC Pin to assistant queue");
+            act.add("\uD83D\uDEA9 Flag as urgent");
+            act.add("\uD83D\uDDD1\uFE0F Delete this entry");
             new AlertDialog.Builder(this)
-                    .setTitle("Delete this entry?")
-                    .setMessage("This removes it permanently. The archive never deletes anything on "
-                            + "its own, so this only happens because you asked.")
-                    .setNegativeButton("Keep it", null)
-                    .setPositiveButton("Delete", (d, w) -> {
-                        if (NotificationArchive.deleteRow(this, row.id)) {
-                            toast("Gone. I never saw it.");
-                            renderArchive(root);
+                    .setTitle(who)
+                    .setItems(act.toArray(new String[0]), (d, which) -> {
+                        String sel = act.get(which);
+                        if (sel.contains("Pin to assistant queue")) {
+                            FlaggedStore.get(this).addPinned(
+                                    row.body, who, row.displayAccount(), "Archived message pinned", System.currentTimeMillis());
+                            toast("Pinned to assistant queue");
+                        } else if (sel.contains("Flag as urgent")) {
+                            FlaggedStore.get(this).addFlagged(
+                                    row.body, who, row.displayAccount(), "Archived message flagged", System.currentTimeMillis());
+                            toast("Flagged as urgent");
                         } else {
-                            toast("Could not delete that entry.");
+                            new AlertDialog.Builder(this)
+                                    .setTitle("Delete this entry?")
+                                    .setMessage("This removes it permanently. The archive never deletes anything on "
+                                            + "its own, so this only happens because you asked.")
+                                    .setNegativeButton("Keep it", null)
+                                    .setPositiveButton("Delete", (dd, ww) -> {
+                                        if (NotificationArchive.deleteRow(this, row.id)) {
+                                            toast("Gone. I never saw it.");
+                                            renderArchive(root);
+                                        } else {
+                                            toast("Could not delete that entry.");
+                                        }
+                                    }).show();
                         }
                     }).show();
             return true;

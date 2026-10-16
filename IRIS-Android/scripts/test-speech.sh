@@ -322,6 +322,14 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/FlagAlertTextTest.java
 java -cp "$test_dir/responder" com.iris.assistant.FlagAlertTextTest
 
+# Flag and Pin detector.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/ConversationContext.java \
+  app/src/main/java/com/iris/assistant/FlagDetector.java \
+  tests/FlagDetectorTest.java
+java -cp "$test_dir/responder" com.iris.assistant.FlagDetectorTest
+
 # Time/day-aware flavour line.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \

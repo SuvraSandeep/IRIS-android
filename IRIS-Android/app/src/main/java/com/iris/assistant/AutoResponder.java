@@ -535,6 +535,35 @@ public final class AutoResponder {
                     }
                 }
             }
+
+            if (!reply.isEmpty()) {
+                FlagDetector.Result flagResult = FlagDetector.detect(incoming.body, reply, offerReply);
+                if (flagResult.action == FlagDetector.Action.FLAG) {
+                    String flagText = incoming.body;
+                    if (offerReply == ConversationContext.OfferReply.ACCEPT) {
+                        java.util.List<String> hist = new ChatHistory(context).recent(conversationKey, 2);
+                        if (hist != null && !hist.isEmpty()) {
+                            String prev = hist.get(hist.size() - 1);
+                            if (!prev.isEmpty() && !prev.equalsIgnoreCase(incoming.body)) {
+                                flagText = prev + "  [escalated: " + incoming.body + "]";
+                            }
+                        }
+                    }
+                    if (state == ResponderGuards.State.LIVE) {
+                        FlaggedStore.get(context).addFlagged(
+                                flagText, resolvedSender, incoming.appLabel, flagResult.reason, now);
+                        ArchiveAlerts.urgentFlag(context, incoming.appLabel, resolvedSender, now);
+                    }
+                    decisionReason += " \u00b7 FLAGGED: " + flagResult.reason;
+                } else if (flagResult.action == FlagDetector.Action.PIN) {
+                    if (state == ResponderGuards.State.LIVE) {
+                        FlaggedStore.get(context).addPinned(
+                                incoming.body, resolvedSender, incoming.appLabel, flagResult.reason, now);
+                    }
+                    decisionReason += " \u00b7 PINNED: " + flagResult.reason;
+                }
+            }
+
             // A category with no text left to send is a silence, not an empty message.
             if (reply.isEmpty()) {
                 verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
