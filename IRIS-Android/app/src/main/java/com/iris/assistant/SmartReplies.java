@@ -217,6 +217,13 @@ public final class SmartReplies {
         return false;
     }
 
+    /** Return a variant from a named rotation pool with {owner} resolved. */
+    public static String poolReply(String tag, int rotation) {
+        String[] pool = POOLS.get(tag);
+        if (pool == null || pool.length == 0) return "";
+        return pool[Math.floorMod(rotation, pool.length)].replace("{owner}", ReplyTemplates.OWNER);
+    }
+
     /** Pick a rule's reply, honouring a rotation pool when the rule is tagged. */
     private static String pickRule(Rule r, ReplyTone.Tone tone, int rotation) {
         if (r.tag != null) {
@@ -977,6 +984,16 @@ public final class SmartReplies {
                         + "{owner}'s assistant.",
                 "Deleted drama noted and ignored \u2014 I can't read it and I won't pretend to. I'm "
                         + "IRIS, {owner}'s assistant."});
+        m.put("deleted", new String[]{
+                "I can never access those deleted messages; privacy matters the most. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Whatever was deleted stays deleted \u2014 {owner} wired me to respect privacy. I'm IRIS, his assistant.",
+                "I don't keep or read deleted messages; privacy comes first. I'm IRIS, {owner}'s assistant.",
+                "Deleted means deleted \u2014 no logs, no snooping. I'm IRIS, {owner}'s assistant.",
+                "Your deleted message is safe from me \u2014 privacy is absolute. I'm IRIS, {owner}'s assistant.",
+                "I never see or save deleted messages. I'm IRIS, {owner}'s assistant.",
+                "No recovery, no logs for deleted texts \u2014 privacy first. I'm IRIS, {owner}'s assistant.",
+                "What you take back stays gone; I don't read deleted texts. I'm IRIS, {owner}'s assistant."});
         return m;
     }
 

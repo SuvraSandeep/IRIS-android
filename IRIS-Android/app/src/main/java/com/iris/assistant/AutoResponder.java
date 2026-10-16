@@ -118,23 +118,9 @@ public final class AutoResponder {
         }
         if (DeletedMessageRules.isSenderDeletion(rawBody)) {
             boolean hasReplyAction = IrisNotificationListener.replyAction(incoming.sbn) != null;
-            if (!hasReplyAction) return;
-
             ResponderGuards.ContactRule contactRule =
                     settings.effectiveContactRule(conversationKey, resolvedSender);
-            if (contactRule == ResponderGuards.ContactRule.NEVER) return;
-
             boolean savedContact = ContactResolver.isSaved(context, incoming.sender);
-            if (!savedContact && !settings.replyToUnsaved()) return;
-
-            String privacyReply = "I can never access those deleted messages; privacy matters the most. I'm IRIS, "
-                    + ReplyTemplates.OWNER + "'s assistant.";
-
-            String lastSent = lastReplyText(context, incoming.pkg, resolvedSender);
-            if (!lastSent.isEmpty()
-                    && MessageCategory.normalise(privacyReply).equals(MessageCategory.normalise(lastSent))) {
-                return;
-            }
 
             ResponderLog.Entry delEntry = new ResponderLog.Entry();
             delEntry.whenMs = now;
@@ -145,9 +131,46 @@ public final class AutoResponder {
             delEntry.category = "DELETED";
             delEntry.tone = settings.defaultTone().name();
             delEntry.incoming = rawBody;
+            delEntry.dryRun = (state == ResponderGuards.State.DRY_RUN);
+
+            if (!hasReplyAction) {
+                delEntry.verdict = ResponderGuards.Verdict.NO_REPLY_ACTION.name();
+                delEntry.reason = "Root deletion interceptor: Notification has no direct reply action";
+                new ResponderLog(context).record(delEntry);
+                return;
+            }
+            if (contactRule == ResponderGuards.ContactRule.NEVER) {
+                delEntry.verdict = ResponderGuards.Verdict.CONTACT_RULE_NEVER.name();
+                delEntry.reason = "Root deletion interceptor: Contact rule is NEVER for " + resolvedSender;
+                new ResponderLog(context).record(delEntry);
+                return;
+            }
+            if (!savedContact && !settings.replyToUnsaved()) {
+                delEntry.verdict = ResponderGuards.Verdict.UNSAVED_IGNORED.name();
+                delEntry.reason = "Root deletion interceptor: Unsaved contact and reply to unsaved is disabled";
+                new ResponderLog(context).record(delEntry);
+                return;
+            }
+
+            int rot = settings.nextRotation();
+            String privacyReply = SmartReplies.poolReply("deleted", rot);
+            if (privacyReply.isEmpty()) {
+                privacyReply = "I can never access those deleted messages; privacy matters the most. I'm IRIS, "
+                        + ReplyTemplates.OWNER + "'s assistant.";
+            }
+
+            String lastSent = lastReplyText(context, incoming.pkg, resolvedSender);
+            if (!lastSent.isEmpty()
+                    && MessageCategory.normalise(privacyReply).equals(MessageCategory.normalise(lastSent))) {
+                privacyReply = SmartReplies.poolReply("deleted", rot + 1);
+                if (privacyReply.isEmpty() || MessageCategory.normalise(privacyReply).equals(MessageCategory.normalise(lastSent))) {
+                    privacyReply = "Whatever was deleted stays deleted \u2014 " + ReplyTemplates.OWNER
+                            + " wired me to respect privacy. I'm IRIS, his assistant.";
+                }
+            }
+
             delEntry.verdict = "SEND";
             delEntry.reply = privacyReply;
-            delEntry.dryRun = (state == ResponderGuards.State.DRY_RUN);
             delEntry.reason = "Root deletion interceptor: Sender revoked message -> direct privacy reply (bypassed sleep/bedtime)";
 
             if (state == ResponderGuards.State.LIVE) {

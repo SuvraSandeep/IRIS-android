@@ -72,6 +72,34 @@ public final class GroupMentionTest {
         checks++;
         if (GroupMention.isExplicitlyAddressed("who has an icici card?", "Suvra", keywords, H, P))
             throw new AssertionError("FAILED: card question must NOT be addressed");
+        // Phone with spaces/separators (WhatsApp format)
+        yes("@+91 77898 93369 can you join", "phone with spaces and country code");
+        yes("+91 77898 93369", "bare phone with spaces");
+
+        // Handles configured with spaces or @-prefix (e.g. "@You Know Who I Am" or "You Know Who I Am")
+        List<String> H2 = Arrays.asList("@You Know Who I Am");
+        checks++;
+        if (!GroupMention.isMentioned("@You Know Who I Am", H2, P))
+            throw new AssertionError("FAILED: @You Know Who I Am exact handle with @");
+        checks++;
+        if (!GroupMention.isMentioned("Hey @You Know Who I Am wake up", H2, P))
+            throw new AssertionError("FAILED: @You Know Who I Am inside sentence");
+        checks++;
+        if (!GroupMention.isMentioned("@You Know Who I Am: look", H2, P))
+            throw new AssertionError("FAILED: @You Know Who I Am with colon");
+        checks++;
+        if (!GroupMention.isMentioned("You Know Who I Am please check", H2, P))
+            throw new AssertionError("FAILED: You Know Who I Am without @");
+        checks++;
+        if (!GroupMention.isExplicitlyAddressed("@You Know Who I Am", "Suvra", keywords, H2, P))
+            throw new AssertionError("FAILED: explicit addressed @You Know Who I Am");
+        checks++;
+        if (!GroupMention.isExplicitlyAddressed("Hey @You Know Who I Am check this", "Suvra", keywords, H2, P))
+            throw new AssertionError("FAILED: explicit addressed sentence with @You Know Who I Am");
+
+        // Underscored handle tagged with spaces and @ in incoming message
+        yes("@You Know Who I Am", "underscored handle tagged with spaces and @");
+        yes("hey @You Know Who I Am look", "underscored handle tagged with spaces in sentence");
 
         System.out.println("Passed " + checks + " group mention checks");
     }

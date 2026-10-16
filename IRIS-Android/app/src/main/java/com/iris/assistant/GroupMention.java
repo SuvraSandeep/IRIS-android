@@ -22,16 +22,43 @@ public final class GroupMention {
     public static boolean isMentioned(String body, Collection<String> handles,
                                       Collection<String> phones) {
         if (body == null || body.trim().isEmpty()) return false;
-        String[] tokens = body.trim().split("\\s+");
+        String rawTrimmed = body.trim();
+        String lowerBody = rawTrimmed.toLowerCase(Locale.ROOT);
+        String[] tokens = rawTrimmed.split("\\s+");
 
         if (handles != null) {
             for (String h : handles) {
                 if (h == null) continue;
                 String want = trimHandle(h);
                 if (want.isEmpty()) continue;
+
+                // 1. Single token exact match (e.g. "@you_know__who__i__am" token vs "you_know__who__i__am")
                 for (String tok : tokens) {
                     if (trimHandle(tok).equals(want)) return true;
                 }
+
+                // 2. Explicit @-tag match in body (e.g. "@You Know Who I Am", "@you know who i am")
+                if (lowerBody.contains("@" + want)) return true;
+
+                // 3. If handle was configured with underscores (e.g. "you_know__who__i__am"),
+                // allow explicit @-tag with spaces ("@you know who i am")
+                if (want.contains("_")) {
+                    String wantSpaces = want.replace('_', ' ').replaceAll("\\s+", " ").trim();
+                    if (!wantSpaces.isEmpty() && lowerBody.contains("@" + wantSpaces)) {
+                        return true;
+                    }
+                }
+
+                // 4. If handle was configured with spaces (e.g. "You Know Who I Am" or "@You Know Who I Am"),
+                // allow explicit @-tag with underscores ("@you_know_who_i_am")
+                if (want.contains(" ")) {
+                    String wantUnder = want.replace(' ', '_');
+                    if (lowerBody.contains("@" + wantUnder)) return true;
+                }
+
+                // 5. Whole phrase boundary match (e.g. "You Know Who I Am" without @)
+                Pattern p = Pattern.compile("(?i)(?:^|\\s|@)" + Pattern.quote(want) + "(?:$|[\\s\\p{Punct}])");
+                if (p.matcher(rawTrimmed).find()) return true;
             }
         }
 
@@ -43,6 +70,9 @@ public final class GroupMention {
                     String td = digits(tok);
                     if (td.length() >= 10 && last10(td).equals(want)) return true;
                 }
+                // Phone number in body may have separators/spaces (e.g. "@+91 77898 93369")
+                String allDigits = digits(body);
+                if (allDigits.contains(want)) return true;
             }
         }
         return false;
@@ -88,13 +118,13 @@ public final class GroupMention {
         return isMentioned(raw, handles, phones);
     }
 
-    /** Lower-case, drop any leading '@' and strip surrounding punctuation, but KEEP underscores. */
+    /** Lower-case, drop any leading '@' and strip surrounding punctuation, but KEEP underscores and spaces. */
     private static String trimHandle(String s) {
         if (s == null) return "";
         String t = s.trim().toLowerCase(Locale.ROOT);
-        while (t.startsWith("@")) t = t.substring(1);
+        while (t.startsWith("@")) t = t.substring(1).trim();
         t = t.replaceAll("^[^\\p{L}\\p{N}_]+", "").replaceAll("[^\\p{L}\\p{N}_]+$", "");
-        return t;
+        return t.trim();
     }
 
     private static String digits(String s) {
