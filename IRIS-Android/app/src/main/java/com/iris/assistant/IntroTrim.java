@@ -30,6 +30,12 @@ public final class IntroTrim {
         // Leading intro clause: "I'm IRIS, Suvra's assistant — ..." / "IRIS here! ..."
         out = out.replaceAll("(?i)^\\s*" + intro + "\\s*" + dash + "+\\s*", "");
         out = out.replaceAll("(?i)^\\s*iris here[!,.]*\\s*" + dash + "*\\s*", "");
+        // Cold opener: "Hi. Suvra can't come to the phone, so you've got IRIS, his assistant — ..."
+        out = out.replaceAll(
+                "(?i)^\\s*(hi|hello|hey)?[.,!\\s]*" + oq
+                        + "\\s+(can'?t|cannot)\\s+come\\s+to\\s+the\\s+phone[^.?!]*?"
+                        + "iris[^.?!]*?(assistant)?\\s*" + dash + "+\\s*", "");
+        out = out.replaceAll("(?i)^\\s*(hi|hello|hey)\\s+there[!,.]*\\s*" + dash + "*\\s*", "");
 
         // Trailing sign-off: "... — I'm IRIS, his assistant." / "... I'm IRIS." / "... IRIS."
         out = out.replaceAll("(?i)\\s*" + dash + "*\\s*" + intro + "\\s*[.!]*\\s*$", "");

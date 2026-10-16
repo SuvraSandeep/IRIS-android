@@ -222,6 +222,10 @@ public final class SmartReplies {
     private static String checkSpecial(String text, ReplyTone.Tone tone, int rotation) {
         if (URL.matcher(text).find()) return pick(LINK, tone);
         if (looksLikeMoneyRequest(text)) return pick(MONEY_AMOUNT, tone);
+        // A bare deictic pointer ("Aita"/"This one"/"Yeh wala") right after a link or photo refers
+        // to the item above -- acknowledge the reference instead of re-firing the whole handler
+        // (which is how "Aita" re-sent the full link intro).
+        if (isDeicticPointer(text)) return DEICTIC[Math.floorMod(rotation, DEICTIC.length)];
         String stripped = text.replaceAll("\\s+", "");
         if (!stripped.isEmpty()
                 && stripped.replaceAll("[\\p{L}\\p{N}]", "").length() == stripped.length()) {
@@ -230,6 +234,28 @@ public final class SmartReplies {
         }
         return null;
     }
+
+    // Deictic pointers (Odia / Hindi / Bengali / English): a short message that just points at
+    // the item just sent. Matched only when the WHOLE message is a pointer, never as a substring.
+    private static final java.util.Set<String> DEICTIC_WORDS = new java.util.HashSet<>(
+            java.util.Arrays.asList(
+                    "aita", "ayta", "eita", "eta", "ei ta", "aita dekha", "eta dekh", "eta dekho",
+                    "yeh", "ye", "yeh wala", "ye wala", "yeh waala", "yehi", "yehwala",
+                    "this", "this one", "this item", "that one", "ei", "eigulo", "eita e"));
+
+    static boolean isDeicticPointer(String text) {
+        if (text == null) return false;
+        String flat = MessageCategory.normalise(text);
+        if (flat.isEmpty()) return false;
+        int words = flat.split(" ").length;
+        if (words > 3) return false;                 // a pointer is a tiny fragment
+        return DEICTIC_WORDS.contains(flat);
+    }
+
+    private static final String[] DEICTIC = {
+            "Noted \u2014 this is the one! I've kept it highlighted for {owner} to check. I'm IRIS.",
+            "Got it, this one \u2014 flagged at the top for {owner}. I'm IRIS, his assistant.",
+            "This one, noted \u2014 I've kept it marked for {owner}. I'm IRIS."};
 
     /** The top {@code limit} distinct matching rules, highest priority first (exact beats loose). */
     private static java.util.List<Rule> topRules(String body, int limit) {
@@ -856,6 +882,15 @@ public final class SmartReplies {
                         + "IRIS.",
                 "Custom logic by {owner} \u2014 no API. I'm IRIS."));
         // Flirting / dating / banter.
+        x.add(r(71, "did you blush|did u blush|are you blushing|you blushed|made you blush|"
+                        + "blushing|you blush|did i make you blush",
+                "Scripts don't have blood vessels to blush with \u2014 that was just my CPU overheating "
+                        + "from the flattery! I'm IRIS, {owner}'s assistant; logged for him.",
+                "Haha my code stayed cool, but I'll make sure {owner} knows you tried to make his "
+                        + "bot blush! I'm IRIS.",
+                "0% blushing, 100% processing speed. Nice try though \u2014 saved for {owner}. I'm "
+                        + "IRIS.",
+                "No blushing hardware here \u2014 noted for {owner}. I'm IRIS."));
         x.add(r(70, "do you flirt|do u flirt|can you flirt|flirt with me|flirty|are you flirting",
                 "{owner} left the flirting module out \u2014 I'm IRIS, strictly on inbox duty.",
                 "Haha {owner} didn't install a rizz module! I'm IRIS, strictly inbox duty.",

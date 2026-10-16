@@ -374,6 +374,18 @@ public final class SmartRepliesTest {
                     "banking intent refused securely: " + b);
         }
 
+        // Deictic pointers after a link/photo, and the blush/teasing rule.
+        for (String p : new String[]{"aita", "eta", "this one", "yeh wala", "this"}) {
+            check(namesIris(SmartReplies.match(p, ReplyTone.Tone.PROFESSIONAL)),
+                    "deictic pointer answered: " + p);
+        }
+        check(SmartReplies.isDeicticPointer("aita"), "aita is a deictic pointer");
+        check(!SmartReplies.isDeicticPointer("aita dekhichu kemiti laguchi"),
+                "a long sentence is not a bare pointer");
+        for (String b : new String[]{"did u blush", "are you blushing", "did i make you blush"}) {
+            check(namesIris(SmartReplies.match(b, ReplyTone.Tone.CASUAL)),
+                    "blush answered: " + b);
+        }
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

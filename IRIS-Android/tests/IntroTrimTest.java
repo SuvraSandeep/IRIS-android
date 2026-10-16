@@ -38,6 +38,14 @@ public final class IntroTrimTest {
         t(IntroTrim.senderKnowsIris("hey iris you there"), "detects iris in sender text");
         t(!IntroTrim.senderKnowsIris("hello there"), "no false iris detection");
 
+        // Cold "can't come to the phone" opener is stripped once introduced.
+        String cold = IntroTrim.trim(
+                "Hi. Suvra can't come to the phone, so you've got IRIS, his assistant \u2014 "
+                        + "message noted.", true, "Suvra");
+        t(!cold.toLowerCase(Locale.ROOT).contains("can't come to the phone"),
+                "cold opener removed");
+        t(cold.toLowerCase(Locale.ROOT).contains("message noted"), "cold opener content kept");
+
         System.out.println("Passed " + checks + " intro trim checks");
     }
 }

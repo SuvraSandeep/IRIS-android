@@ -402,6 +402,18 @@ public final class AutoResponder {
                             || IntroTrim.senderKnowsIris(incoming.body);
                     reply = IntroTrim.trim(reply, introduced, ReplyTemplates.OWNER);
                 }
+                // Hard outgoing dedup: never send the identical reply we last sent to this
+                // conversation (e.g. "Aita" after a link re-firing the link intro, or a repeated
+                // direct-address line). Owner-defined/learned wording is exempt.
+                if (learnedReply.isEmpty() && nameReply.isEmpty() && !reply.isEmpty()) {
+                    String lastSent = lastReplyText(context, conversationKey);
+                    if (!lastSent.isEmpty()
+                            && MessageCategory.normalise(reply)
+                                    .equals(MessageCategory.normalise(lastSent))) {
+                        reply = "Caught that too \u2014 I'm IRIS, " + ReplyTemplates.OWNER
+                                + "'s assistant, keeping it all together for him.";
+                    }
+                }
             }
             // A category with no text left to send is a silence, not an empty message.
             if (reply.isEmpty()) verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
