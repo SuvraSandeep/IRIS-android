@@ -51,10 +51,11 @@ public final class ConversationContext {
     public enum OfferReply { NONE, ACCEPT, REFUSE }
 
     private static final String[] REFUSE = {
-            "no", "nah", "nope", "dont", "no no", "no dont", "dont flag", "dont disturb",
-            "not urgent", "no need", "let him work", "let him finish", "its fine", "it s fine",
-            "leave it", "rehne do", "rehnde", "chhod", "chhod de", "no thanks", "nvm",
-            "never mind", "dont bother"};
+            "no", "nah", "nope", "dont", "don t", "no no", "no dont", "no don t", "dont flag",
+            "don t flag", "dont flag it", "don t flag it", "no dont flag it", "no don t flag it",
+            "dont disturb", "don t disturb", "not urgent", "no need", "let him work",
+            "let him finish", "its fine", "it s fine", "leave it", "rehne do", "rehnde",
+            "chhod", "chhod de", "no thanks", "nvm", "never mind", "dont bother", "don t bother"};
 
     private static final String[] ACCEPT = {
             "yes", "yes please", "yeah", "yep", "yup", "please do", "do it", "flag it",

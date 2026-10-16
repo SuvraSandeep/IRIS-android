@@ -99,6 +99,14 @@ public final class AutoResponder {
         // reply we last sent to this conversation and drop it before any work.
         if (isOwnEcho(context, conversationKey, incoming.body)) return;
 
+        // Group Chat Silence Rule: In group chats (like You (group) in Comms Deck),
+        // IRIS should never auto-respond unless someone explicitly tags @Suvra or IRIS.
+        if (incoming.group && !GroupMention.isExplicitlyAddressed(
+                incoming.body, ReplyTemplates.OWNER, settings.mentionKeywords(),
+                settings.mentionHandles(), settings.mentionNumbers())) {
+            return;
+        }
+
         // ─── Tone first, because it decides whether some categories speak at all ───
         ReplyTone.Tone tone = ReplyTone.resolve(
                 settings.contactTone(conversationKey),
@@ -122,7 +130,7 @@ public final class AutoResponder {
         String normBody = Shorthand.expand(incoming.body);
         MessageCategory.Result category = MessageCategory.classify(
                 normBody, settings.mentionKeywords(),
-                settings.irisSpokeLast(conversationKey, now));
+                !incoming.group && settings.irisSpokeLast(conversationKey, now));
         // Keep a short rolling history of this chat (customizable depth) for multi-bubble context.
         settings.recordIncomingHistory(conversationKey, normBody);
 
@@ -255,7 +263,9 @@ public final class AutoResponder {
         message.incomingText = incoming.body;
         message.lastSentReply = lastReplyText(context, conversationKey);
         message.group = incoming.group;
-        message.mentionsOwner = category.kind == MessageCategory.Kind.MENTION;
+        message.mentionsOwner = GroupMention.isExplicitlyAddressed(
+                incoming.body, ReplyTemplates.OWNER, settings.mentionKeywords(),
+                settings.mentionHandles(), settings.mentionNumbers());
         // Positive verification, not an inference from the sender's shape. An SMS shortcode such
         // as VM-HDFCBK contains letters, so "not a phone number" must never be read as "therefore
         // a saved contact".

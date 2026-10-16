@@ -54,6 +54,10 @@ public final class ConversationContextTest {
         // Two-turn escalation offer: accept / refuse / arming.
         eq(ConversationContext.classifyOffer("no no don't", ConversationContext.Offer.OFFERED_ESCALATION),
                 ConversationContext.OfferReply.REFUSE, "'no no don't' refuses the offer");
+        eq(ConversationContext.classifyOffer("no don't flag it", ConversationContext.Offer.OFFERED_ESCALATION),
+                ConversationContext.OfferReply.REFUSE, "'no don't flag it' refuses the offer");
+        eq(ConversationContext.classifyOffer("dont flag it", ConversationContext.Offer.OFFERED_ESCALATION),
+                ConversationContext.OfferReply.REFUSE, "'dont flag it' refuses the offer");
         eq(ConversationContext.classifyOffer("yes please flag it", ConversationContext.Offer.OFFERED_ESCALATION),
                 ConversationContext.OfferReply.ACCEPT, "'yes please flag it' accepts");
         eq(ConversationContext.classifyOffer("yes please", ConversationContext.Offer.NONE),

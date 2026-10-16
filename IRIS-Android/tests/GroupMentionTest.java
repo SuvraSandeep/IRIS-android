@@ -44,6 +44,35 @@ public final class GroupMentionTest {
         if (GroupMention.isMentioned("@you_know__who__i__am", null, null))
             throw new AssertionError("empty config matches nothing");
 
+        // Group Chat Silence Rule checks:
+        List<String> keywords = Arrays.asList("suvra", "stg");
+        checks++;
+        if (!GroupMention.isExplicitlyAddressed("@suvra please check", "Suvra", keywords, H, P))
+            throw new AssertionError("FAILED: @suvra explicit hit");
+        checks++;
+        if (!GroupMention.isExplicitlyAddressed("suvra what is the plan", "Suvra", keywords, H, P))
+            throw new AssertionError("FAILED: suvra explicit hit");
+        checks++;
+        if (!GroupMention.isExplicitlyAddressed("iris what are you doing", "Suvra", keywords, H, P))
+            throw new AssertionError("FAILED: iris explicit hit");
+        checks++;
+        if (!GroupMention.isExplicitlyAddressed("hey @you_know__who__i__am look", "Suvra", keywords, H, P))
+            throw new AssertionError("FAILED: handle explicit hit");
+        checks++;
+        if (!GroupMention.isExplicitlyAddressed("@+917789893369 check", "Suvra", keywords, H, P))
+            throw new AssertionError("FAILED: phone explicit hit");
+
+        // Group chatter must stay silent:
+        checks++;
+        if (GroupMention.isExplicitlyAddressed("15133 rs asiba use heba amazon icici credit card", "Suvra", keywords, H, P))
+            throw new AssertionError("FAILED: transaction chatter must NOT be addressed");
+        checks++;
+        if (GroupMention.isExplicitlyAddressed("ok guys see you at 6pm", "Suvra", keywords, H, P))
+            throw new AssertionError("FAILED: general chatter must NOT be addressed");
+        checks++;
+        if (GroupMention.isExplicitlyAddressed("who has an icici card?", "Suvra", keywords, H, P))
+            throw new AssertionError("FAILED: card question must NOT be addressed");
+
         System.out.println("Passed " + checks + " group mention checks");
     }
 }

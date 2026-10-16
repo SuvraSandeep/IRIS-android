@@ -190,6 +190,14 @@ public final class SmartRepliesTest {
         check(!SmartReplies.looksLikeMoneyRequest("call me at 5"), "a time is not money");
         check(!SmartReplies.looksLikeMoneyRequest("meeting in 10 minutes"), "minutes not money");
         check(!SmartReplies.looksLikeMoneyRequest("send me the file"), "no amount, no money");
+        check(!SmartReplies.looksLikeMoneyRequest("15133 rs asiba use heba amazon icici credit card"),
+                "card transaction discussion is not money request");
+        check(!SmartReplies.looksLikeMoneyRequest("got 500 rs cashback on amazon icici credit card"),
+                "cashback is not money request");
+        check(!SmartReplies.looksLikeMoneyRequest("bill is 1200 rs"),
+                "bill statement is not money request");
+        check(SmartReplies.match("15133 rs asiba use heba amazon icici credit card", ReplyTone.Tone.SARCASTIC).isEmpty(),
+                "transaction statement stays silent on smart replies");
         // Audit scenarios from the real-chat forensic review.
         for (String[] c : new String[][]{
                 {"what is your server s name", "server"},
@@ -343,6 +351,29 @@ public final class SmartRepliesTest {
             check(namesIris(SmartReplies.match(c[0], ReplyTone.Tone.PROFESSIONAL)),
                     "batch-4 scenario answered: \"" + c[0] + "\" (" + c[1] + ")");
         }
+
+        // Double-tap & Mutual Exclusion checks:
+        String noFlagReply = fill(SmartReplies.matchMulti("no don't flag it", ReplyTone.Tone.BRIEF)).toLowerCase(Locale.ROOT);
+        check(noFlagReply.contains("disturb"), "no don't flag it contains refusal");
+        check(!noFlagReply.contains("flagged for"), "no don't flag it does NOT contain flagged-for contradiction");
+
+        // Compliment checks:
+        for (String comp : new String[]{"u look pretty", "you look pretty", "What more IRIS. IRIS u look pretty", "you are beautiful", "smart bot", "good bot"}) {
+            String cr = fill(SmartReplies.match(comp, ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT);
+            check(namesIris(cr), "compliment names IRIS: " + comp);
+            check(cr.contains("compliment") || cr.contains("pretty") || cr.contains("flattery") || cr.contains("cpu"),
+                    "compliment handled gracefully: " + comp);
+            check(!cr.contains("zero bugs"), "compliment does not trigger how-are-you: " + comp);
+        }
+
+        // Banking intent / request words:
+        for (String b : new String[]{"send me money", "pay me", "lend me", "give me cash", "transfer to my"}) {
+            String br = fill(SmartReplies.match(b, ReplyTone.Tone.SARCASTIC)).toLowerCase(Locale.ROOT);
+            check(namesIris(br), "banking intent names IRIS: " + b);
+            check(br.contains("financial details") || br.contains("privacy rules") || br.contains("bank details") || br.contains("bank info"),
+                    "banking intent refused securely: " + b);
+        }
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

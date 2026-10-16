@@ -2,6 +2,7 @@ package com.iris.assistant;
 
 import java.util.Collection;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Decides whether a group message mentions the owner by WhatsApp @-handle or phone number, so the
@@ -45,6 +46,46 @@ public final class GroupMention {
             }
         }
         return false;
+    }
+
+    /**
+     * In group chats, IRIS must stay completely silent unless explicitly addressed:
+     * someone explicitly tags the owner (@Suvra, configured keywords, handles, numbers) or IRIS.
+     */
+    public static boolean isExplicitlyAddressed(String rawBody, String owner,
+                                                Collection<String> mentionKeywords,
+                                                Collection<String> handles,
+                                                Collection<String> phones) {
+        if (rawBody == null || rawBody.trim().isEmpty()) return false;
+        String raw = rawBody.trim();
+        String lower = raw.toLowerCase(Locale.ROOT);
+
+        // Explicitly addressed to IRIS
+        if (lower.matches(".*\\biris\\b.*")) return true;
+
+        // Explicitly tagged/named owner (e.g. "@suvra", "suvra")
+        if (owner != null && !owner.trim().isEmpty()) {
+            String o = owner.trim().toLowerCase(Locale.ROOT);
+            if (lower.matches(".*\\b" + Pattern.quote(o) + "\\b.*")
+                    || lower.contains("@" + o)) {
+                return true;
+            }
+        }
+
+        if (mentionKeywords != null) {
+            for (String kw : mentionKeywords) {
+                if (kw == null) continue;
+                String k = kw.trim().toLowerCase(Locale.ROOT);
+                if (k.isEmpty()) continue;
+                if (lower.matches(".*\\b" + Pattern.quote(k) + "\\b.*")
+                        || lower.contains("@" + k)) {
+                    return true;
+                }
+            }
+        }
+
+        // WhatsApp @-handle or phone number tag
+        return isMentioned(raw, handles, phones);
     }
 
     /** Lower-case, drop any leading '@' and strip surrounding punctuation, but KEEP underscores. */
