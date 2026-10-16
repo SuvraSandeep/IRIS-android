@@ -171,8 +171,15 @@ public final class FlagDetector {
                     || normReply.contains("flagged so suvra sees it first thing")) {
                 return new Result(Action.FLAG, "Priority message flagged for morning queue");
             }
-            if (normReply.contains("flagged for {owner}!")
-                    || normReply.contains("flagged for suvra!")) {
+            if (normReply.contains("flagged for {owner}")
+                    || normReply.contains("flagged for suvra")
+                    || normReply.contains("flagged for him")) {
+                return new Result(Action.FLAG, "Priority message flagged for owner");
+            }
+            if (normReply.contains("flagged")
+                    || normReply.contains("flagging")
+                    || normReply.contains("i'll flag")
+                    || normReply.contains("urgent flag")) {
                 return new Result(Action.FLAG, "Priority message flagged");
             }
         }
