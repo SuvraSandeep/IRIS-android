@@ -140,13 +140,13 @@ public final class AutoResponder {
                 return;
             }
             if (contactRule == ResponderGuards.ContactRule.NEVER) {
-                delEntry.verdict = ResponderGuards.Verdict.CONTACT_RULE_NEVER.name();
+                delEntry.verdict = ResponderGuards.Verdict.CONTACT_BLOCKED.name();
                 delEntry.reason = "Root deletion interceptor: Contact rule is NEVER for " + resolvedSender;
                 new ResponderLog(context).record(delEntry);
                 return;
             }
             if (!savedContact && !settings.replyToUnsaved()) {
-                delEntry.verdict = ResponderGuards.Verdict.UNSAVED_IGNORED.name();
+                delEntry.verdict = ResponderGuards.Verdict.UNSAVED_CONTACT.name();
                 delEntry.reason = "Root deletion interceptor: Unsaved contact and reply to unsaved is disabled";
                 new ResponderLog(context).record(delEntry);
                 return;
