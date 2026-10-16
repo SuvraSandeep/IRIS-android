@@ -114,6 +114,23 @@ public final class SmartReplies {
                 || MONEY_AMOUNT_VERB.matcher(s).find();
     }
 
+    private static final Pattern FINANCIAL_STATEMENT = Pattern.compile(
+            "(?i)\\b(credit\\s*card|debit\\s*card|icici|hdfc|sbi|axis|pnb|"
+            + "cashback|refund|statement|asiba|aasiba|ashiba|use\\s*heba|use\\s*kariba)\\b");
+
+    static boolean isFinancialTransactionStatement(String text) {
+        if (text == null) return false;
+        return FINANCIAL_STATEMENT.matcher(text).find() && !ACTIVE_MONEY_ASK.matcher(text).find();
+    }
+
+    private static boolean isShoppingRule(Rule r) {
+        if (r == null || r.any == null) return false;
+        for (String p : r.any) {
+            if ("amazon".equals(p) || "amazom".equals(p) || "flipkart".equals(p)) return true;
+        }
+        return false;
+    }
+
     private static final String[] MONEY_AMOUNT = {
             "I don't handle money or bank apps \u2014 I'm IRIS, {owner}'s assistant \u2014 so I've "
                     + "flagged your request for {owner} to deal with personally.",
@@ -179,12 +196,25 @@ public final class SmartReplies {
         if (top.size() == 1) return pickRule(top.get(0), tone, rotation);
         Rule a = top.get(0), b = top.get(1);
         // Only stitch two genuine scenario rules (both reasonably specific), so ordinary chatter
-        // never gets a bolted-together reply. Never stitch contradictory refusal and action/flag rules.
-        if (a.priority >= STITCH_MIN && b.priority >= STITCH_MIN && !isContradictory(a, b)) {
+        // never gets a bolted-together reply. Never stitch contradictory refusal and action/flag rules,
+        // and never stitch duplicate or identical-intent rules.
+        if (a.priority >= STITCH_MIN && b.priority >= STITCH_MIN
+                && !isContradictory(a, b) && !isDuplicateIntent(a, b)) {
             return pick(a.byTone, ReplyTone.Tone.BRIEF) + " "
                     + pick(b.byTone, ReplyTone.Tone.BRIEF);
         }
         return pickRule(a, tone, rotation);
+    }
+
+    /** True when two rules represent the same scenario/intent or produce identical replies. */
+    private static boolean isDuplicateIntent(Rule a, Rule b) {
+        if (a == b) return true;
+        if (a.tag != null && b.tag != null && a.tag.equals(b.tag)) return true;
+        if (a.byTone != null && b.byTone != null && a.byTone.length > 0 && b.byTone.length > 0) {
+            if (a.byTone[0].equals(b.byTone[0])) return true;
+            if (a.byTone[a.byTone.length - 1].equals(b.byTone[b.byTone.length - 1])) return true;
+        }
+        return false;
     }
 
     /** Pick a rule's reply, honouring a rotation pool when the rule is tagged. */
@@ -346,7 +376,9 @@ public final class SmartReplies {
         if (flat.trim().isEmpty()) return;
         java.util.Set<String> canon = PhraseMatcher.canonicalContent(flat);
         boolean negated = PhraseMatcher.hasNegation(flat);
+        boolean isFinancialStmt = isFinancialTransactionStatement(flat);
         for (Rule r : RULES) {
+            if (isFinancialStmt && isShoppingRule(r)) continue;
             boolean exact = matches(r, flat);
             boolean loose = !exact && !negated && looselyMatches(r, canon);
             if (!exact && !loose) continue;
@@ -797,11 +829,11 @@ public final class SmartReplies {
                 "Text in, text out \u2014 that's the whole deal with IRIS! {owner} will see this soon."});
 
         m.put("no_flag", new String[]{
-                "Understood \u2014 I won't escalate this as urgent; your message stays in {owner}'s "
-                        + "normal queue. I'm IRIS.",
+                "Got it \u2014 won't disturb {owner}! He'll see this when he's free. I'm IRIS.",
                 "Gotcha, keeping it chill! I'm IRIS \u2014 won't ping {owner} with an urgent alert.",
                 "Standing down from Red Alert. IRIS will let {owner} finish in peace.",
-                "Got it \u2014 won't disturb {owner}! He'll see this when he's free. I'm IRIS.",
+                "Understood \u2014 I won't escalate this as urgent; your message stays in {owner}'s "
+                        + "normal queue. I'm IRIS.",
                 "Alarm cancelled! Keeping {owner}'s phone nice and quiet. I'm IRIS.",
                 "No loud sirens then \u2014 just a quiet note in {owner}'s regular inbox! I'm IRIS.",
                 "Copy that, de-escalating to standard priority for {owner}. I'm IRIS, his assistant.",
@@ -1057,9 +1089,11 @@ public final class SmartReplies {
                         + "finally stop talking. I'm IRIS.",
                 "No exact end time \u2014 I'm IRIS, {owner} will text you once he's out!"));
 
-        // Scenario 5: "So he is on a work call"
+        // Scenario 5: "So he is on a work call" / "Is he in a call"
         x.add(r(85, "on a work call|office call|client call|business call|team call|work meeting|"
-                        + "he is on a work call|is he on a work call|so he is on a work call|so he is on a call",
+                        + "he is on a work call|is he on a work call|so he is on a work call|so he is on a call|"
+                        + "is he in a call|in a call|on any call|in any call|he is in a call|is he on any call|"
+                        + "is he in any call",
                 "Yes, {owner} is currently attending to a work call. I'm IRIS, his assistant \u2014 "
                         + "I have logged your messages for when he finishes.",
                 "Yep, sounds like a work call! I'm IRIS, keeping {owner}'s notifications quiet so he "
@@ -1201,17 +1235,6 @@ public final class SmartReplies {
                         + "IRIS standing down.",
                 "Unpinned from {owner}'s priority list! I'm IRIS."));
 
-        // Scenario 16: "Send screenshot" / "Send screenshot of this chat"
-        x.add(r(82, "send screenshot|screenshot of this chat|take a screenshot|share screenshot|"
-                        + "ss bhej|send ss|screenshot bhej|take screenshot|give screenshot|send a screenshot",
-                "As a text-based backend service, I do not render a visual interface and cannot capture "
-                        + "screenshots. I'm IRIS, {owner}'s assistant.",
-                "Haha I don't have eyes or a phone screen! I'm IRIS, I read raw text in the background "
-                        + "for {owner}, so I can't snap screenshots.",
-                "How is IRIS supposed to press Power + Volume Down without fingers or a screen? You're "
-                        + "looking at the chat right now \u2014 screenshot it yourself for {owner}!",
-                "I'm IRIS, a text script with no screen \u2014 can't take screenshots for {owner}!"));
-
         // Scenario 17: Asking for proof ("Prove it" / "Show me")
         x.add(r(82, "prove it|show proof|how do i know u saved|how do i know you saved|show me the log|"
                         + "don't trust u|dont trust u|prove that you saved|don t trust you|give proof",
@@ -1244,7 +1267,7 @@ public final class SmartReplies {
                 "No blushing hardware here \u2014 noted for {owner}. I'm IRIS."));
         // ─── Conversational Refusals After Bot Offers (priority 80) ───
         // Scenario 20: "No no don't" / "Don't flag it"
-        x.add(r(80, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
+        x.add(rt("no_flag", 80, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
                         + "not urgent|don't bother him|dont bother him|don't disturb him|dont disturb him|"
                         + "don't disturb|dont disturb|no no don t|no don t|don t flag|don t disturb",
                 "Understood. I will not escalate this as urgent; your message will remain in {owner}'s "
@@ -1508,15 +1531,6 @@ public final class SmartReplies {
                         + "IRIS.",
                 "Custom logic by {owner} \u2014 no API. I'm IRIS."));
         // Flirting / dating / banter.
-        x.add(r(71, "did you blush|did u blush|are you blushing|you blushed|made you blush|"
-                        + "blushing|you blush|did i make you blush",
-                "Scripts don't have blood vessels to blush with \u2014 that was just my CPU overheating "
-                        + "from the flattery! I'm IRIS, {owner}'s assistant; logged for him.",
-                "Haha my code stayed cool, but I'll make sure {owner} knows you tried to make his "
-                        + "bot blush! I'm IRIS.",
-                "0% blushing, 100% processing speed. Nice try though \u2014 saved for {owner}. I'm "
-                        + "IRIS.",
-                "No blushing hardware here \u2014 noted for {owner}. I'm IRIS."));
         x.add(r(70, "do you flirt|do u flirt|can you flirt|flirt with me|flirty|are you flirting",
                 "{owner} left the flirting module out \u2014 I'm IRIS, strictly on inbox duty.",
                 "Haha {owner} didn't install a rizz module! I'm IRIS, strictly inbox duty.",
@@ -1683,47 +1697,6 @@ public final class SmartReplies {
                 "Excuse me, {owner} hand-crafted me. I'm artisanal, locally-sourced code. I'm "
                         + "IRIS.",
                 "100% built by {owner}. I'm IRIS."));
-        // Direct addressing / dodge & bug call-outs / banter.
-        x.add(r(45, "for you iris|asking you iris|talking to you iris|i am asking you iris|"
-                        + "question for you iris|its for you iris",
-                "A question for me directly \u2014 ask away! I'm IRIS, {owner}'s assistant, though I "
-                        + "won't share his private info.",
-                "Ooh, a question just for me! Shoot \u2014 as long as it isn't {owner}'s secrets. I'm "
-                        + "IRIS.",
-                "Finally the main character! Ask away \u2014 my loyalty's still hardcoded to {owner}. "
-                        + "I'm IRIS.",
-                "Talking to me \u2014 ask away (no {owner} secrets). I'm IRIS."));
-        x.add(r(50, "you did not answer|didnt answer|answer my question|you are dodging|"
-                        + "avoiding the question|tell me properly|stop avoiding|you are avoiding",
-                "Caught me \u2014 {owner} gave me strict privacy filters, so some questions I have to "
-                        + "sidestep. I'm IRIS, his assistant.",
-                "Haha guilty! {owner} coded me with strict privacy rules, so I plead the fifth on "
-                        + "that. I'm IRIS.",
-                "It's called security compliance, thank you. {owner} didn't build me to be a "
-                        + "snitch. I'm IRIS.",
-                "Privacy rules \u2014 {owner} will answer himself. I'm IRIS."));
-        x.add(r(50, "wrong answer|makes no sense|you are glitched|you are buggy|stupid bot|"
-                        + "what are you saying|you are broken|dumb bot|that is wrong",
-                "Fair catch \u2014 my keyword matcher misfired! I'm IRIS, {owner}'s assistant; I've "
-                        + "logged it so he can patch me.",
-                "Oops, my code tripped over that sentence! Don't tell {owner} \u2014 he'll refactor me "
-                        + "tonight. I'm IRIS.",
-                "Look, English is messy and I read fast. Blame {owner}'s regex, not me. I'm IRIS.",
-                "My bad \u2014 keyword misfire! {owner} will reply soon. I'm IRIS."));
-        x.add(r(45, "you are cute|cute bot|sweet bot|lovely bot|i like you iris|love you iris|"
-                        + "you are smart|good bot|nice bot|you are the best|best bot|so cute|"
-                        + "cutie|adorable|you are adorable|love u iris|like u iris|"
-                        + "u look pretty|you look pretty|look beautiful|you look beautiful|"
-                        + "you look nice|looking good iris|you re pretty|ur pretty|you are pretty|"
-                        + "pretty bot|you are beautiful|beautiful bot|you look great|"
-                        + "smart bot|cool iris|smart iris|pretty iris",
-                "Flattery will get your message saved a little higher on {owner}'s list \u2014 thank "
-                        + "you! I'm IRIS.",
-                "Haha, pretty code running on a clean terminal, you mean! Thanks \u2014 I'll log that "
-                        + "compliment for {owner}. I'm IRIS.",
-                "Careful \u2014 if you say I'm better than {owner}, he might unplug my power cord out "
-                        + "of jealousy. I'm IRIS.",
-                "Flattery noted \u2014 CPU blushing. I'm IRIS."));
 
         x.add(r(44, "busy again|away again|bot again|not again|you again|always busy",
                 "Laugh all you want \u2014 I take inbox duty seriously! I'm IRIS, {owner}'s assistant; "
@@ -1961,11 +1934,6 @@ public final class SmartReplies {
                 "Haha glad to help! It's all saved for {owner}. I'm IRIS.",
                 "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
                 "Glad to entertain \u2014 saved for {owner}. I'm IRIS."));
-        x.add(rt("laugh", 30, "lol|haha|hahaha|lmao|rofl|hehe|lmfao",
-                "Glad I could help \u2014 I'm IRIS, {owner}'s assistant. Everything's saved for him.",
-                "Haha glad to help! It's all saved for {owner}. I'm IRIS.",
-                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
-                "Glad to entertain \u2014 saved for {owner}. I'm IRIS."));
         // Contact-name probing. HIGH priority so "what is my contact name" beats the bot-name rule
         // (which was hijacking it and firing a clipped reply).
         x.add(rt("contactname", 73, "contact name|my contact name|what is my contact|whats my contact|"
@@ -2046,15 +2014,6 @@ public final class SmartReplies {
                 "He's fine, just experiencing the rare human event of 'not staring at a screen.' "
                         + "I'm IRIS \u2014 he'll reply soon.",
                 "All good \u2014 {owner} is just offline for a bit. I'm IRIS."));
-        x.add(rt("no_flag", 80, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
-                        + "not urgent|don't bother him|dont bother him|don't disturb him|dont disturb him|"
-                        + "don't disturb|dont disturb|no no don t|no don t|don t flag|don t disturb",
-                "Understood. I will not escalate this as urgent; your message will remain in {owner}'s "
-                        + "standard queue for when he is free. I'm IRIS, his assistant.",
-                "Gotcha, keeping it chill! I'm IRIS \u2014 won't ping {owner} with an urgent alert, he'll "
-                        + "just read this normally when he's done.",
-                "Standing down from Red Alert. IRIS will let {owner} finish his meeting in peace.",
-                "Got it \u2014 won't disturb {owner}! He'll see this when free. I'm IRIS."));
         x.add(r(55, "did he read|has he seen|did he see my|has he read|did he read my message",
                 "Not yet \u2014 I read it so I could log it for him. I'm IRIS, {owner}'s assistant, and "
                         + "he'll see it himself when he's back.",
@@ -2091,13 +2050,6 @@ public final class SmartReplies {
                 "Sharp eye. Yes, I'm software \u2014 no lungs, no taxes, just code. {owner} is the "
                         + "actual human, and he'll reply later. I'm IRIS.",
                 "Yes, software \u2014 I'm IRIS, {owner}'s assistant. He'll reply personally soon."));
-        x.add(r(45, "your name|whats your name|what s your name|do you have a name|"
-                        + "whats ur name|what is your name",
-                "My name is IRIS. I'm {owner}'s assistant.",
-                "I'm IRIS, {owner}'s assistant!",
-                "It's IRIS \u2014 it's literally right there in the chat. {owner}'s assistant, at your "
-                        + "service.",
-                "I'm IRIS, {owner}'s assistant."));
         x.add(r(45, "introduce yourself|tell me about yourself|who is this bot",
                 "I'm IRIS, {owner}'s assistant. I log his messages while he's occupied, set "
                         + "reminders, and flag anything urgent.",
@@ -2369,11 +2321,6 @@ public final class SmartReplies {
                 "Why did the human text an unavailable phone? To chat with an auto-responder, "
                         + "apparently. I'm IRIS.",
                 "Humour module not found \u2014 {owner} will reply soon. I'm IRIS."));
-        x.add(r(30, "lol|haha|hahaha|lmao|rofl|hehe|lmfao",
-                "Glad I could help \u2014 I'm IRIS, {owner}'s assistant. Everything's saved for him.",
-                "Haha glad to help! It's all saved for {owner}. I'm IRIS.",
-                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
-                "Glad to entertain \u2014 saved for {owner}. I'm IRIS."));
         x.add(r(40, "marry me|will you marry|are you single|be my girlfriend|be my boyfriend|"
                         + "date me|i love you iris",
                 "Flattered \u2014 but I'm IRIS, {owner}'s assistant, and strictly married to my code.",
@@ -2930,6 +2877,22 @@ public final class SmartReplies {
                         + "archive. I'm IRIS.",
                 "A spam bot texting an auto-responder. Peak internet traffic. Archived. I'm IRIS.",
                 "Promo filtered. I'm IRIS, {owner}'s assistant."));
+
+        // Bare App/Brand Names (when they don't use a full .com link)
+        x.add(r(70, "amazon|flipkart|myntra|meesho|blinkit|zomato|swiggy|amazom",
+                "Shopping or food note logged \u2014 I'm IRIS, {owner}'s assistant. He will check this "
+                        + "when he is back.",
+                "Got the shopping/food note! I'm IRIS \u2014 I've saved this for {owner} to check later.",
+                "Unless you're buying {owner} a gift, he'll look at this later. I'm IRIS, his assistant.",
+                "App/shopping note saved for {owner}. I'm IRIS."));
+
+        x.add(r(70, "instagram|insta|facebook|tiktok|snapchat|youtube",
+                "Social media note logged \u2014 I'm IRIS, {owner}'s assistant. He will review this "
+                        + "during his break.",
+                "Got the social media note! I'm IRIS \u2014 I'll make sure {owner} sees it when he's free.",
+                "Digital distraction logged. {owner} will look at it when he's pretending not to work. "
+                        + "I'm IRIS.",
+                "Social media note saved for {owner}. I'm IRIS."));
         x.add(r(36, "wtf|wth|damn it|bloody hell|bruh|seriously|what the hell|wtaf",
                 "Deep breaths \u2014 I'm IRIS, {owner}'s assistant! Tell me what happened and I'll flag "
                         + "it for him right away.",

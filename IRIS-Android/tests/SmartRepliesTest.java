@@ -395,6 +395,22 @@ public final class SmartRepliesTest {
                 "meet link -> meeting reply");
         check(namesIris(SmartReplies.match("https://some-blog.com/post", ReplyTone.Tone.BRIEF)),
                 "generic link still handled");
+        // Preposition variations: "in a call" / "on any call"
+        check(fill(SmartReplies.match("is he in a call", ReplyTone.Tone.PROFESSIONAL))
+                .toLowerCase(Locale.ROOT).contains("work call"), "is he in a call -> work call");
+        check(fill(SmartReplies.match("Is he in a call?", ReplyTone.Tone.CASUAL))
+                .toLowerCase(Locale.ROOT).contains("work call"), "Is he in a call? -> work call");
+        check(fill(SmartReplies.match("is he on any call", ReplyTone.Tone.BRIEF))
+                .toLowerCase(Locale.ROOT).contains("work call"), "is he on any call -> work call");
+        // Bare-brand platform names (without .com / URL)
+        check(fill(SmartReplies.match("amazon", ReplyTone.Tone.CASUAL))
+                .toLowerCase(Locale.ROOT).contains("shopping"), "bare amazon -> shopping note");
+        check(fill(SmartReplies.match("amazom", ReplyTone.Tone.CASUAL))
+                .toLowerCase(Locale.ROOT).contains("shopping"), "bare amazom typo -> shopping note");
+        check(fill(SmartReplies.match("instagram", ReplyTone.Tone.CASUAL))
+                .toLowerCase(Locale.ROOT).contains("social media"), "bare instagram -> social note");
+        check(fill(SmartReplies.match("insta", ReplyTone.Tone.BRIEF))
+                .toLowerCase(Locale.ROOT).contains("social media"), "bare insta -> social note");
         // Rotation pools: location and availability vary across rotations (fix repetition).
         java.util.Set<String> locs = new java.util.HashSet<>();
         java.util.Set<String> avails = new java.util.HashSet<>();
@@ -452,6 +468,24 @@ public final class SmartRepliesTest {
         for (int r = 0; r < 12; r++) mocks.add(SmartReplies.match("this message is deleted",
                 ReplyTone.Tone.CASUAL, r));
         check(mocks.size() >= 8, "deletion mock rotates: " + mocks.size());
+
+        // Multi-rule matching & deduplication:
+        String multiHelloAvail = SmartReplies.matchMulti("hey is he busy", ReplyTone.Tone.PROFESSIONAL, 0);
+        check(!multiHelloAvail.isEmpty(), "multi matched compound intent");
+
+        // Verify no duplicate self-stitching in single intent messages
+        for (String single : new String[]{"no don't flag it", "screenshot bhejo", "u look pretty", "haha lol"}) {
+            String multiRes = SmartReplies.matchMulti(single, ReplyTone.Tone.CASUAL, 0);
+            if (!multiRes.isEmpty()) {
+                // Ensure the reply doesn't duplicate itself verbatim
+                String[] sentences = multiRes.split("(?<=[.!?])\\s+");
+                if (sentences.length > 1) {
+                    check(!sentences[0].trim().equalsIgnoreCase(sentences[1].trim()),
+                            "no self-stitching duplicate sentence in: " + single + " -> " + multiRes);
+                }
+            }
+        }
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

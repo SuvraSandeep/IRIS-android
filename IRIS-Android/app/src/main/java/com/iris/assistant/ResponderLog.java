@@ -78,6 +78,8 @@ public final class ResponderLog {
          * again put the two on the same line.
          */
         public String sendResult = "";
+        /** Explanation of which rule, mode, or guard produced this decision. */
+        public String reason = "";
 
         public boolean wouldHaveSent() { return !reply.isEmpty(); }
 
@@ -132,6 +134,7 @@ public final class ResponderLog {
                 entry.pkg = parts.length > 9 ? parts[9] : "";
                 entry.sendResult = parts.length > 10 ? parts[10] : "";
                 entry.incoming = parts.length > 11 ? parts[11] : "";
+                entry.reason = parts.length > 12 ? parts[12] : "";
                 out.add(entry);
             } catch (Exception ignored) {
                 // A malformed record is skipped rather than discarding the whole log.
@@ -222,7 +225,8 @@ public final class ResponderLog {
                     .append(item.dryRun ? "1" : "0").append(FIELD)
                     .append(clean(item.pkg)).append(FIELD)
                     .append(clean(item.sendResult)).append(FIELD)
-                    .append(clean(item.incoming));
+                    .append(clean(item.incoming)).append(FIELD)
+                    .append(clean(item.reason));
         }
         prefs.edit().putString(KEY, out.toString()).apply();
     }
