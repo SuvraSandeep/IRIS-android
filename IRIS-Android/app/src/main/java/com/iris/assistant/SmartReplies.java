@@ -114,6 +114,23 @@ public final class SmartReplies {
                 || MONEY_AMOUNT_VERB.matcher(s).find();
     }
 
+    private static final Pattern FINANCIAL_STATEMENT = Pattern.compile(
+            "(?i)\\b(credit\\s*card|debit\\s*card|icici|hdfc|sbi|axis|pnb|"
+            + "cashback|refund|statement|asiba|aasiba|ashiba|use\\s*heba|use\\s*kariba)\\b");
+
+    static boolean isFinancialTransactionStatement(String text) {
+        if (text == null) return false;
+        return FINANCIAL_STATEMENT.matcher(text).find() && !ACTIVE_MONEY_ASK.matcher(text).find();
+    }
+
+    private static boolean isShoppingRule(Rule r) {
+        if (r == null || r.any == null) return false;
+        for (String p : r.any) {
+            if ("amazon".equals(p) || "amazom".equals(p) || "flipkart".equals(p)) return true;
+        }
+        return false;
+    }
+
     private static final String[] MONEY_AMOUNT = {
             "I don't handle money or bank apps \u2014 I'm IRIS, {owner}'s assistant \u2014 so I've "
                     + "flagged your request for {owner} to deal with personally.",
@@ -359,7 +376,9 @@ public final class SmartReplies {
         if (flat.trim().isEmpty()) return;
         java.util.Set<String> canon = PhraseMatcher.canonicalContent(flat);
         boolean negated = PhraseMatcher.hasNegation(flat);
+        boolean isFinancialStmt = isFinancialTransactionStatement(flat);
         for (Rule r : RULES) {
+            if (isFinancialStmt && isShoppingRule(r)) continue;
             boolean exact = matches(r, flat);
             boolean loose = !exact && !negated && looselyMatches(r, canon);
             if (!exact && !loose) continue;
@@ -810,11 +829,11 @@ public final class SmartReplies {
                 "Text in, text out \u2014 that's the whole deal with IRIS! {owner} will see this soon."});
 
         m.put("no_flag", new String[]{
-                "Understood \u2014 I won't escalate this as urgent; your message stays in {owner}'s "
-                        + "normal queue. I'm IRIS.",
+                "Got it \u2014 won't disturb {owner}! He'll see this when he's free. I'm IRIS.",
                 "Gotcha, keeping it chill! I'm IRIS \u2014 won't ping {owner} with an urgent alert.",
                 "Standing down from Red Alert. IRIS will let {owner} finish in peace.",
-                "Got it \u2014 won't disturb {owner}! He'll see this when he's free. I'm IRIS.",
+                "Understood \u2014 I won't escalate this as urgent; your message stays in {owner}'s "
+                        + "normal queue. I'm IRIS.",
                 "Alarm cancelled! Keeping {owner}'s phone nice and quiet. I'm IRIS.",
                 "No loud sirens then \u2014 just a quiet note in {owner}'s regular inbox! I'm IRIS.",
                 "Copy that, de-escalating to standard priority for {owner}. I'm IRIS, his assistant.",
@@ -1070,9 +1089,11 @@ public final class SmartReplies {
                         + "finally stop talking. I'm IRIS.",
                 "No exact end time \u2014 I'm IRIS, {owner} will text you once he's out!"));
 
-        // Scenario 5: "So he is on a work call"
+        // Scenario 5: "So he is on a work call" / "Is he in a call"
         x.add(r(85, "on a work call|office call|client call|business call|team call|work meeting|"
-                        + "he is on a work call|is he on a work call|so he is on a work call|so he is on a call",
+                        + "he is on a work call|is he on a work call|so he is on a work call|so he is on a call|"
+                        + "is he in a call|in a call|on any call|in any call|he is in a call|is he on any call|"
+                        + "is he in any call",
                 "Yes, {owner} is currently attending to a work call. I'm IRIS, his assistant \u2014 "
                         + "I have logged your messages for when he finishes.",
                 "Yep, sounds like a work call! I'm IRIS, keeping {owner}'s notifications quiet so he "
@@ -2856,6 +2877,22 @@ public final class SmartReplies {
                         + "archive. I'm IRIS.",
                 "A spam bot texting an auto-responder. Peak internet traffic. Archived. I'm IRIS.",
                 "Promo filtered. I'm IRIS, {owner}'s assistant."));
+
+        // Bare App/Brand Names (when they don't use a full .com link)
+        x.add(r(70, "amazon|flipkart|myntra|meesho|blinkit|zomato|swiggy|amazom",
+                "Shopping or food note logged \u2014 I'm IRIS, {owner}'s assistant. He will check this "
+                        + "when he is back.",
+                "Got the shopping/food note! I'm IRIS \u2014 I've saved this for {owner} to check later.",
+                "Unless you're buying {owner} a gift, he'll look at this later. I'm IRIS, his assistant.",
+                "App/shopping note saved for {owner}. I'm IRIS."));
+
+        x.add(r(70, "instagram|insta|facebook|tiktok|snapchat|youtube",
+                "Social media note logged \u2014 I'm IRIS, {owner}'s assistant. He will review this "
+                        + "during his break.",
+                "Got the social media note! I'm IRIS \u2014 I'll make sure {owner} sees it when he's free.",
+                "Digital distraction logged. {owner} will look at it when he's pretending not to work. "
+                        + "I'm IRIS.",
+                "Social media note saved for {owner}. I'm IRIS."));
         x.add(r(36, "wtf|wth|damn it|bloody hell|bruh|seriously|what the hell|wtaf",
                 "Deep breaths \u2014 I'm IRIS, {owner}'s assistant! Tell me what happened and I'll flag "
                         + "it for him right away.",

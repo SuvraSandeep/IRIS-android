@@ -285,12 +285,18 @@ public final class AutoResponder {
             java.util.List<String> hist = ChatHistory.window(
                     settings.chatHistory(conversationKey, now), settings.contextDepth());
             if (hist.size() > 1) {
-                String windowBody = OwnerAlias.toThirdPerson(
-                        ChatHistory.combine(hist), ReplyTemplates.OWNER);
-                String windowReply = SmartReplies.matchMulti(windowBody, tone);
-                if (!windowReply.isEmpty()) {
-                    smartReply = windowReply;
-                    smartMatched = true;
+                String combined = ChatHistory.combine(hist);
+                // Multi-bubble context should never stitch previous URLs unless the current message
+                // itself carries a URL; otherwise a short follow-up or bare word like "Amazon"
+                // erroneously re-triggers the earlier bubble's link/reel classifier.
+                if (!LinkCategory.hasUrl(combined) || LinkCategory.hasUrl(normBody)) {
+                    String windowBody = OwnerAlias.toThirdPerson(
+                            combined, ReplyTemplates.OWNER);
+                    String windowReply = SmartReplies.matchMulti(windowBody, tone);
+                    if (!windowReply.isEmpty()) {
+                        smartReply = windowReply;
+                        smartMatched = true;
+                    }
                 }
             }
         }
