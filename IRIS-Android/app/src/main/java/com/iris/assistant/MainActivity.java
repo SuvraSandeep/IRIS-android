@@ -1048,6 +1048,18 @@ public class MainActivity extends Activity {
         return "  \u2192 " + windowTone.name() + " now";
     }
 
+    private String relationToneSummary(ResponderSettings settings) {
+        StringBuilder sb = new StringBuilder();
+        for (ReplyTone.Relation r : new ReplyTone.Relation[]{
+                ReplyTone.Relation.FAMILY, ReplyTone.Relation.FRIEND, ReplyTone.Relation.WORK}) {
+            String raw = settings.relationToneRaw(r);
+            if (sb.length() > 0) sb.append(" \u00b7 ");
+            sb.append(r.name().charAt(0)).append(r.name().substring(1).toLowerCase(java.util.Locale.ROOT))
+              .append(": ").append("DEFAULT".equalsIgnoreCase(raw) ? "default" : raw.toLowerCase(java.util.Locale.ROOT));
+        }
+        return sb.toString();
+    }
+
     private String nameRuleSummary(ResponderSettings settings) {
         java.util.List<ResponderSettings.NameRule> rules = settings.nameRules();
         if (rules.isEmpty()) return "none";
@@ -1382,6 +1394,40 @@ public class MainActivity extends Activity {
         choiceDialog(app.label() + " tone", "How should I sound on " + app.label() + "?",
                 labels, which -> {
                     settings.setAppTone(app, which < tones.length ? tones[which] : null);
+                    renderResponder(root);
+                });
+    }
+
+    private void editRelationTones(final ResponderSettings settings, final View root) {
+        final ReplyTone.Relation[] relations = new ReplyTone.Relation[]{
+                ReplyTone.Relation.FAMILY, ReplyTone.Relation.FRIEND, ReplyTone.Relation.WORK};
+        final String[] labels = new String[relations.length];
+        for (int i = 0; i < relations.length; i++) {
+            String raw = settings.relationToneRaw(relations[i]);
+            String displayTone = "DEFAULT".equalsIgnoreCase(raw)
+                    ? "default (" + settings.defaultTone().name() + ")"
+                    : raw;
+            labels[i] = relations[i].name() + "  \u2192  " + displayTone;
+        }
+        choiceDialog("Tone by relationship",
+                "Choose what tone IRIS uses for each relationship category. You can set a specific tone "
+                        + "(Casual, Sarcastic, Professional, Brief) or set it to 'Use default tone' so it inherits "
+                        + "your global default setting.",
+                labels, which -> editOneRelationTone(settings, relations[which], root));
+    }
+
+    private void editOneRelationTone(final ResponderSettings settings, final ReplyTone.Relation relation,
+                                     final View root) {
+        final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
+        final String[] labels = new String[tones.length + 1];
+        for (int i = 0; i < tones.length; i++) {
+            labels[i] = tones[i] == ReplyTone.Tone.SARCASTIC
+                    ? "SARCASTIC \u2014 only if you mean it" : tones[i].name();
+        }
+        labels[tones.length] = "Use default tone (" + settings.defaultTone().name() + ")";
+        choiceDialog(relation.name() + " tone", "How should IRIS sound when replying to " + relation.name() + "?",
+                labels, which -> {
+                    settings.setRelationTone(relation, which < tones.length ? tones[which] : null);
                     renderResponder(root);
                 });
     }
@@ -1909,6 +1955,8 @@ public class MainActivity extends Activity {
             host.addView(responderRow("Default tone",
                     settings.defaultTone().name() + effectiveToneNote(settings),
                     () -> editDefaultTone(settings, view)));
+            host.addView(responderRow("Tone by relationship", relationToneSummary(settings),
+                    () -> editRelationTones(settings, view)));
             host.addView(responderRow("Tone by app", appToneSummary(settings),
                     () -> editAppTones(settings, view)));
             host.addView(responderSwitch("Sound professional during work hours",

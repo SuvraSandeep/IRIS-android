@@ -432,6 +432,46 @@ public final class ResponderSettings {
                 (tone == null ? ReplyTone.Tone.PROFESSIONAL : tone).name()).apply();
     }
 
+    private static final String P_RELATION_TONE = "responder_relation_tone_";
+
+    /**
+     * Custom tone configured for a relationship category (FAMILY, WORK, FRIEND), or null if set to
+     * inherit the global default tone, or the relationship default if unconfigured.
+     */
+    public ReplyTone.Tone relationTone(ReplyTone.Relation relation) {
+        if (relation == null || relation == ReplyTone.Relation.UNKNOWN) return null;
+        String val = prefs.getString(P_RELATION_TONE + relation.name(), null);
+        if (val == null) {
+            return ReplyTone.toneFor(relation);
+        }
+        if ("DEFAULT".equalsIgnoreCase(val) || "INHERIT".equalsIgnoreCase(val)) {
+            return null; // Follow global default tone
+        }
+        return ReplyTone.parseTone(val);
+    }
+
+    /**
+     * Stored configuration key for a relation tone: either a Tone name (e.g. "SARCASTIC") or "DEFAULT".
+     */
+    public String relationToneRaw(ReplyTone.Relation relation) {
+        if (relation == null || relation == ReplyTone.Relation.UNKNOWN) return "DEFAULT";
+        String val = prefs.getString(P_RELATION_TONE + relation.name(), null);
+        if (val == null) {
+            ReplyTone.Tone def = ReplyTone.toneFor(relation);
+            return def != null ? def.name() : "DEFAULT";
+        }
+        return val;
+    }
+
+    public void setRelationTone(ReplyTone.Relation relation, ReplyTone.Tone tone) {
+        if (relation == null || relation == ReplyTone.Relation.UNKNOWN) return;
+        if (tone == null) {
+            prefs.edit().putString(P_RELATION_TONE + relation.name(), "DEFAULT").apply();
+        } else {
+            prefs.edit().putString(P_RELATION_TONE + relation.name(), tone.name()).apply();
+        }
+    }
+
     /** Words that count as naming the owner in a group. */
     public List<String> mentionKeywords() {
         String raw = prefs.getString(K_MENTION_WORDS, "suvra\nstg");

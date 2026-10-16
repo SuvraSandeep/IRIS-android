@@ -49,7 +49,22 @@ public class ReplyToneTest {
         mediaIsOffByDefault();
         everythingElseAnswers();
         parsingFailsSafe();
+        customRelationToneResolution();
         System.out.println("Passed " + checks + " reply tone checks");
+    }
+
+    private static void customRelationToneResolution() {
+        // When a relationship tone is customized (e.g. FAMILY set to SARCASTIC), it takes effect
+        equal(ReplyTone.resolve(null, ReplyTone.Tone.SARCASTIC, null, null, null, ReplyTone.Tone.PROFESSIONAL),
+                ReplyTone.Tone.SARCASTIC, "customized relation tone wins over window/default");
+
+        // When a relationship tone is null (set to inherit default), it falls through to global default
+        equal(ReplyTone.resolve(null, (ReplyTone.Tone) null, null, null, null, ReplyTone.Tone.SARCASTIC),
+                ReplyTone.Tone.SARCASTIC, "null relation tone inherits default tone");
+
+        // Explicit per-contact tone still beats a customized relation tone
+        equal(ReplyTone.resolve(ReplyTone.Tone.BRIEF, ReplyTone.Tone.SARCASTIC, null, null, null, ReplyTone.Tone.PROFESSIONAL),
+                ReplyTone.Tone.BRIEF, "explicit contact tone beats customized relation tone");
     }
 
     private static void resolutionOrderIsMostSpecificFirst() {

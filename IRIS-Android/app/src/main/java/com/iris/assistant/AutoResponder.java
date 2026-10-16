@@ -186,9 +186,11 @@ public final class AutoResponder {
         }
 
         // ─── Tone first, because it decides whether some categories speak at all ───
+        ReplyTone.Relation contactRel = settings.effectiveContactRelation(conversationKey, resolvedSender);
+        ReplyTone.Tone relTone = settings.relationTone(contactRel);
         ReplyTone.Tone tone = ReplyTone.resolve(
                 settings.contactTone(conversationKey),
-                settings.effectiveContactRelation(conversationKey, resolvedSender),
+                relTone,
                 settings.toneForName(resolvedSender),
                 settings.appTone(incoming.pkg),
                 ResponderWindow.toneFor(settings.toneWindows(), minuteOfDay),
