@@ -3694,22 +3694,23 @@ public class MainActivity extends Activity {
         // a deliberate, unmistakable way to remove an entry that cannot be triggered by accident.
         attachSwipeToDelete(card, row, root);
 
+        final String archiveSender = who;
         card.setOnLongClickListener(v -> {
             java.util.List<String> act = new java.util.ArrayList<>();
             act.add("\uD83D\uDCCC Pin to assistant queue");
             act.add("\uD83D\uDEA9 Flag as urgent");
             act.add("\uD83D\uDDD1\uFE0F Delete this entry");
             new AlertDialog.Builder(this)
-                    .setTitle(who)
+                    .setTitle(archiveSender)
                     .setItems(act.toArray(new String[0]), (d, which) -> {
                         String sel = act.get(which);
                         if (sel.contains("Pin to assistant queue")) {
                             FlaggedStore.get(this).addPinned(
-                                    row.body, who, row.displayAccount(), "Archived message pinned", System.currentTimeMillis());
+                                    row.body, archiveSender, row.displayAccount(), "Archived message pinned", System.currentTimeMillis());
                             toast("Pinned to assistant queue");
                         } else if (sel.contains("Flag as urgent")) {
                             FlaggedStore.get(this).addFlagged(
-                                    row.body, who, row.displayAccount(), "Archived message flagged", System.currentTimeMillis());
+                                    row.body, archiveSender, row.displayAccount(), "Archived message flagged", System.currentTimeMillis());
                             toast("Flagged as urgent");
                         } else {
                             new AlertDialog.Builder(this)
