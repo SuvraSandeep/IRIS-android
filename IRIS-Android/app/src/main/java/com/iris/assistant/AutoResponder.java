@@ -100,8 +100,9 @@ public final class AutoResponder {
         if (isOwnEcho(context, incoming.pkg, resolvedSender, incoming.body)) return;
 
         // Group Chat Silence Rule: In group chats (like You (group) in Comms Deck),
-        // IRIS should never auto-respond unless someone explicitly tags @Suvra or IRIS.
-        if (incoming.group && !GroupMention.isExplicitlyAddressed(
+        // IRIS should never auto-respond unless someone explicitly tags @Suvra, configured handles,
+        // trigger words, numbers, or IRIS (when groupsRequireMention is enabled).
+        if (incoming.group && settings.groupsRequireMention() && !GroupMention.isExplicitlyAddressed(
                 incoming.body, ReplyTemplates.OWNER, settings.mentionKeywords(),
                 settings.mentionHandles(), settings.mentionNumbers())) {
             return;
@@ -220,8 +221,9 @@ public final class AutoResponder {
         // at IRIS itself.
         if (incoming.group
                 && category.kind != MessageCategory.Kind.TO_IRIS
-                && GroupMention.isMentioned(incoming.body, settings.mentionHandles(),
-                        settings.mentionNumbers())) {
+                && (GroupMention.isMentioned(incoming.body, settings.mentionHandles(),
+                        settings.mentionNumbers())
+                    || GroupMention.hasTriggerWord(incoming.body, settings.mentionKeywords()))) {
             category = new MessageCategory.Result(MessageCategory.Kind.MENTION, "");
         }
 

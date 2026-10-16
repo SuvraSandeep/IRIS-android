@@ -101,6 +101,29 @@ public final class GroupMentionTest {
         yes("@You Know Who I Am", "underscored handle tagged with spaces and @");
         yes("hey @You Know Who I Am look", "underscored handle tagged with spaces in sentence");
 
+        // Unicode BiDi isolate characters as inserted by WhatsApp Android notifications
+        checks++;
+        if (!GroupMention.isMentioned("\u2066@You Know Who I Am\u2069", H2, P))
+            throw new AssertionError("FAILED: BiDi isolated handle");
+        checks++;
+        if (!GroupMention.isExplicitlyAddressed("\u2066@You Know Who I Am\u2069: wake up", "Suvra", keywords, H2, P))
+            throw new AssertionError("FAILED: BiDi isolated handle in explicit addressed");
+
+        // Comma-separated trigger keywords
+        List<String> commaKeywords = Arrays.asList("suvra", "stg", "emergency", "bot");
+        checks++;
+        if (!GroupMention.hasTriggerWord("this is an emergency guys", commaKeywords))
+            throw new AssertionError("FAILED: emergency trigger word");
+        checks++;
+        if (!GroupMention.hasTriggerWord("hey bot what's up", commaKeywords))
+            throw new AssertionError("FAILED: bot trigger word");
+        checks++;
+        if (!GroupMention.isExplicitlyAddressed("attention bot: respond", "Suvra", commaKeywords, H, P))
+            throw new AssertionError("FAILED: bot explicit addressed");
+        checks++;
+        if (GroupMention.hasTriggerWord("bottle of water", commaKeywords))
+            throw new AssertionError("FAILED: 'bottle' should not trigger 'bot'");
+
         System.out.println("Passed " + checks + " group mention checks");
     }
 }

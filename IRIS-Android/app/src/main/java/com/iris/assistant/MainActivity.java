@@ -1910,6 +1910,11 @@ public class MainActivity extends Activity {
                     () -> editMentionList(view, "My number(s)",
                             "One per line, with or without +country code.",
                             settings.mentionNumbers(), settings::setMentionNumbers)));
+            host.addView(responderRow("Group trigger words (comma-separated)",
+                    mentionSummary(settings.mentionKeywords(), "no trigger words set"),
+                    () -> editMentionList(view, "Group trigger words",
+                            "Comma-separated or one per line (e.g. suvra, stg, emergency, bot).",
+                            settings.mentionKeywords(), settings::setMentionKeywords)));
             host.addView(responderSwitch("Answer numbers not in your contacts",
                     settings.replyToUnsaved(), on -> settings.setReplyToUnsaved(on), view));
             host.addView(responderSwitch("Only contacts you've explicitly allowed",

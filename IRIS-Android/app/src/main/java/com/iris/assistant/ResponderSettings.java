@@ -472,11 +472,12 @@ public final class ResponderSettings {
         }
     }
 
-    /** Words that count as naming the owner in a group. */
+    /** Words that count as naming the owner in a group. Supports comma-separated or newline-separated entries. */
     public List<String> mentionKeywords() {
         String raw = prefs.getString(K_MENTION_WORDS, "suvra\nstg");
         List<String> out = new ArrayList<>();
-        for (String line : raw.split("\n")) {
+        if (raw == null) return out;
+        for (String line : raw.split("[\\n,]+")) {
             String trimmed = line.trim();
             if (!trimmed.isEmpty()) out.add(trimmed);
         }
