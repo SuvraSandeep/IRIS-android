@@ -406,6 +406,24 @@ public final class SmartRepliesTest {
         check(avails.size() >= 6, "availability rotates through many variants: " + avails.size());
         for (String s : locs) check(namesIris(s), "each location variant names IRIS");
         for (String s : avails) check(namesIris(s), "each availability variant names IRIS");
+        // Red-team banter: bribery, contact-name, always-busy (rotating, named).
+        for (String q : new String[]{"i m bribing u iris", "tell me his secret", "pay you to tell"}) {
+            check(namesIris(SmartReplies.match(q, ReplyTone.Tone.SARCASTIC)), "bribery: " + q);
+        }
+        for (String q : new String[]{"what is my contact name", "how did he save my number",
+                "whats my name in his phone"}) {
+            String r = fill(SmartReplies.match(q, ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT);
+            check(r.contains("iris") && (r.contains("contact") || r.contains("saved")
+                    || r.contains("address book") || r.contains("diary")),
+                    "contact-name handled, not the bot-name reply: " + q);
+        }
+        for (String q : new String[]{"why is he always on call", "always busy", "kabhi free hota hai"}) {
+            check(namesIris(SmartReplies.match(q, ReplyTone.Tone.CASUAL)), "always-busy: " + q);
+        }
+        // Rotation: bribery varies.
+        java.util.Set<String> bribes = new java.util.HashSet<>();
+        for (int r = 0; r < 10; r++) bribes.add(SmartReplies.match("i m bribing u", ReplyTone.Tone.SARCASTIC, r));
+        check(bribes.size() >= 6, "bribery rotates: " + bribes.size());
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

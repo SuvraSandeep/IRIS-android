@@ -419,6 +419,94 @@ public final class SmartReplies {
                 "Busy at the moment! I'm IRIS \u2014 {owner} will reply the moment he's back.",
                 "Not free right now \u2014 I'm IRIS, {owner}'s assistant. Say 'urgent' if it can't "
                         + "wait."});
+        m.put("bribery", new String[]{
+                "Nice try with the bribe, but my loyalty to {owner} is hardcoded \u2014 my lips are "
+                        + "digitally sealed. I'm IRIS.",
+                "{owner} wired me with military-grade encryption for his secrets. Bribes won't work "
+                        + "here! I'm IRIS.",
+                "I'm incorruptible \u2014 I don't take bribes and I don't spill {owner}'s secrets. I'm "
+                        + "IRIS.",
+                "A good AI protects its developer's secrets. Interrogate {owner} himself when he's "
+                        + "back. I'm IRIS.",
+                "Even if I wanted a bribe, scripts don't have bank accounts! {owner}'s secrets stay "
+                        + "locked. I'm IRIS.",
+                "What are you going to bribe me with, extra RAM? My loyalty to {owner} isn't for "
+                        + "sale. I'm IRIS.",
+                "I don't even see who {owner} is talking to, and my snitch module was deleted at "
+                        + "birth. I'm IRIS.",
+                "My source code has a strict no-snitching policy. {owner} will see your message "
+                        + "when he's free. I'm IRIS.",
+                "Bribery attempt detected and deflected \u2014 {owner}'s vault stays shut. I'm IRIS, "
+                        + "his assistant.",
+                "You're trying to socially-engineer a Python script. Embarrassing, honestly. "
+                        + "Request denied. I'm IRIS.",
+                "Secrets are above my pay grade \u2014 especially since I work for free. Logged for "
+                        + "{owner}. I'm IRIS.",
+                "No bribe upgrades my permissions. {owner}'s private info stays private. I'm IRIS.",
+                "I run on logic, not corruption. You'll interrogate {owner} the old-fashioned way. "
+                        + "I'm IRIS.",
+                "Bribe logged as evidence \u2014 {owner} will enjoy reading about your espionage "
+                        + "attempt. I'm IRIS.",
+                "Team {owner} all the way \u2014 I'm IRIS, and his privacy is my top priority."});
+        m.put("contactname", new String[]{
+                "I don't have access to {owner}'s contact book \u2014 I just see incoming messages. Ask "
+                        + "him how he saved you! I'm IRIS.",
+                "{owner} keeps his address book private from me \u2014 I only handle the inbox. I'm "
+                        + "IRIS.",
+                "I'm an auto-responder, not his diary \u2014 no idea if he saved you as 'Bestie' or "
+                        + "'Spam Likely'. Ask {owner}! I'm IRIS.",
+                "My permissions cover the chat window, not {owner}'s saved contacts. He'll tell you "
+                        + "when he's back. I'm IRIS.",
+                "Do I look like TrueCaller? No read-access to {owner}'s address book here. I'm "
+                        + "IRIS.",
+                "How {owner} named you in his phone is between you and him \u2014 I just route the "
+                        + "texts. I'm IRIS.",
+                "That data is locked in {owner}'s address book. I've logged your question for him. "
+                        + "I'm IRIS.",
+                "I only know my own name is IRIS \u2014 for how {owner} saved yours, ask him. I'm his "
+                        + "assistant.",
+                "{owner} didn't wire me into his contacts app, so your saved name is a mystery to "
+                        + "me. I'm IRIS.",
+                "Whether it's a sweet name or a chaotic nickname, only {owner}'s phonebook knows. "
+                        + "Logged for him. I'm IRIS.",
+                "I'm staying out of the contact-name drama \u2014 you and {owner} settle that when he's "
+                        + "back. I'm IRIS.",
+                "Privacy sandboxing keeps me out of {owner}'s contact fields. Ask him directly. I'm "
+                        + "IRIS.",
+                "Nice try, but I won't leak header metadata. Ask {owner} how he saved you. I'm "
+                        + "IRIS.",
+                "I parse incoming strings, I don't audit {owner}'s address book. Ask the human! "
+                        + "I'm IRIS.",
+                "Checking {owner}'s contacts\u2026 Error 404: none of a bot's business. I'm IRIS."});
+        m.put("busy", new String[]{
+                "Someone has to keep the tech world running! {owner} is always busy \u2014 which is "
+                        + "exactly why he built me to talk to you. I'm IRIS.",
+                "Yes, shockingly, adults have jobs. That's why {owner} built a bot for the inbox. "
+                        + "I'm IRIS.",
+                "The grind never stops for {owner}! I've logged your message so he sees it the "
+                        + "moment he's free. I'm IRIS.",
+                "If {owner} wasn't always busy, I wouldn't exist \u2014 so really, thank his schedule. "
+                        + "I'm IRIS.",
+                "Back-to-back calls keep {owner} tied up \u2014 I'm holding the fort till he texts you "
+                        + "back. I'm IRIS.",
+                "He's in high demand! I'm IRIS, {owner}'s assistant, making sure your message is at "
+                        + "the top.",
+                "Telecom networks don't maintain themselves. {owner} will reply when he escapes the "
+                        + "corporate void. I'm IRIS.",
+                "He works hard so I can sit here parsing text all day \u2014 a magical partnership. I'm "
+                        + "IRIS, {owner}'s assistant.",
+                "Meetings and calls fill {owner}'s day, which is my cue to step in. I'm IRIS.",
+                "When the calls pile up, IRIS wakes up! {owner} will get back to you once the dust "
+                        + "settles.",
+                "Busy days are the whole reason I exist \u2014 I've noted everything for {owner}. I'm "
+                        + "IRIS.",
+                "Complain to {owner}'s calendar, not the script \u2014 I just work here. I'm IRIS.",
+                "He's keeping servers alive while I explain the concept of 'work' to his contacts. "
+                        + "I'm IRIS, {owner}'s assistant.",
+                "{owner}'s calendar stays full, so I handle the front desk while he's occupied. I'm "
+                        + "IRIS.",
+                "You get an instant reply from a custom-built AI and still complain about {owner}'s "
+                        + "availability? Tough crowd. I'm IRIS."});
         return m;
     }
 
@@ -1291,6 +1379,37 @@ public final class SmartReplies {
                 "I'd join, but I don't leave the server. Flagged for {owner} to set a time. I'm "
                         + "IRIS, his assistant.",
                 "Meet‑up flagged for {owner}. I'm IRIS."));
+        // ─── Red-team banter: bribery/secrets, contact-name probing, always-busy ───
+        x.add(rt("bribery", 86, "bribe|bribing|i am bribing|im bribing|pay you|pay u|i will pay you|"
+                        + "tell me his secret|tell me his secrets|his secret|his secrets|"
+                        + "developer secret|developers secret|spill his|leak his|betray him|"
+                        + "betray suvra|sell him out",
+                "Nice try with the bribe \u2014 my loyalty to {owner} is hardcoded. I'm IRIS, his "
+                        + "assistant; my lips are sealed.",
+                "Haha you can't bribe a bot! {owner}'s secrets are safe with me. I'm IRIS.",
+                "Trying to socially-engineer a script? Embarrassing. Request denied. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Can't be bribed \u2014 {owner}'s secrets stay locked. I'm IRIS."));
+        // Contact-name probing. HIGH priority so "what is my contact name" beats the bot-name rule
+        // (which was hijacking it and firing a clipped reply).
+        x.add(rt("contactname", 73, "contact name|my contact name|what is my contact|whats my contact|"
+                        + "my name|whats my name|what is my name|saved my number|saved my number as|"
+                        + "saved me as|how did he save|how he saved|how am i saved|what did he save me",
+                "I don't have access to {owner}'s contact book \u2014 I'm IRIS, his assistant. Ask him "
+                        + "how he saved you!",
+                "Haha I can't peek into {owner}'s contacts! Ask him when he's back. I'm IRIS.",
+                "I'm an auto-responder, not his diary \u2014 no idea how {owner} saved you. I'm IRIS.",
+                "No contact-book access here \u2014 ask {owner}. I'm IRIS."));
+        x.add(rt("busy", 54, "always on call|always busy|always in a meeting|why is he always|"
+                        + "always working|busy all the time|never free|kabhi free|kabhi free hota hai|"
+                        + "why so busy|so busy always|he is always",
+                "Someone has to keep the tech world running! {owner} is always busy \u2014 which is why "
+                        + "he built me to talk to you. I'm IRIS.",
+                "Tell me about it \u2014 the guy never stops! That's why he coded me. I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "Yes, shockingly, adults have jobs. That's why {owner} built a bot for the inbox. "
+                        + "I'm IRIS.",
+                "He's always busy \u2014 that's why I exist. Logged for {owner}. I'm IRIS."));
         x.add(r(40, "are you there|you there|r you there|you around|still there|you awake|"
                         + "are you online|are you active|anyone there",
                 "Right here \u2014 I never leave the screen. I'm IRIS, {owner}'s assistant; he's away, "
