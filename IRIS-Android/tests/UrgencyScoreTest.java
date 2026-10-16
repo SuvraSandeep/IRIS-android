@@ -30,6 +30,19 @@ public final class UrgencyScoreTest {
         // Null-safe.
         t(UrgencyScore.score(null, 10) == 0, "null text scores 0");
 
+        // Soft distress + laughing emojis = hyperbole, NOT an emergency (the false-RING bug).
+        t(!UrgencyScore.isUrgent("for a second the username scared me \uD83D\uDE02\uD83D\uDE02", 1),
+                "scared + laugh emoji is not urgent");
+        t(!UrgencyScore.isUrgent("that scared me lol", 1), "scared + lol is not urgent");
+        t(!UrgencyScore.isUrgent("i'm stuck haha", 1), "stuck + haha is not urgent");
+        // Soft distress WITHOUT laugh context still clears the bar.
+        t(UrgencyScore.isUrgent("something scared me badly", 1), "scared alone still urgent");
+        // Hard emergencies fire even next to a laughing emoji.
+        t(UrgencyScore.isUrgent("accident on the highway \uD83D\uDE02", 1),
+                "hard emergency fires despite laugh emoji");
+        t(UrgencyScore.hasLaughContext("scared me \uD83D\uDE02"), "laugh context detected");
+        t(!UrgencyScore.hasLaughContext("there's been an accident"), "no false laugh context");
+
         System.out.println("Passed " + checks + " urgency score checks");
     }
 }

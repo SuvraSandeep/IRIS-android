@@ -24,12 +24,36 @@ public final class UrgencyScore {
     public static final int BURST_COUNT = 4;
     public static final long BURST_WINDOW_MS = 12_000L;
 
-    private static final List<String> DISTRESS = Arrays.asList(
-            "accident", "hospital", "ambulance", "blood", "police", "fire", "locked out",
-            "stranded", "lost my", "fever", "scared", "help me", "emergency", "collapsed",
-            "unconscious", "bleeding", "stuck", "danger", "robbed", "fainted");
+    /**
+     * Hard emergencies: these count even alongside laughing emojis. Someone typing "accident 😂"
+     * is vanishingly rare and the cost of a missed real emergency is far higher than a false one.
+     */
+    private static final List<String> HARD = Arrays.asList(
+            "accident", "hospital", "ambulance", "blood", "police", "fire", "emergency",
+            "collapsed", "unconscious", "bleeding", "robbed", "fainted", "danger");
+
+    /**
+     * Soft distress: real when alone, but routinely used as hyperbole ("that username scared me
+     * 😂😂", "I'm stuck lol"). These are suppressed when laugh/meme markers are present.
+     */
+    private static final List<String> SOFT = Arrays.asList(
+            "locked out", "stranded", "lost my", "fever", "scared", "help me", "stuck");
+
+    /** Laugh / meme / "it's a joke" markers that turn soft distress into harmless hyperbole. */
+    private static final List<String> LAUGH_MEME = Arrays.asList(
+            "\uD83D\uDE02", "\uD83E\uDD23", "\uD83D\uDC80", "\uD83D\uDE06", "\uD83D\uDE05",
+            "\uD83E\uDD2D", "lol", "lmao", "lmfao", "rofl", "haha", "hehe",
+            "for a second", "for a sec", "meme", "reel", "joke", "kidding", "jk");
 
     private UrgencyScore() { }
+
+    /** True if a laugh/meme marker is present — soft distress should then be read as hyperbole. */
+    public static boolean hasLaughContext(String text) {
+        if (text == null) return false;
+        String lower = text.toLowerCase(Locale.ROOT);
+        for (String m : LAUGH_MEME) if (lower.contains(m)) return true;
+        return false;
+    }
 
     /** Convenience: is this message implicitly urgent? */
     public static boolean isUrgent(String text, int recentBurstCount) {
@@ -48,10 +72,20 @@ public final class UrgencyScore {
         int s = 0;
         String lower = text.toLowerCase(Locale.ROOT);
 
-        // Distress vocabulary -- the strongest single signal, enough on its own.
-        for (String w : DISTRESS) {
-            if (lower.contains(w)) { s += 65; break; }
+        // Distress vocabulary -- the strongest single signal, enough on its own. Hard emergencies
+        // always count; soft distress ("scared", "stuck") is treated as hyperbole and ignored when
+        // laughing/meme markers are present, so "the username scared me 😂😂" is NOT an emergency.
+        boolean laugh = hasLaughContext(text);
+        boolean hit = false;
+        for (String w : HARD) {
+            if (lower.contains(w)) { hit = true; break; }
         }
+        if (!hit && !laugh) {
+            for (String w : SOFT) {
+                if (lower.contains(w)) { hit = true; break; }
+            }
+        }
+        if (hit) s += 65;
 
         // A frantic burst of messages.
         if (recentBurstCount >= BURST_COUNT) s += 50;

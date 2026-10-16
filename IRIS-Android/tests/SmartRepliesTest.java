@@ -424,6 +424,16 @@ public final class SmartRepliesTest {
         java.util.Set<String> bribes = new java.util.HashSet<>();
         for (int r = 0; r < 10; r++) bribes.add(SmartReplies.match("i m bribing u", ReplyTone.Tone.SARCASTIC, r));
         check(bribes.size() >= 6, "bribery rotates: " + bribes.size());
+        // Bot social-media banter (fix: was dropping to the cold status fallback).
+        for (String q : new String[]{"iris i found ur social media profile",
+                "found you on instagram", "whats your insta username"}) {
+            check(namesIris(SmartReplies.match(q, ReplyTone.Tone.CASUAL)), "bot social media: " + q);
+        }
+        // Funny jump-scare hyperbole (phrasing survives after the emoji is stripped).
+        for (String q : new String[]{"for a second the username scared me",
+                "you almost gave me a heart attack", "that jump scare got me"}) {
+            check(namesIris(SmartReplies.match(q, ReplyTone.Tone.CASUAL)), "funny scare: " + q);
+        }
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

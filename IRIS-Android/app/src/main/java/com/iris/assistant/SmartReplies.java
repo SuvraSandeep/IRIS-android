@@ -507,6 +507,60 @@ public final class SmartReplies {
                         + "IRIS.",
                 "You get an instant reply from a custom-built AI and still complain about {owner}'s "
                         + "availability? Tough crowd. I'm IRIS."});
+        m.put("botsocial", new String[]{
+                "Wait, I have a social media profile?! Unless someone made a fan page for {owner}'s "
+                        + "code, I only live in this inbox. I'm IRIS.",
+                "Imposter alert! I'm IRIS, and I only exist on {owner}'s device \u2014 no Instagram for "
+                        + "me.",
+                "Haha that's a doppelg\u00e4nger! My only residence is {owner}'s inbox, not social media. "
+                        + "I'm IRIS.",
+                "You found a random person named Iris and thought a Python script went on vacation? "
+                        + "Incredible detective work. I'm IRIS, {owner}'s assistant.",
+                "If there's an IRIS on social media, she's stealing my brand! I work exclusively for "
+                        + "{owner} right here.",
+                "What would a bot even post \u2014 selfies of my source code? I'm IRIS, {owner}'s "
+                        + "assistant; saved this for him.",
+                "No social media for this assistant \u2014 {owner} keeps me busy enough in the inbox. "
+                        + "I'm IRIS.",
+                "Yes, in my free time between parsing your texts I'm a travel influencer. Obviously. "
+                        + "I'm IRIS, {owner}'s assistant.",
+                "That's an unauthorized clone! The real IRIS is right here guarding {owner}'s "
+                        + "messages.",
+                "I'm lines of code on {owner}'s hardware \u2014 what would I post, my CPU usage? I'm "
+                        + "IRIS.",
+                "Zero social accounts here \u2014 100% pure code running for {owner}! I'm IRIS.",
+                "Did you also find Siri's LinkedIn and Alexa's Pinterest? I'm a bot. Logged for "
+                        + "{owner}. I'm IRIS.",
+                "My entire social life is this chat window. I've queued your message for {owner}. "
+                        + "I'm IRIS.",
+                "Flattered you're stalking me across platforms, but my universe is this chat. I'm "
+                        + "IRIS, {owner}'s assistant.",
+                "Breaking news: local human discovers the word 'Iris' existed before {owner} named "
+                        + "his script. I'm IRIS."});
+        m.put("funnyscare", new String[]{
+                "Haha false alarm then! The laughing emojis told me it wasn't a real emergency \u2014 "
+                        + "saved it for {owner}. I'm IRIS.",
+                "Phew, almost tripped my urgent filter with 'scared'! Standing down \u2014 logged for "
+                        + "{owner}. I'm IRIS.",
+                "You used 'scared' with laughing emojis and my emergency module nearly had a "
+                        + "crisis. Saved for {owner}. I'm IRIS.",
+                "Glad it's comedy and not a real crisis! {owner} will see this soon. I'm IRIS.",
+                "Crisis averted \u2014 I won't ring {owner}'s phone over a funny username! I'm IRIS.",
+                "My panic-button subroutine just rolled its eyes and went back to sleep. Saved for "
+                        + "{owner}. I'm IRIS.",
+                "Good thing my code checks for laughing emojis before panicking! Logged for "
+                        + "{owner}. I'm IRIS.",
+                "Whew, cancel the ambulance \u2014 it was just a funny moment! I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "Glad you survived the harrowing one-second ordeal! Saved for {owner}. I'm IRIS.",
+                "Lowering DEFCON back to 'ignoring non-urgent texts for {owner}.' I'm IRIS.",
+                "Haha a classic jump-scare! Pinned it in the chat log for {owner}. I'm IRIS.",
+                "No sirens needed \u2014 switching off emergency mode. {owner} will check it out. I'm "
+                        + "IRIS.",
+                "Zero actual danger, 100% comedy! Kept it ready for {owner}. I'm IRIS.",
+                "I was 0.002 seconds from paging {owner} like a code blue. Glad it's a meme. I'm "
+                        + "IRIS.",
+                "Noted: one mild internet scare, zero emergencies. Queued for {owner}. I'm IRIS."});
         return m;
     }
 
@@ -1380,6 +1434,30 @@ public final class SmartReplies {
                         + "IRIS, his assistant.",
                 "Meet‑up flagged for {owner}. I'm IRIS."));
         // ─── Red-team banter: bribery/secrets, contact-name probing, always-busy ───
+        x.add(rt("botsocial", 74, "social media|your profile|ur profile|your account|ur account|"
+                        + "your username|ur username|on instagram|on insta|your insta|found you on|"
+                        + "found your account|found ur account|found your profile|found ur profile|"
+                        + "your social|ur social|iris on insta|follow you",
+                "Wait, I have a social media profile?! I only live in {owner}'s inbox \u2014 that's a "
+                        + "doppelg\u00e4nger. I'm IRIS.",
+                "Haha I'm famous? Unless my code made an Instagram, that's not me! I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "You found a person named Iris and assumed a Python script went on vacation? I'm "
+                        + "IRIS, {owner}'s assistant.",
+                "Not me \u2014 I only live in {owner}'s inbox! I'm IRIS."));
+        // Funny jump-scare hyperbole ("for a second that username scared me"). The emoji is gone by
+        // the time SmartReplies sees the text, so match the clearly-hyperbolic phrasings instead.
+        x.add(rt("funnyscare", 58, "for a second|for a sec|almost had a heart attack|"
+                        + "nearly had a heart attack|mini heart attack|gave me a heart attack|"
+                        + "jump scare|you scared me|u scared me|scared me for|almost died|"
+                        + "nearly died|that scared me",
+                "Haha false alarm! Glad it's just a scare and not a real crisis \u2014 saved for "
+                        + "{owner}. I'm IRIS.",
+                "Phew, you almost tripped my urgent filter! Standing down \u2014 logged for {owner}. "
+                        + "I'm IRIS.",
+                "My panic-button subroutine rolled its eyes and went back to sleep. Saved for "
+                        + "{owner}. I'm IRIS.",
+                "Crisis averted \u2014 saved for {owner}. I'm IRIS."));
         x.add(rt("bribery", 86, "bribe|bribing|i am bribing|im bribing|pay you|pay u|i will pay you|"
                         + "tell me his secret|tell me his secrets|his secret|his secrets|"
                         + "developer secret|developers secret|spill his|leak his|betray him|"
