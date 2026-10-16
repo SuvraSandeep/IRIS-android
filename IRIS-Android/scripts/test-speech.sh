@@ -315,6 +315,13 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/EditedMessageTest.java
 java -cp "$test_dir/responder" com.iris.assistant.EditedMessageTest
 
+# Urgent-flag alert wording (the "actually flag it" fix).
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/FlagAlertText.java \
+  tests/FlagAlertTextTest.java
+java -cp "$test_dir/responder" com.iris.assistant.FlagAlertTextTest
+
 # Time/day-aware flavour line.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \

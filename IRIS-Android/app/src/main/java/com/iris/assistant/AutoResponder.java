@@ -341,6 +341,12 @@ public final class AutoResponder {
                 // The sender is answering IRIS's "shall I flag this urgent?" offer. Consume it.
                 if (state == ResponderGuards.State.LIVE) settings.clearPendingOffer(conversationKey);
                 if (offerReply == ConversationContext.OfferReply.ACCEPT) {
+                    // Actually flag it: post an owner-facing heads-up so this is no longer an empty
+                    // promise. Only in LIVE (preview must not notify). Best-effort; the reply still
+                    // sends even if the alert cannot be posted.
+                    if (state == ResponderGuards.State.LIVE) {
+                        ArchiveAlerts.urgentFlag(context, incoming.appLabel, resolvedSender, now);
+                    }
                     reply = "Done \u2014 I've flagged this as high-priority for " + ReplyTemplates.OWNER
                             + ". I'm IRIS, his assistant.";
                 } else {
