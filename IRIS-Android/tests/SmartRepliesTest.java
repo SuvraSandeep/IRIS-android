@@ -434,6 +434,24 @@ public final class SmartRepliesTest {
                 "you almost gave me a heart attack", "that jump scare got me"}) {
             check(namesIris(SmartReplies.match(q, ReplyTone.Tone.CASUAL)), "funny scare: " + q);
         }
+        // Asking IRIS to read/recover deleted or edited messages -> privacy refusal.
+        for (String q : new String[]{"can you see my deleted messages", "recover deleted message",
+                "what did i delete", "can you check edited", "what was edited before"}) {
+            String r = fill(SmartReplies.match(q, ReplyTone.Tone.CASUAL)).toLowerCase(Locale.ROOT);
+            check(r.contains("iris") && (r.contains("privacy") || r.contains("deleted")
+                    || r.contains("edited") || r.contains("can't") || r.contains("cant")),
+                    "deleted/edited ask refused: " + q);
+        }
+        // Typing a fake deletion placeholder at IRIS -> mock, still names IRIS.
+        for (String q : new String[]{"this message is deleted", "this message was deleted",
+                "i deleted that message", "message unsent"}) {
+            check(namesIris(SmartReplies.match(q, ReplyTone.Tone.SARCASTIC)), "deletion mock: " + q);
+        }
+        // Mock rotates.
+        java.util.Set<String> mocks = new java.util.HashSet<>();
+        for (int r = 0; r < 12; r++) mocks.add(SmartReplies.match("this message is deleted",
+                ReplyTone.Tone.CASUAL, r));
+        check(mocks.size() >= 8, "deletion mock rotates: " + mocks.size());
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

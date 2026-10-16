@@ -273,6 +273,16 @@ public class ResponderGuardsTest {
         verdict(placeholder, sendablePolicy(), ResponderGuards.Verdict.BLOCKED_CONTENT,
                 "'this message was deleted' gets no reply");
 
+        // A SENDER deletion placeholder is the opt-in exception: it is allowed through so IRIS can
+        // answer with a privacy/mock line, instead of being silenced like a generic placeholder.
+        ResponderGuards.Message senderDel = sendableMessage();
+        senderDel.placeholder = true;
+        senderDel.senderDeletion = true;
+        if (ResponderGuards.evaluate(senderDel, sendablePolicy())
+                == ResponderGuards.Verdict.BLOCKED_CONTENT) {
+            throw new AssertionError("FAILED: a sender deletion must NOT be silenced as blocked content");
+        }
+
         ResponderGuards.Message flagged = sendableMessage();
         flagged.flaggedDeleted = true;
         verdict(flagged, sendablePolicy(), ResponderGuards.Verdict.BLOCKED_CONTENT,

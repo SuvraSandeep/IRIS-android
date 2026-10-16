@@ -278,6 +278,9 @@ public final class AutoResponder {
         message.fromOwner = incoming.fromOwner;
         message.rollup = incoming.rollup;
         message.placeholder = incoming.placeholder;
+        // A sender's own deletion placeholder is answered (privacy/mock line) rather than silenced;
+        // the owner's own deletions and generic placeholders stay silent.
+        message.senderDeletion = DeletedMessageRules.isSenderDeletion(incoming.body);
         message.flaggedDeleted = false;
         message.forceReply = ((!nameReply.isEmpty() || !learnedReply.isEmpty()
                         || awaitingReminderTime

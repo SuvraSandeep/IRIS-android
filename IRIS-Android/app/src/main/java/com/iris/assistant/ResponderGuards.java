@@ -119,6 +119,12 @@ public final class ResponderGuards {
         public boolean rollup;
         /** A "this message was deleted" placeholder. */
         public boolean placeholder;
+        /**
+         * The placeholder specifically means the SENDER (not the owner) took a message back. The
+         * owner opted in to have IRIS answer these with a privacy/mock line, so they are NOT
+         * silenced like a generic placeholder is.
+         */
+        public boolean senderDeletion;
         /** The archive has already flagged this message as deleted by its sender. */
         public boolean flaggedDeleted;
         /** An SMS one-time code / verification message, or an unsaved SMS sender ID / shortcode. */
@@ -226,7 +232,11 @@ public final class ResponderGuards {
         if (message.fromOwner) return Verdict.OWN_MESSAGE;
 
         // ─── Is this even a message? ───
-        if (message.rollup || message.placeholder || message.flaggedDeleted) {
+        // A roll-up count or an already-flagged deletion is noise. A generic deletion placeholder
+        // is too -- EXCEPT a sender deletion, which the owner opted to answer with a witty privacy
+        // line, so it is allowed through to the reply layer.
+        if (message.rollup || message.flaggedDeleted
+                || (message.placeholder && !message.senderDeletion)) {
             return Verdict.BLOCKED_CONTENT;
         }
 

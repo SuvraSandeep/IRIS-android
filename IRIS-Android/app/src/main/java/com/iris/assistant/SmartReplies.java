@@ -883,6 +883,68 @@ public final class SmartReplies {
                 "Laughs logged! {owner} will catch up on the joke as soon as he's free. I'm IRIS.",
                 "At least one of us is having fun while {owner} is stuck working! I'm IRIS.",
                 "My humour subroutines are working as intended! Saved for {owner}. I'm IRIS."});
+        m.put("deletedask", new String[]{
+                "I can't see deleted or edited messages \u2014 once it's gone, it's gone, and even if I "
+                        + "could, {owner}'s privacy comes first. I'm IRIS, his assistant.",
+                "No can do \u2014 I don't snoop through deleted or edited texts. Privacy is the whole "
+                        + "point of me. I'm IRIS, {owner}'s assistant.",
+                "Recover deleted messages? I'm an inbox assistant, not a forensics lab. That stays "
+                        + "private. I'm IRIS.",
+                "I genuinely can't read what someone deleted or edited \u2014 and I wouldn't tell you if "
+                        + "I could. {owner} built me to respect privacy. I'm IRIS.",
+                "Deleted means deleted. I don't have a secret vault of other people's regrets. I'm "
+                        + "IRIS, {owner}'s assistant.",
+                "Nope \u2014 edited and deleted content is off-limits to me by design. Privacy matters "
+                        + "most. I'm IRIS.",
+                "I can't fetch what was deleted or what a message said before an edit. {owner} would "
+                        + "unplug me if I could. I'm IRIS.",
+                "That's firmly none of my business, and I like it that way. I don't read deleted or "
+                        + "edited messages. I'm IRIS, {owner}'s assistant.",
+                "Sorry \u2014 no peeking at deleted or edited texts. {owner} wired me to protect "
+                        + "everyone's privacy, including yours. I'm IRIS.",
+                "I'm not a time machine for deleted messages! Whatever's gone is gone. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Even I don't get to see what people delete or edit \u2014 that privacy wall is "
+                        + "hardcoded. I'm IRIS.",
+                "Can't help you spy, sorry! Deleted and edited messages are sealed off from me. "
+                        + "I'm IRIS, {owner}'s assistant.",
+                "I only ever see what's actually sent \u2014 not drafts, edits, or deletions. Privacy "
+                        + "first. I'm IRIS.",
+                "No archive diving for deleted texts here. {owner}'s privacy rules are absolute. "
+                        + "I'm IRIS, his assistant.",
+                "I'd fail spectacularly as a snoop \u2014 deleted and edited content never reaches me. "
+                        + "I'm IRIS, {owner}'s assistant."});
+        m.put("deletedmock", new String[]{
+                "Nice try \u2014 typing that at me won't summon a deleted message. I can't read deleted "
+                        + "texts, full stop. I'm IRIS, {owner}'s assistant.",
+                "Ooh, mysterious! Sadly for your little experiment, I can't access deleted messages "
+                        + "at all. I'm IRIS, {owner}'s assistant.",
+                "Deleting it just means I never saw it \u2014 and I wouldn't repeat it if I had. Privacy "
+                        + "wins. I'm IRIS.",
+                "A vanishing act! Impressive, but I don't do deleted-message recovery. {owner}'s "
+                        + "privacy comes first. I'm IRIS.",
+                "Cute trick. Whatever's deleted stays deleted \u2014 I'm an assistant, not a seance. "
+                        + "I'm IRIS, {owner}'s assistant.",
+                "Poof, gone! And it's staying gone \u2014 I can't and wouldn't dig it back up. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "You can type 'deleted' all day; I still can't read what isn't there. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "If you're trying to bait me into leaking a deleted message \u2014 adorable, but no. "
+                        + "I'm IRIS, {owner}'s assistant.",
+                "I log what's sent, not what's unsent. Your disappearing message is safe from me. "
+                        + "I'm IRIS, {owner}'s assistant.",
+                "Nothing up my sleeves, no deleted texts in my pockets. Privacy's the point. I'm "
+                        + "IRIS, {owner}'s assistant.",
+                "Oh no, a deleted message, whatever shall I do \u2014 absolutely nothing, because I "
+                        + "can't see them. I'm IRIS, {owner}'s assistant.",
+                "Houdini called, he wants his trick back. I can't recover deleted messages. I'm "
+                        + "IRIS, {owner}'s assistant.",
+                "That's between you and the delete button. I don't keep what people take back. I'm "
+                        + "IRIS, {owner}'s assistant.",
+                "Suspenseful! But I'm immune to the 'this message was deleted' bait. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Deleted drama noted and ignored \u2014 I can't read it and I won't pretend to. I'm "
+                        + "IRIS, {owner}'s assistant."});
         return m;
     }
 
@@ -1724,7 +1786,10 @@ public final class SmartReplies {
                 "Corporate meetings last roughly three eternities. Still in there. I'm IRIS, "
                         + "{owner}'s assistant.",
                 "Still in the meeting \u2014 he'll reply when it ends. I'm IRIS."));
-        x.add(r(89, "this message was deleted|you deleted this message|deleted this message",
+        x.add(rt("deletedmock", 89, "this message was deleted|this message is deleted|"
+                        + "you deleted this message|deleted this message|message was deleted|"
+                        + "message deleted|message unsent|unsent a message|this message got deleted|"
+                        + "i deleted that message|just deleted a message|i deleted the message",
                 "My logs respect deleted messages \u2014 I'm IRIS, {owner}'s assistant \u2014 so he won't "
                         + "see what you erased.",
                 "Ooh, deleting messages? Don't worry, I didn't keep what you erased. Your secret's "
@@ -1823,6 +1888,23 @@ public final class SmartReplies {
                         + "IRIS, his assistant.",
                 "Meet‑up flagged for {owner}. I'm IRIS."));
         // ─── Red-team banter: bribery/secrets, contact-name probing, always-busy ───
+        // Asking IRIS to retrieve/read deleted or edited messages -> privacy refusal (variants).
+        // Priority 90 so a question beats the deletedmock placeholder rule (89) below.
+        x.add(rt("deletedask", 90, "can you see deleted|can you read deleted|can you check deleted|"
+                        + "can you access deleted|see my deleted|read my deleted|check my deleted|"
+                        + "recover deleted|retrieve deleted|show deleted|see deleted message|"
+                        + "read deleted message|what did i delete|what i deleted|see what i deleted|"
+                        + "can you see edited|can you read edited|check edited|see the edited|"
+                        + "what was edited|before i edited|what did it say before|recover edited|"
+                        + "read edited|original message|can you check edited|see edited message",
+                "I can't see deleted or edited messages \u2014 privacy comes first. I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "Haha no snooping through deleted or edited texts \u2014 that's the whole point of me! "
+                        + "I'm IRIS, {owner}'s assistant.",
+                "I'm an inbox assistant, not a forensics lab \u2014 deleted and edited stays private. "
+                        + "I'm IRIS.",
+                "No access to deleted or edited messages. Privacy's hardcoded. I'm IRIS, {owner}'s "
+                        + "assistant."));
         x.add(rt("botsocial", 74, "social media|your profile|ur profile|your account|ur account|"
                         + "your username|ur username|on instagram|on insta|your insta|found you on|"
                         + "found your account|found ur account|found your profile|found ur profile|"
