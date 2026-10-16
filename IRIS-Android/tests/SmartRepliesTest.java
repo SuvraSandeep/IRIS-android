@@ -386,6 +386,15 @@ public final class SmartRepliesTest {
             check(namesIris(SmartReplies.match(b, ReplyTone.Tone.CASUAL)),
                     "blush answered: " + b);
         }
+        // Link replies are now domain-aware.
+        check(fill(SmartReplies.match("check https://amazon.in/dp/x", ReplyTone.Tone.CASUAL))
+                        .toLowerCase(Locale.ROOT).contains("shopping"),
+                "amazon link -> shopping reply");
+        check(fill(SmartReplies.match("join https://meet.google.com/abc", ReplyTone.Tone.PROFESSIONAL))
+                        .toLowerCase(Locale.ROOT).contains("meeting"),
+                "meet link -> meeting reply");
+        check(namesIris(SmartReplies.match("https://some-blog.com/post", ReplyTone.Tone.BRIEF)),
+                "generic link still handled");
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

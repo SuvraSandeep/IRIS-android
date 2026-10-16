@@ -220,7 +220,9 @@ public final class SmartReplies {
     }
 
     private static String checkSpecial(String text, ReplyTone.Tone tone, int rotation) {
-        if (URL.matcher(text).find()) return pick(LINK, tone);
+        if (URL.matcher(text).find()) {
+            return LinkCategory.reply(LinkCategory.classify(text), tone);
+        }
         if (looksLikeMoneyRequest(text)) return pick(MONEY_AMOUNT, tone);
         // A bare deictic pointer ("Aita"/"This one"/"Yeh wala") right after a link or photo refers
         // to the item above -- acknowledge the reference instead of re-firing the whole handler

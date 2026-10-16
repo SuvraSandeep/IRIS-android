@@ -307,6 +307,17 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   tests/ChatHistoryTest.java
 java -cp "$test_dir/responder" com.iris.assistant.ChatHistoryTest
 
+# Link-domain classification and per-category replies.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/ReplyTemplates.java \
+  app/src/main/java/com/iris/assistant/ResponderMode.java \
+  app/src/main/java/com/iris/assistant/LinkCategory.java \
+  tests/LinkCategoryTest.java
+java -cp "$test_dir/responder" com.iris.assistant.LinkCategoryTest
+
 # Emoji-reaction (tapback) detection — the responder must never reply to a reaction.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
@@ -375,6 +386,7 @@ javac -encoding UTF-8 -d "$test_dir/responder" \
   app/src/main/java/com/iris/assistant/PhraseMatcher.java \
   app/src/main/java/com/iris/assistant/Emoji.java \
   app/src/main/java/com/iris/assistant/Shorthand.java \
+  app/src/main/java/com/iris/assistant/LinkCategory.java \
   app/src/main/java/com/iris/assistant/SmartReplies.java \
   tests/SmartRepliesTest.java
 java -cp "$test_dir/responder" com.iris.assistant.SmartRepliesTest
