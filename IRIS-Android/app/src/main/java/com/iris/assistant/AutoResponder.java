@@ -151,8 +151,8 @@ public final class AutoResponder {
             delEntry.reason = "Root deletion interceptor: Sender revoked message -> direct privacy reply (bypassed sleep/bedtime)";
 
             if (state == ResponderGuards.State.LIVE) {
-                NotificationReply.Result sendRes = IrisNotificationListener.sendReply(
-                        context, incoming.sbn, privacyReply);
+                NotificationReply.Result sendRes = NotificationReply.send(
+                        context, incoming.sbn, privacyReply, "auto_reply", false);
                 delEntry.sendResult = sendRes.name();
                 settings.recordReply(conversationKey, now);
                 rememberAnswered(incoming.sbn.getKey());
