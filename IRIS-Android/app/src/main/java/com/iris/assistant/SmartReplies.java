@@ -739,7 +739,7 @@ public final class SmartReplies {
                 "100% authorized disclosure by {owner} \u2014 zero actual secrets were harmed! I'm IRIS."});
 
         m.put("pin", new String[]{
-                "When I say pinned, I mean at the top of {owner}'s private assistant list \u2014 not "
+                "When I say pinned, I mean at the top of {owner}'s private assistant queue \u2014 not "
                         + "the WhatsApp pin! It's locked in at #1 for him. I'm IRIS.",
                 "Haha I mean pinned on {owner}'s bot dashboard, not the WhatsApp pin bar! It's #1 "
                         + "on his list. I'm IRIS.",
@@ -1699,7 +1699,7 @@ public final class SmartReplies {
                 "No screen here \u2014 can't screenshot. I'm IRIS."));
         x.add(r(70, "pin it|pin my message|pin this|pin to chat|not pinned|didnt pin|unpin|"
                         + "where is it pinned",
-                "When I say pinned, I mean at the top of {owner}'s private assistant list \u2014 not "
+                "When I say pinned, I mean at the top of {owner}'s private assistant queue \u2014 not "
                         + "the WhatsApp pin! It's locked in at #1 for him. I'm IRIS.",
                 "Haha I mean pinned on {owner}'s bot summary, not the WhatsApp pin bar! It's #1 on "
                         + "his list. I'm IRIS.",
