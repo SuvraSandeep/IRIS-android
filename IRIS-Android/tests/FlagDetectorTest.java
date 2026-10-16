@@ -49,7 +49,7 @@ public final class FlagDetectorTest {
 
     private static void testNegationsDoNotFlag() {
         FlagDetector.Result r1 = FlagDetector.detect("no don't flag it",
-                "Understood — won't disturb Suvra.", ConversationContext.OfferReply.DECLINE);
+                "Understood — won't disturb Suvra.", ConversationContext.OfferReply.REFUSE);
         t(!r1.isFlag() && !r1.isPin(), "'no don't flag it' does not trigger flag");
 
         FlagDetector.Result r2 = FlagDetector.detect("wont flag",

@@ -325,6 +325,8 @@ java -cp "$test_dir/responder" com.iris.assistant.FlagAlertTextTest
 # Flag and Pin detector.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReminderParser.java \
   app/src/main/java/com/iris/assistant/ConversationContext.java \
   app/src/main/java/com/iris/assistant/FlagDetector.java \
   tests/FlagDetectorTest.java
