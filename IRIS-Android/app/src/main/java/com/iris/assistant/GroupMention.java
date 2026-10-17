@@ -51,10 +51,10 @@ public final class GroupMention {
                 if (noAtIncoming.contains(cleanH)) return true;
 
                 // 2. If handle was configured with underscores (e.g. "you_know__who__i__am"),
-                // allow explicit tag with spaces ("you know who i am")
+                // allow explicit tag with spaces ("@you know who i am")
                 if (cleanH.contains("_")) {
                     String hSpaces = cleanH.replace('_', ' ').replaceAll("\\s+", " ").trim();
-                    if (!hSpaces.isEmpty() && noAtIncoming.replace('_', ' ').contains(hSpaces)) {
+                    if (!hSpaces.isEmpty() && cleanIncoming.contains("@" + hSpaces)) {
                         return true;
                     }
                 }
