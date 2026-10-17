@@ -100,8 +100,9 @@ public final class AutoResponder {
         if (isOwnEcho(context, incoming.pkg, resolvedSender, incoming.body)) return;
 
         // Group Chat Silence Rule: In group chats (like You (group) in Comms Deck),
-        // IRIS should never auto-respond unless someone explicitly tags @Suvra or IRIS.
-        if (incoming.group && !GroupMention.isExplicitlyAddressed(
+        // IRIS should never auto-respond unless someone explicitly tags @Suvra, configured handles,
+        // trigger words, numbers, or IRIS (when groupsRequireMention is enabled).
+        if (incoming.group && settings.groupsRequireMention() && !GroupMention.isExplicitlyAddressed(
                 incoming.body, ReplyTemplates.OWNER, settings.mentionKeywords(),
                 settings.mentionHandles(), settings.mentionNumbers())) {
             return;
@@ -118,23 +119,9 @@ public final class AutoResponder {
         }
         if (DeletedMessageRules.isSenderDeletion(rawBody)) {
             boolean hasReplyAction = IrisNotificationListener.replyAction(incoming.sbn) != null;
-            if (!hasReplyAction) return;
-
             ResponderGuards.ContactRule contactRule =
                     settings.effectiveContactRule(conversationKey, resolvedSender);
-            if (contactRule == ResponderGuards.ContactRule.NEVER) return;
-
             boolean savedContact = ContactResolver.isSaved(context, incoming.sender);
-            if (!savedContact && !settings.replyToUnsaved()) return;
-
-            String privacyReply = "I can never access those deleted messages; privacy matters the most. I'm IRIS, "
-                    + ReplyTemplates.OWNER + "'s assistant.";
-
-            String lastSent = lastReplyText(context, incoming.pkg, resolvedSender);
-            if (!lastSent.isEmpty()
-                    && MessageCategory.normalise(privacyReply).equals(MessageCategory.normalise(lastSent))) {
-                return;
-            }
 
             ResponderLog.Entry delEntry = new ResponderLog.Entry();
             delEntry.whenMs = now;
@@ -145,9 +132,46 @@ public final class AutoResponder {
             delEntry.category = "DELETED";
             delEntry.tone = settings.defaultTone().name();
             delEntry.incoming = rawBody;
+            delEntry.dryRun = (state == ResponderGuards.State.DRY_RUN);
+
+            if (!hasReplyAction) {
+                delEntry.verdict = ResponderGuards.Verdict.NO_REPLY_ACTION.name();
+                delEntry.reason = "Root deletion interceptor: Notification has no direct reply action";
+                new ResponderLog(context).record(delEntry);
+                return;
+            }
+            if (contactRule == ResponderGuards.ContactRule.NEVER) {
+                delEntry.verdict = ResponderGuards.Verdict.CONTACT_BLOCKED.name();
+                delEntry.reason = "Root deletion interceptor: Contact rule is NEVER for " + resolvedSender;
+                new ResponderLog(context).record(delEntry);
+                return;
+            }
+            if (!savedContact && !settings.replyToUnsaved()) {
+                delEntry.verdict = ResponderGuards.Verdict.UNSAVED_CONTACT.name();
+                delEntry.reason = "Root deletion interceptor: Unsaved contact and reply to unsaved is disabled";
+                new ResponderLog(context).record(delEntry);
+                return;
+            }
+
+            int rot = settings.nextRotation();
+            String privacyReply = SmartReplies.poolReply("deleted", rot);
+            if (privacyReply.isEmpty()) {
+                privacyReply = "I can never access those deleted messages; privacy matters the most. I'm IRIS, "
+                        + ReplyTemplates.OWNER + "'s assistant.";
+            }
+
+            String lastSent = lastReplyText(context, incoming.pkg, resolvedSender);
+            if (!lastSent.isEmpty()
+                    && MessageCategory.normalise(privacyReply).equals(MessageCategory.normalise(lastSent))) {
+                privacyReply = SmartReplies.poolReply("deleted", rot + 1);
+                if (privacyReply.isEmpty() || MessageCategory.normalise(privacyReply).equals(MessageCategory.normalise(lastSent))) {
+                    privacyReply = "Whatever was deleted stays deleted \u2014 " + ReplyTemplates.OWNER
+                            + " wired me to respect privacy. I'm IRIS, his assistant.";
+                }
+            }
+
             delEntry.verdict = "SEND";
             delEntry.reply = privacyReply;
-            delEntry.dryRun = (state == ResponderGuards.State.DRY_RUN);
             delEntry.reason = "Root deletion interceptor: Sender revoked message -> direct privacy reply (bypassed sleep/bedtime)";
 
             if (state == ResponderGuards.State.LIVE) {
@@ -163,9 +187,11 @@ public final class AutoResponder {
         }
 
         // ─── Tone first, because it decides whether some categories speak at all ───
+        ReplyTone.Relation contactRel = settings.effectiveContactRelation(conversationKey, resolvedSender);
+        ReplyTone.Tone relTone = settings.relationTone(contactRel);
         ReplyTone.Tone tone = ReplyTone.resolve(
                 settings.contactTone(conversationKey),
-                settings.effectiveContactRelation(conversationKey, resolvedSender),
+                relTone,
                 settings.toneForName(resolvedSender),
                 settings.appTone(incoming.pkg),
                 ResponderWindow.toneFor(settings.toneWindows(), minuteOfDay),
@@ -195,8 +221,9 @@ public final class AutoResponder {
         // at IRIS itself.
         if (incoming.group
                 && category.kind != MessageCategory.Kind.TO_IRIS
-                && GroupMention.isMentioned(incoming.body, settings.mentionHandles(),
-                        settings.mentionNumbers())) {
+                && (GroupMention.isMentioned(incoming.body, settings.mentionHandles(),
+                        settings.mentionNumbers())
+                    || GroupMention.hasTriggerWord(incoming.body, settings.mentionKeywords()))) {
             category = new MessageCategory.Result(MessageCategory.Kind.MENTION, "");
         }
 
@@ -316,6 +343,43 @@ public final class AutoResponder {
                 ReplyTemplates.OWNER);
         boolean profileMatched = !profileReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
+
+        // ─── Meta-Awareness Overrides (Length, Velocity, Hardware, Temporal Snark) ───
+        String metaReason = "";
+        int rawLen = incoming.body == null ? 0 : incoming.body.length();
+        if (rawLen > 400 && SmartReplies.handlesCategory(category.kind)) {
+            smartReply = SmartReplies.poolReply("wall_of_text", settings.nextRotation());
+            smartMatched = true;
+            metaReason = "Meta-awareness: Wall of Text detector (" + rawLen + " chars)";
+        } else if (burst > 4 && SmartReplies.handlesCategory(category.kind)
+                && category.kind != MessageCategory.Kind.URGENT
+                && !UrgencyScore.isUrgent(incoming.body, 0)) {
+            smartReply = SmartReplies.poolReply("spam_warning", settings.nextRotation());
+            smartMatched = true;
+            metaReason = "Meta-awareness: Velocity awareness (" + burst + " msgs in burst window)";
+        } else {
+            int battery = batteryLevel(context);
+            String lowBody = normBody.toLowerCase(java.util.Locale.ROOT);
+            if (battery >= 0 && battery < 15 && SmartReplies.handlesCategory(category.kind)
+                    && (lowBody.contains("how are you") || lowBody.contains("is he busy")
+                    || lowBody.contains("is he free") || lowBody.contains("status")
+                    || lowBody.contains("battery") || category.kind == MessageCategory.Kind.CHECK_IN)) {
+                smartReply = SmartReplies.poolReply("low_battery", settings.nextRotation())
+                        .replace("{battery}", String.valueOf(battery));
+                smartMatched = true;
+                metaReason = "Meta-awareness: Hardware context (battery at " + battery + "%)";
+            } else if (smartMatched && (lowBody.contains("is he free") || lowBody.contains("is he busy")
+                    || lowBody.contains("what is he doing") || lowBody.contains("where is he")
+                    || category.kind == MessageCategory.Kind.CHECK_IN)) {
+                int hourOfDay = minuteOfDay / 60;
+                int dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK);
+                String snark = SmartReplies.temporalSnark(dayOfWeek, hourOfDay, settings.rotation());
+                if (!snark.isEmpty() && settings.rotation() % 2 == 1) {
+                    smartReply = snark;
+                    metaReason = "Meta-awareness: Temporal awareness (time-of-day snark)";
+                }
+            }
+        }
 
         // ─── Guards ───
         ResponderGuards.Message message = new ResponderGuards.Message();
@@ -462,7 +526,8 @@ public final class AutoResponder {
                     reply = ReplyTemplates.fill(smartReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
-                    decisionReason = "Smart reply: rule matched keyword intent in category " + category.kind.name();
+                    decisionReason = !metaReason.isEmpty() ? metaReason
+                            : ("Smart reply: rule matched keyword intent in category " + category.kind.name());
                 } else if (vernMatched) {
                     reply = ReplyTemplates.fill(vernReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
@@ -496,20 +561,54 @@ public final class AutoResponder {
                             || IntroTrim.senderKnowsIris(incoming.body);
                     reply = IntroTrim.trim(reply, introduced, ReplyTemplates.OWNER);
                 }
-                // Hard outgoing dedup: never send the identical reply we last sent to this
+                // Hard outgoing dedup: never send the identical reply we recently sent to this
                 // conversation (e.g. "Aita" after a link re-firing the link intro, or a repeated
-                // direct-address line). Owner-defined/learned wording is exempt.
+                // ping-pong loop). Checks recent window and rotates stitcher comebacks to eliminate
+                // A-B-A-B loops permanently. Owner-defined/learned wording is exempt.
                 if (learnedReply.isEmpty() && nameReply.isEmpty() && !reply.isEmpty()) {
-                    String lastSent = lastReplyText(context, incoming.pkg, resolvedSender);
-                    if (!lastSent.isEmpty()
-                            && MessageCategory.normalise(reply)
-                                    .equals(MessageCategory.normalise(lastSent))) {
-                        reply = "Caught that too \u2014 I'm IRIS, " + ReplyTemplates.OWNER
-                                + "'s assistant, keeping it all together for him.";
-                        decisionReason += " (Outgoing dedup applied: avoiding repeat of previous reply)";
+                    String normReply = MessageCategory.normalise(reply);
+                    if (isRecentReplySent(context, incoming.pkg, resolvedSender, normReply, 4)) {
+                        reply = pickStitcher(context, incoming.pkg, resolvedSender, settings.rotation());
+                        decisionReason += " (Outgoing dedup applied: avoiding repeat of recent reply)";
                     }
                 }
             }
+
+            if (!reply.isEmpty()) {
+                FlagDetector.Result flagResult = FlagDetector.detect(incoming.body, reply, offerReply);
+                if (flagResult.action == FlagDetector.Action.FLAG) {
+                    String flagText = incoming.body;
+                    if (offerReply == ConversationContext.OfferReply.ACCEPT) {
+                        java.util.List<String> hist = settings.chatHistory(conversationKey, now);
+                        if (hist != null && !hist.isEmpty()) {
+                            String prev = "";
+                            for (int i = hist.size() - 1; i >= 0; i--) {
+                                String h = hist.get(i);
+                                if (h != null && !h.equalsIgnoreCase(incoming.body)) {
+                                    prev = h;
+                                    break;
+                                }
+                            }
+                            if (!prev.isEmpty()) {
+                                flagText = prev + "  [escalated: " + incoming.body + "]";
+                            }
+                        }
+                    }
+                    if (state == ResponderGuards.State.LIVE) {
+                        FlaggedStore.get(context).addFlagged(
+                                flagText, resolvedSender, incoming.appLabel, flagResult.reason, now);
+                        ArchiveAlerts.urgentFlag(context, incoming.appLabel, resolvedSender, now);
+                    }
+                    decisionReason += " \u00b7 FLAGGED: " + flagResult.reason;
+                } else if (flagResult.action == FlagDetector.Action.PIN) {
+                    if (state == ResponderGuards.State.LIVE) {
+                        FlaggedStore.get(context).addPinned(
+                                incoming.body, resolvedSender, incoming.appLabel, flagResult.reason, now);
+                    }
+                    decisionReason += " \u00b7 PINNED: " + flagResult.reason;
+                }
+            }
+
             // A category with no text left to send is a silence, not an empty message.
             if (reply.isEmpty()) {
                 verdict = ResponderGuards.Verdict.CATEGORY_SILENT;
@@ -960,6 +1059,25 @@ public final class AutoResponder {
     }
 
     /**
+     * Reads the current battery percentage (0..100) or -1 if unavailable.
+     */
+    public static int batteryLevel(Context context) {
+        if (context == null) return -1;
+        try {
+            android.content.Intent bat = context.registerReceiver(null,
+                    new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            if (bat != null) {
+                int level = bat.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+                int scale = bat.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+                if (level >= 0 && scale > 0) {
+                    return (int) Math.round((level * 100.0) / scale);
+                }
+            }
+        } catch (Throwable ignored) { }
+        return -1;
+    }
+
+    /**
      * Whether this incoming text is actually a reply IRIS recently sent to this conversation,
      * echoed back by the app (common in groups). Compared on the normalised text against the
      * recent decision log for the same pkg and sender, so it's independent of how the sender is
@@ -977,6 +1095,46 @@ public final class AutoResponder {
             if (entry.pkg != null && !entry.pkg.equals(pkg)) continue;
             if (!entry.sender.equals(resolvedSender)) continue;
             if (MessageCategory.normalise(entry.reply).equals(want)) return true;
+        }
+        return false;
+    }
+
+    private static final String[] STITCH_POOL = {
+            "Caught that too \u2014 I'm IRIS, {owner}'s assistant, keeping it all together for him.",
+            "Noted that as well! I'm IRIS, keeping {owner}'s notifications tidy.",
+            "Logged that one too. I'm IRIS \u2014 {owner} will catch up on everything.",
+            "Added to the pile! IRIS here, {owner} will see the whole thread soon.",
+            "Got that one too \u2014 I'm IRIS, saving it all for {owner}."
+    };
+
+    private static String pickStitcher(Context context, String pkg, String resolvedSender, int rotation) {
+        String lastSent = lastReplyText(context, pkg, resolvedSender);
+        String normLast = MessageCategory.normalise(lastSent);
+        for (int offset = 0; offset < STITCH_POOL.length; offset++) {
+            String candidate = STITCH_POOL[Math.floorMod(rotation + offset, STITCH_POOL.length)]
+                    .replace("{owner}", ReplyTemplates.OWNER);
+            if (!MessageCategory.normalise(candidate).equals(normLast)) {
+                return candidate;
+            }
+        }
+        return STITCH_POOL[0].replace("{owner}", ReplyTemplates.OWNER);
+    }
+
+    private static boolean isRecentReplySent(Context context, String pkg, String resolvedSender,
+                                             String normReply, int maxLookback) {
+        if (normReply == null || normReply.isEmpty()) return false;
+        int checked = 0;
+        for (ResponderLog.Entry entry : new ResponderLog(context).newestFirst()) {
+            if (entry.reply == null || entry.reply.isEmpty()) continue;
+            if (entry.sender == null || entry.sender.isEmpty()) continue;
+            if (entry.pkg != null && !entry.pkg.equals(pkg)) continue;
+            if (entry.sender.equals(resolvedSender)) {
+                if (MessageCategory.normalise(entry.reply).equals(normReply)) {
+                    return true;
+                }
+                checked++;
+                if (checked >= maxLookback) break;
+            }
         }
         return false;
     }

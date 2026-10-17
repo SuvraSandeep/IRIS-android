@@ -89,20 +89,20 @@ public final class ReplyTone {
     }
 
     /**
-     * Resolve the tone, including a per-app default.
+     * Resolve the tone, including a relation-specific tone and per-app default.
      *
-     * {@code appTone} sits below the person-specific sources (explicit tone, relationship, name
-     * pattern) and above the time window and the global default: "sound professional on SMS" is a
-     * weaker statement than "this person is family", but a stronger one than "it's work hours" or
-     * "the global default". Null means the owner set no tone for this app.
+     * Order, most specific first:
+     *   1. a tone set explicitly on this contact
+     *   2. the contact's relationship tone (or relation default)
+     *   3. a name-pattern rule, such as "eric" meaning a colleague
+     *   4. a per-app default tone
+     *   5. an active time window, such as work hours
+     *   6. the global default
      */
-    public static Tone resolve(Tone explicitTone, Relation relation, Tone patternTone,
+    public static Tone resolve(Tone explicitTone, Tone relationTone, Tone patternTone,
                                Tone appTone, Tone windowTone, Tone globalDefault) {
         if (explicitTone != null) return explicitTone;
-
-        Tone fromRelation = toneFor(relation);
-        if (fromRelation != null) return fromRelation;
-
+        if (relationTone != null) return relationTone;
         if (patternTone != null) return patternTone;
         if (appTone != null) return appTone;
         if (windowTone != null) return windowTone;
@@ -111,6 +111,14 @@ public final class ReplyTone {
         // Last resort. Professional is the only tone that cannot embarrass anyone, so an
         // unconfigured responder is formal rather than familiar.
         return Tone.PROFESSIONAL;
+    }
+
+    /**
+     * Resolve the tone, mapping a {@link Relation} to its default tone.
+     */
+    public static Tone resolve(Tone explicitTone, Relation relation, Tone patternTone,
+                               Tone appTone, Tone windowTone, Tone globalDefault) {
+        return resolve(explicitTone, toneFor(relation), patternTone, appTone, windowTone, globalDefault);
     }
 
     /**

@@ -402,6 +402,8 @@ public class IrisNotificationListener extends NotificationListenerService {
             }
             ArchiveAlerts.deletionCaught(context, appLabel, who, now,
                     DeletedMessageRules.Confidence.CONFIRMED);
+            offerToResponder(context, sbn, pkg, appLabel, parsed.rawTitle, who, text,
+                    MessageRollup.isGroupConversation(groupHint, parsed.group, who, 1), 0);
             return;
         }
 

@@ -213,14 +213,38 @@ public final class ResponderSettings {
      * sender is saved.
      */
     public ReplyTone.Tone appTone(String pkg) {
-        String v = prefs.getString(P_APP_TONE + MessagingApp.fromPackage(pkg).name(), "");
-        return v.isEmpty() ? null : ReplyTone.parseTone(v);
+        if (pkg == null || pkg.trim().isEmpty()) return null;
+        String direct = prefs.getString(P_APP_TONE + pkg.trim(), "");
+        if (!direct.isEmpty()) return ReplyTone.parseTone(direct);
+        MessagingApp app = MessagingApp.fromPackage(pkg);
+        if (app != MessagingApp.OTHER) {
+            String v = prefs.getString(P_APP_TONE + app.name(), "");
+            if (!v.isEmpty()) return ReplyTone.parseTone(v);
+        }
+        return null;
     }
 
     public ReplyTone.Tone appTone(MessagingApp app) {
         if (app == null) return null;
         String v = prefs.getString(P_APP_TONE + app.name(), "");
         return v.isEmpty() ? null : ReplyTone.parseTone(v);
+    }
+
+    public void setAppTone(String pkg, ReplyTone.Tone tone) {
+        if (pkg == null || pkg.trim().isEmpty()) return;
+        String p = pkg.trim();
+        MessagingApp app = MessagingApp.fromPackage(p);
+        if (tone == null) {
+            prefs.edit().remove(P_APP_TONE + p).apply();
+            if (app != MessagingApp.OTHER) {
+                prefs.edit().remove(P_APP_TONE + app.name()).apply();
+            }
+        } else {
+            prefs.edit().putString(P_APP_TONE + p, tone.name()).apply();
+            if (app != MessagingApp.OTHER) {
+                prefs.edit().putString(P_APP_TONE + app.name(), tone.name()).apply();
+            }
+        }
     }
 
     public void setAppTone(MessagingApp app, ReplyTone.Tone tone) {
@@ -432,11 +456,52 @@ public final class ResponderSettings {
                 (tone == null ? ReplyTone.Tone.PROFESSIONAL : tone).name()).apply();
     }
 
-    /** Words that count as naming the owner in a group. */
+    private static final String P_RELATION_TONE = "responder_relation_tone_";
+
+    /**
+     * Custom tone configured for a relationship category (FAMILY, WORK, FRIEND), or null if set to
+     * inherit the global default tone, or the relationship default if unconfigured.
+     */
+    public ReplyTone.Tone relationTone(ReplyTone.Relation relation) {
+        if (relation == null || relation == ReplyTone.Relation.UNKNOWN) return null;
+        String val = prefs.getString(P_RELATION_TONE + relation.name(), null);
+        if (val == null) {
+            return ReplyTone.toneFor(relation);
+        }
+        if ("DEFAULT".equalsIgnoreCase(val) || "INHERIT".equalsIgnoreCase(val)) {
+            return null; // Follow global default tone
+        }
+        return ReplyTone.parseTone(val);
+    }
+
+    /**
+     * Stored configuration key for a relation tone: either a Tone name (e.g. "SARCASTIC") or "DEFAULT".
+     */
+    public String relationToneRaw(ReplyTone.Relation relation) {
+        if (relation == null || relation == ReplyTone.Relation.UNKNOWN) return "DEFAULT";
+        String val = prefs.getString(P_RELATION_TONE + relation.name(), null);
+        if (val == null) {
+            ReplyTone.Tone def = ReplyTone.toneFor(relation);
+            return def != null ? def.name() : "DEFAULT";
+        }
+        return val;
+    }
+
+    public void setRelationTone(ReplyTone.Relation relation, ReplyTone.Tone tone) {
+        if (relation == null || relation == ReplyTone.Relation.UNKNOWN) return;
+        if (tone == null) {
+            prefs.edit().putString(P_RELATION_TONE + relation.name(), "DEFAULT").apply();
+        } else {
+            prefs.edit().putString(P_RELATION_TONE + relation.name(), tone.name()).apply();
+        }
+    }
+
+    /** Words that count as naming the owner in a group. Supports comma-separated or newline-separated entries. */
     public List<String> mentionKeywords() {
         String raw = prefs.getString(K_MENTION_WORDS, "suvra\nstg");
         List<String> out = new ArrayList<>();
-        for (String line : raw.split("\n")) {
+        if (raw == null) return out;
+        for (String line : raw.split("[\\n,]+")) {
             String trimmed = line.trim();
             if (!trimmed.isEmpty()) out.add(trimmed);
         }

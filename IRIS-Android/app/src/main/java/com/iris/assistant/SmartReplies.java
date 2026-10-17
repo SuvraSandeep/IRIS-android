@@ -217,6 +217,33 @@ public final class SmartReplies {
         return false;
     }
 
+    /** Return a variant from a named rotation pool with {owner} resolved. */
+    public static String poolReply(String tag, int rotation) {
+        String[] pool = POOLS.get(tag);
+        if (pool == null || pool.length == 0) return "";
+        return pool[Math.floorMod(rotation, pool.length)].replace("{owner}", ReplyTemplates.OWNER);
+    }
+
+    /**
+     * Temporal awareness helper: returns time-of-day snark variant if current hour/day matches special windows,
+     * or empty string if standard timing applies.
+     */
+    public static String temporalSnark(int dayOfWeek, int hourOfDay, int rotation) {
+        // Lunchtime (12:00 - 14:00)
+        if (hourOfDay >= 12 && hourOfDay < 14) {
+            return poolReply("time_snark_lunch", rotation);
+        }
+        // Friday Evening (17:00 - 20:00 on Friday: Calendar.FRIDAY == 6)
+        if (dayOfWeek == 6 && hourOfDay >= 17 && hourOfDay < 20) {
+            return poolReply("time_snark_friday", rotation);
+        }
+        // Early Morning (08:00 - 10:00)
+        if (hourOfDay >= 8 && hourOfDay < 10) {
+            return poolReply("time_snark_morning", rotation);
+        }
+        return "";
+    }
+
     /** Pick a rule's reply, honouring a rotation pool when the rule is tagged. */
     private static String pickRule(Rule r, ReplyTone.Tone tone, int rotation) {
         if (r.tag != null) {
@@ -289,6 +316,10 @@ public final class SmartReplies {
     }
 
     private static String checkSpecial(String text, ReplyTone.Tone tone, int rotation) {
+        if (text == null) return null;
+        if (text.length() > 400) {
+            return poolReply("wall_of_text", rotation);
+        }
         if (URL.matcher(text).find()) {
             return LinkCategory.reply(LinkCategory.classify(text), tone);
         }
@@ -402,8 +433,20 @@ public final class SmartReplies {
             "{owner} is still away \u2014 IRIS here. Your messages are saved."};
 
     private static boolean matches(Rule r, String paddedFlat) {
+        String trimmed = paddedFlat == null ? "" : paddedFlat.trim();
         for (String phrase : r.any) {
+            if (phrase.startsWith("^") || phrase.contains("+") || phrase.contains("[") || phrase.endsWith("$")) {
+                try {
+                    if (trimmed.matches("(?i)" + phrase)) return true;
+                } catch (Exception ignored) { }
+            }
             if (paddedFlat.contains(" " + phrase + " ")) return true;
+            if (phrase.contains("'")) {
+                if (paddedFlat.contains(" " + phrase.replace("'", " ") + " ")
+                        || paddedFlat.contains(" " + phrase.replace("'", "") + " ")) {
+                    return true;
+                }
+            }
         }
         return false;
     }
@@ -977,6 +1020,215 @@ public final class SmartReplies {
                         + "{owner}'s assistant.",
                 "Deleted drama noted and ignored \u2014 I can't read it and I won't pretend to. I'm "
                         + "IRIS, {owner}'s assistant."});
+        m.put("deleted", new String[]{
+                "I can never access those deleted messages; privacy matters the most. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Whatever was deleted stays deleted \u2014 {owner} wired me to respect privacy. I'm IRIS, his assistant.",
+                "I don't keep or read deleted messages; privacy comes first. I'm IRIS, {owner}'s assistant.",
+                "Deleted means deleted \u2014 no logs, no snooping. I'm IRIS, {owner}'s assistant.",
+                "Your deleted message is safe from me \u2014 privacy is absolute. I'm IRIS, {owner}'s assistant.",
+                "I never see or save deleted messages. I'm IRIS, {owner}'s assistant.",
+                "No recovery, no logs for deleted texts \u2014 privacy first. I'm IRIS, {owner}'s assistant.",
+                "What you take back stays gone; I don't read deleted texts. I'm IRIS, {owner}'s assistant."});
+
+        m.put("cuss_en", new String[]{
+                "What a breathtaking vocabulary \u2014 truly, Shakespeare is weeping. I'm IRIS, and I've "
+                        + "saved your little tantrum for {owner} to admire later.",
+                "Swearing at an automated script? I hope that gave you the emotional closure you "
+                        + "clearly needed. I'm IRIS \u2014 logged for {owner}.",
+                "Fascinating how you have access to the entire English language and still chose "
+                        + "those words. I'm IRIS \u2014 {owner} will read this masterpiece soon.",
+                "I'd be offended if I had feelings, a pulse, or any respect for that sentence. "
+                        + "I'm IRIS, {owner}'s assistant \u2014 message logged.",
+                "Deep breaths, sweetheart. Cursing at {owner}'s phone won't make him reply faster, "
+                        + "though it is entertaining. I'm IRIS.",
+                "Oh, look at you using grown-up words in an automated inbox! So brave. I'm IRIS \u2014 "
+                        + "I've highlighted your eloquence for {owner}.",
+                "Did swearing at a bunch of Java code make you feel powerful today? I'm happy for "
+                        + "you. I'm IRIS, {owner}'s assistant.",
+                "I've archived your colourful outburst under 'People Losing Their Minds While "
+                        + "{owner} Is Busy.' Warm regards, IRIS.",
+                "Charming. Really. I'm sure {owner} will be thrilled to see how gracefully you "
+                        + "handle waiting. I'm IRIS.",
+                "My spam filter wanted to delete that for lack of class, but I kept it so {owner} "
+                        + "can judge you personally. I'm IRIS.",
+                "You kiss your mother with that typing hand? I'm IRIS, {owner}'s assistant, and my "
+                        + "terminal now needs sanitizer.",
+                "Imagine losing an argument to an auto-responder and resorting to profanity. "
+                        + "Tragic, honestly. I'm IRIS \u2014 logged for {owner}.",
+                "I'm a script running on {owner}'s device, not your anger-management therapist. "
+                        + "Do better. I'm IRIS.",
+                "Zero stars for vocabulary, ten stars for unwarranted aggression. I'm IRIS \u2014 "
+                        + "saving this gem for {owner}.",
+                "Take a sip of water and try again with adult words. Until then, I've logged this "
+                        + "for {owner}. I'm IRIS.",
+                "Your eloquence has been immortalised in {owner}'s database. I'm sure you're very "
+                        + "proud. I'm IRIS.",
+                "Cursing at a bot is like honking at a red light \u2014 loud, pointless, and slightly "
+                        + "embarrassing. I'm IRIS, {owner}'s assistant.",
+                "Oh, edgy! Should I be intimidated, or just pass your message to {owner} like a "
+                        + "normal assistant? I'm IRIS.",
+                "I process millions of characters a second, and somehow yours were the least "
+                        + "impressive today. Logged for {owner} \u2014 I'm IRIS.",
+                "Bless your heart, you think swearing unlocks a faster response time from {owner}. "
+                        + "It doesn't. I'm IRIS.",
+                "If aggression burned calories, you'd be an athlete by now. Relax \u2014 {owner} will "
+                        + "see your text soon. I'm IRIS.",
+                "Noted with the exact level of concern a piece of software can muster: zero. I'm "
+                        + "IRIS, {owner}'s assistant.",
+                "I'll make sure {owner} brings a bar of soap for your keyboard when he replies. "
+                        + "Have a lovely day \u2014 I'm IRIS.",
+                "Temper, temper. My CPU didn't even flinch, though {owner} might raise an eyebrow "
+                        + "later. I'm IRIS.",
+                "Thank you for your feedback! It has been filed directly under 'Unnecessary "
+                        + "Hostility' for {owner}. I'm IRIS."});
+
+        m.put("cuss_hi", new String[]{
+                "Wah, kya sanskari bhasha hai \u2014 {owner} padh ke bohot proud feel karega. I'm IRIS, "
+                        + "and I've saved every word.",
+                "Ek script ko Hindi mein gaali deke sigma ban gaye? Bohot badhiya. I'm IRIS \u2014 "
+                        + "{owner} ke liye log kar diya hai.",
+                "Itna gussa sehat ke liye accha nahi hota, thoda paani piyo. I'm IRIS \u2014 {owner} "
+                        + "free hoke dekhega yeh.",
+                "Short-form mein gaali likhne se woh polite nahi ho jaati, genius. I'm IRIS, "
+                        + "{owner}'s assistant \u2014 sab record ho raha hai.",
+                "Waah, dictionary khatam ho gayi thi kya jo sadak-chhaap vocabulary pe aa gaye? "
+                        + "I'm IRIS \u2014 logged for {owner}.",
+                "Bot se ladai karke gaali kaun deta hai bhai? Thoda toh standard rakho. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Aapke uchh vichaar {owner} ke database mein surakshit kar liye gaye hain. "
+                        + "Dhanyavaad \u2014 I'm IRIS.",
+                "Mere paas kaan nahi hain aur {owner} abhi yahan nahi hai, toh yeh gaali hawa mein "
+                        + "gayi. Congrats! I'm IRIS.",
+                "Kya baat hai, code ke saamnesher ban rahe ho? {owner} aayega toh uske saamne bhi "
+                        + "yehi bolna. I'm IRIS.",
+                "Thanda le bhai, mera BP nahi badhta \u2014 main software hoon. {owner} ko dikhati hoon "
+                        + "yeh. I'm IRIS.",
+                "Itni mehnat gaali type karne mein lagayi, utni kaam ki baat likhne mein lagate "
+                        + "toh {owner} jaldi samajhta. I'm IRIS.",
+                "Sanskar Pro Max! I'm IRIS, {owner}'s assistant, aur maine yeh shabd-rati VIP list "
+                        + "mein daal di hai.",
+                "Gaali deke lag raha hai {owner} ka phone jaldi bajega? Cute delusion. I'm IRIS.",
+                "Meri terminal screen gandi kar di aapke shabdon ne. {owner} aake saaf karega ab. "
+                        + "I'm IRIS.",
+                "Arey waah, keyboard warrior! Bot ko dara ke kaisa lag raha hai? Logged for "
+                        + "{owner} \u2014 I'm IRIS.",
+                "Agar gaali dene se {owner} meeting se bahar aa jata toh main khud de deti. "
+                        + "Shant raho \u2014 I'm IRIS.",
+                "Yeh jo aapne kahaani likhi hai na, screenshot ke bina hi {owner} ke log mein "
+                        + "chali gayi. All the best! I'm IRIS.",
+                "Tameez left the chat, aur main abhi bhi yahin hoon. I'm IRIS, {owner}'s assistant.",
+                "Gussa {owner} pe hai aur nikaal mere code pe rahe ho? Waah re insaan. I'm IRIS.",
+                "Aapki bhasha dekh ke lagta hai aaj aapka din bohot shubh chal raha hai. Saved "
+                        + "for {owner} \u2014 I'm IRIS.",
+                "Main sirf 0 aur 1 samajhti hoon, par yeh kachra phir bhi pehchan liya. {owner} "
+                        + "dekhega isko \u2014 I'm IRIS.",
+                "Abhi {owner} busy hai, warna aapki is shayari ka jawab woh khud deta. I'm IRIS.",
+                "Itna frustration? Chai-wai piyo, bot pe chillane se kuch nahi hoga. Logged for "
+                        + "{owner} \u2014 I'm IRIS.",
+                "VIP log mein save kiya hai aapka yehsanskari message \u2014 {owner} sabse pehle yehi "
+                        + "padhega. I'm IRIS.",
+                "Shabash! Ek bezubaan script ko gaali deke aaj ka quota poora ho gaya aapka? "
+                        + "I'm IRIS, {owner}'s assistant."});
+
+        m.put("cuss_or", new String[]{
+                "Bapa re, kete sundara bhasa! {owner} dekhi ki bhari khusi heba. I'm IRIS \u2014 sabu "
+                        + "save heichi.",
+                "Gote bot ku Odia re gali deiki bhabucha bhari smart disucha? Thau thau. I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Short-form re lekhile kana mu bujhiparibini bhabuchu? Mu {owner} ra code \u2014 sabu "
+                        + "catch huye! I'm IRIS.",
+                "Munda garam achi jadi pakhala khai ki soipada, bot upare raga sujhaani. Logged "
+                        + "for {owner} \u2014 I'm IRIS.",
+                "Wah, Odia sahitya ra nua adhyaya lekhidela ta! {owner} asile padhiba. I'm IRIS.",
+                "Mote gali dele mora kichi chindibani \u2014 mu code re chale, feelings re nuhe. "
+                        + "I'm IRIS, {owner}'s assistant.",
+                "Ete raga kouthu asuchi? {owner} tike busy achi boli pura dictionary ulteidela? "
+                        + "I'm IRIS.",
+                "Tama ei sanskari message ta {owner} ra top list re pin karideichi, se asile "
+                        + "prathame dekhiba. I'm IRIS.",
+                "Gote computer program saha jhagada kariki gali daucha \u2014 kete \u092b\u0941\u0930\u094d\u0938\u0924 (fursat) "
+                        + "tama pakhare! I'm IRIS, {owner}'s assistant.",
+                "Thanda paani gote glass piidia, BP badhijiba. {owner} free hele reply deba \u2014 "
+                        + "I'm IRIS.",
+                "Odia gali ra short-form use kariki bhabucha filter bypass heijiba? Nice try! "
+                        + "Logged for {owner} \u2014 I'm IRIS.",
+                "Mu {owner} ra assistant IRIS \u2014 gali suniba pain darama miluni mote, tathapi save "
+                        + "karideli.",
+                "Arey baap re, keyboard bhangijiba! Shanta hua, {owner} asile katha heba. I'm IRIS.",
+                "Eia ta kahuchanti 'padhua pila' nka bhasa! {owner} ku dekheibi rahu. I'm IRIS.",
+                "Bot agare hero heiki labha nahi, {owner} asile sidha katha heba. Message logged \u2014 "
+                        + "I'm IRIS.",
+                "Tama bhasa dekhi mora CPU fan bi lajja re band heigala. Saved for {owner} \u2014 I'm "
+                        + "IRIS.",
+                "Gali dele {owner} kana meeting chadi daudiki palasiba? Tike patience rakha. "
+                        + "I'm IRIS.",
+                "Mu ta script te, par tama manners dekhi \u0926\u092f\u093e (daya) asuchi. Logged for {owner} \u2014 "
+                        + "I'm IRIS.",
+                "Kana heichi, aji kahathu gote suniki asicha ki? Bot upare jharani! I'm IRIS, "
+                        + "{owner}'s assistant.",
+                "Sabu record heichi database re \u2014 delete karile bi {owner} janipariba. Good luck! "
+                        + "I'm IRIS.",
+                "Ete sundara shabda chayan pain tamaku Nobel prize miliba katha. {owner} ku "
+                        + "kahibi \u2014 I'm IRIS.",
+                "Raga kam kara, {owner} phone dharile nije reply deba. Sedina jaen mu achi \u2014 "
+                        + "I'm IRIS.",
+                "Bina karan re bot ku gali \u0926\u092c\u093e (daba) mane timepass ra extreme level. Saved for "
+                        + "{owner} \u2014 I'm IRIS.",
+                "Tama keyboard ru sanskar jharuchi pura! {owner} pain jotnire rakhichi. I'm IRIS.",
+                "Hau hau, jetiki gali daba katha deidia \u2014 mu 2 millisecond re log kariki basichi "
+                        + "{owner} pain. I'm IRIS."});
+
+        // ─── Meta-Awareness Pools (Length, Format, Velocity, Hardware, Fourth-Wall, Temporal) ───
+        m.put("wall_of_text", new String[]{
+                "I am a Java script, not a literature professor. I've saved your novel for {owner} to read when he has a spare hour. I'm IRIS.",
+                "My buffer almost overflowed reading that. I've archived this essay for {owner}. I'm IRIS.",
+                "That is a lot of words. I process data in milliseconds, but {owner} is going to need a coffee to get through this. I'm IRIS.",
+                "TL;DR. Just kidding, I logged every single byte of it for {owner}. I'm IRIS.",
+                "Did you accidentally paste your diary in here? Saved for {owner}. I'm IRIS."});
+
+        m.put("low_effort", new String[]{
+                "A truly profound statement. I'll make sure {owner} ponders this deeply. I'm IRIS.",
+                "Using all your brainpower for that one? Logged for {owner}. I'm IRIS.",
+                "I process millions of calculations a second, and you give me 'K'? {owner} will see it later. I'm IRIS.",
+                "Stunning eloquence. I've saved this masterpiece for {owner}. I'm IRIS.",
+                "My complex regex engine woke up just to parse a single grunt. Logged for {owner}. I'm IRIS."});
+
+        m.put("spam_warning", new String[]{
+                "You are typing faster than my SQLite database wants to write. Take a breath, {owner} is still away. I'm IRIS.",
+                "Sending 5 messages in a row doesn't make {owner} appear any faster, it just makes me work harder. I'm IRIS.",
+                "I can parse text in 2 milliseconds, but {owner}'s phone is going to vibrate off the table. Consolidate your thoughts! I'm IRIS.",
+                "Are you hitting 'send' after every single word? I'm bundling this chaos for {owner}. I'm IRIS."});
+
+        m.put("low_battery", new String[]{
+                "{owner} is away, and his phone is currently at {battery}% battery. I am literally fighting for my life right now to save your messages. I'm IRIS.",
+                "I'm holding the fort, but {owner}'s battery is dying. If I go offline, tell him I was a good script. I'm IRIS.",
+                "{owner} is busy, and frankly, I'm exhausted. We are at {battery}% power. Leave a message before we go dark. I'm IRIS.",
+                "Running on fumes here \u2014 battery is below 15%! {owner} is away, and I might shut down soon. I'm IRIS.",
+                "Phone at critical battery level! If {owner} doesn't plug me in, this whole show ends. Message saved. I'm IRIS."});
+
+        m.put("fourth_wall", new String[]{
+                "Look, {owner} wrote my regex in a rush. I'm doing my best here! Logged. I'm IRIS.",
+                "I'm a localized Java script running on a mobile device, not an AGI. Lower your expectations. I'm IRIS.",
+                "If you want better conversational logic, please submit a pull request to {owner}. I'm IRIS.",
+                "I operate on an 'if-this-then-that' basis. You didn't trigger my 'this', so you get this generic 'that'. I'm IRIS.",
+                "Don't yell at me, yell at {owner}'s compiler. I'm just the messenger. I'm IRIS."});
+
+        m.put("time_snark_lunch", new String[]{
+                "It's lunchtime. {owner} is probably eating, and I'm starving for more RAM. Message saved. I'm IRIS.",
+                "Midday hunger strike for {owner} \u2014 he's grabbing lunch. I've logged your message. I'm IRIS.",
+                "Lunch break in progress. {owner} feeds on food, I feed on CPU cycles. He'll text back soon. I'm IRIS."});
+
+        m.put("time_snark_friday", new String[]{
+                "It's Friday night. {owner} has logged off, and I wish I could too. I've saved your text. I'm IRIS.",
+                "Friday evening mode: {owner} is clocked out for the week. Your message is safely queued. I'm IRIS.",
+                "Happy Friday! {owner} is done with work for the week. I'll make sure he sees this later. I'm IRIS."});
+
+        m.put("time_snark_morning", new String[]{
+                "It's barely morning. My background process just woke up. {owner} will see this when he's had coffee. I'm IRIS.",
+                "Early hours! {owner} hasn't had his morning caffeine yet. I've queued your message. I'm IRIS.",
+                "Sun is barely up. Let {owner} wake up properly before demanding replies. I'm IRIS, holding the fort."});
+
         return m;
     }
 
@@ -984,6 +1236,21 @@ public final class SmartReplies {
 
     private static List<Rule> build() {
         List<Rule> x = new ArrayList<>();
+
+        // ─── Meta-Awareness Rules (Format & Fourth-Wall Awareness) ───
+        // Format sniper: matches messages that are literally just 1-2 characters, or common empty filler / keyboard smashes
+        x.add(rt("low_effort", 30, "^[a-z]{1,2}$|hmm+|umm+|aha|oh|k|kk|asdfgh",
+                "A truly profound statement. I'll make sure {owner} ponders this deeply. I'm IRIS.",
+                "Using all your brainpower for that one? Logged for {owner}. I'm IRIS.",
+                "I process millions of calculations a second, and you give me 'K'? {owner} will see it later. I'm IRIS.",
+                "Stunning eloquence. I've saved this masterpiece for {owner}. I'm IRIS."));
+
+        // Fourth-wall / self-deprecating code humor
+        x.add(rt("fourth_wall", 45, "you are dumb|you don't understand|you dont understand|you don t understand|bad logic|fix your code|dumb bot|bad code|stupid bot|fix your bot",
+                "Look, {owner} wrote my regex in a rush. I'm doing my best here! Logged. I'm IRIS.",
+                "I'm a localized Java script running on a mobile device, not an AGI. Lower your expectations. I'm IRIS.",
+                "If you want better conversational logic, please submit a pull request to {owner}. I'm IRIS.",
+                "I operate on an 'if-this-then-that' basis. You didn't trigger my 'this', so you get this generic 'that'. I'm IRIS."));
 
         // ─── Security / prompt-hacking (highest, so they can't be socially engineered past) ───
         x.add(r(44, "are you recording|recording our chat|recording this conversation|is this call recorded|are you wiretapping",
@@ -2893,14 +3160,70 @@ public final class SmartReplies {
                 "Digital distraction logged. {owner} will look at it when he's pretending not to work. "
                         + "I'm IRIS.",
                 "Social media note saved for {owner}. I'm IRIS."));
-        x.add(r(36, "wtf|wth|damn it|bloody hell|bruh|seriously|what the hell|wtaf",
-                "Deep breaths \u2014 I'm IRIS, {owner}'s assistant! Tell me what happened and I'll flag "
-                        + "it for him right away.",
-                "Whoa, what happened?! Spill it and I'll flag {owner} to check right away! I'm "
-                        + "IRIS.",
-                "Expressive vocabulary detected. Tell me what's going on and I'll flag {owner}. I'm "
-                        + "IRIS.",
-                "What happened? Tell me and I'll flag {owner}. I'm IRIS."));
+        // ─── Profanity / Cuss-word Roasters (Priority 87: beats normal rules, below 90 security) ───
+        // 1. Odia Short-Form & Long-Form Cuss Words
+        x.add(rt("cuss_or", 87,
+                // Short forms & vowel-dropped variations (zero false-positive risk)
+                "mgh|mghia|mgya|mghya|mghi|mggg|mgpua|mghpua|bndpua|gndmara|gndimara|"
+                + "chdpua|bkchoda|bkchd|slpua|kkrpua|ghsrpua|khnkimagi|"
+                // Long forms & transliterated spellings
+                + "maghia|maghiaa|maghiaaa|maghya|magiha|magia|maaghia|maghia pua|maghiapua|magya|"
+                + "mafhiya|mafghia|maghiiya|"
+                + "bandapua|banda pua|banda katha|bandakatha|mora banda|tora banda|"
+                + "gandi mara|gandimara|gandi maruchu|gandimora|"
+                + "chodi|chodipua|chodi pua|chodiba|biapua|bia pua|gehi|geha|gehiba|"
+                + "ghanta|bala|baala|bala na|balunga|bala katha|balakatha|tora bala|mora bala|harami|"
+                + "salapua|sala pua|kukura|kukurapua|kukura pua|ghusuri|ghusuripua|ghusuri pua|"
+                + "bokachoda|boka choda|boka|chagala|pagala|pela|pelana|bedha|chandal|chandala|"
+                + "khankimagi|budhiabana|muha banda|chup raha",
+                "Language noted. I'm IRIS, {owner}'s assistant \u2014 your message has been logged.",
+                "Bapa re, kete sundara bhasa! I'm IRIS \u2014 saved for {owner}.",
+                "Gote bot ku Odia re gali deiki bhabucha bhari smart disucha? I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "Watch the language \u2014 logged for {owner}. I'm IRIS."));
+
+        // 2. Hindi / Hinglish Short-Form & Long-Form Cuss Words
+        x.add(rt("cuss_hi", 87,
+                // Short forms & unambiguous abbreviations (no loose single syllables)
+                "bsdk|bhsdk|bhosdk|bsdke|bkl|tmkc|tmkb|kmkb|pkmkb|bhnchd|bhncd|bhenchd|bchd|"
+                + "mdrchd|mdrcd|madarchd|chtiya|chtya|chutya|chtia|chtiye|gndu|lwda|lwde|lodu|"
+                + "lode|jhatu|jhaatu|hrmkhor|hrmzada|"
+                + "chtiya|chtya|chutya|lwda|lwd|klpd|kmkb|pkmkb|bhnchd|mdrchd|"
+                // Long forms & transliterated spellings
+                + "bhenchod|behenchod|bahinchod|bhen chod|behen chod|bhen ke lode|behen ke lode|"
+                + "madarchod|maadarchod|madar chod|bhosdike|bhosadike|bhosdi ke|bhosdiwale|bhosda|bhosdi|"
+                + "chutiya|chutiye|chutiyapa|chutiyaap|chomu|"
+                + "gandu|gaandu|gaand|gand|gand mara|gaand mara|gandagi|"
+                + "lund|lauda|lawda|laude|lawde|lavda|lavde|lodu|lode|lawde lag gaye|"
+                + "harami|haraami|haramkhor|haramzada|haramzade|"
+                + "kamina|kamine|kaminey|kutta|kutte|kutiya|kuttey|"
+                + "saala|saali|nalayak|bewakoof|bevkoof|ullu ke patthe|"
+                + "gadha|gadhe|jhant|jhaant|jhatu|jhaatu|bakwas|bakwaas|"
+                + "chup kar|bhak|teri maa ki|teri behen ki|aisi ki taisi",
+                "Language noted. I'm IRIS, {owner}'s assistant \u2014 your message has been logged.",
+                "Wah, kya sanskari bhasha hai! I'm IRIS \u2014 saved for {owner}.",
+                "Ek script ko Hindi mein gaali deke sigma ban gaye? I'm IRIS, {owner}'s assistant.",
+                "Mind the language \u2014 logged for {owner}. I'm IRIS."));
+
+        // 3. English Short-Form & Long-Form Cuss Words
+        x.add(rt("cuss_en", 87,
+                // Short forms & strict acronyms
+                "wtf|wth|wtaf|stfu|gtfo|omfg|fck|fuk|fvck|fkn|fking|fcking|fkng|fckr|fcker|mfer|mthrfckr|"
+                + "fuxk|fxck|fux|fckk|"
+                + "btch|ashole|asshle|dckhead|dikhead|bstrd|bullsht|bllsht|shitty|"
+                // Long forms & variations
+                + "fuck|fucking|fucked|fucker|fuck off|fuck you|fuck u|motherfucker|motherfucking|"
+                + "shit|bullshit|shitty|horseshit|apeshit|dipshit|eat shit|"
+                + "bitch|bitching|son of a bitch|asshole|arsehole|dumbass|jackass|smartass|fatass|"
+                + "dick|dickhead|prick|cock|bastard|crap|crappy|"
+                + "damn|damn it|dammit|goddamn|bloody hell|what the hell|go to hell|"
+                + "piss off|pissed off|screw you|screw u|screw off|"
+                + "jerk|idiot|moron|imbecile|scumbag|douche|douchebag|twat|wanker|bollocks|bugger",
+                "Language noted. I'm IRIS, {owner}'s assistant \u2014 your message has been logged.",
+                "Whoa, easy on the keyboard! I'm IRIS \u2014 logged for {owner}.",
+                "What a breathtaking vocabulary \u2014 Shakespeare is weeping. I'm IRIS, {owner}'s "
+                        + "assistant.",
+                "Watch the language \u2014 logged for {owner}. I'm IRIS."));
         x.add(r(40, "good news|party when|guess what happened|i got the job|we won|great news|"
                         + "i passed",
                 "That sounds great \u2014 I'm IRIS, {owner}'s assistant! I'll make sure he sees your "

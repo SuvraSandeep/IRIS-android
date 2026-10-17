@@ -461,14 +461,16 @@ public class MainActivity extends Activity {
         View toArchive = shell.findViewById(R.id.commsTabArchive);
         View toResponder = shell.findViewById(R.id.commsTabResponder);
         View toContacts = shell.findViewById(R.id.commsTabContacts);
+        View toFlagged = shell.findViewById(R.id.commsTabFlagged);
         if (toArchive != null) toArchive.setOnClickListener(v -> showCommsSection(shell, 0));
         if (toResponder != null) toResponder.setOnClickListener(v -> showCommsSection(shell, 1));
         if (toContacts != null) toContacts.setOnClickListener(v -> showCommsSection(shell, 2));
+        if (toFlagged != null) toFlagged.setOnClickListener(v -> showCommsSection(shell, 3));
 
         showCommsSection(shell, commsSection);
     }
 
-    /** Which COMMS DECK sub-tab is open: 0 archive, 1 responder, 2 contacts. */
+    /** Which COMMS DECK sub-tab is open: 0 archive, 1 responder, 2 contacts, 3 flagged. */
     private int commsSection;
 
     /**
@@ -490,6 +492,7 @@ public class MainActivity extends Activity {
 
         int layout = section == 1 ? R.layout.view_comms_responder
                 : section == 2 ? R.layout.view_comms_contacts
+                : section == 3 ? R.layout.view_comms_flagged
                 : R.layout.view_archive;
         View body = LayoutInflater.from(this).inflate(layout, host, false);
         host.addView(body);
@@ -497,6 +500,7 @@ public class MainActivity extends Activity {
         if (section == 0) bindArchiveSection(body);
         if (section == 1) bindResponderSection(body);
         if (section == 2) bindContactsSection(body);
+        if (section == 3) bindFlaggedSection(body);
     }
 
     /** Wire the CONTACTS section. */
@@ -1048,6 +1052,18 @@ public class MainActivity extends Activity {
         return "  \u2192 " + windowTone.name() + " now";
     }
 
+    private String relationToneSummary(ResponderSettings settings) {
+        StringBuilder sb = new StringBuilder();
+        for (ReplyTone.Relation r : new ReplyTone.Relation[]{
+                ReplyTone.Relation.FAMILY, ReplyTone.Relation.FRIEND, ReplyTone.Relation.WORK}) {
+            String raw = settings.relationToneRaw(r);
+            if (sb.length() > 0) sb.append(" \u00b7 ");
+            sb.append(r.name().charAt(0)).append(r.name().substring(1).toLowerCase(java.util.Locale.ROOT))
+              .append(": ").append("DEFAULT".equalsIgnoreCase(raw) ? "default" : raw.toLowerCase(java.util.Locale.ROOT));
+        }
+        return sb.toString();
+    }
+
     private String nameRuleSummary(ResponderSettings settings) {
         java.util.List<ResponderSettings.NameRule> rules = settings.nameRules();
         if (rules.isEmpty()) return "none";
@@ -1345,43 +1361,95 @@ public class MainActivity extends Activity {
 
 
 
-    /** How many apps have a tone override set, for the row's value text. */
+    /** How many selected apps have a tone override set, for the row's value text. */
     private String appToneSummary(ResponderSettings settings) {
+        java.util.Set<String> selected = settings.apps();
+        if (selected == null || selected.isEmpty()) {
+            return "no apps selected";
+        }
         int n = 0;
-        for (MessagingApp a : MessagingApp.values()) {
-            if (a == MessagingApp.OTHER) continue;
-            if (settings.appTone(a) != null) n++;
+        for (String pkg : selected) {
+            if (settings.appTone(pkg) != null) n++;
         }
         return n == 0 ? "all default" : n + " set";
     }
 
-    /** Pick an app, then set the tone IRIS uses for messages from it. */
+    /** Pick an app, then set the tone IRIS uses for messages from it. Strictly lists responder-selected apps. */
     private void editAppTones(final ResponderSettings settings, final View root) {
-        final java.util.List<MessagingApp> apps = new java.util.ArrayList<>();
-        for (MessagingApp a : MessagingApp.values()) {
-            if (a != MessagingApp.OTHER) apps.add(a);
+        final java.util.List<String> packages = new java.util.ArrayList<>();
+        if (settings.apps() != null) {
+            for (String p : settings.apps()) {
+                if (p != null && !p.trim().isEmpty()) packages.add(p.trim());
+            }
         }
-        final String[] labels = new String[apps.size()];
-        for (int i = 0; i < apps.size(); i++) {
-            ReplyTone.Tone t = settings.appTone(apps.get(i));
-            labels[i] = apps.get(i).label() + "  \u2192  " + (t == null ? "default" : t.name());
+        if (packages.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("No responder apps selected")
+                    .setMessage("IRIS can only apply a channel tone to apps you've allowed the "
+                            + "responder to speak through.\n\nTap 'Who may I answer for you?' first "
+                            + "to select your messaging apps.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        final String[] labels = new String[packages.size()];
+        for (int i = 0; i < packages.size(); i++) {
+            String pkg = packages.get(i);
+            ReplyTone.Tone t = settings.appTone(pkg);
+            String name = appLabel(pkg);
+            labels[i] = name + "  \u2192  " + (t == null ? "default" : t.name());
         }
         choiceDialog("Tone by app",
                 "Sound a certain way on a given channel \u2014 say professional on SMS, casual on "
-                        + "WhatsApp. A tone you've set on a person or a name rule still wins over "
-                        + "this.",
-                labels, which -> editOneAppTone(settings, apps.get(which), root));
+                        + "WhatsApp. Strictly showing apps you have selected for the responder.",
+                labels, which -> editOneAppTone(settings, packages.get(which), root));
     }
 
-    private void editOneAppTone(final ResponderSettings settings, final MessagingApp app,
+    private void editOneAppTone(final ResponderSettings settings, final String pkg,
                                 final View root) {
         final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
         final String[] labels = new String[tones.length + 1];
         for (int i = 0; i < tones.length; i++) labels[i] = tones[i].name();
         labels[tones.length] = "Use default (clear)";
-        choiceDialog(app.label() + " tone", "How should I sound on " + app.label() + "?",
+        String name = appLabel(pkg);
+        choiceDialog(name + " tone", "How should I sound on " + name + "?",
                 labels, which -> {
-                    settings.setAppTone(app, which < tones.length ? tones[which] : null);
+                    settings.setAppTone(pkg, which < tones.length ? tones[which] : null);
+                    renderResponder(root);
+                });
+    }
+
+    private void editRelationTones(final ResponderSettings settings, final View root) {
+        final ReplyTone.Relation[] relations = new ReplyTone.Relation[]{
+                ReplyTone.Relation.FAMILY, ReplyTone.Relation.FRIEND, ReplyTone.Relation.WORK};
+        final String[] labels = new String[relations.length];
+        for (int i = 0; i < relations.length; i++) {
+            String raw = settings.relationToneRaw(relations[i]);
+            String displayTone = "DEFAULT".equalsIgnoreCase(raw)
+                    ? "default (" + settings.defaultTone().name() + ")"
+                    : raw;
+            labels[i] = relations[i].name() + "  \u2192  " + displayTone;
+        }
+        choiceDialog("Tone by relationship",
+                "Choose what tone IRIS uses for each relationship category. You can set a specific tone "
+                        + "(Casual, Sarcastic, Professional, Brief) or set it to 'Use default tone' so it inherits "
+                        + "your global default setting.",
+                labels, which -> editOneRelationTone(settings, relations[which], root));
+    }
+
+    private void editOneRelationTone(final ResponderSettings settings, final ReplyTone.Relation relation,
+                                     final View root) {
+        final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
+        final String[] labels = new String[tones.length + 1];
+        for (int i = 0; i < tones.length; i++) {
+            labels[i] = tones[i] == ReplyTone.Tone.SARCASTIC
+                    ? "SARCASTIC \u2014 only if you mean it" : tones[i].name();
+        }
+        labels[tones.length] = "Use default tone (" + settings.defaultTone().name() + ")";
+        choiceDialog(relation.name() + " tone", "How should IRIS sound when replying to " + relation.name() + "?",
+                labels, which -> {
+                    settings.setRelationTone(relation, which < tones.length ? tones[which] : null);
                     renderResponder(root);
                 });
     }
@@ -1860,6 +1928,11 @@ public class MainActivity extends Activity {
                     () -> editMentionList(view, "My number(s)",
                             "One per line, with or without +country code.",
                             settings.mentionNumbers(), settings::setMentionNumbers)));
+            host.addView(responderRow("Group trigger words (comma-separated)",
+                    mentionSummary(settings.mentionKeywords(), "no trigger words set"),
+                    () -> editMentionList(view, "Group trigger words",
+                            "Comma-separated or one per line (e.g. suvra, stg, emergency, bot).",
+                            settings.mentionKeywords(), settings::setMentionKeywords)));
             host.addView(responderSwitch("Answer numbers not in your contacts",
                     settings.replyToUnsaved(), on -> settings.setReplyToUnsaved(on), view));
             host.addView(responderSwitch("Only contacts you've explicitly allowed",
@@ -1909,6 +1982,8 @@ public class MainActivity extends Activity {
             host.addView(responderRow("Default tone",
                     settings.defaultTone().name() + effectiveToneNote(settings),
                     () -> editDefaultTone(settings, view)));
+            host.addView(responderRow("Tone by relationship", relationToneSummary(settings),
+                    () -> editRelationTones(settings, view)));
             host.addView(responderRow("Tone by app", appToneSummary(settings),
                     () -> editAppTones(settings, view)));
             host.addView(responderSwitch("Sound professional during work hours",
@@ -2053,6 +2128,8 @@ public class MainActivity extends Activity {
 
     /** Signature of the decision log as last drawn, so polling can detect a real change. */
     private String responderLogSignature = "";
+    /** Active filter for decision log: 0=ALL, 1=SPOKE, 2=SILENT, 3=DRY RUN, 4=FAILED */
+    private int responderLogFilter = 0;
 
     /**
      * Attempt one real reply now and report exactly what came back.
@@ -2388,8 +2465,6 @@ public class MainActivity extends Activity {
                 int sent = log.sentCount();
                 int failed = log.failedCount();
                 if (sent > 0) line.append(" \u00b7 ").append(sent).append(" sent");
-                // Called out, not buried. A responder that decides well and then fails to deliver
-                // reads from a summary line exactly like one that is working.
                 if (failed > 0) {
                     line.append(" \u00b7 ").append(failed)
                             .append(failed == 1 ? " FAILED to send" : " FAILED to send");
@@ -2397,6 +2472,34 @@ public class MainActivity extends Activity {
                 summary.setText(line.toString());
                 summary.setTextColor(getColor(
                         failed > 0 ? R.color.deck_error : R.color.deck_text_dim));
+            }
+        }
+
+        LinearLayout filters = view.findViewById(R.id.responderLogFilters);
+        if (filters != null) {
+            filters.removeAllViews();
+            if (!entries.isEmpty()) {
+                int total = entries.size();
+                int spokeCount = 0;
+                int silentCount = 0;
+                int dryCount = 0;
+                int failedCount = 0;
+                for (ResponderLog.Entry e : entries) {
+                    if (e.wouldHaveSent()) spokeCount++;
+                    else silentCount++;
+                    if (e.dryRun) dryCount++;
+                    if (e.sendFailed()) failedCount++;
+                }
+
+                addResponderLogChip(filters, "ALL (" + total + ")", 0, view);
+                addResponderLogChip(filters, "SPOKE 💬 (" + spokeCount + ")", 1, view);
+                addResponderLogChip(filters, "SILENT 🤫 (" + silentCount + ")", 2, view);
+                if (dryCount > 0) {
+                    addResponderLogChip(filters, "DRY RUN 🧪 (" + dryCount + ")", 3, view);
+                }
+                if (failedCount > 0) {
+                    addResponderLogChip(filters, "FAILED ❌ (" + failedCount + ")", 4, view);
+                }
             }
         }
 
@@ -2416,117 +2519,270 @@ public class MainActivity extends Activity {
             host.addView(empty);
             return;
         }
-        for (ResponderLog.Entry entry : entries) host.addView(responderLogCard(entry, view));
+
+        java.util.List<ResponderLog.Entry> filtered = new java.util.ArrayList<>();
+        for (ResponderLog.Entry e : entries) {
+            if (responderLogFilter == 1 && !e.wouldHaveSent()) continue;
+            if (responderLogFilter == 2 && e.wouldHaveSent()) continue;
+            if (responderLogFilter == 3 && !e.dryRun) continue;
+            if (responderLogFilter == 4 && !e.sendFailed()) continue;
+            filtered.add(e);
+        }
+
+        if (filtered.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("No decisions match this filter. Tap 'ALL' above to view all.");
+            empty.setTextSize(11f);
+            empty.setTypeface(android.graphics.Typeface.MONOSPACE);
+            empty.setTextColor(getColor(R.color.deck_text_dim));
+            empty.setPadding(0, dp(14), 0, dp(14));
+            host.addView(empty);
+            return;
+        }
+
+        for (ResponderLog.Entry entry : filtered) host.addView(responderLogCard(entry, view));
+    }
+
+    private void addResponderLogChip(LinearLayout parent, String label, final int filterIndex, final View rootView) {
+        TextView chip = new TextView(this);
+        chip.setText(label);
+        chip.setTextSize(10f);
+        chip.setTypeface(android.graphics.Typeface.MONOSPACE,
+                responderLogFilter == filterIndex ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        chip.setPadding(dp(10), dp(6), dp(10), dp(6));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(6);
+        chip.setLayoutParams(lp);
+
+        boolean active = responderLogFilter == filterIndex;
+        chip.setTextColor(getColor(active ? R.color.text_primary : R.color.deck_text_dim));
+        chip.setBackgroundResource(active ? R.drawable.bg_cyber_button : R.drawable.bg_cyber_row);
+
+        chip.setOnClickListener(v -> {
+            responderLogFilter = filterIndex;
+            renderResponderLog(rootView);
+        });
+        parent.addView(chip);
     }
 
     /**
      * One decision.
      *
-     * A silence is shown as prominently as a send, because during a dry run the owner is mostly
-     * checking that IRIS declines for sensible reasons.
+     * Enhanced cyber layout with prominent status badge, incoming/outgoing bubbles,
+     * category/tone tags, and tap-for-audit.
      */
     private View responderLogCard(ResponderLog.Entry entry, final View root) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(11), dp(9), dp(11), dp(9));
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(5);
+        params.topMargin = dp(6);
         card.setLayoutParams(params);
+
         boolean spoke = entry.wouldHaveSent();
         boolean failed = entry.sendFailed();
-        card.setBackgroundResource(spoke
-                ? R.drawable.bg_cyber_row_flagged : R.drawable.bg_cyber_row);
+        boolean sent = entry.actuallySent();
 
-        TextView head = new TextView(this);
-        String who = entry.sender.isEmpty() ? "someone" : entry.sender;
-        head.setText(who + (entry.group ? " (group)" : "") + " \u00b7 " + entry.appLabel);
-        head.setTextSize(12f);
-        head.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
-        head.setTextColor(getColor(spoke ? R.color.deck_error : R.color.deck_accent));
-        card.addView(head);
+        card.setBackgroundResource(R.drawable.bg_cyber_panel);
 
-        TextView meta = new TextView(this);
+        // 1. TOP BAR: [App Badge] Sender Name ......... [Status Pill]
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
         MessagingApp channel = MessagingApp.fromPackage(entry.pkg);
-        meta.setText(DeletedMessageRules.formatTime(entry.whenMs, java.util.TimeZone.getDefault())
-                + " \u00b7 " + channel.label()
-                + " \u00b7 " + entry.category + " \u00b7 " + entry.tone
-                + (entry.dryRun ? " \u00b7 DRY RUN" : ""));
+        String channelName = channel != MessagingApp.OTHER ? channel.label() : (entry.appLabel.isEmpty() ? "App" : entry.appLabel);
+        TextView channelBadge = new TextView(this);
+        channelBadge.setText("[" + channelName + "]");
+        channelBadge.setTextSize(10f);
+        channelBadge.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        channelBadge.setTextColor(getColor(R.color.deck_accent));
+        topBar.addView(channelBadge);
+
+        String who = entry.sender.isEmpty() ? "Someone" : entry.sender;
+        TextView senderTv = new TextView(this);
+        senderTv.setText(" " + who + (entry.group ? " (group)" : ""));
+        senderTv.setTextSize(12f);
+        senderTv.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        senderTv.setTextColor(getColor(R.color.text_primary));
+        senderTv.setSingleLine(true);
+        senderTv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams senderLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        senderTv.setLayoutParams(senderLp);
+        topBar.addView(senderTv);
+
+        TextView statusBadge = new TextView(this);
+        statusBadge.setTextSize(10f);
+        statusBadge.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        statusBadge.setPadding(dp(6), dp(2), dp(6), dp(2));
+        if (failed) {
+            statusBadge.setText("❌ FAILED");
+            statusBadge.setTextColor(getColor(R.color.deck_error));
+            statusBadge.setBackgroundResource(R.drawable.bg_cyber_button_danger);
+        } else if (sent) {
+            statusBadge.setText("💬 SENT");
+            statusBadge.setTextColor(getColor(R.color.mint));
+            statusBadge.setBackgroundResource(R.drawable.bg_cyber_button);
+        } else if (spoke) {
+            statusBadge.setText("🧪 WOULD SEND");
+            statusBadge.setTextColor(getColor(R.color.violet));
+            statusBadge.setBackgroundResource(R.drawable.bg_cyber_button);
+        } else {
+            statusBadge.setText("🤫 SILENT");
+            statusBadge.setTextColor(getColor(R.color.deck_text_dim));
+        }
+        topBar.addView(statusBadge);
+        card.addView(topBar);
+
+        // 2. META ROW: Time · Category · Tone · Dry Run
+        TextView meta = new TextView(this);
+        String timeStr = DeletedMessageRules.formatTime(entry.whenMs, java.util.TimeZone.getDefault());
+        StringBuilder metaSb = new StringBuilder();
+        metaSb.append("🕒 ").append(timeStr);
+        if (entry.category != null && !entry.category.isEmpty()) {
+            metaSb.append("  ·  🏷️ ").append(entry.category);
+        }
+        if (entry.tone != null && !entry.tone.isEmpty()) {
+            metaSb.append("  ·  🎭 ").append(entry.tone);
+        }
+        if (entry.dryRun) {
+            metaSb.append("  ·  DRY RUN");
+        }
+        meta.setText(metaSb.toString());
         meta.setTextSize(10f);
         meta.setTypeface(android.graphics.Typeface.MONOSPACE);
         meta.setTextColor(getColor(R.color.deck_text_dim));
+        meta.setPadding(0, dp(4), 0, dp(6));
         card.addView(meta);
 
-        if (!entry.incoming.isEmpty()) {
-            TextView incoming = new TextView(this);
-            incoming.setText("\u201C" + entry.incoming + "\u201D");
-            incoming.setTextSize(11f);
-            incoming.setTypeface(android.graphics.Typeface.MONOSPACE);
-            incoming.setTextColor(getColor(R.color.deck_text));
-            incoming.setPadding(0, dp(5), 0, 0);
-            card.addView(incoming);
+        // 3. INCOMING MESSAGE CONTAINER
+        if (entry.incoming != null && !entry.incoming.trim().isEmpty()) {
+            LinearLayout inBox = new LinearLayout(this);
+            inBox.setOrientation(LinearLayout.VERTICAL);
+            inBox.setBackgroundResource(R.drawable.bg_cyber_row);
+            inBox.setPadding(dp(9), dp(7), dp(9), dp(7));
+            LinearLayout.LayoutParams inLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            inLp.bottomMargin = dp(6);
+            inBox.setLayoutParams(inLp);
+
+            TextView inLabel = new TextView(this);
+            inLabel.setText("📥 INCOMING");
+            inLabel.setTextSize(9f);
+            inLabel.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+            inLabel.setTextColor(getColor(R.color.deck_accent));
+            inBox.addView(inLabel);
+
+            TextView inText = new TextView(this);
+            inText.setText("“" + entry.incoming.trim() + "”");
+            inText.setTextSize(11f);
+            inText.setTypeface(android.graphics.Typeface.MONOSPACE);
+            inText.setTextColor(getColor(R.color.text_primary));
+            inText.setTextIsSelectable(true);
+            inText.setPadding(0, dp(2), 0, 0);
+            inBox.addView(inText);
+
+            card.addView(inBox);
         }
 
-        TextView reason = new TextView(this);
+        // 4. DECISION & REASON BLOCK
+        LinearLayout decisionBox = new LinearLayout(this);
+        decisionBox.setOrientation(LinearLayout.VERTICAL);
+        decisionBox.setPadding(0, 0, 0, dp(4));
+
         ResponderGuards.Verdict verdict;
         try { verdict = ResponderGuards.Verdict.valueOf(entry.verdict); }
         catch (Exception e) { verdict = null; }
         String whyText = (entry.reason != null && !entry.reason.trim().isEmpty())
                 ? entry.reason.trim()
                 : ResponderGuards.explain(verdict);
-        reason.setText(whyText);
-        reason.setTextSize(11f);
-        reason.setTypeface(android.graphics.Typeface.MONOSPACE);
-        reason.setTextColor(getColor(R.color.deck_text_dim));
-        reason.setPadding(0, dp(4), 0, 0);
-        card.addView(reason);
 
-        if (spoke) {
-            // Three distinct outcomes, never collapsed. A failed send used to render under the
-            // word "SENT" with the failure message as its body, which told the owner a message had
-            // gone when it had not -- the one thing this log exists to get right.
-            TextView said = new TextView(this);
-            String prefix = entry.dryRun ? "WOULD HAVE SENT: "
-                    : failed ? "NOT SENT: " : "SENT: ";
-            said.setText(prefix + entry.reply);
-            said.setTextSize(11f);
-            said.setTextColor(getColor(failed ? R.color.deck_error : R.color.deck_text));
-            said.setPadding(0, dp(6), 0, 0);
-            card.addView(said);
+        TextView decLabel = new TextView(this);
+        decLabel.setText(spoke ? "⚖️ VERDICT: RESPOND" : "⚖️ VERDICT: STAY SILENT (" + entry.verdict + ")");
+        decLabel.setTextSize(9f);
+        decLabel.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        decLabel.setTextColor(getColor(spoke ? R.color.mint : R.color.warning));
+        decisionBox.addView(decLabel);
+
+        TextView reasonTv = new TextView(this);
+        reasonTv.setText(whyText);
+        reasonTv.setTextSize(11f);
+        reasonTv.setTypeface(android.graphics.Typeface.MONOSPACE);
+        reasonTv.setTextColor(getColor(R.color.deck_text_dim));
+        reasonTv.setPadding(0, dp(2), 0, 0);
+        decisionBox.addView(reasonTv);
+
+        card.addView(decisionBox);
+
+        // 5. OUTGOING REPLY CONTAINER (IF SPOKE)
+        if (spoke && entry.reply != null && !entry.reply.trim().isEmpty()) {
+            LinearLayout outBox = new LinearLayout(this);
+            outBox.setOrientation(LinearLayout.VERTICAL);
+            outBox.setBackgroundResource(R.drawable.bg_cyber_row_flagged);
+            outBox.setPadding(dp(9), dp(7), dp(9), dp(7));
+            LinearLayout.LayoutParams outLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            outLp.topMargin = dp(4);
+            outLp.bottomMargin = dp(4);
+            outBox.setLayoutParams(outLp);
+
+            TextView outLabel = new TextView(this);
+            String outHeader = failed ? "⚠️ ATTEMPTED REPLY (DELIVERY FAILED)"
+                    : sent ? "📤 SENT REPLY (DELIVERED TO APP)"
+                    : "🧪 SIMULATED REPLY (DRY RUN)";
+            outLabel.setText(outHeader);
+            outLabel.setTextSize(9f);
+            outLabel.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+            outLabel.setTextColor(getColor(failed ? R.color.deck_error : sent ? R.color.mint : R.color.violet));
+            outBox.addView(outLabel);
+
+            TextView outText = new TextView(this);
+            outText.setText("“" + entry.reply.trim() + "”");
+            outText.setTextSize(11f);
+            outText.setTypeface(android.graphics.Typeface.MONOSPACE);
+            outText.setTextColor(getColor(R.color.text_primary));
+            outText.setTextIsSelectable(true);
+            outText.setPadding(0, dp(2), 0, 0);
+            outBox.addView(outText);
 
             if (failed) {
-                TextView why = new TextView(this);
                 NotificationReply.Result result;
                 try { result = NotificationReply.Result.valueOf(entry.sendResult); }
                 catch (Exception e) { result = null; }
-                why.setText("\u2514 " + NotificationReply.explain(result));
-                why.setTextSize(11f);
-                why.setTypeface(android.graphics.Typeface.MONOSPACE);
-                why.setTextColor(getColor(R.color.deck_error));
-                why.setPadding(0, dp(4), 0, 0);
-                card.addView(why);
-            } else if (entry.actuallySent()) {
-                // Stated plainly, because "submitted" and "delivered" are different claims and
-                // nothing observable from inside this app can tell them apart.
-                TextView caveat = new TextView(this);
-                caveat.setText("\u2514 handed to the app; delivery isn't something I can verify");
-                caveat.setTextSize(10f);
-                caveat.setTypeface(android.graphics.Typeface.MONOSPACE);
-                caveat.setTextColor(getColor(R.color.deck_text_dim));
-                caveat.setPadding(0, dp(4), 0, 0);
-                card.addView(caveat);
+                TextView failDetail = new TextView(this);
+                failDetail.setText("↳ " + NotificationReply.explain(result));
+                failDetail.setTextSize(10f);
+                failDetail.setTypeface(android.graphics.Typeface.MONOSPACE);
+                failDetail.setTextColor(getColor(R.color.deck_error));
+                failDetail.setPadding(0, dp(4), 0, 0);
+                outBox.addView(failDetail);
             }
+
+            card.addView(outBox);
         }
 
-        // No swipe handler here on purpose: a touch listener on the row fought the ScrollView and
-        // made the list hard to scroll, with the action firing on a plain touch. The log is a
-        // diagnostic, not the archive, so a long-press menu is the right weight \u2014 a plain touch
-        // now just scrolls.
+        // 6. FOOTER HINT
+        TextView footerHint = new TextView(this);
+        footerHint.setText("ℹ️ Tap to view full audit  ·  Long press for actions");
+        footerHint.setTextSize(9f);
+        footerHint.setTypeface(android.graphics.Typeface.MONOSPACE);
+        footerHint.setTextColor(getColor(R.color.border_accent));
+        footerHint.setPadding(0, dp(4), 0, 0);
+        card.addView(footerHint);
+
+        // Single tap to view audit breakdown immediately
+        card.setOnClickListener(v -> showDecisionWhyDialog(entry));
+
+        // Long press opens context action menu
         final String who2 = entry.sender;
         card.setOnLongClickListener(v -> {
             java.util.List<String> items = new java.util.ArrayList<>();
             items.add("Why was this decision taken?");
             items.add("Delete this entry");
+            items.add("\uD83D\uDCCC Pin to assistant queue");
+            items.add("\uD83D\uDEA9 Flag as urgent");
             boolean hasSender = who2 != null && !who2.trim().isEmpty();
             if (hasSender) items.add("Teach a reply for " + who2);
             if (hasSender) items.add("Set a rule for " + who2);
@@ -2537,20 +2793,28 @@ public class MainActivity extends Activity {
                         if (choice.equals("Why was this decision taken?")) {
                             showDecisionWhyDialog(entry);
                         } else if (choice.equals("Delete this entry")) {
-                            ResponderLog log = new ResponderLog(this);
-                            final java.util.List<ResponderLog.Entry> before = log.all();
-                            log.deleteOne(entry.whenMs, entry.sender, entry.verdict);
-                            responderLogSignature = log.signature();
+                            ResponderLog log2 = new ResponderLog(this);
+                            final java.util.List<ResponderLog.Entry> before = log2.all();
+                            log2.deleteOne(entry.whenMs, entry.sender, entry.verdict);
+                            responderLogSignature = log2.signature();
                             renderResponderLog(root);
                             new AlertDialog.Builder(this)
-                                    .setMessage("Removed one decision from the log.")
+                                     .setMessage("Removed one decision from the log.")
                                     .setNegativeButton("Undo", (dd, ww) -> {
-                                        log.overwrite(before);
-                                        responderLogSignature = log.signature();
+                                        log2.overwrite(before);
+                                        responderLogSignature = log2.signature();
                                         renderResponderLog(root);
                                     })
                                     .setPositiveButton("Keep removed", null)
                                     .show();
+                        } else if (choice.contains("Pin to assistant queue")) {
+                            FlaggedStore.get(this).addPinned(
+                                    entry.incoming, who2, entry.appLabel, "Pinned from decision log", System.currentTimeMillis());
+                            toast("Pinned to assistant queue");
+                        } else if (choice.contains("Flag as urgent")) {
+                            FlaggedStore.get(this).addFlagged(
+                                    entry.incoming, who2, entry.appLabel, "Flagged from decision log", System.currentTimeMillis());
+                            toast("Flagged as urgent");
                         } else if (choice.startsWith("Teach a reply")) {
                             teachReplyDialog(entry, root);
                         } else {
@@ -2559,27 +2823,29 @@ public class MainActivity extends Activity {
                     }).show();
             return true;
         });
+
         return card;
     }
 
     private void showDecisionWhyDialog(final ResponderLog.Entry entry) {
         StringBuilder sb = new StringBuilder();
         if (entry.incoming != null && !entry.incoming.trim().isEmpty()) {
-            sb.append("Message:\n\"").append(entry.incoming.trim()).append("\"\n\n");
+            sb.append("📥 INCOMING MESSAGE:\n\"").append(entry.incoming.trim()).append("\"\n\n");
         }
-        sb.append("Sender: ").append(entry.sender.isEmpty() ? "Unknown" : entry.sender);
+        sb.append("👤 SENDER: ").append(entry.sender.isEmpty() ? "Unknown" : entry.sender);
         if (entry.group) sb.append(" (group)");
-        sb.append("\nApp: ").append(entry.appLabel.isEmpty() ? entry.pkg : entry.appLabel).append("\n");
-        sb.append("Category: ").append(entry.category).append(" | Tone: ").append(entry.tone).append("\n");
-        sb.append("Verdict: ").append(entry.verdict);
+        sb.append("\n📱 APP: ").append(entry.appLabel.isEmpty() ? entry.pkg : entry.appLabel).append("\n");
+        sb.append("🏷️ CATEGORY: ").append(entry.category).append("  |  🎭 TONE: ").append(entry.tone).append("\n");
+        sb.append("⚖️ VERDICT: ").append(entry.verdict);
         if (entry.dryRun) sb.append(" (DRY RUN)");
         sb.append("\n\n");
 
         if (entry.wouldHaveSent()) {
-            sb.append("Reply:\n\"").append(entry.reply).append("\"\n\n");
+            String outHeader = entry.sendFailed() ? "⚠️ FAILED REPLY:" : (entry.actuallySent() ? "📤 SENT REPLY:" : "🧪 SIMULATED REPLY (DRY RUN):");
+            sb.append(outHeader).append("\n\"").append(entry.reply).append("\"\n\n");
         }
 
-        sb.append("Decision Rationale:\n");
+        sb.append("🎯 DECISION RATIONALE:\n");
         if (entry.reason != null && !entry.reason.trim().isEmpty()) {
             sb.append(entry.reason.trim());
         } else {
@@ -2588,10 +2854,19 @@ public class MainActivity extends Activity {
             sb.append(ResponderGuards.explain(v));
         }
 
+        final String copyText = sb.toString();
         new AlertDialog.Builder(this)
                 .setTitle("Why this decision was taken")
-                .setMessage(sb.toString())
+                .setMessage(copyText)
                 .setPositiveButton("Close", null)
+                .setNeutralButton("Copy", (d, w) -> {
+                    android.content.ClipboardManager cm =
+                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("Decision Details", copyText));
+                        toast("Copied decision details");
+                    }
+                })
                 .show();
     }
 
@@ -2635,7 +2910,7 @@ public class MainActivity extends Activity {
 
     /** Tint the active sub-tab. The inactive ones stay dim so the current section is obvious. */
     private void highlightCommsTab(View shell, int section) {
-        int[] ids = {R.id.commsTabArchive, R.id.commsTabResponder, R.id.commsTabContacts};
+        int[] ids = {R.id.commsTabArchive, R.id.commsTabResponder, R.id.commsTabContacts, R.id.commsTabFlagged};
         for (int i = 0; i < ids.length; i++) {
             TextView tab = shell.findViewById(ids[i]);
             if (tab == null) continue;
@@ -2644,6 +2919,404 @@ public class MainActivity extends Activity {
             tab.setTypeface(android.graphics.Typeface.MONOSPACE,
                     active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
         }
+    }
+
+    /** Filter for FLAGGED section: 0 ALL, 1 PINNED, 2 FLAGGED, 3 REMINDERS */
+    private int flaggedFilter = 0;
+    private String flaggedSearch = "";
+
+    private void bindFlaggedSection(final View view) {
+        final Button btnAll = view.findViewById(R.id.flaggedFilterAll);
+        final Button btnPinned = view.findViewById(R.id.flaggedFilterPinned);
+        final Button btnFlagged = view.findViewById(R.id.flaggedFilterFlagged);
+        final Button btnReminders = view.findViewById(R.id.flaggedFilterReminders);
+
+        View.OnClickListener filterListener = v -> {
+            if (v == btnAll) flaggedFilter = 0;
+            else if (v == btnPinned) flaggedFilter = 1;
+            else if (v == btnFlagged) flaggedFilter = 2;
+            else if (v == btnReminders) flaggedFilter = 3;
+            updateFlaggedFilterButtons(view);
+            renderFlaggedItems(view);
+        };
+
+        if (btnAll != null) btnAll.setOnClickListener(filterListener);
+        if (btnPinned != null) btnPinned.setOnClickListener(filterListener);
+        if (btnFlagged != null) btnFlagged.setOnClickListener(filterListener);
+        if (btnReminders != null) btnReminders.setOnClickListener(filterListener);
+
+        EditText search = view.findViewById(R.id.flaggedSearch);
+        if (search != null) {
+            search.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
+                    flaggedSearch = s == null ? "" : s.toString().trim();
+                    renderFlaggedItems(view);
+                }
+                @Override public void afterTextChanged(android.text.Editable s) { }
+            });
+        }
+
+        View addBtn = view.findViewById(R.id.flaggedAddButton);
+        if (addBtn != null) addBtn.setOnClickListener(v -> showAddFlaggedItemDialog(view));
+
+        View clearBtn = view.findViewById(R.id.flaggedClearCompletedButton);
+        if (clearBtn != null) clearBtn.setOnClickListener(v -> {
+            new AlertDialog.Builder(this)
+                    .setTitle("Clear completed items?")
+                    .setMessage("This will remove all completed pins, flags, and fired reminders.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Clear", (d, w) -> {
+                        FlaggedStore.get(this).clearCompleted();
+                        ReminderStore store = new ReminderStore(this);
+                        for (ReminderStore.Reminder r : store.all()) {
+                            if (r.fired) {
+                                store.remove(r.id);
+                                ReminderStore.cancel(this, r.id);
+                            }
+                        }
+                        renderFlaggedItems(view);
+                    })
+                    .show();
+        });
+
+        updateFlaggedFilterButtons(view);
+        renderFlaggedItems(view);
+    }
+
+    private void updateFlaggedFilterButtons(View root) {
+        int[] btnIds = {R.id.flaggedFilterAll, R.id.flaggedFilterPinned,
+                R.id.flaggedFilterFlagged, R.id.flaggedFilterReminders};
+        for (int i = 0; i < btnIds.length; i++) {
+            Button b = root.findViewById(btnIds[i]);
+            if (b == null) continue;
+            boolean active = i == flaggedFilter;
+            b.setTextColor(getColor(active ? R.color.magenta : R.color.deck_inactive));
+            b.setTypeface(android.graphics.Typeface.MONOSPACE,
+                    active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        }
+    }
+
+    private static class DisplayQueueItem {
+        long id;
+        String kind = "";
+        String text = "";
+        String sender = "";
+        String appLabel = "";
+        String reason = "";
+        long createdMs;
+        long dueMs;
+        boolean completed;
+        Object rawRef;
+    }
+
+    private void renderFlaggedItems(final View root) {
+        TextView summary = root.findViewById(R.id.flaggedSummary);
+        int numPinned = FlaggedStore.get(this).totalPinned();
+        int numFlagged = FlaggedStore.get(this).totalFlagged();
+        int numReminders = new ReminderStore(this).all().size();
+        if (summary != null) {
+            summary.setText(numPinned + " PINNED \u00b7 " + numFlagged + " FLAGGED \u00b7 "
+                    + numReminders + " REMINDERS");
+        }
+
+        LinearLayout host = root.findViewById(R.id.flaggedListHost);
+        if (host == null) return;
+        host.removeAllViews();
+
+        java.util.List<DisplayQueueItem> list = new java.util.ArrayList<>();
+        String query = flaggedSearch.toLowerCase(java.util.Locale.ROOT);
+
+        for (FlaggedStore.Item it : FlaggedStore.get(this).all()) {
+            if (flaggedFilter == 1 && !it.isPinned()) continue;
+            if (flaggedFilter == 2 && !it.isFlagged()) continue;
+            if (flaggedFilter == 3) continue;
+
+            if (!query.isEmpty()) {
+                String full = (it.text + " " + it.sender + " " + it.appLabel + " " + it.reason)
+                        .toLowerCase(java.util.Locale.ROOT);
+                if (!full.contains(query)) continue;
+            }
+
+            DisplayQueueItem d = new DisplayQueueItem();
+            d.id = it.id;
+            d.kind = it.kind;
+            d.text = it.text;
+            d.sender = it.sender;
+            d.appLabel = it.appLabel;
+            d.reason = it.reason;
+            d.createdMs = it.createdMs;
+            d.dueMs = 0;
+            d.completed = it.completed;
+            d.rawRef = it;
+            list.add(d);
+        }
+
+        if (flaggedFilter == 0 || flaggedFilter == 3) {
+            for (ReminderStore.Reminder r : new ReminderStore(this).all()) {
+                if (!query.isEmpty()) {
+                    String full = (r.task + " " + r.sender).toLowerCase(java.util.Locale.ROOT);
+                    if (!full.contains(query)) continue;
+                }
+
+                DisplayQueueItem d = new DisplayQueueItem();
+                d.id = r.id;
+                d.kind = "REMINDER";
+                d.text = r.task.isEmpty() ? "(reminder)" : r.task;
+                d.sender = r.sender;
+                d.appLabel = "IRIS";
+                d.reason = r.undated() ? "Undated reminder" : "Scheduled alarm";
+                d.createdMs = r.createdMs;
+                d.dueMs = r.dueMs;
+                d.completed = r.fired;
+                d.rawRef = r;
+                list.add(d);
+            }
+        }
+
+        java.util.Collections.sort(list, (a, b) -> {
+            if (a.completed != b.completed) return a.completed ? 1 : -1;
+            if (a.dueMs > 0 && b.dueMs > 0) return Long.compare(a.dueMs, b.dueMs);
+            return Long.compare(b.createdMs, a.createdMs);
+        });
+
+        if (list.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("No pinned messages, flagged pings, or reminders matching current filters.");
+            empty.setTextSize(11f);
+            empty.setTypeface(android.graphics.Typeface.MONOSPACE);
+            empty.setTextColor(getColor(R.color.deck_text_dim));
+            empty.setPadding(0, dp(16), 0, dp(16));
+            host.addView(empty);
+            return;
+        }
+
+        for (final DisplayQueueItem item : list) {
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setBackgroundResource(R.drawable.bg_cyber_panel);
+            card.setPadding(dp(12), dp(10), dp(12), dp(10));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(8);
+            card.setLayoutParams(lp);
+
+            LinearLayout topRow = new LinearLayout(this);
+            topRow.setOrientation(LinearLayout.HORIZONTAL);
+
+            TextView badge = new TextView(this);
+            badge.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+            badge.setTextSize(10f);
+            if (item.completed) {
+                badge.setText("[✓ DONE]");
+                badge.setTextColor(getColor(R.color.deck_inactive));
+            } else if ("PINNED".equalsIgnoreCase(item.kind)) {
+                badge.setText("[\uD83D\uDCCC PINNED]");
+                badge.setTextColor(getColor(R.color.deck_accent));
+            } else if ("FLAGGED".equalsIgnoreCase(item.kind)) {
+                badge.setText("[\uD83D\uDEA9 FLAGGED]");
+                badge.setTextColor(getColor(R.color.danger));
+            } else {
+                badge.setText("[\u23F0 REMINDER]");
+                badge.setTextColor(getColor(R.color.magenta));
+            }
+            topRow.addView(badge);
+
+            View spacer = new View(this);
+            LinearLayout.LayoutParams spacerLp = new LinearLayout.LayoutParams(0, 1, 1f);
+            spacer.setLayoutParams(spacerLp);
+            topRow.addView(spacer);
+
+            TextView timeTv = new TextView(this);
+            timeTv.setTypeface(android.graphics.Typeface.MONOSPACE);
+            timeTv.setTextSize(10f);
+            timeTv.setTextColor(getColor(R.color.deck_text_dim));
+            if (item.dueMs > 0) {
+                timeTv.setText("Due: " + DeletedMessageRules.formatTime(item.dueMs, java.util.TimeZone.getDefault()));
+            } else {
+                timeTv.setText(DeletedMessageRules.formatTime(item.createdMs, java.util.TimeZone.getDefault()));
+            }
+            topRow.addView(timeTv);
+            card.addView(topRow);
+
+            TextView bodyTv = new TextView(this);
+            bodyTv.setText(item.text);
+            bodyTv.setTextSize(13f);
+            bodyTv.setTypeface(android.graphics.Typeface.MONOSPACE,
+                    item.completed ? android.graphics.Typeface.NORMAL : android.graphics.Typeface.BOLD);
+            bodyTv.setTextColor(getColor(item.completed ? R.color.deck_inactive : R.color.text_primary));
+            bodyTv.setPadding(0, dp(6), 0, dp(4));
+            bodyTv.setTextIsSelectable(true);
+            card.addView(bodyTv);
+
+            String who = (item.sender != null && !item.sender.isEmpty()) ? item.sender : "Self";
+            String app = (item.appLabel != null && !item.appLabel.isEmpty()) ? item.appLabel : "IRIS";
+            String meta = who + "  \u00b7  " + app;
+            if (item.reason != null && !item.reason.isEmpty()) {
+                meta += "  \u00b7  " + item.reason;
+            }
+            TextView metaTv = new TextView(this);
+            metaTv.setText(meta);
+            metaTv.setTextSize(10f);
+            metaTv.setTypeface(android.graphics.Typeface.MONOSPACE);
+            metaTv.setTextColor(getColor(R.color.deck_text_dim));
+            card.addView(metaTv);
+
+            card.setOnClickListener(v -> showQueueItemDetailDialog(item, root));
+            card.setOnLongClickListener(v -> {
+                showQueueItemDeleteDialog(item, root);
+                return true;
+            });
+
+            host.addView(card);
+        }
+    }
+
+    private void showQueueItemDetailDialog(final DisplayQueueItem item, final View root) {
+        String title = "PINNED".equalsIgnoreCase(item.kind) ? "\uD83D\uDCCC Pinned Message"
+                : "FLAGGED".equalsIgnoreCase(item.kind) ? "\uD83D\uDEA9 Flagged Message" : "\u23F0 Scheduled Reminder";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(item.text).append("\n\n");
+        sb.append("Sender: ").append(item.sender.isEmpty() ? "Self" : item.sender).append("\n");
+        sb.append("App: ").append(item.appLabel.isEmpty() ? "IRIS" : item.appLabel).append("\n");
+        if (item.dueMs > 0) {
+            sb.append("Due: ").append(DeletedMessageRules.formatTime(item.dueMs, java.util.TimeZone.getDefault())).append("\n");
+        }
+        sb.append("Created: ").append(DeletedMessageRules.formatTime(item.createdMs, java.util.TimeZone.getDefault())).append("\n");
+        if (item.reason != null && !item.reason.isEmpty()) {
+            sb.append("Context: ").append(item.reason).append("\n");
+        }
+        sb.append("Status: ").append(item.completed ? "Completed / Fired" : "Active / Pending");
+
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(sb.toString())
+                .setPositiveButton("Close", null)
+                .setNeutralButton(item.completed ? "Mark Active" : "Mark Done", (d, w) -> {
+                    if (item.rawRef instanceof FlaggedStore.Item) {
+                        FlaggedStore.get(this).setCompleted(item.id, !item.completed);
+                    } else if (item.rawRef instanceof ReminderStore.Reminder) {
+                        ReminderStore store = new ReminderStore(this);
+                        if (item.completed) {
+                            ReminderStore.Reminder r = (ReminderStore.Reminder) item.rawRef;
+                            r.fired = false;
+                            store.remove(r.id);
+                            store.add(r.task, r.sender, r.dueMs, r.id);
+                        } else {
+                            store.markFired(item.id);
+                        }
+                    }
+                    renderFlaggedItems(root);
+                })
+                .setNegativeButton("Delete", (d, w) -> {
+                    deleteQueueItem(item);
+                    renderFlaggedItems(root);
+                })
+                .show();
+    }
+
+    private void showQueueItemDeleteDialog(final DisplayQueueItem item, final View root) {
+        new AlertDialog.Builder(this)
+                .setTitle("Delete this item?")
+                .setMessage("\u201C" + item.text + "\u201D")
+                .setNegativeButton("Keep", null)
+                .setPositiveButton("Delete", (d, w) -> {
+                    deleteQueueItem(item);
+                    renderFlaggedItems(root);
+                })
+                .show();
+    }
+
+    private void deleteQueueItem(DisplayQueueItem item) {
+        if (item.rawRef instanceof FlaggedStore.Item) {
+            FlaggedStore.get(this).remove(item.id);
+        } else if (item.rawRef instanceof ReminderStore.Reminder) {
+            ReminderStore store = new ReminderStore(this);
+            store.remove(item.id);
+            ReminderStore.cancel(this, item.id);
+        }
+    }
+
+    private void showAddFlaggedItemDialog(final View root) {
+        final String[] types = {"\uD83D\uDCCC Pinned Note", "\uD83D\uDEA9 Urgent Flag", "\u23F0 Reminder"};
+        choiceDialog("+ New Item", "Choose what kind of item to add:", types, which -> {
+            final boolean isReminder = which == 2;
+            final boolean isPinned = which == 0;
+
+            final LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(dp(16), dp(10), dp(16), dp(6));
+
+            final EditText textInput = new EditText(this);
+            textInput.setHint(isReminder ? "Remind me to..." : isPinned ? "Note to pin..." : "Urgent matter to flag...");
+            textInput.setMaxLines(3);
+            box.addView(textInput);
+
+            final EditText timeInput = new EditText(this);
+            if (isReminder) {
+                timeInput.setHint("When? (e.g. 10m, 1h, 18:00, or blank for undated)");
+                timeInput.setMaxLines(1);
+                box.addView(timeInput);
+            }
+
+            new AlertDialog.Builder(this)
+                    .setTitle(types[which])
+                    .setView(box)
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Save", (d, w) -> {
+                        String text = textInput.getText().toString().trim();
+                        if (text.isEmpty()) return;
+                        long now = System.currentTimeMillis();
+                        if (isReminder) {
+                            String whenStr = timeInput.getText().toString().trim();
+                            long due = 0;
+                            if (!whenStr.isEmpty()) {
+                                java.util.Calendar cal = java.util.Calendar.getInstance();
+                                cal.setTimeInMillis(now);
+                                int minuteOfDay = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE);
+                                int nowWeekday = cal.get(java.util.Calendar.DAY_OF_WEEK);
+                                int nowDay = cal.get(java.util.Calendar.DAY_OF_MONTH);
+                                int nowMonth = cal.get(java.util.Calendar.MONTH) + 1;
+                                int nowYear = cal.get(java.util.Calendar.YEAR);
+
+                                String cleanWhen = whenStr;
+                                if (cleanWhen.matches("(?i)^\\d+\\s*m$")) {
+                                    cleanWhen = cleanWhen.replaceFirst("(?i)m$", " mins");
+                                } else if (cleanWhen.matches("(?i)^\\d+\\s*h$")) {
+                                    cleanWhen = cleanWhen.replaceFirst("(?i)h$", " hours");
+                                }
+
+                                ReminderParser.Result parsed = ReminderParser.parse(cleanWhen);
+                                int delay = ReminderParser.delayMinutes(parsed, minuteOfDay, nowWeekday, nowDay, nowMonth, nowYear);
+                                if (delay <= 0) {
+                                    delay = ReminderParser.delayMinutes(
+                                            ReminderParser.parse("in " + cleanWhen),
+                                            minuteOfDay, nowWeekday, nowDay, nowMonth, nowYear);
+                                }
+                                if (delay <= 0) {
+                                    delay = ReminderParser.delayMinutes(
+                                            ReminderParser.parse("remind me " + cleanWhen),
+                                            minuteOfDay, nowWeekday, nowDay, nowMonth, nowYear);
+                                }
+                                if (delay > 0) {
+                                    due = now + delay * 60_000L;
+                                }
+                            }
+                            ReminderStore store = new ReminderStore(this);
+                            long id = store.add(text, "Owner", due, now);
+                            if (due > 0) {
+                                ReminderStore.schedule(this, id, text, due);
+                            }
+                        } else if (isPinned) {
+                            FlaggedStore.get(this).addPinned(text, "Owner", "IRIS", "Manual note", now);
+                        } else {
+                            FlaggedStore.get(this).addFlagged(text, "Owner", "IRIS", "Manual urgent flag", now);
+                        }
+                        renderFlaggedItems(root);
+                    })
+                    .show();
+        });
     }
 
     /** Wire the ARCHIVE section. Unchanged behaviour; only the host view moved. */
@@ -3234,18 +3907,38 @@ public class MainActivity extends Activity {
         // a deliberate, unmistakable way to remove an entry that cannot be triggered by accident.
         attachSwipeToDelete(card, row, root);
 
+        final String archiveSender = who;
         card.setOnLongClickListener(v -> {
+            java.util.List<String> act = new java.util.ArrayList<>();
+            act.add("\uD83D\uDCCC Pin to assistant queue");
+            act.add("\uD83D\uDEA9 Flag as urgent");
+            act.add("\uD83D\uDDD1\uFE0F Delete this entry");
             new AlertDialog.Builder(this)
-                    .setTitle("Delete this entry?")
-                    .setMessage("This removes it permanently. The archive never deletes anything on "
-                            + "its own, so this only happens because you asked.")
-                    .setNegativeButton("Keep it", null)
-                    .setPositiveButton("Delete", (d, w) -> {
-                        if (NotificationArchive.deleteRow(this, row.id)) {
-                            toast("Gone. I never saw it.");
-                            renderArchive(root);
+                    .setTitle(archiveSender)
+                    .setItems(act.toArray(new String[0]), (d, which) -> {
+                        String sel = act.get(which);
+                        if (sel.contains("Pin to assistant queue")) {
+                            FlaggedStore.get(this).addPinned(
+                                    row.body, archiveSender, row.displayAccount(), "Archived message pinned", System.currentTimeMillis());
+                            toast("Pinned to assistant queue");
+                        } else if (sel.contains("Flag as urgent")) {
+                            FlaggedStore.get(this).addFlagged(
+                                    row.body, archiveSender, row.displayAccount(), "Archived message flagged", System.currentTimeMillis());
+                            toast("Flagged as urgent");
                         } else {
-                            toast("Could not delete that entry.");
+                            new AlertDialog.Builder(this)
+                                    .setTitle("Delete this entry?")
+                                    .setMessage("This removes it permanently. The archive never deletes anything on "
+                                            + "its own, so this only happens because you asked.")
+                                    .setNegativeButton("Keep it", null)
+                                    .setPositiveButton("Delete", (dd, ww) -> {
+                                        if (NotificationArchive.deleteRow(this, row.id)) {
+                                            toast("Gone. I never saw it.");
+                                            renderArchive(root);
+                                        } else {
+                                            toast("Could not delete that entry.");
+                                        }
+                                    }).show();
                         }
                     }).show();
             return true;

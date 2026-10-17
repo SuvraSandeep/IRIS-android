@@ -82,6 +82,20 @@
             android:textAllCaps="false"
             android:textColor="@color/deck_accent"
             android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/commsTabFlagged"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_marginLeft="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08"
+            android:text="FLAGGED"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_accent"
+            android:textSize="11sp" />
     </LinearLayout>
 
     <LinearLayout
