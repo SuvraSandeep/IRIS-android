@@ -35,6 +35,8 @@ public final class FlagDetector {
      * Evaluates incoming message text, outgoing reply text, and conversation offer state
      * to determine if this interaction commits IRIS to flagging or pinning a message.
      */
+    public static Result detect(String incomingText, String replyText,
+                                ConversationContext.OfferReply offerReply) {
         String normIncoming = incomingText == null ? "" : incomingText.toLowerCase(Locale.ROOT).trim();
         String normReply = replyText == null ? "" : replyText.toLowerCase(Locale.ROOT).trim();
 
