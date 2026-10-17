@@ -32,6 +32,61 @@ public final class FlagDetector {
     private FlagDetector() { }
 
     /**
+     * True when incoming text explicitly requests IRIS to flag a message for the owner,
+     * provided it does not contain negations or profanity.
+     */
+    public static boolean isExplicitFlagCommand(String incomingText) {
+        if (incomingText == null) return false;
+        String normIncoming = incomingText.toLowerCase(Locale.ROOT).trim();
+        if (normIncoming.isEmpty()) return false;
+
+        boolean negated = normIncoming.contains("don't flag")
+                || normIncoming.contains("dont flag")
+                || normIncoming.contains("no flag")
+                || normIncoming.contains("won't flag")
+                || normIncoming.contains("wont flag")
+                || normIncoming.contains("not flag")
+                || normIncoming.contains("never flag");
+        if (negated) return false;
+
+        boolean profanity = normIncoming.contains("madarchod")
+                || normIncoming.contains("bhenchod")
+                || normIncoming.contains("chutiya")
+                || normIncoming.contains("bhosd")
+                || normIncoming.contains("gandu")
+                || normIncoming.contains("fuck")
+                || normIncoming.contains("fuxk")
+                || normIncoming.contains("shit")
+                || normIncoming.contains("bitch")
+                || normIncoming.contains("asshole")
+                || normIncoming.contains("dick")
+                || normIncoming.contains("maghia")
+                || normIncoming.contains("maghiya")
+                || normIncoming.contains("bandapua")
+                || normIncoming.contains("banda maghiya")
+                || normIncoming.contains("ma ki chut")
+                || normIncoming.contains("maa ki chut")
+                || normIncoming.contains("badk")
+                || normIncoming.contains("bhadwa");
+        if (profanity) return false;
+
+        return normIncoming.contains("flag this")
+                || normIncoming.contains("flag it")
+                || normIncoming.contains("flag urgent")
+                || normIncoming.contains("flag as urgent")
+                || normIncoming.contains("please flag")
+                || normIncoming.contains("urgent flag")
+                || normIncoming.contains("flag my message")
+                || normIncoming.contains("flag my msg")
+                || normIncoming.contains("flag a message")
+                || normIncoming.contains("flag a message for me")
+                || normIncoming.contains("flag this for me")
+                || normIncoming.contains("can you flag this")
+                || normIncoming.contains("please flag this")
+                || normIncoming.contains("flag message");
+    }
+
+    /**
      * Evaluates incoming message text, outgoing reply text, and conversation offer state
      * to determine if this interaction commits IRIS to flagging or pinning a message.
      */
@@ -138,13 +193,7 @@ public final class FlagDetector {
         // 3. FLAG detection
         if (!incomingNegatedFlag && !replyDeclinedDisturb) {
             // Did sender ask to flag?
-            if (normIncoming.contains("flag this")
-                    || normIncoming.contains("flag it")
-                    || normIncoming.contains("flag urgent")
-                    || normIncoming.contains("flag as urgent")
-                    || normIncoming.contains("please flag")
-                    || normIncoming.contains("urgent flag")
-                    || normIncoming.contains("flag my message")) {
+            if (isExplicitFlagCommand(normIncoming)) {
                 return new Result(Action.FLAG, "Sender requested urgent flag");
             }
 
@@ -189,7 +238,13 @@ public final class FlagDetector {
             if (normReply.contains("done \u2014 i've flagged this as high-priority")
                     || normReply.contains("done - i've flagged this as high-priority")
                     || normReply.contains("done \u2014 i've flagged this")
-                    || normReply.contains("done - i've flagged this")) {
+                    || normReply.contains("done - i've flagged this")
+                    || normReply.contains("flagged! it's marked at the top")
+                    || normReply.contains("pinned to {owner}'s flagged dashboard")
+                    || normReply.contains("pinned to suvra's flagged dashboard")
+                    || normReply.contains("flagged dashboard")
+                    || normReply.contains("raised an urgent alert")
+                    || normReply.contains("i've flagged your message")) {
                 return new Result(Action.FLAG, "High-priority message flagged");
             }
             if (normReply.contains("tell me what happened and i'll flag")

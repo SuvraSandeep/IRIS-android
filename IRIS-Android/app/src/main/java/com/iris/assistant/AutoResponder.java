@@ -350,6 +350,18 @@ public final class AutoResponder {
             }
         }
 
+        // ─── Explicit Flag Interceptor ───
+        // Senders requesting "flag this", "flag a message", "flag it", etc. directly trigger
+        // the flag confirmation reply and log it, bypassing generic fallback greetings.
+        if (FlagDetector.isExplicitFlagCommand(incoming.body) && !SmartReplies.hasProfanity(incoming.body)) {
+            if (!smartMatched || smartReply.isEmpty()) {
+                smartReply = SmartReplies.poolReply("flag", settings.nextRotation());
+                smartMatched = true;
+            }
+            category = new MessageCategory.Result(MessageCategory.Kind.OTHER, "");
+            metaReason = "Flag command: confirmed urgent flag for " + ReplyTemplates.OWNER;
+        }
+
         // Multi-bubble context: ONLY when the current message is a short fragment (a split-off
         // continuation like "tomorrow" or "6pm") that matched nothing on its own. A full,
         // standalone message must never be answered via the window, or IRIS re-answers a question

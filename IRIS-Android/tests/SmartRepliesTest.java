@@ -620,6 +620,21 @@ public final class SmartRepliesTest {
         }
         check(hePool.size() == 5, "hostile_emergency pool has 5 distinct variants: " + hePool.size());
 
+        // 9. Flag Interceptor & Explicit Flag Commands (v16.50.0)
+        for (String fc : new String[]{"flag this", "flag a message", "flag a message for me", "flag it", "please flag", "flag my msg"}) {
+            String fr = SmartReplies.match(fc, ReplyTone.Tone.CASUAL);
+            check(!fr.isEmpty() && namesIris(fr), "flag command names IRIS: " + fc + " -> " + fr);
+            check(fr.toLowerCase(java.util.Locale.ROOT).contains("flag") || fr.toLowerCase(java.util.Locale.ROOT).contains("pinned"),
+                    "flag reply confirms flag/pin: " + fr);
+        }
+        java.util.Set<String> flagVariants = new java.util.HashSet<>();
+        for (int r = 0; r < 5; r++) {
+            String fv = SmartReplies.poolReply("flag", r).replace("{owner}", "Suvra");
+            check(!fv.isEmpty() && namesIris(fv) && fv.contains("Suvra"), "flag pool names IRIS and Suvra: " + fv);
+            flagVariants.add(fv);
+        }
+        check(flagVariants.size() == 5, "flag pool has 5 distinct variants: " + flagVariants.size());
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

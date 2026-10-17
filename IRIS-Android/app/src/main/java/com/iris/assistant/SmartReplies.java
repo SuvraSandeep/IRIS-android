@@ -892,6 +892,13 @@ public final class SmartReplies {
                 "Pinned in spirit and in {owner}'s priority queue \u2014 no WhatsApp icon required! I'm "
                         + "IRIS."});
 
+        m.put("flag", new String[]{
+                "Done \u2014 I've flagged this as high-priority for {owner}. I'm IRIS, his assistant.",
+                "Flagged! It's marked at the top of {owner}'s priority queue in his Comms Deck. I'm IRIS.",
+                "Done. I've pinned this to {owner}'s flagged dashboard. He will review it when he checks his Comms Deck. I'm IRIS.",
+                "I've flagged your message for {owner} and raised an urgent alert for him. I'm IRIS.",
+                "Flagged for {owner} \u2014 it's right at the top of his assistant queue. I'm IRIS."});
+
         m.put("screenshot", new String[]{
                 "I'm a text-only backend \u2014 I'm IRIS, {owner}'s assistant \u2014 no screen, so I can't "
                         + "take or send screenshots.",
@@ -1515,6 +1522,15 @@ public final class SmartReplies {
                 "Apologizing to a script for taking a phone call? You're too polite. IRIS didn't even "
                         + "notice the time passing. {owner} is still away.",
                 "No worries at all! {owner} is still away too. I'm IRIS."));
+
+        // ─── The "Flag It" & "Flag A Message" Priority Commands (priority 82) ───
+        x.add(rt("flag", 82, "flag this|flag it|flag my message|flag my msg|flag a message|"
+                        + "flag a message for me|flag urgent|flag as urgent|please flag|urgent flag|"
+                        + "flag this for me|can you flag this|please flag this|flag message",
+                "Done \u2014 I've flagged this as high-priority for {owner}. I'm IRIS, his assistant.",
+                "Flagged! It's marked at the top of {owner}'s priority queue in his Comms Deck. I'm IRIS.",
+                "Done. I've pinned this to {owner}'s flagged dashboard. He will review it when he checks his Comms Deck. I'm IRIS.",
+                "I've flagged your message for {owner} and raised an urgent alert for him. I'm IRIS."));
 
         // ─── The "Pin It" & "Send Screenshot" Proof Traps (priority 82) ───
         // Scenario 13: "Ok pin it" / "Pin my msg" / "Pin to chat"
