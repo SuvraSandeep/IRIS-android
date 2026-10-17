@@ -581,6 +581,13 @@ public final class SmartRepliesTest {
         String regularTime = SmartReplies.temporalSnark(4, 15, 0); // Wednesday 15:00
         check(regularTime.isEmpty(), "regular Wednesday 3pm has no snark");
 
+        // 7. Group Mentions & Typo-Tolerant Odia Cuss Checks
+        check(SmartReplies.handlesCategory(MessageCategory.Kind.MENTION), "handlesCategory includes MENTION");
+        String orBanda = SmartReplies.match("banda maghiya", ReplyTone.Tone.CASUAL);
+        check(!orBanda.isEmpty() && namesIris(orBanda), "banda maghiya triggers Odia cuss: " + orBanda);
+        String orMaghiya = SmartReplies.match("maghiya", ReplyTone.Tone.CASUAL);
+        check(!orMaghiya.isEmpty() && namesIris(orMaghiya), "maghiya triggers Odia cuss: " + orMaghiya);
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

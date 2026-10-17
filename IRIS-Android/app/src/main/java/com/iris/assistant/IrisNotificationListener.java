@@ -431,6 +431,7 @@ public class IrisNotificationListener extends NotificationListenerService {
         String groupName = MessageRollup.groupFromTitle(title);
         String newestSender = "";
         String newestBody = "";
+        long maxTime = -1L;
         // Distinct people who sent something in this one notification. Two or more can only be a
         // group, and it is the strongest signal available from an app that does not set
         // EXTRA_IS_GROUP_CONVERSATION.
@@ -464,9 +465,12 @@ public class IrisNotificationListener extends NotificationListenerService {
             // rather than the link being stored for later.
             if (rowId > 0) captureImage(context, msg, rowId);
 
-            // Remember the newest message, for the responder below.
-            newestSender = sender;
-            newestBody = body;
+            // Remember the newest message by timestamp, for the responder below.
+            if (when >= maxTime) {
+                maxTime = when;
+                newestSender = sender;
+                newestBody = body;
+            }
             if (!sender.trim().isEmpty()) sendersSeen.add(sender.trim().toLowerCase());
         }
 

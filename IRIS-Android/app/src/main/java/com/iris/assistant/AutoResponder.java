@@ -31,6 +31,7 @@ public final class AutoResponder {
      */
     private static final Set<String> ANSWERED_KEYS = new LinkedHashSet<>();
     private static final int ANSWERED_MAX = 200;
+    private static final java.util.Map<String, Long> LAST_POST_TIME = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** Step back after this many consecutive banter replies to one conversation. */
     private static final int BANTER_SNOOZE_CAP = 10;
@@ -63,6 +64,10 @@ public final class AutoResponder {
      */
     public static void consider(Context context, Incoming incoming) {
         if (context == null || incoming == null || incoming.sbn == null) return;
+        if (incoming.sbn.getNotification() != null
+                && (incoming.sbn.getNotification().flags & android.app.Notification.FLAG_GROUP_SUMMARY) != 0) {
+            return;
+        }
 
         ResponderSettings settings = new ResponderSettings(context);
         ResponderGuards.State state = settings.state();
@@ -91,6 +96,16 @@ public final class AutoResponder {
         // Shared builder, so the contacts screen and the responder can never disagree about
         // which key a rule was stored under.
         String conversationKey = ResponderSettings.conversationKey(incoming.pkg, resolvedSender);
+
+        // Discard stale lagged notifications that were queued behind newer ones for the same chat.
+        long postTime = incoming.sbn.getPostTime();
+        if (postTime > 0) {
+            Long last = LAST_POST_TIME.get(conversationKey);
+            if (last != null && postTime < last) {
+                return;
+            }
+            LAST_POST_TIME.put(conversationKey, postTime);
+        }
 
         // Never process IRIS's own reply coming back as a notification. In a group, WhatsApp
         // re-surfaces the latest message -- which may be the line IRIS just sent -- and because
@@ -215,12 +230,18 @@ public final class AutoResponder {
         // Keep a short rolling history of this chat (customizable depth) for multi-bubble context.
         settings.recordIncomingHistory(conversationKey, normBody, now);
 
-        // In a group, an @-handle or phone-number mention of the owner counts as being named,
-        // even though it isn't his saved name. Checked on the raw body (not normalised, which
-        // would mangle an underscored handle), and it does not override a message already aimed
-        // at IRIS itself.
+        // In a group, an @-handle, phone-number or trigger word mention of the owner counts as
+        // naming him. If the message didn't classify into an explicit command/intent (like REMINDER,
+        // URGENT, TO_IRIS, GREETING, THANKS, etc.) and is a generic bucket, treat it as MENTION.
         if (incoming.group
                 && category.kind != MessageCategory.Kind.TO_IRIS
+                && category.kind != MessageCategory.Kind.REMINDER
+                && category.kind != MessageCategory.Kind.URGENT
+                && (category.kind == MessageCategory.Kind.NONE
+                    || category.kind == MessageCategory.Kind.SHORT
+                    || category.kind == MessageCategory.Kind.OTHER
+                    || category.kind == MessageCategory.Kind.QUESTION
+                    || category.kind == MessageCategory.Kind.CHECK_IN)
                 && (GroupMention.isMentioned(incoming.body, settings.mentionHandles(),
                         settings.mentionNumbers())
                     || GroupMention.hasTriggerWord(incoming.body, settings.mentionKeywords()))) {
@@ -594,17 +615,15 @@ public final class AutoResponder {
                             }
                         }
                     }
+                    FlaggedStore.get(context).addFlagged(
+                            flagText, resolvedSender, incoming.appLabel, flagResult.reason, now);
                     if (state == ResponderGuards.State.LIVE) {
-                        FlaggedStore.get(context).addFlagged(
-                                flagText, resolvedSender, incoming.appLabel, flagResult.reason, now);
                         ArchiveAlerts.urgentFlag(context, incoming.appLabel, resolvedSender, now);
                     }
                     decisionReason += " \u00b7 FLAGGED: " + flagResult.reason;
                 } else if (flagResult.action == FlagDetector.Action.PIN) {
-                    if (state == ResponderGuards.State.LIVE) {
-                        FlaggedStore.get(context).addPinned(
-                                incoming.body, resolvedSender, incoming.appLabel, flagResult.reason, now);
-                    }
+                    FlaggedStore.get(context).addPinned(
+                            incoming.body, resolvedSender, incoming.appLabel, flagResult.reason, now);
                     decisionReason += " \u00b7 PINNED: " + flagResult.reason;
                 }
             }
@@ -1110,6 +1129,14 @@ public final class AutoResponder {
     private static String pickStitcher(Context context, String pkg, String resolvedSender, int rotation) {
         String lastSent = lastReplyText(context, pkg, resolvedSender);
         String normLast = MessageCategory.normalise(lastSent);
+        for (int offset = 0; offset < STITCH_POOL.length; offset++) {
+            String candidate = STITCH_POOL[Math.floorMod(rotation + offset, STITCH_POOL.length)]
+                    .replace("{owner}", ReplyTemplates.OWNER);
+            if (!MessageCategory.normalise(candidate).equals(normLast)
+                    && !isRecentReplySent(context, pkg, resolvedSender, MessageCategory.normalise(candidate), 4)) {
+                return candidate;
+            }
+        }
         for (int offset = 0; offset < STITCH_POOL.length; offset++) {
             String candidate = STITCH_POOL[Math.floorMod(rotation + offset, STITCH_POOL.length)]
                     .replace("{owner}", ReplyTemplates.OWNER);

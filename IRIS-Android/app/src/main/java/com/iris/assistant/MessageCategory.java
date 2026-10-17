@@ -308,7 +308,13 @@ public final class MessageCategory {
             return new Result(Kind.TO_IRIS, "named");
         }
 
-        // Precedence runs most specific first. Being named directly outranks everything, because
+        // A request to remember something, before general mentions, because "remind suvra to call"
+        // is an explicit reminder command — the action (scheduling it) is what the sender wants.
+        if (containsAnyPhrase(flat, REMINDER_PHRASES)) {
+            return new Result(Kind.REMINDER, "");
+        }
+
+        // Precedence runs most specific first. Being named directly outranks general chat, because
         // a mention is the one case where staying silent is conspicuous.
         if (mentionsOwner(tokens, mentionKeywords)) return new Result(Kind.MENTION, "");
 
@@ -316,13 +322,6 @@ public final class MessageCategory {
         // otherwise be read as a message about a photo.
         if (containsAnyPhrase(flat, MEDIA_PHRASES) && wordCount <= 4) {
             return new Result(Kind.MEDIA_ONLY, "");
-        }
-
-        // A request to remember something, before URGENT, because "don't forget to call, it's
-        // urgent" is a reminder first \u2014 the action (noting it) is what the sender wants, and
-        // the urgency is a property of the reminder, not a separate category.
-        if (containsAnyPhrase(flat, REMINDER_PHRASES)) {
-            return new Result(Kind.REMINDER, "");
         }
 
         if (containsAnyWord(tokens, URGENT_WORDS) || containsAnyPhrase(flat, URGENT_PHRASES)

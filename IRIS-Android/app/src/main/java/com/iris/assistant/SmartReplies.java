@@ -51,7 +51,8 @@ public final class SmartReplies {
                 || kind == MessageCategory.Kind.QUESTION
                 || kind == MessageCategory.Kind.OTHER
                 || kind == MessageCategory.Kind.SHORT
-                || kind == MessageCategory.Kind.NONE;
+                || kind == MessageCategory.Kind.NONE
+                || kind == MessageCategory.Kind.MENTION;
     }
 
     // A link in the message, detected on the raw text before normalisation strips the slashes.
@@ -3168,8 +3169,8 @@ public final class SmartReplies {
                 + "chdpua|bkchoda|bkchd|slpua|kkrpua|ghsrpua|khnkimagi|"
                 // Long forms & transliterated spellings
                 + "maghia|maghiaa|maghiaaa|maghya|magiha|magia|maaghia|maghia pua|maghiapua|magya|"
-                + "mafhiya|mafghia|maghiiya|"
-                + "bandapua|banda pua|banda katha|bandakatha|mora banda|tora banda|"
+                + "maghiya|maghiyaa|maghiyaaa|mafhiya|mafghia|maghiiya|"
+                + "bandapua|banda pua|banda maghiya|bandamaghiya|banda|bandaa|banda katha|bandakatha|mora banda|tora banda|"
                 + "gandi mara|gandimara|gandi maruchu|gandimora|"
                 + "chodi|chodipua|chodi pua|chodiba|biapua|bia pua|gehi|geha|gehiba|"
                 + "ghanta|bala|baala|bala na|balunga|bala katha|balakatha|tora bala|mora bala|harami|"
