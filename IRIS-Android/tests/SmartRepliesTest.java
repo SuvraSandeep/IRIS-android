@@ -588,6 +588,38 @@ public final class SmartRepliesTest {
         String orMaghiya = SmartReplies.match("maghiya", ReplyTone.Tone.CASUAL);
         check(!orMaghiya.isEmpty() && namesIris(orMaghiya), "maghiya triggers Odia cuss: " + orMaghiya);
 
+        // 8. Typo-Evasion, Stretched Letters, and Hostile Emergency Tests
+        check(SmartReplies.hasProfanity("kaiki maghiyaa"), "hasProfanity catches kaiki maghiyaa");
+        check(SmartReplies.hasProfanity("madarchoddd"), "hasProfanity catches madarchoddd");
+        check(SmartReplies.hasProfanity("IRIS ki ma ki chut"), "hasProfanity catches IRIS ki ma ki chut");
+        check(SmartReplies.hasProfanity("yes its urgent madarchoddd"), "hasProfanity catches yes its urgent madarchoddd");
+        check(SmartReplies.hasProfanity("fuxkkk"), "hasProfanity catches fuxkkk");
+        check(SmartReplies.hasProfanity("badk"), "hasProfanity catches badk");
+        check(SmartReplies.hasProfanity("bhadwak"), "hasProfanity catches bhadwak");
+        check(!SmartReplies.hasProfanity("this is urgent please call me"), "hasProfanity ignores clean urgent message");
+        check(!SmartReplies.hasProfanity("remind suvra to bring milk"), "hasProfanity ignores clean reminder");
+        check(!SmartReplies.hasProfanity("are you free today"), "hasProfanity ignores clean question");
+
+        String stretchedOdia = SmartReplies.match("kaiki maghiyaa", ReplyTone.Tone.CASUAL);
+        check(!stretchedOdia.isEmpty() && namesIris(stretchedOdia), "kaiki maghiyaa triggers cuss_or roast: " + stretchedOdia);
+
+        String stretchedHindi = SmartReplies.match("madarchoddd", ReplyTone.Tone.CASUAL);
+        check(!stretchedHindi.isEmpty() && namesIris(stretchedHindi), "madarchoddd triggers cuss_hi roast: " + stretchedHindi);
+
+        String insultIris = SmartReplies.match("IRIS ki ma ki chut", ReplyTone.Tone.CASUAL);
+        check(!insultIris.isEmpty() && namesIris(insultIris), "IRIS ki ma ki chut triggers cuss_hi roast: " + insultIris);
+
+        // Hostile emergency pool
+        java.util.Set<String> hePool = new java.util.HashSet<>();
+        for (int r = 0; r < 10; r++) {
+            String he = SmartReplies.hostileEmergencyReply(r);
+            check(!he.isEmpty() && namesIris(he) && namesOwner(he), "hostile emergency reply names IRIS and owner: " + he);
+            check(he.contains("denied") || he.contains("revoked") || he.contains("cancelled"),
+                    "hostile emergency mentions denial/revocation: " + he);
+            hePool.add(he);
+        }
+        check(hePool.size() == 5, "hostile_emergency pool has 5 distinct variants: " + hePool.size());
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

@@ -124,6 +124,51 @@ public final class SmartReplies {
         return FINANCIAL_STATEMENT.matcher(text).find() && !ACTIVE_MONEY_ASK.matcher(text).find();
     }
 
+    // ─── Profanity / Cuss Word Patterns (Typo-evasion & stretched letter resistant) ───
+    public static final Pattern HINDI_PROFANITY = Pattern.compile(
+            "(?i)\\b("
+            + "madarchod\\w*|maadarchod\\w*|mdrchd\\w*|bhenchod\\w*|behenchod\\w*|bahinchod\\w*|bhnchd\\w*|bchd\\w*|"
+            + "bsdk\\w*|bhsdk\\w*|bhosdk\\w*|bsdke\\w*|bhosdike\\w*|bhosadike\\w*|bhosdi\\w*|bkl\\w*|badk\\w*|bhadwak\\w*|bhadwe\\w*|bhadwa\\w*|"
+            + "chutiya\\w*|chutiye\\w*|chutiyapa\\w*|chtiya\\w*|chtya\\w*|chutya\\w*|chtiye\\w*|"
+            + "gandu\\w*|gaandu\\w*|gand\\b|gaand\\b|gndu\\w*|"
+            + "lund\\w*|lauda\\w*|lawda\\w*|laude\\w*|lawde\\w*|lavda\\w*|lavde\\w*|lodu\\w*|lode\\w*|lwda\\w*|lwde\\w*|"
+            + "harami\\w*|haraami\\w*|haramkhor\\w*|haramzada\\w*|haramzade\\w*|"
+            + "maa?\\s*ki\\s*(chut|chud)\\w*|teri\\s*maa?\\s*ki\\w*|teri\\s*behen\\s*ki\\w*|tmkc\\w*|tmkb\\w*|kmkb\\w*|pkmkb\\w*|mkc\\w*|"
+            + "jhant\\w*|jhaant\\w*|jhatu\\w*|jhaatu\\w*"
+            + ")\\b");
+
+    public static final Pattern ODIA_PROFANITY = Pattern.compile(
+            "(?i)\\b("
+            + "maghia\\w*|maghiya\\w*|maghya\\w*|magiha\\w*|magia\\w*|maaghia\\w*|mafhiya\\w*|mafghia\\w*|maghiiya\\w*|"
+            + "mgh\\w*|mgya\\w*|mghya\\w*|mghi\\w*|mggg\\w*|mgpua\\w*|mghpua\\w*|bndpua\\w*|"
+            + "bandapua\\w*|banda\\s+pua\\w*|banda\\s+maghiya\\w*|bandamaghiya\\w*|banda\\s+maghia\\w*|bandamaghia\\w*|banda\\b|bandaa\\w*|"
+            + "gandi\\s*mara\\w*|gandimara\\w*|gandimora\\w*|chodi\\w*|chodiba\\w*|biapua\\w*|bia\\s+pua\\w*|gehi\\w*|geha\\w*|gehiba\\w*|"
+            + "bokachoda\\w*|boka\\s+choda\\w*|bkchoda\\w*|bkchd\\w*|khankimagi\\w*|khnkimagi\\w*|salapua\\w*|slpua\\w*|"
+            + "kaiki\\s+maghi\\w*"
+            + ")\\b");
+
+    public static final Pattern ENGLISH_PROFANITY = Pattern.compile(
+            "(?i)\\b("
+            + "fuck\\w*|fuk\\w*|fvck\\w*|fuxk\\w*|fxck\\w*|fck\\w*|fkn\\w*|fking\\w*|fcking\\w*|fkng\\w*|fckr\\w*|fcker\\w*|mfer\\w*|mthrfckr\\w*|"
+            + "shit\\w*|bullshit\\w*|shitty\\w*|dipshit\\w*|"
+            + "bitch\\w*|btch\\w*|"
+            + "asshole\\w*|arsehole\\w*|ashole\\w*|asshle\\w*|dumbass\\w*|jackass\\w*|"
+            + "dick\\w*|dickhead\\w*|dckhead\\w*|dikhead\\w*|bastard\\w*|bstrd\\w*|"
+            + "stfu\\b|gtfo\\b|wtaf\\b"
+            + ")\\b");
+
+    /** True when text contains English, Hindi/Hinglish, or Odia profanity / cuss words. */
+    public static boolean hasProfanity(String text) {
+        if (text == null || text.trim().isEmpty()) return false;
+        return HINDI_PROFANITY.matcher(text).find()
+                || ODIA_PROFANITY.matcher(text).find()
+                || ENGLISH_PROFANITY.matcher(text).find();
+    }
+
+    public static String hostileEmergencyReply(int rotation) {
+        return poolReply("hostile_emergency", rotation);
+    }
+
     private static boolean isShoppingRule(Rule r) {
         if (r == null || r.any == null) return false;
         for (String p : r.any) {
@@ -435,6 +480,9 @@ public final class SmartReplies {
 
     private static boolean matches(Rule r, String paddedFlat) {
         String trimmed = paddedFlat == null ? "" : paddedFlat.trim();
+        if ("cuss_hi".equals(r.tag) && HINDI_PROFANITY.matcher(trimmed).find()) return true;
+        if ("cuss_or".equals(r.tag) && ODIA_PROFANITY.matcher(trimmed).find()) return true;
+        if ("cuss_en".equals(r.tag) && ENGLISH_PROFANITY.matcher(trimmed).find()) return true;
         for (String phrase : r.any) {
             if (phrase.startsWith("^") || phrase.contains("+") || phrase.contains("[") || phrase.endsWith("$")) {
                 try {
@@ -1229,6 +1277,18 @@ public final class SmartReplies {
                 "It's barely morning. My background process just woke up. {owner} will see this when he's had coffee. I'm IRIS.",
                 "Early hours! {owner} hasn't had his morning caffeine yet. I've queued your message. I'm IRIS.",
                 "Sun is barely up. Let {owner} wake up properly before demanding replies. I'm IRIS, holding the fort."});
+
+        m.put("hostile_emergency", new String[]{
+                "You can't declare an emergency and swear at the dispatcher at the same time. "
+                        + "Urgent escalation denied. I'm IRIS, {owner}'s assistant.",
+                "Profanity revokes your VIP privileges. If this is a real emergency, try again "
+                        + "without the hostility. Escalation denied \u2014 I'm IRIS.",
+                "I don't escalate abusive messages to {owner}, no matter how urgent you claim they are. "
+                        + "Urgent alert cancelled. I'm IRIS.",
+                "Swearing at the automated assistant won't get you past the firewall. Emergency "
+                        + "escalation denied \u2014 I'm IRIS, {owner}'s assistant.",
+                "Emergency status revoked due to language. {owner} will see your message when he "
+                        + "reviews his inbox normally. I'm IRIS."});
 
         return m;
     }
@@ -3170,6 +3230,7 @@ public final class SmartReplies {
                 // Long forms & transliterated spellings
                 + "maghia|maghiaa|maghiaaa|maghya|magiha|magia|maaghia|maghia pua|maghiapua|magya|"
                 + "maghiya|maghiyaa|maghiyaaa|mafhiya|mafghia|maghiiya|"
+                + "kaiki maghia|kaiki maghiaa|kaiki maghiya|kaiki maghiyaa|kaiki maghiyaaa|"
                 + "bandapua|banda pua|banda maghiya|bandamaghiya|banda|bandaa|banda katha|bandakatha|mora banda|tora banda|"
                 + "gandi mara|gandimara|gandi maruchu|gandimora|"
                 + "chodi|chodipua|chodi pua|chodiba|biapua|bia pua|gehi|geha|gehiba|"
@@ -3190,9 +3251,10 @@ public final class SmartReplies {
                 + "mdrchd|mdrcd|madarchd|chtiya|chtya|chutya|chtia|chtiye|gndu|lwda|lwde|lodu|"
                 + "lode|jhatu|jhaatu|hrmkhor|hrmzada|"
                 + "chtiya|chtya|chutya|lwda|lwd|klpd|kmkb|pkmkb|bhnchd|mdrchd|"
+                + "badk|bhadwak|bhadwe|bhadwa|"
                 // Long forms & transliterated spellings
                 + "bhenchod|behenchod|bahinchod|bhen chod|behen chod|bhen ke lode|behen ke lode|"
-                + "madarchod|maadarchod|madar chod|bhosdike|bhosadike|bhosdi ke|bhosdiwale|bhosda|bhosdi|"
+                + "madarchod|madarchodd|madarchoddd|madarchodddd|maadarchod|madar chod|bhosdike|bhosadike|bhosdi ke|bhosdiwale|bhosda|bhosdi|"
                 + "chutiya|chutiye|chutiyapa|chutiyaap|chomu|"
                 + "gandu|gaandu|gaand|gand|gand mara|gaand mara|gandagi|"
                 + "lund|lauda|lawda|laude|lawde|lavda|lavde|lodu|lode|lawde lag gaye|"
@@ -3200,7 +3262,7 @@ public final class SmartReplies {
                 + "kamina|kamine|kaminey|kutta|kutte|kutiya|kuttey|"
                 + "saala|saali|nalayak|bewakoof|bevkoof|ullu ke patthe|"
                 + "gadha|gadhe|jhant|jhaant|jhatu|jhaatu|bakwas|bakwaas|"
-                + "chup kar|bhak|teri maa ki|teri behen ki|aisi ki taisi",
+                + "chup kar|bhak|teri maa ki|teri maa ki chut|ma ki chut|maa ki chut|iris ki ma ki chut|iris ki maa ki chut|teri behen ki|aisi ki taisi",
                 "Language noted. I'm IRIS, {owner}'s assistant \u2014 your message has been logged.",
                 "Wah, kya sanskari bhasha hai! I'm IRIS \u2014 saved for {owner}.",
                 "Ek script ko Hindi mein gaali deke sigma ban gaye? I'm IRIS, {owner}'s assistant.",
@@ -3210,7 +3272,7 @@ public final class SmartReplies {
         x.add(rt("cuss_en", 87,
                 // Short forms & strict acronyms
                 "wtf|wth|wtaf|stfu|gtfo|omfg|fck|fuk|fvck|fkn|fking|fcking|fkng|fckr|fcker|mfer|mthrfckr|"
-                + "fuxk|fxck|fux|fckk|"
+                + "fuxk|fxck|fux|fckk|fuxkk|fuxkkk|fckkk|fuckk|fuckkk|"
                 + "btch|ashole|asshle|dckhead|dikhead|bstrd|bullsht|bllsht|shitty|"
                 // Long forms & variations
                 + "fuck|fucking|fucked|fucker|fuck off|fuck you|fuck u|motherfucker|motherfucking|"

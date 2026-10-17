@@ -321,6 +321,35 @@ public final class AutoResponder {
         boolean smartMatched = !smartReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
+        // ─── Hostile Emergency Interceptor (Anti-Bullying / Urgent Override Protection) ───
+        // Senders attempting to bully IRIS into VIP escalation or swearing while declaring an
+        // emergency have their VIP privileges revoked: emergency status is cancelled, pending
+        // offers are cleared, and IRIS roasts the sender with a refusal.
+        String metaReason = "";
+        boolean hasUrgentIntent = category.kind == MessageCategory.Kind.URGENT
+                || offerReply == ConversationContext.OfferReply.ACCEPT
+                || UrgencyScore.isUrgent(incoming.body, burst)
+                || (incoming.body != null && (incoming.body.toLowerCase(java.util.Locale.ROOT).contains("urgent")
+                        || incoming.body.toLowerCase(java.util.Locale.ROOT).contains("emergency")));
+        if (SmartReplies.hasProfanity(incoming.body)) {
+            if (hasUrgentIntent) {
+                offerReply = ConversationContext.OfferReply.NONE;
+                if (state == ResponderGuards.State.LIVE) settings.clearPendingOffer(conversationKey);
+                category = new MessageCategory.Result(MessageCategory.Kind.OTHER, "");
+                urgentFamily = false;
+                confirmsRing = false;
+                ringRequest = false;
+                smartReply = SmartReplies.hostileEmergencyReply(settings.nextRotation());
+                smartMatched = true;
+                metaReason = "Hostile Emergency Interceptor: VIP escalation revoked due to profanity";
+            } else {
+                category = new MessageCategory.Result(MessageCategory.Kind.OTHER, "");
+                smartReply = SmartReplies.matchMulti(aliasedBody, tone, settings.nextRotation());
+                smartMatched = !smartReply.isEmpty();
+                metaReason = "Profanity roaster: intercepted hostile message";
+            }
+        }
+
         // Multi-bubble context: ONLY when the current message is a short fragment (a split-off
         // continuation like "tomorrow" or "6pm") that matched nothing on its own. A full,
         // standalone message must never be answered via the window, or IRIS re-answers a question
@@ -366,38 +395,39 @@ public final class AutoResponder {
                 && SmartReplies.handlesCategory(category.kind);
 
         // ─── Meta-Awareness Overrides (Length, Velocity, Hardware, Temporal Snark) ───
-        String metaReason = "";
-        int rawLen = incoming.body == null ? 0 : incoming.body.length();
-        if (rawLen > 400 && SmartReplies.handlesCategory(category.kind)) {
-            smartReply = SmartReplies.poolReply("wall_of_text", settings.nextRotation());
-            smartMatched = true;
-            metaReason = "Meta-awareness: Wall of Text detector (" + rawLen + " chars)";
-        } else if (burst > 4 && SmartReplies.handlesCategory(category.kind)
-                && category.kind != MessageCategory.Kind.URGENT
-                && !UrgencyScore.isUrgent(incoming.body, 0)) {
-            smartReply = SmartReplies.poolReply("spam_warning", settings.nextRotation());
-            smartMatched = true;
-            metaReason = "Meta-awareness: Velocity awareness (" + burst + " msgs in burst window)";
-        } else {
-            int battery = batteryLevel(context);
-            String lowBody = normBody.toLowerCase(java.util.Locale.ROOT);
-            if (battery >= 0 && battery < 15 && SmartReplies.handlesCategory(category.kind)
-                    && (lowBody.contains("how are you") || lowBody.contains("is he busy")
-                    || lowBody.contains("is he free") || lowBody.contains("status")
-                    || lowBody.contains("battery") || category.kind == MessageCategory.Kind.CHECK_IN)) {
-                smartReply = SmartReplies.poolReply("low_battery", settings.nextRotation())
-                        .replace("{battery}", String.valueOf(battery));
+        if (metaReason.isEmpty()) {
+            int rawLen = incoming.body == null ? 0 : incoming.body.length();
+            if (rawLen > 400 && SmartReplies.handlesCategory(category.kind)) {
+                smartReply = SmartReplies.poolReply("wall_of_text", settings.nextRotation());
                 smartMatched = true;
-                metaReason = "Meta-awareness: Hardware context (battery at " + battery + "%)";
-            } else if (smartMatched && (lowBody.contains("is he free") || lowBody.contains("is he busy")
-                    || lowBody.contains("what is he doing") || lowBody.contains("where is he")
-                    || category.kind == MessageCategory.Kind.CHECK_IN)) {
-                int hourOfDay = minuteOfDay / 60;
-                int dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK);
-                String snark = SmartReplies.temporalSnark(dayOfWeek, hourOfDay, settings.rotation());
-                if (!snark.isEmpty() && settings.rotation() % 2 == 1) {
-                    smartReply = snark;
-                    metaReason = "Meta-awareness: Temporal awareness (time-of-day snark)";
+                metaReason = "Meta-awareness: Wall of Text detector (" + rawLen + " chars)";
+            } else if (burst > 4 && SmartReplies.handlesCategory(category.kind)
+                    && category.kind != MessageCategory.Kind.URGENT
+                    && !UrgencyScore.isUrgent(incoming.body, 0)) {
+                smartReply = SmartReplies.poolReply("spam_warning", settings.nextRotation());
+                smartMatched = true;
+                metaReason = "Meta-awareness: Velocity awareness (" + burst + " msgs in burst window)";
+            } else {
+                int battery = batteryLevel(context);
+                String lowBody = normBody.toLowerCase(java.util.Locale.ROOT);
+                if (battery >= 0 && battery < 15 && SmartReplies.handlesCategory(category.kind)
+                        && (lowBody.contains("how are you") || lowBody.contains("is he busy")
+                        || lowBody.contains("is he free") || lowBody.contains("status")
+                        || lowBody.contains("battery") || category.kind == MessageCategory.Kind.CHECK_IN)) {
+                    smartReply = SmartReplies.poolReply("low_battery", settings.nextRotation())
+                            .replace("{battery}", String.valueOf(battery));
+                    smartMatched = true;
+                    metaReason = "Meta-awareness: Hardware context (battery at " + battery + "%)";
+                } else if (smartMatched && (lowBody.contains("is he free") || lowBody.contains("is he busy")
+                        || lowBody.contains("what is he doing") || lowBody.contains("where is he")
+                        || category.kind == MessageCategory.Kind.CHECK_IN)) {
+                    int hourOfDay = minuteOfDay / 60;
+                    int dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK);
+                    String snark = SmartReplies.temporalSnark(dayOfWeek, hourOfDay, settings.rotation());
+                    if (!snark.isEmpty() && settings.rotation() % 2 == 1) {
+                        smartReply = snark;
+                        metaReason = "Meta-awareness: Temporal awareness (time-of-day snark)";
+                    }
                 }
             }
         }

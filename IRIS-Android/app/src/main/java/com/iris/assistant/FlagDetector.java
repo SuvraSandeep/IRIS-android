@@ -35,31 +35,58 @@ public final class FlagDetector {
      * Evaluates incoming message text, outgoing reply text, and conversation offer state
      * to determine if this interaction commits IRIS to flagging or pinning a message.
      */
-    public static Result detect(String incomingText, String replyText,
-                                ConversationContext.OfferReply offerReply) {
-        // 1. Explicit two-turn escalation offer accepted by sender
-        if (offerReply == ConversationContext.OfferReply.ACCEPT) {
-            return new Result(Action.FLAG, "Escalation accepted: sender requested urgent flag");
-        }
-
         String normIncoming = incomingText == null ? "" : incomingText.toLowerCase(Locale.ROOT).trim();
         String normReply = replyText == null ? "" : replyText.toLowerCase(Locale.ROOT).trim();
 
+        // Check if outgoing reply indicates refusal or declining to disturb, or hostile emergency denial
+        boolean replyDeclinedDisturb = normReply.contains("won't disturb")
+                || normReply.contains("wont disturb")
+                || normReply.contains("won't flag")
+                || normReply.contains("wont flag")
+                || normReply.contains("not disturbing")
+                || normReply.contains("escalation denied")
+                || normReply.contains("denied")
+                || normReply.contains("privileges revoked")
+                || normReply.contains("status revoked")
+                || normReply.contains("can't declare an emergency and swear")
+                || normReply.contains("urgent alert cancelled");
+
+        // Profanity or hostile override attempt in incoming text: never flag or escalate
+        boolean incomingProfanity = normIncoming.contains("madarchod")
+                || normIncoming.contains("bhenchod")
+                || normIncoming.contains("chutiya")
+                || normIncoming.contains("bhosd")
+                || normIncoming.contains("gandu")
+                || normIncoming.contains("fuck")
+                || normIncoming.contains("fuxk")
+                || normIncoming.contains("shit")
+                || normIncoming.contains("bitch")
+                || normIncoming.contains("asshole")
+                || normIncoming.contains("dick")
+                || normIncoming.contains("maghia")
+                || normIncoming.contains("maghiya")
+                || normIncoming.contains("bandapua")
+                || normIncoming.contains("banda maghiya")
+                || normIncoming.contains("ma ki chut")
+                || normIncoming.contains("maa ki chut")
+                || normIncoming.contains("badk")
+                || normIncoming.contains("bhadwa");
+
+        // 1. Explicit two-turn escalation offer accepted by sender (revoked if hostile or declined)
+        if (offerReply == ConversationContext.OfferReply.ACCEPT
+                && !replyDeclinedDisturb && !incomingProfanity) {
+            return new Result(Action.FLAG, "Escalation accepted: sender requested urgent flag");
+        }
+
         // Check if incoming text is explicitly a negation against flagging (e.g. "no don't flag", "don't flag it")
-        boolean incomingNegatedFlag = normIncoming.contains("don't flag")
+        boolean incomingNegatedFlag = incomingProfanity
+                || normIncoming.contains("don't flag")
                 || normIncoming.contains("dont flag")
                 || normIncoming.contains("no flag")
                 || normIncoming.contains("won't flag")
                 || normIncoming.contains("wont flag")
                 || normIncoming.contains("not flag")
                 || normIncoming.contains("never flag");
-
-        // Check if outgoing reply indicates refusal or declining to disturb
-        boolean replyDeclinedDisturb = normReply.contains("won't disturb")
-                || normReply.contains("wont disturb")
-                || normReply.contains("won't flag")
-                || normReply.contains("wont flag")
-                || normReply.contains("not disturbing");
 
         // 2. PIN detection
         // Guard against false positives like ATM PIN, UPI PIN, screen PIN, unlock PIN

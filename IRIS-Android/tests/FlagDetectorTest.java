@@ -16,6 +16,7 @@ public final class FlagDetectorTest {
         testSmartRepliesPinnedPhrases();
         testVernacularFlaggedPhrases();
         testNormalConversationDoesNotFlag();
+        testHostileEmergencyDoesNotFlag();
         System.out.println("Passed " + checks + " flag detector checks");
     }
 
@@ -117,6 +118,23 @@ public final class FlagDetectorTest {
                 "Doing great, zero bugs today! Suvra's busy — what can I pass on?",
                 ConversationContext.OfferReply.NONE);
         t(!r.isFlag() && !r.isPin(), "normal banter triggers neither");
+    }
+
+    private static void testHostileEmergencyDoesNotFlag() {
+        FlagDetector.Result r1 = FlagDetector.detect("yes its urgent madarchoddd",
+                "You can't declare an emergency and swear at the dispatcher at the same time. Urgent escalation denied. I'm IRIS, Suvra's assistant.",
+                ConversationContext.OfferReply.NONE);
+        t(!r1.isFlag() && !r1.isPin(), "hostile emergency denial does not trigger flag");
+
+        FlagDetector.Result r2 = FlagDetector.detect("yes its urgent madarchoddd",
+                "Profanity revokes your VIP privileges. Escalation denied — I'm IRIS.",
+                ConversationContext.OfferReply.ACCEPT);
+        t(!r2.isFlag() && !r2.isPin(), "hostile emergency with ACCEPT does not trigger flag due to profanity and denial");
+
+        FlagDetector.Result r3 = FlagDetector.detect("flag this urgent bhenchod",
+                "Mind the language — logged for Suvra. I'm IRIS.",
+                ConversationContext.OfferReply.NONE);
+        t(!r3.isFlag() && !r3.isPin(), "flag request with profanity is suppressed and does not flag");
     }
 
     private static void t(boolean cond, String msg) {
