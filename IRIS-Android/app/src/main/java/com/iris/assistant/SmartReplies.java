@@ -3066,6 +3066,7 @@ public final class SmartReplies {
                 + "chdpua|bkchoda|bkchd|slpua|kkrpua|ghsrpua|khnkimagi|"
                 // Long forms & transliterated spellings
                 + "maghia|maghiaa|maghiaaa|maghya|magiha|magia|maaghia|maghia pua|maghiapua|magya|"
+                + "mafhiya|mafghia|maghiiya|"
                 + "bandapua|banda pua|banda katha|bandakatha|mora banda|tora banda|"
                 + "gandi mara|gandimara|gandi maruchu|gandimora|"
                 + "chodi|chodipua|chodi pua|chodiba|biapua|bia pua|gehi|geha|gehiba|"
@@ -3106,6 +3107,7 @@ public final class SmartReplies {
         x.add(rt("cuss_en", 87,
                 // Short forms & strict acronyms
                 "wtf|wth|wtaf|stfu|gtfo|omfg|fck|fuk|fvck|fkn|fking|fcking|fkng|fckr|fcker|mfer|mthrfckr|"
+                + "fuxk|fxck|fux|fckk|"
                 + "btch|ashole|asshle|dckhead|dikhead|bstrd|bullsht|bllsht|shitty|"
                 // Long forms & variations
                 + "fuck|fucking|fucked|fucker|fuck off|fuck you|fuck u|motherfucker|motherfucking|"

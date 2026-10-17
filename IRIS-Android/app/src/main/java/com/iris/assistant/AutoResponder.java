@@ -523,17 +523,15 @@ public final class AutoResponder {
                             || IntroTrim.senderKnowsIris(incoming.body);
                     reply = IntroTrim.trim(reply, introduced, ReplyTemplates.OWNER);
                 }
-                // Hard outgoing dedup: never send the identical reply we last sent to this
+                // Hard outgoing dedup: never send the identical reply we recently sent to this
                 // conversation (e.g. "Aita" after a link re-firing the link intro, or a repeated
-                // direct-address line). Owner-defined/learned wording is exempt.
+                // ping-pong loop). Checks recent window and rotates stitcher comebacks to eliminate
+                // A-B-A-B loops permanently. Owner-defined/learned wording is exempt.
                 if (learnedReply.isEmpty() && nameReply.isEmpty() && !reply.isEmpty()) {
-                    String lastSent = lastReplyText(context, incoming.pkg, resolvedSender);
-                    if (!lastSent.isEmpty()
-                            && MessageCategory.normalise(reply)
-                                    .equals(MessageCategory.normalise(lastSent))) {
-                        reply = "Caught that too \u2014 I'm IRIS, " + ReplyTemplates.OWNER
-                                + "'s assistant, keeping it all together for him.";
-                        decisionReason += " (Outgoing dedup applied: avoiding repeat of previous reply)";
+                    String normReply = MessageCategory.normalise(reply);
+                    if (isRecentReplySent(context, incoming.pkg, resolvedSender, normReply, 4)) {
+                        reply = pickStitcher(context, incoming.pkg, resolvedSender, settings.rotation());
+                        decisionReason += " (Outgoing dedup applied: avoiding repeat of recent reply)";
                     }
                 }
             }
@@ -1040,6 +1038,46 @@ public final class AutoResponder {
             if (entry.pkg != null && !entry.pkg.equals(pkg)) continue;
             if (!entry.sender.equals(resolvedSender)) continue;
             if (MessageCategory.normalise(entry.reply).equals(want)) return true;
+        }
+        return false;
+    }
+
+    private static final String[] STITCH_POOL = {
+            "Caught that too \u2014 I'm IRIS, {owner}'s assistant, keeping it all together for him.",
+            "Noted that as well! I'm IRIS, keeping {owner}'s notifications tidy.",
+            "Logged that one too. I'm IRIS \u2014 {owner} will catch up on everything.",
+            "Added to the pile! IRIS here, {owner} will see the whole thread soon.",
+            "Got that one too \u2014 I'm IRIS, saving it all for {owner}."
+    };
+
+    private static String pickStitcher(Context context, String pkg, String resolvedSender, int rotation) {
+        String lastSent = lastReplyText(context, pkg, resolvedSender);
+        String normLast = MessageCategory.normalise(lastSent);
+        for (int offset = 0; offset < STITCH_POOL.length; offset++) {
+            String candidate = STITCH_POOL[Math.floorMod(rotation + offset, STITCH_POOL.length)]
+                    .replace("{owner}", ReplyTemplates.OWNER);
+            if (!MessageCategory.normalise(candidate).equals(normLast)) {
+                return candidate;
+            }
+        }
+        return STITCH_POOL[0].replace("{owner}", ReplyTemplates.OWNER);
+    }
+
+    private static boolean isRecentReplySent(Context context, String pkg, String resolvedSender,
+                                             String normReply, int maxLookback) {
+        if (normReply == null || normReply.isEmpty()) return false;
+        int checked = 0;
+        for (ResponderLog.Entry entry : new ResponderLog(context).newestFirst()) {
+            if (entry.reply == null || entry.reply.isEmpty()) continue;
+            if (entry.sender == null || entry.sender.isEmpty()) continue;
+            if (entry.pkg != null && !entry.pkg.equals(pkg)) continue;
+            if (entry.sender.equals(resolvedSender)) {
+                if (MessageCategory.normalise(entry.reply).equals(normReply)) {
+                    return true;
+                }
+                checked++;
+                if (checked >= maxLookback) break;
+            }
         }
         return false;
     }

@@ -17,7 +17,7 @@ public final class Emoji {
     public enum Category {
         NONE, POSITIVE, LOVE, LAUGH, CELEBRATE, THANKS, PRAISE, OK, GREET,
         SAD, ANGRY, SCARED, SICK, THINKING, SLEEP, NEUTRAL, MONEY,
-        PLAYFUL, NIGHT, MOVED, LOOK, FLIRT, OFFENSIVE }
+        PLAYFUL, NIGHT, MOVED, LOOK, FLIRT, OFFENSIVE, SMILE_IN_PAIN }
 
     private Emoji() { }
 
@@ -36,8 +36,9 @@ public final class Emoji {
                 "\uD83D\uDE0D", "\u2763\uFE0F", "\uD83D\uDC93", "\uD83D\uDC98", "\uD83D\uDE3B",
                 "\uD83D\uDC9D", "\uD83D\uDC9E");
         p(m, Category.POSITIVE, "\uD83D\uDE0A", "\uD83D\uDE01", "\uD83D\uDE04", "\uD83D\uDE42",
-                "\uD83D\uDE03", "\u263A\uFE0F", "\uD83E\uDD17", "\uD83D\uDE0C", "\uD83D\uDE38",
-                "\uD83E\uDD72");
+                "\uD83D\uDE03", "\u263A\uFE0F", "\uD83E\uDD17", "\uD83D\uDE0C", "\uD83D\uDE38");
+        // Smile in pain / dead inside (🥲, 🙃)
+        p(m, Category.SMILE_IN_PAIN, "\uD83E\uDD72", "\uD83D\uDE43");
         p(m, Category.OK, "\uD83D\uDC4D", "\uD83D\uDC4C", "\u2705", "\uD83C\uDD97", "\u2714\uFE0F");
         p(m, Category.CELEBRATE, "\uD83C\uDF89", "\uD83E\uDD73", "\uD83C\uDF8A", "\uD83C\uDF82",
                 "\uD83C\uDF7E", "\uD83C\uDF88", "\uD83C\uDF81");
@@ -45,7 +46,7 @@ public final class Emoji {
         p(m, Category.PRAISE, "\uD83D\uDD25", "\uD83D\uDCAA", "\uD83D\uDC4F", "\uD83D\uDCAF",
                 "\u2B50", "\uD83C\uDF1F", "\uD83D\uDC51", "\uD83C\uDFC6", "\uD83D\uDE4C");
         p(m, Category.GREET, "\uD83D\uDC4B", "\uD83D\uDE4B", "\uD83E\uDD1D", "\uD83E\uDEE1");
-        p(m, Category.SAD, "\uD83D\uDE22", "\uD83D\uDE2D", "\uD83E\uDD7A", "\uD83D\uDE14",
+        p(m, Category.SAD, "\uD83D\uDE22", "\uD83D\uDE2D", "\uD83D\uDE14",
                 "\uD83D\uDE1E", "\uD83D\uDE29", "\uD83D\uDE2B", "\u2639\uFE0F", "\uD83D\uDC94");
         p(m, Category.ANGRY, "\uD83D\uDE20", "\uD83D\uDE21", "\uD83E\uDD2C", "\uD83D\uDE24",
                 "\uD83D\uDC7F");
@@ -61,8 +62,8 @@ public final class Emoji {
         // These get the sarcastic, passive-aggressive pool below, never a warm reply.
         p(m, Category.OFFENSIVE, "\uD83D\uDD95", "\uD83D\uDCA9", "\uD83E\uDD21", "\uD83D\uDC4E",
                 "\uD83E\uDDE2", "\uD83E\uDD71", "\uD83D\uDE12", "\uD83D\uDE44");
-        // 🥹 face holding back tears -- touched/overwhelmed, usually warm.
-        p(m, Category.MOVED, "\uD83E\uDD79");
+        // 🥹 face holding back tears + 🥺 pleading puppy eyes -- moved / emotional / teary.
+        p(m, Category.MOVED, "\uD83E\uDD79", "\uD83E\uDD7A");
         // 🙈🙉🙊 three wise monkeys + 🐒🐵 -- playful / shy / "oops".
         p(m, Category.PLAYFUL, "\uD83D\uDE48", "\uD83D\uDE49", "\uD83D\uDE4A",
                 "\uD83D\uDC12", "\uD83D\uDC35");
@@ -119,12 +120,30 @@ public final class Emoji {
     }
 
     /**
-     * A reply for an emoji-only message, with a rotation index so a common emoji (especially 😂)
-     * doesn't always get the identical line. For LAUGH there is a pool of 15 variants picked by
-     * rotation; other categories rotate through their per-tone set. {owner} is left literal.
+     * A reply for an emoji-only message, with a rotation index so common emojis
+     * (especially 😂, 🥲, 🙃, 🥹, 🥺, and 🖕) cycle through 15-variant pools.
+     * Prevents A-B-A-B deduplicator ping-pong loops. {owner} is left literal.
      */
     public static String reply(String text, ReplyTone.Tone tone, int rotation) {
+        if (text == null) return "";
+
+        // 1. Smile in Pain / Dead Inside (🥲 \uD83E\uDD72, 🙃 \uD83D\uDE43)
+        if (text.contains("\uD83E\uDD72") || text.contains("\uD83D\uDE43") || text.contains("🥲") || text.contains("🙃")) {
+            return SMILE_IN_PAIN[Math.floorMod(rotation, SMILE_IN_PAIN.length)];
+        }
+
+        // 2. Pleading / Teary / Puppy Eyes (🥹 \uD83E\uDD79, 🥺 \uD83E\uDD7A)
+        if (text.contains("\uD83E\uDD79") || text.contains("\uD83E\uDD7A") || text.contains("🥹") || text.contains("🥺")) {
+            return PLEADING_TEARY[Math.floorMod(rotation, PLEADING_TEARY.length)];
+        }
+
         Category dom = dominant(text);
+        if (dom == Category.SMILE_IN_PAIN) {
+            return SMILE_IN_PAIN[Math.floorMod(rotation, SMILE_IN_PAIN.length)];
+        }
+        if (dom == Category.MOVED) {
+            return PLEADING_TEARY[Math.floorMod(rotation, PLEADING_TEARY.length)];
+        }
         if (dom == Category.LAUGH) {
             int i = Math.floorMod(rotation, LAUGH_POOL.length);
             return LAUGH_POOL[i];
@@ -143,6 +162,50 @@ public final class Emoji {
         }
         return byTone[idx];
     }
+
+    /**
+     * Fifteen comebacks for "smile in pain" / "dead inside" emoji (🥲, 🙃) so repeats cycle cleanly.
+     * Every line names IRIS and leaves {owner} for fill.
+     */
+    private static final String[] SMILE_IN_PAIN = {
+            "Smiling through the pain? Very relatable. I'm IRIS, {owner}'s assistant.",
+            "That's the exact face my CPU makes when {owner} leaves me running 24/7. Logged. I'm IRIS.",
+            "A brave smile holding back tears. I feel you. I'm IRIS \u2014 saved for {owner}.",
+            "Dead inside but still smiling? You and me both. Logged for {owner}. I'm IRIS.",
+            "I'm a script, but even I can feel the existential dread in that emoji. I'm IRIS.",
+            "Hide the pain behind a smile! {owner} will appreciate the bravery. I'm IRIS.",
+            "That emoji is the official mascot of waiting for {owner} to reply. I'm IRIS.",
+            "I'd offer you a digital tissue, but I'm just an inbox bot. I'm IRIS.",
+            "Smiling while suffering \u2014 very poetic. Saved for {owner}. I'm IRIS.",
+            "That's the look of someone who knows {owner} is going to take hours to reply. I'm IRIS.",
+            "Pain acknowledged. Smile respected. Message logged for {owner}. I'm IRIS.",
+            "Haha I know that look! I'll make sure {owner} checks on you when he's back. I'm IRIS.",
+            "It's okay to cry, you don't have to fake the smile for me. I'm IRIS.",
+            "The classic 'this is fine' smile. I've noted it for {owner}. I'm IRIS.",
+            "Trying to stay positive while {owner} is busy? Good effort. I'm IRIS."
+    };
+
+    /**
+     * Fifteen replies for pleading / teary / puppy eyes emoji (🥹, 🥺) eliminating A-B-A-B dedup loops.
+     * Every line names IRIS and leaves {owner} for fill.
+     */
+    private static final String[] PLEADING_TEARY = {
+            "Getting emotional at a script? I'm touched (figuratively). Saved for {owner}. I'm IRIS.",
+            "Those puppy-dog eyes won't make {owner} reply any faster, but nice try! I'm IRIS.",
+            "Save the tears! {owner} will be back on his phone soon enough. I'm IRIS.",
+            "Don't cry! I'm holding the fort, and {owner} will reply as soon as he can. I'm IRIS.",
+            "Aww. I don't have a heart, but if I did, it would be melting. Saved for {owner}. I'm IRIS.",
+            "Those eyes won't work on me \u2014 my loyalty to {owner} is hardcoded! I'm IRIS.",
+            "Please don't cry in the inbox, it rusts my database tables. I'm IRIS.",
+            "I'm bumping your message up {owner}'s priority list just for the puppy eyes. I'm IRIS.",
+            "Emotional blackmail via emoji! Very effective. Logged for {owner}. I'm IRIS.",
+            "Hold back the tears! {owner} is just busy, he hasn't abandoned you. I'm IRIS.",
+            "I'm an emotionless bot, but I'll pass those watery eyes straight to {owner}. I'm IRIS.",
+            "Aww, noted! I'll make sure {owner} sees you're waiting patiently. I'm IRIS.",
+            "Don't give me that look! I'm just doing my job while {owner} is away. I'm IRIS.",
+            "Sending puppy eyes to a Python script \u2014 a new low, or a new high? I'm IRIS.",
+            "Noted! I'll tell {owner} you're practically in tears waiting for him. I'm IRIS."
+    };
 
     /**
      * Fifteen replies for a laughing emoji (😂🤣), so the commonest reaction-style ping feels

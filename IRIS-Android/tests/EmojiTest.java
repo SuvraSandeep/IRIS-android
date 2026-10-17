@@ -70,6 +70,30 @@ public final class EmojiTest {
         check(Emoji.reply("\uD83D\uDE02", ReplyTone.Tone.CASUAL, 3)
                         .equals(Emoji.reply("\uD83D\uDE02", ReplyTone.Tone.CASUAL, 3)),
                 "same rotation gives same reply");
+
+        // Smile in pain / dead inside emoji (🥲, 🙃) rotates through 15 variants
+        check(Emoji.dominant("\uD83E\uDD72") == Emoji.Category.SMILE_IN_PAIN, "smile with tear is SMILE_IN_PAIN");
+        check(Emoji.dominant("\uD83D\uDE43") == Emoji.Category.SMILE_IN_PAIN, "upside down face is SMILE_IN_PAIN");
+        java.util.Set<String> painSmiles = new java.util.HashSet<>();
+        for (int r = 0; r < 15; r++) {
+            painSmiles.add(Emoji.reply("\uD83E\uDD72", ReplyTone.Tone.SARCASTIC, r));
+        }
+        check(painSmiles.size() >= 10, "smile in pain has at least 10 distinct variants: " + painSmiles.size());
+        for (String p : painSmiles) {
+            check(p.toLowerCase(java.util.Locale.ROOT).contains("iris"), "each pain smile names IRIS");
+        }
+
+        // Pleading / teary / puppy eyes emoji (🥹, 🥺) rotates through 15 variants
+        check(Emoji.dominant("\uD83E\uDD79") == Emoji.Category.MOVED, "holding back tears is MOVED");
+        check(Emoji.dominant("\uD83E\uDD7A") == Emoji.Category.MOVED, "pleading eyes is MOVED");
+        java.util.Set<String> pleading = new java.util.HashSet<>();
+        for (int r = 0; r < 15; r++) {
+            pleading.add(Emoji.reply("\uD83E\uDD79", ReplyTone.Tone.SARCASTIC, r));
+        }
+        check(pleading.size() >= 10, "pleading teary has at least 10 distinct variants: " + pleading.size());
+        for (String p : pleading) {
+            check(p.toLowerCase(java.util.Locale.ROOT).contains("iris"), "each pleading variant names IRIS");
+        }
         // Offensive / dismissive emoji get a sarcastic, rotating, passive-aggressive reply.
         check(Emoji.dominant("\uD83D\uDD95") == Emoji.Category.OFFENSIVE, "middle finger is OFFENSIVE");
         check(Emoji.dominant("\uD83D\uDCA9") == Emoji.Category.OFFENSIVE, "poop is OFFENSIVE");

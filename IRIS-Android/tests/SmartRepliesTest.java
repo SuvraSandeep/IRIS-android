@@ -487,7 +487,7 @@ public final class SmartRepliesTest {
         }
 
         // Profanity roasters in English, Hindi/Hinglish, and Odia
-        for (String q : new String[]{"stfu", "fck", "fucking idiot", "bullshit", "asshole", "wtf", "what the hell", "dickhead"}) {
+        for (String q : new String[]{"stfu", "fck", "fucking idiot", "bullshit", "asshole", "wtf", "what the hell", "dickhead", "fuxk", "fux", "fxck", "fckk"}) {
             String r = SmartReplies.match(q, ReplyTone.Tone.CASUAL);
             check(!r.isEmpty() && namesIris(r), "english cuss roast: " + q);
         }
@@ -495,7 +495,7 @@ public final class SmartRepliesTest {
             String r = SmartReplies.match(q, ReplyTone.Tone.CASUAL);
             check(!r.isEmpty() && namesIris(r), "hindi cuss roast: " + q);
         }
-        for (String q : new String[]{"mgh", "maghia", "bandapua", "gandimara", "bokachoda", "kukura", "chup raha"}) {
+        for (String q : new String[]{"mgh", "maghia", "bandapua", "gandimara", "bokachoda", "kukura", "chup raha", "mafhiya", "mafghia", "maghiiya"}) {
             String r = SmartReplies.match(q, ReplyTone.Tone.CASUAL);
             check(!r.isEmpty() && namesIris(r), "odia cuss roast: " + q);
         }
