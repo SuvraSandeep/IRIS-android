@@ -456,6 +456,7 @@ public final class SmartReplies {
         boolean isFinancialStmt = isFinancialTransactionStatement(flat);
         for (Rule r : RULES) {
             if (isFinancialStmt && isShoppingRule(r)) continue;
+            if (negated && r.tag != null && r.tag.equals("flag")) continue;
             boolean exact = matches(r, flat);
             boolean loose = !exact && !negated && looselyMatches(r, canon);
             if (!exact && !loose) continue;
@@ -1609,9 +1610,9 @@ public final class SmartReplies {
                 "0% blushing, 100% processing speed. Nice try though \u2014 saved for {owner}. I'm "
                         + "IRIS.",
                 "No blushing hardware here \u2014 noted for {owner}. I'm IRIS."));
-        // ─── Conversational Refusals After Bot Offers (priority 80) ───
+        // ─── Conversational Refusals After Bot Offers (priority 85) ───
         // Scenario 20: "No no don't" / "Don't flag it"
-        x.add(rt("no_flag", 80, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
+        x.add(rt("no_flag", 85, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
                         + "not urgent|don't bother him|dont bother him|don't disturb him|dont disturb him|"
                         + "don't disturb|dont disturb|no no don t|no don t|don t flag|don t disturb",
                 "Understood. I will not escalate this as urgent; your message will remain in {owner}'s "
