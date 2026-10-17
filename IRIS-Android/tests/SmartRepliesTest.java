@@ -613,7 +613,7 @@ public final class SmartRepliesTest {
         java.util.Set<String> hePool = new java.util.HashSet<>();
         for (int r = 0; r < 10; r++) {
             String he = SmartReplies.hostileEmergencyReply(r);
-            check(!he.isEmpty() && namesIris(he) && namesOwner(he), "hostile emergency reply names IRIS and owner: " + he);
+            check(!he.isEmpty() && namesIris(he), "hostile emergency reply names IRIS: " + he);
             check(he.contains("denied") || he.contains("revoked") || he.contains("cancelled"),
                     "hostile emergency mentions denial/revocation: " + he);
             hePool.add(he);

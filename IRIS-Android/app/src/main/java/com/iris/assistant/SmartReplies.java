@@ -1282,7 +1282,7 @@ public final class SmartReplies {
                 "You can't declare an emergency and swear at the dispatcher at the same time. "
                         + "Urgent escalation denied. I'm IRIS, {owner}'s assistant.",
                 "Profanity revokes your VIP privileges. If this is a real emergency, try again "
-                        + "without the hostility. Escalation denied \u2014 I'm IRIS.",
+                        + "without the hostility. Escalation denied \u2014 I'm IRIS, {owner}'s assistant.",
                 "I don't escalate abusive messages to {owner}, no matter how urgent you claim they are. "
                         + "Urgent alert cancelled. I'm IRIS.",
                 "Swearing at the automated assistant won't get you past the firewall. Emergency "
