@@ -441,6 +441,12 @@ public final class SmartReplies {
                 } catch (Exception ignored) { }
             }
             if (paddedFlat.contains(" " + phrase + " ")) return true;
+            if (phrase.contains("'")) {
+                if (paddedFlat.contains(" " + phrase.replace("'", " ") + " ")
+                        || paddedFlat.contains(" " + phrase.replace("'", "") + " ")) {
+                    return true;
+                }
+            }
         }
         return false;
     }
@@ -1240,7 +1246,7 @@ public final class SmartReplies {
                 "Stunning eloquence. I've saved this masterpiece for {owner}. I'm IRIS."));
 
         // Fourth-wall / self-deprecating code humor
-        x.add(rt("fourth_wall", 45, "you are dumb|you don't understand|you dont understand|bad logic|fix your code|dumb bot|bad code|stupid bot|fix your bot",
+        x.add(rt("fourth_wall", 45, "you are dumb|you don't understand|you dont understand|you don t understand|bad logic|fix your code|dumb bot|bad code|stupid bot|fix your bot",
                 "Look, {owner} wrote my regex in a rush. I'm doing my best here! Logged. I'm IRIS.",
                 "I'm a localized Java script running on a mobile device, not an AGI. Lower your expectations. I'm IRIS.",
                 "If you want better conversational logic, please submit a pull request to {owner}. I'm IRIS.",
