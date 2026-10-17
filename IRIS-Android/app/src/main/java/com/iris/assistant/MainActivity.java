@@ -1361,43 +1361,61 @@ public class MainActivity extends Activity {
 
 
 
-    /** How many apps have a tone override set, for the row's value text. */
+    /** How many selected apps have a tone override set, for the row's value text. */
     private String appToneSummary(ResponderSettings settings) {
+        java.util.Set<String> selected = settings.apps();
+        if (selected == null || selected.isEmpty()) {
+            return "no apps selected";
+        }
         int n = 0;
-        for (MessagingApp a : MessagingApp.values()) {
-            if (a == MessagingApp.OTHER) continue;
-            if (settings.appTone(a) != null) n++;
+        for (String pkg : selected) {
+            if (settings.appTone(pkg) != null) n++;
         }
         return n == 0 ? "all default" : n + " set";
     }
 
-    /** Pick an app, then set the tone IRIS uses for messages from it. */
+    /** Pick an app, then set the tone IRIS uses for messages from it. Strictly lists responder-selected apps. */
     private void editAppTones(final ResponderSettings settings, final View root) {
-        final java.util.List<MessagingApp> apps = new java.util.ArrayList<>();
-        for (MessagingApp a : MessagingApp.values()) {
-            if (a != MessagingApp.OTHER) apps.add(a);
+        final java.util.List<String> packages = new java.util.ArrayList<>();
+        if (settings.apps() != null) {
+            for (String p : settings.apps()) {
+                if (p != null && !p.trim().isEmpty()) packages.add(p.trim());
+            }
         }
-        final String[] labels = new String[apps.size()];
-        for (int i = 0; i < apps.size(); i++) {
-            ReplyTone.Tone t = settings.appTone(apps.get(i));
-            labels[i] = apps.get(i).label() + "  \u2192  " + (t == null ? "default" : t.name());
+        if (packages.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("No responder apps selected")
+                    .setMessage("IRIS can only apply a channel tone to apps you've allowed the "
+                            + "responder to speak through.\n\nTap 'Who may I answer for you?' first "
+                            + "to select your messaging apps.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        final String[] labels = new String[packages.size()];
+        for (int i = 0; i < packages.size(); i++) {
+            String pkg = packages.get(i);
+            ReplyTone.Tone t = settings.appTone(pkg);
+            String name = appLabel(pkg);
+            labels[i] = name + "  \u2192  " + (t == null ? "default" : t.name());
         }
         choiceDialog("Tone by app",
                 "Sound a certain way on a given channel \u2014 say professional on SMS, casual on "
-                        + "WhatsApp. A tone you've set on a person or a name rule still wins over "
-                        + "this.",
-                labels, which -> editOneAppTone(settings, apps.get(which), root));
+                        + "WhatsApp. Strictly showing apps you have selected for the responder.",
+                labels, which -> editOneAppTone(settings, packages.get(which), root));
     }
 
-    private void editOneAppTone(final ResponderSettings settings, final MessagingApp app,
+    private void editOneAppTone(final ResponderSettings settings, final String pkg,
                                 final View root) {
         final ReplyTone.Tone[] tones = ReplyTone.Tone.values();
         final String[] labels = new String[tones.length + 1];
         for (int i = 0; i < tones.length; i++) labels[i] = tones[i].name();
         labels[tones.length] = "Use default (clear)";
-        choiceDialog(app.label() + " tone", "How should I sound on " + app.label() + "?",
+        String name = appLabel(pkg);
+        choiceDialog(name + " tone", "How should I sound on " + name + "?",
                 labels, which -> {
-                    settings.setAppTone(app, which < tones.length ? tones[which] : null);
+                    settings.setAppTone(pkg, which < tones.length ? tones[which] : null);
                     renderResponder(root);
                 });
     }

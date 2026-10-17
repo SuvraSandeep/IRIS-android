@@ -213,14 +213,38 @@ public final class ResponderSettings {
      * sender is saved.
      */
     public ReplyTone.Tone appTone(String pkg) {
-        String v = prefs.getString(P_APP_TONE + MessagingApp.fromPackage(pkg).name(), "");
-        return v.isEmpty() ? null : ReplyTone.parseTone(v);
+        if (pkg == null || pkg.trim().isEmpty()) return null;
+        String direct = prefs.getString(P_APP_TONE + pkg.trim(), "");
+        if (!direct.isEmpty()) return ReplyTone.parseTone(direct);
+        MessagingApp app = MessagingApp.fromPackage(pkg);
+        if (app != MessagingApp.OTHER) {
+            String v = prefs.getString(P_APP_TONE + app.name(), "");
+            if (!v.isEmpty()) return ReplyTone.parseTone(v);
+        }
+        return null;
     }
 
     public ReplyTone.Tone appTone(MessagingApp app) {
         if (app == null) return null;
         String v = prefs.getString(P_APP_TONE + app.name(), "");
         return v.isEmpty() ? null : ReplyTone.parseTone(v);
+    }
+
+    public void setAppTone(String pkg, ReplyTone.Tone tone) {
+        if (pkg == null || pkg.trim().isEmpty()) return;
+        String p = pkg.trim();
+        MessagingApp app = MessagingApp.fromPackage(p);
+        if (tone == null) {
+            prefs.edit().remove(P_APP_TONE + p).apply();
+            if (app != MessagingApp.OTHER) {
+                prefs.edit().remove(P_APP_TONE + app.name()).apply();
+            }
+        } else {
+            prefs.edit().putString(P_APP_TONE + p, tone.name()).apply();
+            if (app != MessagingApp.OTHER) {
+                prefs.edit().putString(P_APP_TONE + app.name(), tone.name()).apply();
+            }
+        }
     }
 
     public void setAppTone(MessagingApp app, ReplyTone.Tone tone) {
