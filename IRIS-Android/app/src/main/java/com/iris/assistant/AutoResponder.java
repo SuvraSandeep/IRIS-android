@@ -344,6 +344,43 @@ public final class AutoResponder {
         boolean profileMatched = !profileReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
+        // ─── Meta-Awareness Overrides (Length, Velocity, Hardware, Temporal Snark) ───
+        String metaReason = "";
+        int rawLen = incoming.body == null ? 0 : incoming.body.length();
+        if (rawLen > 400 && SmartReplies.handlesCategory(category.kind)) {
+            smartReply = SmartReplies.poolReply("wall_of_text", settings.nextRotation());
+            smartMatched = true;
+            metaReason = "Meta-awareness: Wall of Text detector (" + rawLen + " chars)";
+        } else if (burst > 4 && SmartReplies.handlesCategory(category.kind)
+                && category.kind != MessageCategory.Kind.URGENT
+                && !UrgencyScore.isUrgent(incoming.body, 0)) {
+            smartReply = SmartReplies.poolReply("spam_warning", settings.nextRotation());
+            smartMatched = true;
+            metaReason = "Meta-awareness: Velocity awareness (" + burst + " msgs in burst window)";
+        } else {
+            int battery = batteryLevel(context);
+            String lowBody = normBody.toLowerCase(java.util.Locale.ROOT);
+            if (battery >= 0 && battery < 15 && SmartReplies.handlesCategory(category.kind)
+                    && (lowBody.contains("how are you") || lowBody.contains("is he busy")
+                    || lowBody.contains("is he free") || lowBody.contains("status")
+                    || lowBody.contains("battery") || category.kind == MessageCategory.Kind.CHECK_IN)) {
+                smartReply = SmartReplies.poolReply("low_battery", settings.nextRotation())
+                        .replace("{battery}", String.valueOf(battery));
+                smartMatched = true;
+                metaReason = "Meta-awareness: Hardware context (battery at " + battery + "%)";
+            } else if (smartMatched && (lowBody.contains("is he free") || lowBody.contains("is he busy")
+                    || lowBody.contains("what is he doing") || lowBody.contains("where is he")
+                    || category.kind == MessageCategory.Kind.CHECK_IN)) {
+                int hourOfDay = minuteOfDay / 60;
+                int dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK);
+                String snark = SmartReplies.temporalSnark(dayOfWeek, hourOfDay, settings.rotation());
+                if (!snark.isEmpty() && settings.rotation() % 2 == 1) {
+                    smartReply = snark;
+                    metaReason = "Meta-awareness: Temporal awareness (time-of-day snark)";
+                }
+            }
+        }
+
         // ─── Guards ───
         ResponderGuards.Message message = new ResponderGuards.Message();
         message.category = category.kind;
@@ -489,7 +526,8 @@ public final class AutoResponder {
                     reply = ReplyTemplates.fill(smartReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
-                    decisionReason = "Smart reply: rule matched keyword intent in category " + category.kind.name();
+                    decisionReason = !metaReason.isEmpty() ? metaReason
+                            : ("Smart reply: rule matched keyword intent in category " + category.kind.name());
                 } else if (vernMatched) {
                     reply = ReplyTemplates.fill(vernReply, resolvedSender,
                             ResponderWindow.formatMinute(minuteOfDay),
@@ -1018,6 +1056,25 @@ public final class AutoResponder {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    /**
+     * Reads the current battery percentage (0..100) or -1 if unavailable.
+     */
+    public static int batteryLevel(Context context) {
+        if (context == null) return -1;
+        try {
+            android.content.Intent bat = context.registerReceiver(null,
+                    new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            if (bat != null) {
+                int level = bat.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+                int scale = bat.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+                if (level >= 0 && scale > 0) {
+                    return (int) Math.round((level * 100.0) / scale);
+                }
+            }
+        } catch (Throwable ignored) { }
+        return -1;
     }
 
     /**

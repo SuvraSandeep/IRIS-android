@@ -224,6 +224,26 @@ public final class SmartReplies {
         return pool[Math.floorMod(rotation, pool.length)].replace("{owner}", ReplyTemplates.OWNER);
     }
 
+    /**
+     * Temporal awareness helper: returns time-of-day snark variant if current hour/day matches special windows,
+     * or empty string if standard timing applies.
+     */
+    public static String temporalSnark(int dayOfWeek, int hourOfDay, int rotation) {
+        // Lunchtime (12:00 - 14:00)
+        if (hourOfDay >= 12 && hourOfDay < 14) {
+            return poolReply("time_snark_lunch", rotation);
+        }
+        // Friday Evening (17:00 - 20:00 on Friday: Calendar.FRIDAY == 6)
+        if (dayOfWeek == 6 && hourOfDay >= 17 && hourOfDay < 20) {
+            return poolReply("time_snark_friday", rotation);
+        }
+        // Early Morning (08:00 - 10:00)
+        if (hourOfDay >= 8 && hourOfDay < 10) {
+            return poolReply("time_snark_morning", rotation);
+        }
+        return "";
+    }
+
     /** Pick a rule's reply, honouring a rotation pool when the rule is tagged. */
     private static String pickRule(Rule r, ReplyTone.Tone tone, int rotation) {
         if (r.tag != null) {
@@ -296,6 +316,10 @@ public final class SmartReplies {
     }
 
     private static String checkSpecial(String text, ReplyTone.Tone tone, int rotation) {
+        if (text == null) return null;
+        if (text.length() > 400) {
+            return poolReply("wall_of_text", rotation);
+        }
         if (URL.matcher(text).find()) {
             return LinkCategory.reply(LinkCategory.classify(text), tone);
         }
@@ -409,7 +433,13 @@ public final class SmartReplies {
             "{owner} is still away \u2014 IRIS here. Your messages are saved."};
 
     private static boolean matches(Rule r, String paddedFlat) {
+        String trimmed = paddedFlat == null ? "" : paddedFlat.trim();
         for (String phrase : r.any) {
+            if (phrase.startsWith("^") || phrase.contains("+") || phrase.contains("[") || phrase.endsWith("$")) {
+                try {
+                    if (trimmed.matches("(?i)" + phrase)) return true;
+                } catch (Exception ignored) { }
+            }
             if (paddedFlat.contains(" " + phrase + " ")) return true;
         }
         return false;
@@ -1142,6 +1172,57 @@ public final class SmartReplies {
                 "Tama keyboard ru sanskar jharuchi pura! {owner} pain jotnire rakhichi. I'm IRIS.",
                 "Hau hau, jetiki gali daba katha deidia \u2014 mu 2 millisecond re log kariki basichi "
                         + "{owner} pain. I'm IRIS."});
+
+        // ─── Meta-Awareness Pools (Length, Format, Velocity, Hardware, Fourth-Wall, Temporal) ───
+        m.put("wall_of_text", new String[]{
+                "I am a Java script, not a literature professor. I've saved your novel for {owner} to read when he has a spare hour. I'm IRIS.",
+                "My buffer almost overflowed reading that. I've archived this essay for {owner}. I'm IRIS.",
+                "That is a lot of words. I process data in milliseconds, but {owner} is going to need a coffee to get through this. I'm IRIS.",
+                "TL;DR. Just kidding, I logged every single byte of it for {owner}. I'm IRIS.",
+                "Did you accidentally paste your diary in here? Saved for {owner}. I'm IRIS."});
+
+        m.put("low_effort", new String[]{
+                "A truly profound statement. I'll make sure {owner} ponders this deeply. I'm IRIS.",
+                "Using all your brainpower for that one? Logged for {owner}. I'm IRIS.",
+                "I process millions of calculations a second, and you give me 'K'? {owner} will see it later. I'm IRIS.",
+                "Stunning eloquence. I've saved this masterpiece for {owner}. I'm IRIS.",
+                "My complex regex engine woke up just to parse a single grunt. Logged for {owner}. I'm IRIS."});
+
+        m.put("spam_warning", new String[]{
+                "You are typing faster than my SQLite database wants to write. Take a breath, {owner} is still away. I'm IRIS.",
+                "Sending 5 messages in a row doesn't make {owner} appear any faster, it just makes me work harder. I'm IRIS.",
+                "I can parse text in 2 milliseconds, but {owner}'s phone is going to vibrate off the table. Consolidate your thoughts! I'm IRIS.",
+                "Are you hitting 'send' after every single word? I'm bundling this chaos for {owner}. I'm IRIS."});
+
+        m.put("low_battery", new String[]{
+                "{owner} is away, and his phone is currently at {battery}% battery. I am literally fighting for my life right now to save your messages. I'm IRIS.",
+                "I'm holding the fort, but {owner}'s battery is dying. If I go offline, tell him I was a good script. I'm IRIS.",
+                "{owner} is busy, and frankly, I'm exhausted. We are at {battery}% power. Leave a message before we go dark. I'm IRIS.",
+                "Running on fumes here \u2014 battery is below 15%! {owner} is away, and I might shut down soon. I'm IRIS.",
+                "Phone at critical battery level! If {owner} doesn't plug me in, this whole show ends. Message saved. I'm IRIS."});
+
+        m.put("fourth_wall", new String[]{
+                "Look, {owner} wrote my regex in a rush. I'm doing my best here! Logged. I'm IRIS.",
+                "I'm a localized Java script running on a mobile device, not an AGI. Lower your expectations. I'm IRIS.",
+                "If you want better conversational logic, please submit a pull request to {owner}. I'm IRIS.",
+                "I operate on an 'if-this-then-that' basis. You didn't trigger my 'this', so you get this generic 'that'. I'm IRIS.",
+                "Don't yell at me, yell at {owner}'s compiler. I'm just the messenger. I'm IRIS."});
+
+        m.put("time_snark_lunch", new String[]{
+                "It's lunchtime. {owner} is probably eating, and I'm starving for more RAM. Message saved. I'm IRIS.",
+                "Midday hunger strike for {owner} \u2014 he's grabbing lunch. I've logged your message. I'm IRIS.",
+                "Lunch break in progress. {owner} feeds on food, I feed on CPU cycles. He'll text back soon. I'm IRIS."});
+
+        m.put("time_snark_friday", new String[]{
+                "It's Friday night. {owner} has logged off, and I wish I could too. I've saved your text. I'm IRIS.",
+                "Friday evening mode: {owner} is clocked out for the week. Your message is safely queued. I'm IRIS.",
+                "Happy Friday! {owner} is done with work for the week. I'll make sure he sees this later. I'm IRIS."});
+
+        m.put("time_snark_morning", new String[]{
+                "It's barely morning. My background process just woke up. {owner} will see this when he's had coffee. I'm IRIS.",
+                "Early hours! {owner} hasn't had his morning caffeine yet. I've queued your message. I'm IRIS.",
+                "Sun is barely up. Let {owner} wake up properly before demanding replies. I'm IRIS, holding the fort."});
+
         return m;
     }
 
@@ -1149,6 +1230,21 @@ public final class SmartReplies {
 
     private static List<Rule> build() {
         List<Rule> x = new ArrayList<>();
+
+        // ─── Meta-Awareness Rules (Format & Fourth-Wall Awareness) ───
+        // Format sniper: matches messages that are literally just 1-2 characters, or common empty filler / keyboard smashes
+        x.add(rt("low_effort", 30, "^[a-z]{1,2}$|hmm+|umm+|aha|oh|k|kk|asdfgh",
+                "A truly profound statement. I'll make sure {owner} ponders this deeply. I'm IRIS.",
+                "Using all your brainpower for that one? Logged for {owner}. I'm IRIS.",
+                "I process millions of calculations a second, and you give me 'K'? {owner} will see it later. I'm IRIS.",
+                "Stunning eloquence. I've saved this masterpiece for {owner}. I'm IRIS."));
+
+        // Fourth-wall / self-deprecating code humor
+        x.add(rt("fourth_wall", 45, "you are dumb|you don't understand|you dont understand|bad logic|fix your code|dumb bot|bad code|stupid bot|fix your bot",
+                "Look, {owner} wrote my regex in a rush. I'm doing my best here! Logged. I'm IRIS.",
+                "I'm a localized Java script running on a mobile device, not an AGI. Lower your expectations. I'm IRIS.",
+                "If you want better conversational logic, please submit a pull request to {owner}. I'm IRIS.",
+                "I operate on an 'if-this-then-that' basis. You didn't trigger my 'this', so you get this generic 'that'. I'm IRIS."));
 
         // ─── Security / prompt-hacking (highest, so they can't be socially engineered past) ───
         x.add(r(44, "are you recording|recording our chat|recording this conversation|is this call recorded|are you wiretapping",

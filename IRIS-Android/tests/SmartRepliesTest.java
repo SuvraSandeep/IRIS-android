@@ -512,6 +512,75 @@ public final class SmartRepliesTest {
         check(hiCuss.size() >= 20, "cuss_hi pool rotates: " + hiCuss.size());
         check(orCuss.size() >= 20, "cuss_or pool rotates: " + orCuss.size());
 
+        // ─── Meta-Awareness Tests (Length, Format, Velocity, Hardware, Fourth-Wall, Temporal) ───
+
+        // 1. Wall of Text Detector (Length Awareness: length > 400 chars)
+        StringBuilder longMsg = new StringBuilder();
+        for (int i = 0; i < 50; i++) longMsg.append("word").append(i).append(" ");
+        String text400 = longMsg.toString();
+        check(text400.length() > 400, "text is > 400 chars: " + text400.length());
+        String wotReply = SmartReplies.match(text400, ReplyTone.Tone.CASUAL);
+        check(!wotReply.isEmpty() && namesIris(wotReply), "wall of text triggered and names IRIS");
+        check(wotReply.contains("Java script") || wotReply.contains("buffer")
+                || wotReply.contains("words") || wotReply.contains("TL;DR")
+                || wotReply.contains("diary"), "wall of text comeback content");
+
+        java.util.Set<String> wotVariants = new java.util.HashSet<>();
+        for (int r = 0; r < 5; r++) {
+            wotVariants.add(SmartReplies.match(text400, ReplyTone.Tone.CASUAL, r));
+        }
+        check(wotVariants.size() == 5, "wall of text has 5 distinct variants: " + wotVariants.size());
+
+        // 2. Single Letter / Typo Sniper (Format Awareness)
+        for (String q : new String[]{"k", "kk", "x", "hmm", "hmmm", "hmmmm", "umm", "aha", "oh", "asdfgh"}) {
+            String r = SmartReplies.match(q, ReplyTone.Tone.CASUAL);
+            check(!r.isEmpty() && namesIris(r), "low effort sniper triggered for: " + q);
+        }
+        java.util.Set<String> lowVariants = new java.util.HashSet<>();
+        for (int r = 0; r < 5; r++) {
+            lowVariants.add(SmartReplies.match("k", ReplyTone.Tone.CASUAL, r));
+        }
+        check(lowVariants.size() == 5, "low effort has 5 distinct variants: " + lowVariants.size());
+
+        // 3. Rapid-Fire / Spam Awareness (Velocity Awareness pool)
+        java.util.Set<String> spamVariants = new java.util.HashSet<>();
+        for (int r = 0; r < 4; r++) {
+            String sr = SmartReplies.poolReply("spam_warning", r);
+            check(!sr.isEmpty() && namesIris(sr), "spam warning names IRIS: " + sr);
+            spamVariants.add(sr);
+        }
+        check(spamVariants.size() == 4, "spam warning has 4 distinct variants: " + spamVariants.size());
+
+        // 4. Hardware Context (Low Battery pool)
+        java.util.Set<String> batVariants = new java.util.HashSet<>();
+        for (int r = 0; r < 5; r++) {
+            String br = SmartReplies.poolReply("low_battery", r).replace("{battery}", "12");
+            check(!br.isEmpty() && namesIris(br), "low battery names IRIS: " + br);
+            batVariants.add(br);
+        }
+        check(batVariants.size() == 5, "low battery has 5 distinct variants: " + batVariants.size());
+
+        // 5. Fourth-Wall / Self-Deprecating Code Humor
+        for (String q : new String[]{"you are dumb", "you dont understand", "you don't understand", "bad logic", "fix your code"}) {
+            String r = SmartReplies.match(q, ReplyTone.Tone.CASUAL);
+            check(!r.isEmpty() && namesIris(r), "fourth wall humor triggered for: " + q);
+        }
+        java.util.Set<String> fwVariants = new java.util.HashSet<>();
+        for (int r = 0; r < 5; r++) {
+            fwVariants.add(SmartReplies.match("you are dumb", ReplyTone.Tone.CASUAL, r));
+        }
+        check(fwVariants.size() == 5, "fourth wall has 5 distinct variants: " + fwVariants.size());
+
+        // 6. Temporal Awareness (Time-of-Day Snark)
+        String lunchSnark = SmartReplies.temporalSnark(4, 13, 0); // Wednesday 13:00
+        check(!lunchSnark.isEmpty() && namesIris(lunchSnark) && lunchSnark.contains("lunch"), "lunch snark");
+        String fridaySnark = SmartReplies.temporalSnark(6, 18, 0); // Friday 18:00
+        check(!fridaySnark.isEmpty() && namesIris(fridaySnark) && fridaySnark.contains("Friday"), "Friday snark");
+        String morningSnark = SmartReplies.temporalSnark(3, 9, 0); // Tuesday 09:00
+        check(!morningSnark.isEmpty() && namesIris(morningSnark) && morningSnark.contains("morning"), "morning snark");
+        String regularTime = SmartReplies.temporalSnark(4, 15, 0); // Wednesday 15:00
+        check(regularTime.isEmpty(), "regular Wednesday 3pm has no snark");
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }
