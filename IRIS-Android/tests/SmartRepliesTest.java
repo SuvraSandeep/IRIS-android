@@ -516,7 +516,7 @@ public final class SmartRepliesTest {
 
         // 1. Wall of Text Detector (Length Awareness: length > 400 chars)
         StringBuilder longMsg = new StringBuilder();
-        for (int i = 0; i < 50; i++) longMsg.append("word").append(i).append(" ");
+        for (int i = 0; i < 80; i++) longMsg.append("word").append(i).append(" ");
         String text400 = longMsg.toString();
         check(text400.length() > 400, "text is > 400 chars: " + text400.length());
         String wotReply = SmartReplies.match(text400, ReplyTone.Tone.CASUAL);
