@@ -2957,6 +2957,22 @@ public class MainActivity extends Activity {
             });
         }
 
+        View refreshBtn = view.findViewById(R.id.flaggedRefreshButton);
+        if (refreshBtn != null) {
+            refreshBtn.setOnClickListener(v -> {
+                renderFlaggedItems(view);
+                toast("Queue refreshed.");
+            });
+        }
+
+        View summary = view.findViewById(R.id.flaggedSummary);
+        if (summary != null) {
+            summary.setOnClickListener(v -> {
+                renderFlaggedItems(view);
+                toast("Queue refreshed.");
+            });
+        }
+
         View addBtn = view.findViewById(R.id.flaggedAddButton);
         if (addBtn != null) addBtn.setOnClickListener(v -> showAddFlaggedItemDialog(view));
 

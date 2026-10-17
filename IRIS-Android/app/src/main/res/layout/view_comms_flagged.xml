@@ -128,31 +128,45 @@
         android:orientation="horizontal">
 
         <Button
-            android:id="@+id/flaggedAddButton"
+            android:id="@+id/flaggedRefreshButton"
             android:layout_width="0dp"
             android:layout_height="40dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.08"
+            android:letterSpacing="0.06"
+            android:text="REFRESH 🔄"
+            android:textAllCaps="false"
+            android:textColor="@color/magenta"
+            android:textSize="10sp" />
+
+        <Button
+            android:id="@+id/flaggedAddButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginLeft="6dp"
+            android:layout_weight="1.1"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.06"
             android:text="+ NEW ITEM"
             android:textAllCaps="false"
             android:textColor="@color/deck_accent"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
         <Button
             android:id="@+id/flaggedClearCompletedButton"
             android:layout_width="0dp"
             android:layout_height="40dp"
             android:layout_marginLeft="6dp"
-            android:layout_weight="1"
+            android:layout_weight="1.2"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.08"
+            android:letterSpacing="0.04"
             android:text="CLEAR COMPLETED"
             android:textAllCaps="false"
             android:textColor="@color/deck_inactive"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
     </LinearLayout>
 
     <ScrollView
