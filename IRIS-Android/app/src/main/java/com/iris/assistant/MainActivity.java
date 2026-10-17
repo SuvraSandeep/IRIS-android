@@ -2128,6 +2128,8 @@ public class MainActivity extends Activity {
 
     /** Signature of the decision log as last drawn, so polling can detect a real change. */
     private String responderLogSignature = "";
+    /** Active filter for decision log: 0=ALL, 1=SPOKE, 2=SILENT, 3=DRY RUN, 4=FAILED */
+    private int responderLogFilter = 0;
 
     /**
      * Attempt one real reply now and report exactly what came back.
@@ -2463,8 +2465,6 @@ public class MainActivity extends Activity {
                 int sent = log.sentCount();
                 int failed = log.failedCount();
                 if (sent > 0) line.append(" \u00b7 ").append(sent).append(" sent");
-                // Called out, not buried. A responder that decides well and then fails to deliver
-                // reads from a summary line exactly like one that is working.
                 if (failed > 0) {
                     line.append(" \u00b7 ").append(failed)
                             .append(failed == 1 ? " FAILED to send" : " FAILED to send");
@@ -2472,6 +2472,34 @@ public class MainActivity extends Activity {
                 summary.setText(line.toString());
                 summary.setTextColor(getColor(
                         failed > 0 ? R.color.deck_error : R.color.deck_text_dim));
+            }
+        }
+
+        LinearLayout filters = view.findViewById(R.id.responderLogFilters);
+        if (filters != null) {
+            filters.removeAllViews();
+            if (!entries.isEmpty()) {
+                int total = entries.size();
+                int spokeCount = 0;
+                int silentCount = 0;
+                int dryCount = 0;
+                int failedCount = 0;
+                for (ResponderLog.Entry e : entries) {
+                    if (e.wouldHaveSent()) spokeCount++;
+                    else silentCount++;
+                    if (e.dryRun) dryCount++;
+                    if (e.sendFailed()) failedCount++;
+                }
+
+                addResponderLogChip(filters, "ALL (" + total + ")", 0, view);
+                addResponderLogChip(filters, "SPOKE 💬 (" + spokeCount + ")", 1, view);
+                addResponderLogChip(filters, "SILENT 🤫 (" + silentCount + ")", 2, view);
+                if (dryCount > 0) {
+                    addResponderLogChip(filters, "DRY RUN 🧪 (" + dryCount + ")", 3, view);
+                }
+                if (failedCount > 0) {
+                    addResponderLogChip(filters, "FAILED ❌ (" + failedCount + ")", 4, view);
+                }
             }
         }
 
@@ -2491,112 +2519,263 @@ public class MainActivity extends Activity {
             host.addView(empty);
             return;
         }
-        for (ResponderLog.Entry entry : entries) host.addView(responderLogCard(entry, view));
+
+        java.util.List<ResponderLog.Entry> filtered = new java.util.ArrayList<>();
+        for (ResponderLog.Entry e : entries) {
+            if (responderLogFilter == 1 && !e.wouldHaveSent()) continue;
+            if (responderLogFilter == 2 && e.wouldHaveSent()) continue;
+            if (responderLogFilter == 3 && !e.dryRun) continue;
+            if (responderLogFilter == 4 && !e.sendFailed()) continue;
+            filtered.add(e);
+        }
+
+        if (filtered.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("No decisions match this filter. Tap 'ALL' above to view all.");
+            empty.setTextSize(11f);
+            empty.setTypeface(android.graphics.Typeface.MONOSPACE);
+            empty.setTextColor(getColor(R.color.deck_text_dim));
+            empty.setPadding(0, dp(14), 0, dp(14));
+            host.addView(empty);
+            return;
+        }
+
+        for (ResponderLog.Entry entry : filtered) host.addView(responderLogCard(entry, view));
+    }
+
+    private void addResponderLogChip(LinearLayout parent, String label, final int filterIndex, final View rootView) {
+        TextView chip = new TextView(this);
+        chip.setText(label);
+        chip.setTextSize(10f);
+        chip.setTypeface(android.graphics.Typeface.MONOSPACE,
+                responderLogFilter == filterIndex ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        chip.setPadding(dp(10), dp(6), dp(10), dp(6));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(6);
+        chip.setLayoutParams(lp);
+
+        boolean active = responderLogFilter == filterIndex;
+        chip.setTextColor(getColor(active ? R.color.text_primary : R.color.deck_text_dim));
+        chip.setBackgroundResource(active ? R.drawable.bg_cyber_button : R.drawable.bg_cyber_row);
+
+        chip.setOnClickListener(v -> {
+            responderLogFilter = filterIndex;
+            renderResponderLog(rootView);
+        });
+        parent.addView(chip);
     }
 
     /**
      * One decision.
      *
-     * A silence is shown as prominently as a send, because during a dry run the owner is mostly
-     * checking that IRIS declines for sensible reasons.
+     * Enhanced cyber layout with prominent status badge, incoming/outgoing bubbles,
+     * category/tone tags, and tap-for-audit.
      */
     private View responderLogCard(ResponderLog.Entry entry, final View root) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(11), dp(9), dp(11), dp(9));
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(5);
+        params.topMargin = dp(6);
         card.setLayoutParams(params);
+
         boolean spoke = entry.wouldHaveSent();
         boolean failed = entry.sendFailed();
-        card.setBackgroundResource(spoke
-                ? R.drawable.bg_cyber_row_flagged : R.drawable.bg_cyber_row);
+        boolean sent = entry.actuallySent();
 
-        TextView head = new TextView(this);
-        String who = entry.sender.isEmpty() ? "someone" : entry.sender;
-        head.setText(who + (entry.group ? " (group)" : "") + " \u00b7 " + entry.appLabel);
-        head.setTextSize(12f);
-        head.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
-        head.setTextColor(getColor(spoke ? R.color.deck_error : R.color.deck_accent));
-        card.addView(head);
+        card.setBackgroundResource(R.drawable.bg_cyber_panel);
 
-        TextView meta = new TextView(this);
+        // 1. TOP BAR: [App Badge] Sender Name ......... [Status Pill]
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
         MessagingApp channel = MessagingApp.fromPackage(entry.pkg);
-        meta.setText(DeletedMessageRules.formatTime(entry.whenMs, java.util.TimeZone.getDefault())
-                + " \u00b7 " + channel.label()
-                + " \u00b7 " + entry.category + " \u00b7 " + entry.tone
-                + (entry.dryRun ? " \u00b7 DRY RUN" : ""));
+        String channelName = channel != MessagingApp.OTHER ? channel.label() : (entry.appLabel.isEmpty() ? "App" : entry.appLabel);
+        TextView channelBadge = new TextView(this);
+        channelBadge.setText("[" + channelName + "]");
+        channelBadge.setTextSize(10f);
+        channelBadge.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        channelBadge.setTextColor(getColor(R.color.deck_accent));
+        topBar.addView(channelBadge);
+
+        String who = entry.sender.isEmpty() ? "Someone" : entry.sender;
+        TextView senderTv = new TextView(this);
+        senderTv.setText(" " + who + (entry.group ? " (group)" : ""));
+        senderTv.setTextSize(12f);
+        senderTv.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        senderTv.setTextColor(getColor(R.color.text_primary));
+        senderTv.setSingleLine(true);
+        senderTv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams senderLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        senderTv.setLayoutParams(senderLp);
+        topBar.addView(senderTv);
+
+        TextView statusBadge = new TextView(this);
+        statusBadge.setTextSize(10f);
+        statusBadge.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        statusBadge.setPadding(dp(6), dp(2), dp(6), dp(2));
+        if (failed) {
+            statusBadge.setText("❌ FAILED");
+            statusBadge.setTextColor(getColor(R.color.deck_error));
+            statusBadge.setBackgroundResource(R.drawable.bg_cyber_button_danger);
+        } else if (sent) {
+            statusBadge.setText("💬 SENT");
+            statusBadge.setTextColor(getColor(R.color.mint));
+            statusBadge.setBackgroundResource(R.drawable.bg_cyber_button);
+        } else if (spoke) {
+            statusBadge.setText("🧪 WOULD SEND");
+            statusBadge.setTextColor(getColor(R.color.violet));
+            statusBadge.setBackgroundResource(R.drawable.bg_cyber_button);
+        } else {
+            statusBadge.setText("🤫 SILENT");
+            statusBadge.setTextColor(getColor(R.color.deck_text_dim));
+        }
+        topBar.addView(statusBadge);
+        card.addView(topBar);
+
+        // 2. META ROW: Time · Category · Tone · Dry Run
+        TextView meta = new TextView(this);
+        String timeStr = DeletedMessageRules.formatTime(entry.whenMs, java.util.TimeZone.getDefault());
+        StringBuilder metaSb = new StringBuilder();
+        metaSb.append("🕒 ").append(timeStr);
+        if (entry.category != null && !entry.category.isEmpty()) {
+            metaSb.append("  ·  🏷️ ").append(entry.category);
+        }
+        if (entry.tone != null && !entry.tone.isEmpty()) {
+            metaSb.append("  ·  🎭 ").append(entry.tone);
+        }
+        if (entry.dryRun) {
+            metaSb.append("  ·  DRY RUN");
+        }
+        meta.setText(metaSb.toString());
         meta.setTextSize(10f);
         meta.setTypeface(android.graphics.Typeface.MONOSPACE);
         meta.setTextColor(getColor(R.color.deck_text_dim));
+        meta.setPadding(0, dp(4), 0, dp(6));
         card.addView(meta);
 
-        if (!entry.incoming.isEmpty()) {
-            TextView incoming = new TextView(this);
-            incoming.setText("\u201C" + entry.incoming + "\u201D");
-            incoming.setTextSize(11f);
-            incoming.setTypeface(android.graphics.Typeface.MONOSPACE);
-            incoming.setTextColor(getColor(R.color.deck_text));
-            incoming.setPadding(0, dp(5), 0, 0);
-            card.addView(incoming);
+        // 3. INCOMING MESSAGE CONTAINER
+        if (entry.incoming != null && !entry.incoming.trim().isEmpty()) {
+            LinearLayout inBox = new LinearLayout(this);
+            inBox.setOrientation(LinearLayout.VERTICAL);
+            inBox.setBackgroundResource(R.drawable.bg_cyber_row);
+            inBox.setPadding(dp(9), dp(7), dp(9), dp(7));
+            LinearLayout.LayoutParams inLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            inLp.bottomMargin = dp(6);
+            inBox.setLayoutParams(inLp);
+
+            TextView inLabel = new TextView(this);
+            inLabel.setText("📥 INCOMING");
+            inLabel.setTextSize(9f);
+            inLabel.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+            inLabel.setTextColor(getColor(R.color.deck_accent));
+            inBox.addView(inLabel);
+
+            TextView inText = new TextView(this);
+            inText.setText("“" + entry.incoming.trim() + "”");
+            inText.setTextSize(11f);
+            inText.setTypeface(android.graphics.Typeface.MONOSPACE);
+            inText.setTextColor(getColor(R.color.text_primary));
+            inText.setTextIsSelectable(true);
+            inText.setPadding(0, dp(2), 0, 0);
+            inBox.addView(inText);
+
+            card.addView(inBox);
         }
 
-        TextView reason = new TextView(this);
+        // 4. DECISION & REASON BLOCK
+        LinearLayout decisionBox = new LinearLayout(this);
+        decisionBox.setOrientation(LinearLayout.VERTICAL);
+        decisionBox.setPadding(0, 0, 0, dp(4));
+
         ResponderGuards.Verdict verdict;
         try { verdict = ResponderGuards.Verdict.valueOf(entry.verdict); }
         catch (Exception e) { verdict = null; }
         String whyText = (entry.reason != null && !entry.reason.trim().isEmpty())
                 ? entry.reason.trim()
                 : ResponderGuards.explain(verdict);
-        reason.setText(whyText);
-        reason.setTextSize(11f);
-        reason.setTypeface(android.graphics.Typeface.MONOSPACE);
-        reason.setTextColor(getColor(R.color.deck_text_dim));
-        reason.setPadding(0, dp(4), 0, 0);
-        card.addView(reason);
 
-        if (spoke) {
-            // Three distinct outcomes, never collapsed. A failed send used to render under the
-            // word "SENT" with the failure message as its body, which told the owner a message had
-            // gone when it had not -- the one thing this log exists to get right.
-            TextView said = new TextView(this);
-            String prefix = entry.dryRun ? "WOULD HAVE SENT: "
-                    : failed ? "NOT SENT: " : "SENT: ";
-            said.setText(prefix + entry.reply);
-            said.setTextSize(11f);
-            said.setTextColor(getColor(failed ? R.color.deck_error : R.color.deck_text));
-            said.setPadding(0, dp(6), 0, 0);
-            card.addView(said);
+        TextView decLabel = new TextView(this);
+        decLabel.setText(spoke ? "⚖️ VERDICT: RESPOND" : "⚖️ VERDICT: STAY SILENT (" + entry.verdict + ")");
+        decLabel.setTextSize(9f);
+        decLabel.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        decLabel.setTextColor(getColor(spoke ? R.color.mint : R.color.warning));
+        decisionBox.addView(decLabel);
+
+        TextView reasonTv = new TextView(this);
+        reasonTv.setText(whyText);
+        reasonTv.setTextSize(11f);
+        reasonTv.setTypeface(android.graphics.Typeface.MONOSPACE);
+        reasonTv.setTextColor(getColor(R.color.deck_text_dim));
+        reasonTv.setPadding(0, dp(2), 0, 0);
+        decisionBox.addView(reasonTv);
+
+        card.addView(decisionBox);
+
+        // 5. OUTGOING REPLY CONTAINER (IF SPOKE)
+        if (spoke && entry.reply != null && !entry.reply.trim().isEmpty()) {
+            LinearLayout outBox = new LinearLayout(this);
+            outBox.setOrientation(LinearLayout.VERTICAL);
+            outBox.setBackgroundResource(R.drawable.bg_cyber_row_flagged);
+            outBox.setPadding(dp(9), dp(7), dp(9), dp(7));
+            LinearLayout.LayoutParams outLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            outLp.topMargin = dp(4);
+            outLp.bottomMargin = dp(4);
+            outBox.setLayoutParams(outLp);
+
+            TextView outLabel = new TextView(this);
+            String outHeader = failed ? "⚠️ ATTEMPTED REPLY (DELIVERY FAILED)"
+                    : sent ? "📤 SENT REPLY (DELIVERED TO APP)"
+                    : "🧪 SIMULATED REPLY (DRY RUN)";
+            outLabel.setText(outHeader);
+            outLabel.setTextSize(9f);
+            outLabel.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+            outLabel.setTextColor(getColor(failed ? R.color.deck_error : sent ? R.color.mint : R.color.violet));
+            outBox.addView(outLabel);
+
+            TextView outText = new TextView(this);
+            outText.setText("“" + entry.reply.trim() + "”");
+            outText.setTextSize(11f);
+            outText.setTypeface(android.graphics.Typeface.MONOSPACE);
+            outText.setTextColor(getColor(R.color.text_primary));
+            outText.setTextIsSelectable(true);
+            outText.setPadding(0, dp(2), 0, 0);
+            outBox.addView(outText);
 
             if (failed) {
-                TextView why = new TextView(this);
                 NotificationReply.Result result;
                 try { result = NotificationReply.Result.valueOf(entry.sendResult); }
                 catch (Exception e) { result = null; }
-                why.setText("\u2514 " + NotificationReply.explain(result));
-                why.setTextSize(11f);
-                why.setTypeface(android.graphics.Typeface.MONOSPACE);
-                why.setTextColor(getColor(R.color.deck_error));
-                why.setPadding(0, dp(4), 0, 0);
-                card.addView(why);
-            } else if (entry.actuallySent()) {
-                // Stated plainly, because "submitted" and "delivered" are different claims and
-                // nothing observable from inside this app can tell them apart.
-                TextView caveat = new TextView(this);
-                caveat.setText("\u2514 handed to the app; delivery isn't something I can verify");
-                caveat.setTextSize(10f);
-                caveat.setTypeface(android.graphics.Typeface.MONOSPACE);
-                caveat.setTextColor(getColor(R.color.deck_text_dim));
-                caveat.setPadding(0, dp(4), 0, 0);
-                card.addView(caveat);
+                TextView failDetail = new TextView(this);
+                failDetail.setText("↳ " + NotificationReply.explain(result));
+                failDetail.setTextSize(10f);
+                failDetail.setTypeface(android.graphics.Typeface.MONOSPACE);
+                failDetail.setTextColor(getColor(R.color.deck_error));
+                failDetail.setPadding(0, dp(4), 0, 0);
+                outBox.addView(failDetail);
             }
+
+            card.addView(outBox);
         }
 
-        // No swipe handler here on purpose: a touch listener on the row fought the ScrollView and
-        // made the list hard to scroll, with the action firing on a plain touch. The log is a
-        // diagnostic, not the archive, so a long-press menu is the right weight \u2014 a plain touch
-        // now just scrolls.
+        // 6. FOOTER HINT
+        TextView footerHint = new TextView(this);
+        footerHint.setText("ℹ️ Tap to view full audit  ·  Long press for actions");
+        footerHint.setTextSize(9f);
+        footerHint.setTypeface(android.graphics.Typeface.MONOSPACE);
+        footerHint.setTextColor(getColor(R.color.border_accent));
+        footerHint.setPadding(0, dp(4), 0, 0);
+        card.addView(footerHint);
+
+        // Single tap to view audit breakdown immediately
+        card.setOnClickListener(v -> showDecisionWhyDialog(entry));
+
+        // Long press opens context action menu
         final String who2 = entry.sender;
         card.setOnLongClickListener(v -> {
             java.util.List<String> items = new java.util.ArrayList<>();
@@ -2614,16 +2793,16 @@ public class MainActivity extends Activity {
                         if (choice.equals("Why was this decision taken?")) {
                             showDecisionWhyDialog(entry);
                         } else if (choice.equals("Delete this entry")) {
-                            ResponderLog log = new ResponderLog(this);
-                            final java.util.List<ResponderLog.Entry> before = log.all();
-                            log.deleteOne(entry.whenMs, entry.sender, entry.verdict);
-                            responderLogSignature = log.signature();
+                            ResponderLog log2 = new ResponderLog(this);
+                            final java.util.List<ResponderLog.Entry> before = log2.all();
+                            log2.deleteOne(entry.whenMs, entry.sender, entry.verdict);
+                            responderLogSignature = log2.signature();
                             renderResponderLog(root);
                             new AlertDialog.Builder(this)
                                      .setMessage("Removed one decision from the log.")
                                     .setNegativeButton("Undo", (dd, ww) -> {
-                                        log.overwrite(before);
-                                        responderLogSignature = log.signature();
+                                        log2.overwrite(before);
+                                        responderLogSignature = log2.signature();
                                         renderResponderLog(root);
                                     })
                                     .setPositiveButton("Keep removed", null)
@@ -2644,27 +2823,29 @@ public class MainActivity extends Activity {
                     }).show();
             return true;
         });
+
         return card;
     }
 
     private void showDecisionWhyDialog(final ResponderLog.Entry entry) {
         StringBuilder sb = new StringBuilder();
         if (entry.incoming != null && !entry.incoming.trim().isEmpty()) {
-            sb.append("Message:\n\"").append(entry.incoming.trim()).append("\"\n\n");
+            sb.append("📥 INCOMING MESSAGE:\n\"").append(entry.incoming.trim()).append("\"\n\n");
         }
-        sb.append("Sender: ").append(entry.sender.isEmpty() ? "Unknown" : entry.sender);
+        sb.append("👤 SENDER: ").append(entry.sender.isEmpty() ? "Unknown" : entry.sender);
         if (entry.group) sb.append(" (group)");
-        sb.append("\nApp: ").append(entry.appLabel.isEmpty() ? entry.pkg : entry.appLabel).append("\n");
-        sb.append("Category: ").append(entry.category).append(" | Tone: ").append(entry.tone).append("\n");
-        sb.append("Verdict: ").append(entry.verdict);
+        sb.append("\n📱 APP: ").append(entry.appLabel.isEmpty() ? entry.pkg : entry.appLabel).append("\n");
+        sb.append("🏷️ CATEGORY: ").append(entry.category).append("  |  🎭 TONE: ").append(entry.tone).append("\n");
+        sb.append("⚖️ VERDICT: ").append(entry.verdict);
         if (entry.dryRun) sb.append(" (DRY RUN)");
         sb.append("\n\n");
 
         if (entry.wouldHaveSent()) {
-            sb.append("Reply:\n\"").append(entry.reply).append("\"\n\n");
+            String outHeader = entry.sendFailed() ? "⚠️ FAILED REPLY:" : (entry.actuallySent() ? "📤 SENT REPLY:" : "🧪 SIMULATED REPLY (DRY RUN):");
+            sb.append(outHeader).append("\n\"").append(entry.reply).append("\"\n\n");
         }
 
-        sb.append("Decision Rationale:\n");
+        sb.append("🎯 DECISION RATIONALE:\n");
         if (entry.reason != null && !entry.reason.trim().isEmpty()) {
             sb.append(entry.reason.trim());
         } else {
@@ -2673,10 +2854,19 @@ public class MainActivity extends Activity {
             sb.append(ResponderGuards.explain(v));
         }
 
+        final String copyText = sb.toString();
         new AlertDialog.Builder(this)
                 .setTitle("Why this decision was taken")
-                .setMessage(sb.toString())
+                .setMessage(copyText)
                 .setPositiveButton("Close", null)
+                .setNeutralButton("Copy", (d, w) -> {
+                    android.content.ClipboardManager cm =
+                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("Decision Details", copyText));
+                        toast("Copied decision details");
+                    }
+                })
                 .show();
     }
 
