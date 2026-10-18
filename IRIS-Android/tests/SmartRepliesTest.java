@@ -113,11 +113,16 @@ public final class SmartRepliesTest {
             check(namesIris(r), "names IRIS: " + s);
         }
 
-        // Punctuation / emoji-only pings are answered.
-        check(!SmartReplies.match("???", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
-                "question marks only");
-        check(!SmartReplies.match("...", ReplyTone.Tone.BRIEF).isEmpty(), "dots only");
-        check(!SmartReplies.match("\uD83D\uDC40", ReplyTone.Tone.CASUAL).isEmpty(), "emoji only");
+        // Standalone emojis and symbols are dropped silently (v16.54.0)
+        check(SmartReplies.match("???", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "question marks only -> silent");
+        check(SmartReplies.match("...", ReplyTone.Tone.BRIEF).isEmpty(), "dots only -> silent");
+        check(SmartReplies.match("\uD83D\uDC40", ReplyTone.Tone.CASUAL).isEmpty(), "emoji only -> silent");
+        check(SmartReplies.match("\uD83D\uDE0D", ReplyTone.Tone.CASUAL).isEmpty(), "😍 -> silent");
+        check(SmartReplies.match("\uD83D\uDE02", ReplyTone.Tone.CASUAL).isEmpty(), "😂 -> silent");
+        check(SmartReplies.match("\uD83D\uDC4D", ReplyTone.Tone.CASUAL).isEmpty(), "👍 -> silent");
+        check(SmartReplies.match("\uD83E\uDD79", ReplyTone.Tone.CASUAL).isEmpty(), "🥹 -> silent");
+        check(SmartReplies.match("\uD83D\uDD95", ReplyTone.Tone.CASUAL).isEmpty(), "🖕 -> silent");
 
         // Tone variants genuinely differ for a rule with distinct columns.
         check(!SmartReplies.match("who are you", ReplyTone.Tone.SARCASTIC)

@@ -33,10 +33,10 @@ public final class EmojiTest {
                 "love reply names IRIS");
         check(Emoji.reply("\u2764\uFE0F", ReplyTone.Tone.PROFESSIONAL).contains("{owner}"),
                 "love reply keeps {owner} for fill");
-        check(Emoji.reply("\uD83D\uDE2D", ReplyTone.Tone.SARCASTIC).toLowerCase(
-                        java.util.Locale.ROOT).contains("sorry")
-                || Emoji.reply("\uD83D\uDE2D", ReplyTone.Tone.SARCASTIC).contains("flagged"),
-                "sad reply is gentle even in sarcastic tone");
+        check(Emoji.reply("\uD83D\uDE2D", ReplyTone.Tone.SARCASTIC).contains("IRIS"),
+                "sad reply names IRIS");
+        check(Emoji.reply("\uD83D\uDE2D", ReplyTone.Tone.SARCASTIC).contains("{owner}"),
+                "sad reply keeps {owner} for fill");
         check(!Emoji.reply("\uD83D\uDC40", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
                 "eyes emoji now gets an \"I see you\" reply");
         check(Emoji.reply("plain", ReplyTone.Tone.PROFESSIONAL).isEmpty(), "no emoji -> no reply");

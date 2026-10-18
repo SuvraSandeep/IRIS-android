@@ -374,11 +374,13 @@ public final class SmartReplies {
         // to the item above -- acknowledge the reference instead of re-firing the whole handler
         // (which is how "Aita" re-sent the full link intro).
         if (isDeicticPointer(text)) return DEICTIC[Math.floorMod(rotation, DEICTIC.length)];
+        // ─── STANDALONE EMOJI & SYMBOL HANDLING ───
         String stripped = text.replaceAll("\\s+", "");
         if (!stripped.isEmpty()
                 && stripped.replaceAll("[\\p{L}\\p{N}]", "").length() == stripped.length()) {
-            String emojiReply = Emoji.reply(text, tone, rotation);
-            return emojiReply.isEmpty() ? pick(PUNCT, tone) : emojiReply;
+            // DROP COMPLETELY: Do not auto-reply to lone emojis or reactions.
+            // This permanently eliminates status-reaction spam and avoids awkward misinterpretations.
+            return "";
         }
         return null;
     }
