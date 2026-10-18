@@ -221,6 +221,9 @@ public final class FlagDetector {
                     || normReply.contains("hope all's well - flagged urgent")) {
                 return new Result(Action.FLAG, "Urgent health / emergency ping flagged");
             }
+            if (normReply.contains("flagged this so he replies to you first thing")) {
+                return new Result(Action.FLAG, "De-escalation reassurance flagged");
+            }
             if (normReply.contains("flagged him to call back")
                     || normReply.contains("flagged your call")) {
                 return new Result(Action.FLAG, "Missed call callback flagged");

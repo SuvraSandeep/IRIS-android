@@ -648,6 +648,37 @@ public final class SmartRepliesTest {
         check(!laughSarcastic.contains("auto-responder"), "laugh does not accuse sender of laughing at bot: " + laughSarcastic);
         check(laughSarcastic.contains("laugh"), "laugh mentions laugh: " + laughSarcastic);
 
+        // 11. Social de-escalation, IRIS compliments, Hinglish location shorthand & master banter (v16.53.0)
+        String deesc1 = SmartReplies.match("I figured u don't want to have any conversation so i won't disturb u. Sorry for bothering u.", ReplyTone.Tone.CASUAL);
+        check(!deesc1.isEmpty() && namesIris(deesc1), "de-escalation names IRIS: " + deesc1);
+        check(!deesc1.contains("milliseconds"), "de-escalation does not brag about milliseconds: " + deesc1);
+        check(deesc1.contains("not bothering") || deesc1.contains("don't misunderstand") || deesc1.contains("not disturbing"),
+                "de-escalation reassures sender: " + deesc1);
+
+        String deesc2 = SmartReplies.match("sorry for bothering", ReplyTone.Tone.CASUAL);
+        check(!deesc2.isEmpty() && !deesc2.contains("milliseconds"), "sorry for bothering does not brag about milliseconds: " + deesc2);
+
+        String deesc3 = SmartReplies.match("nahi baat karni", ReplyTone.Tone.CASUAL);
+        check(!deesc3.isEmpty() && namesIris(deesc3), "hindi de-escalation names IRIS: " + deesc3);
+
+        String comp1 = SmartReplies.match("Waise told to inform ki abhishek really liked IRIS", ReplyTone.Tone.CASUAL);
+        check(!comp1.isEmpty() && namesIris(comp1), "compliment names IRIS: " + comp1);
+        check(comp1.contains("regards") || comp1.contains("RAM") || comp1.contains("taste") || comp1.contains("personality"),
+                "compliment acknowledges appreciation: " + comp1);
+
+        String comp2 = SmartReplies.match("Isse better reply to IRIS deti h", ReplyTone.Tone.CASUAL);
+        check(!comp2.isEmpty() && namesIris(comp2), "comparison compliment names IRIS: " + comp2);
+
+        String locShort = SmartReplies.match("Khn gya h", ReplyTone.Tone.CASUAL);
+        check(!locShort.isEmpty() && namesIris(locShort), "hinglish location shorthand names IRIS: " + locShort);
+        check(locShort.contains("location") || locShort.contains("GPS") || locShort.contains("whereabouts") || locShort.contains("inbox"),
+                "hinglish location shorthand triggers location reply: " + locShort);
+
+        String masterReply = SmartReplies.match("Tell ur master to reply", ReplyTone.Tone.CASUAL);
+        check(!masterReply.isEmpty() && namesIris(masterReply), "master banter names IRIS: " + masterReply);
+        check(masterReply.contains("medieval") || masterReply.contains("feudal") || masterReply.contains("creator") || masterReply.contains("developer"),
+                "master banter responds with witty fourth-wall comeback: " + masterReply);
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

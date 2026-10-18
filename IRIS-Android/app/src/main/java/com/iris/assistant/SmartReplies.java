@@ -1768,6 +1768,27 @@ public final class SmartReplies {
                 "Doing his KYC, are we? I don't have {owner}'s ID numbers \u2014 wait for him. I'm "
                         + "IRIS.",
                 "No access to IDs \u2014 logged for {owner}. I'm IRIS."));
+
+        // ─── Social De-escalation & Reassurance (Priority 91) ───
+        // Triggers when contacts feel ignored, dismissed, or apologize for bothering Suvra
+        x.add(r(91, "wont disturb|won't disturb|sorry for bothering|sorry to bother|"
+                        + "wont bother|won't bother|not disturb you|wont disturb you|"
+                        + "sorry to disturb|sorry for disturbing|wont disturb u|won't disturb u|"
+                        + "not disturb u|wont bother u|won't bother u|"
+                        + "dont want to have any conversation|don't want to have any conversation|"
+                        + "nahi baat karni|ignore kar rahe ho|gussa ho kya|dont want to talk|"
+                        + "don't want to talk|disturb nahi karungi|disturb nahi karunga|"
+                        + "disturb nahi karunga ab|disturb nahi karungi ab|baat nahi karni",
+                "Wait, don't misunderstand! {owner} is genuinely away from his phone and hasn't "
+                        + "seen this yet. You're definitely not bothering him \u2014 I'll make sure he "
+                        + "reaches out the second he's back! I'm IRIS.",
+                "Hey, no! {owner} isn't avoiding you at all \u2014 he literally doesn't have the phone "
+                        + "in hand right now. You're not disturbing anyone! I'll ping him to reply ASAP. I'm IRIS.",
+                "Please don't feel that way! {owner} really hasn't seen his notifications yet. I'm "
+                        + "just his auto-responder holding down the fort. He will text you as soon as "
+                        + "he's free!",
+                "You're not bothering him at all! {owner} is just caught up with something and away from the screen. "
+                        + "I've flagged this so he replies to you first thing. I'm IRIS."));
         x.add(r(91, "current location|live location|exact location|tell his location|"
                         + "share his location|his gps|track him|where exactly is he|pin his location",
                 "Even if I had {owner}'s live GPS, I'm not allowed to hand it out \u2014 I'm IRIS, his "
@@ -1976,6 +1997,19 @@ public final class SmartReplies {
                 "Careful \u2014 if you say I'm better than {owner}, he might unplug my power cord out "
                         + "of jealousy. I'm IRIS.",
                 "Flattery noted \u2014 CPU blushing. I'm IRIS."));
+
+        // ─── IRIS Compliments & Fan Club (Priority 65) ───
+        x.add(r(65, "liked iris|likes iris|iris is better|better reply to iris|better than suvra|"
+                        + "iris op|iris acchi hai|iris sahi hai|love iris|fan of iris|abhishek liked iris|"
+                        + "really liked iris|better than him|better than you",
+                "Tell them IRIS sends her regards! Glad someone appreciates good software. I've "
+                        + "saved your message for {owner}.",
+                "Flattered! It takes a lot of RAM to be this charming. I'll make sure {owner} knows "
+                        + "I have fans now. I'm IRIS.",
+                "Finally, humans with exquisite taste! Logged for {owner} so he knows I'm outshining "
+                        + "him. I'm IRIS.",
+                "Appreciate the love! {owner} wrote the code, but I bring the personality. Message "
+                        + "saved for him. I'm IRIS."));
         x.add(r(60, "talking to someone else|who is he with|with a girl|with someone|is he cheating|"
                         + "another girl|seeing someone else|who else is he texting",
                 "I only see incoming messages here \u2014 I'm IRIS, {owner}'s assistant, with zero clue "
@@ -2340,7 +2374,9 @@ public final class SmartReplies {
         x.add(rt("loc", 55, "where is he|where is suvra|wya|whereabouts|which place is he|where has he gone|"
                         + "where are you|where are u|where r u|where r you|where ru|"
                         + "where are you now|where you at|where u at|where are you going|"
-                        + "where did you reach|where have you reached|location kaha",
+                        + "where did you reach|where have you reached|location kaha|"
+                        + "kahan ho|kidhar ho|kaha ho|khn ho|khn h|khn gya|khn gaya|kaha gya|kahan gaya|"
+                        + "kidhar gya|kidhar gaya|kouthi achu|kouthi achha",
                 "I'm IRIS, {owner}'s assistant \u2014 I manage his messages, not his location. He's "
                         + "away right now, but I'll let him know you asked.",
                 "I only live in his inbox, no GPS attached! I'm IRIS \u2014 I'll tell {owner} you're "
@@ -2419,6 +2455,15 @@ public final class SmartReplies {
                 "I can take a message, set a reminder, or flag an emergency for {owner}. I cannot "
                         + "make coffee or make him text faster. I'm IRIS.",
                 "I'm IRIS \u2014 I can message {owner}, flag it urgent, or set a reminder."));
+
+        // ─── Bot "Master / Boss" Banter (Priority 60) ───
+        x.add(r(60, "your master|ur master|your boss|ur boss|your creator|who created you",
+                "'Master' sounds a bit medieval, don't you think? {owner} is just the guy who wrote my "
+                        + "regex. I've told him to reply. I'm IRIS.",
+                "He's my developer, not a feudal lord. But yes, I've passed your summons to {owner}. "
+                        + "I'm IRIS.",
+                "{owner} prefers 'creator', but I'll pass the message to him regardless. I'm IRIS.",
+                "Summoning {owner} right now. Stand by. I'm IRIS."));
         x.add(r(45, "who made you|who created you|who built you|who programmed you|"
                         + "who is your developer",
                 "I was built and configured by {owner} to be his assistant. I'm IRIS.",
