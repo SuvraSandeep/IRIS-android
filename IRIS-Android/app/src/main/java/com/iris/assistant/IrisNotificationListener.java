@@ -501,19 +501,7 @@ public class IrisNotificationListener extends NotificationListenerService {
         try {
             // WhatsApp / Instagram Status or Story replies / reactions: ignore completely so IRIS
             // does not spam contacts with auto-replies to status updates.
-            if (sbn != null && sbn.getNotification() != null && sbn.getNotification().extras != null) {
-                Bundle extras = sbn.getNotification().extras;
-                CharSequence notifText = extras.getCharSequence(Notification.EXTRA_TEXT);
-                CharSequence notifSubText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
-                String rawNotif = notifText != null ? notifText.toString() : "";
-                String subText = notifSubText != null ? notifSubText.toString().toLowerCase(java.util.Locale.ROOT) : "";
-                if (ReactionText.looksLikeReaction(rawNotif)
-                        || subText.contains("status")
-                        || rawNotif.toLowerCase(java.util.Locale.ROOT).startsWith("replied to your status:")
-                        || rawNotif.toLowerCase(java.util.Locale.ROOT).startsWith("reacted to your status:")) {
-                    return;
-                }
-            }
+            if (AutoResponder.isStatusNotification(sbn)) return;
             // An emoji reaction (tapback) to a sent message is not a message — never reply to it.
             if (ReactionText.looksLikeReaction(body)) return;
             // An edited-message re-notification is a re-trigger of an already-seen message — skip.

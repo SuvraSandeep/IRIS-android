@@ -115,6 +115,24 @@ public final class Emoji {
     }
 
     /**
+     * True when the text is exclusively emoji/symbols containing a laughing emoji (😂, 🤣, etc.).
+     */
+    public static boolean isLaughEmoji(String text) {
+        if (text == null) return false;
+        String stripped = text.replaceAll("\\s+", "");
+        if (stripped.isEmpty()) return false;
+        if (stripped.replaceAll("[\\p{L}\\p{N}]", "").length() != stripped.length()) {
+            return false;
+        }
+        return dominant(text) == Category.LAUGH
+                || text.contains("\uD83D\uDE02")
+                || text.contains("\uD83E\uDD23")
+                || text.contains("\uD83D\uDE05")
+                || text.contains("\uD83D\uDE06")
+                || text.contains("\uD83D\uDE39");
+    }
+
+    /**
      * A reply for an emoji-only message, keyed by the dominant emoji's meaning and the tone, or
      * empty when the dominant emoji carries no clear reply (neutral/thinking/sleep/money).
      * {owner} is left literal for the caller's fill().
@@ -442,26 +460,26 @@ public final class Emoji {
     };
 
     /**
-     * Fifteen replies for a laughing emoji (😂🤣), so the commonest reaction-style ping feels
-     * varied. Every line names IRIS; most name {owner}. Tone-agnostic on purpose — variety matters
-     * more than tone for a bare laugh, and they read fine in any tone.
+     * Fifteen safe, versatile replies for a laughing emoji (😂🤣) that sound natural in ANY
+     * context — whether reacting to a status, a photo, a joke, or IRIS itself.
+     * Tone-agnostic and completely free of arrogant or self-centered assumptions.
      */
     private static final String[] LAUGH_POOL = {
-            "Glad that landed \u2014 I'm IRIS, {owner}'s assistant. I've logged it for him.",
-            "Haha, I'll take the credit on {owner}'s behalf. I'm IRIS \u2014 he'll see it soon.",
-            "Laughing at an auto-reply? {owner} really needs to text you back. I'm IRIS.",
-            "I aim to amuse (it's in my code). I'm IRIS, {owner}'s assistant \u2014 saved for him.",
-            "Comedy gold, apparently. I'm IRIS \u2014 I've passed the laugh to {owner}.",
-            "Even {owner} doesn't laugh at my jokes that fast. I'm IRIS \u2014 noted for him.",
-            "That's a win for the script. I'm IRIS, {owner}'s assistant \u2014 logged it.",
-            "Making humans laugh with if-else statements \u2014 peak engineering. I'm IRIS.",
-            "Glad to entertain the inbox. I'm IRIS, {owner}'s assistant \u2014 saved for him.",
-            "Haha \u2014 I'll be here all week (literally, I can't leave the server). I'm IRIS.",
-            "Noted with a grin. I'm IRIS, {owner}'s assistant \u2014 he'll catch up soon.",
-            "A laugh for the robot. I'll treasure it in RAM. I'm IRIS \u2014 saved for {owner}.",
-            "Careful, {owner} gets jealous when I'm the funny one. I'm IRIS \u2014 logged it.",
-            "Ha! Filed under 'made someone's day'. I'm IRIS, {owner}'s assistant.",
-            "Glad that hit \u2014 I'm IRIS. {owner}'s away, but your laugh is saved for him."};
+            "Haha, glad that gave you a laugh! Logged for {owner}. I'm IRIS.",
+            "Laugh logged! I'll make sure {owner} knows he entertained you. I'm IRIS.",
+            "Always good to see some humor in the inbox. Saved for {owner}. I'm IRIS.",
+            "Glad that brought a smile! Everything's saved for {owner} to check later. I'm IRIS.",
+            "Humor noted in the logs. {owner} will catch up on this chat soon. I'm IRIS.",
+            "Haha, glad to entertain! Saved for {owner}. I'm IRIS.",
+            "A little laughter never hurt anyone. Message saved for {owner}. I'm IRIS.",
+            "Logged the laugh for {owner} \u2014 he'll see it when he's back! I'm IRIS.",
+            "Smiles and giggles logged in the database. Have a good one! I'm IRIS.",
+            "Caught the laugh! {owner} will reply as soon as he's free. I'm IRIS.",
+            "Haha noted with a grin! Everything's saved for {owner}. I'm IRIS.",
+            "Glad to see some joy in the inbox! Saved for {owner}. I'm IRIS.",
+            "Laugh recorded! {owner} will see what made you smile when he's back. I'm IRIS.",
+            "Ha! Saved for {owner} to enjoy later. I'm IRIS, his assistant.",
+            "Smiles logged for {owner} \u2014 he'll catch up on this thread soon. I'm IRIS."};
 
     /**
      * Fifteen comebacks for a rude / dismissive emoji (🖕💩🤡👎🧢🥱😒🙄). Deliberately the most
@@ -503,9 +521,9 @@ public final class Emoji {
                 "A heart for an auto-responder? Bold. I'll pass it to {owner}. I'm IRIS.",
                 "Noted with love \u2014 saved for {owner}. IRIS."});
         m.put(Category.LAUGH, new String[]{
-                "Glad that landed \u2014 I'm IRIS, {owner}'s assistant. I've logged it for him.",
-                "Haha glad to help! IRIS here \u2014 {owner} will see it.",
-                "Laughing at a script \u2014 {owner} really needs to text you back. I'm IRIS.",
+                "Haha, glad that gave you a laugh! Logged for {owner}. I'm IRIS.",
+                "Laugh logged! I'll make sure {owner} knows he entertained you. I'm IRIS.",
+                "Always good to see some humor in the inbox. Saved for {owner}. I'm IRIS.",
                 "Glad to entertain \u2014 saved for {owner}. IRIS."});
         m.put(Category.CELEBRATE, new String[]{
                 "Thank you \u2014 I'm IRIS, {owner}'s assistant. I've saved your wishes at the top for "

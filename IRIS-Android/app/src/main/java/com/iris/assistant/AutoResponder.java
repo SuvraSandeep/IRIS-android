@@ -7,6 +7,7 @@ import android.service.notification.StatusBarNotification;
 import java.util.Calendar;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.TimeZone;
 
@@ -82,20 +83,7 @@ public final class AutoResponder {
 
         // WhatsApp / Instagram Status or Story replies / reactions: ignore completely so IRIS
         // does not spam contacts with auto-replies to status updates.
-        if (incoming.sbn != null && incoming.sbn.getNotification() != null
-                && incoming.sbn.getNotification().extras != null) {
-            Bundle extras = incoming.sbn.getNotification().extras;
-            CharSequence notifText = extras.getCharSequence(Notification.EXTRA_TEXT);
-            CharSequence notifSubText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
-            String rawNotif = notifText != null ? notifText.toString() : "";
-            String subText = notifSubText != null ? notifSubText.toString().toLowerCase(java.util.Locale.ROOT) : "";
-            if (ReactionText.looksLikeReaction(rawNotif)
-                    || subText.contains("status")
-                    || rawNotif.toLowerCase(java.util.Locale.ROOT).startsWith("replied to your status:")
-                    || rawNotif.toLowerCase(java.util.Locale.ROOT).startsWith("reacted to your status:")) {
-                return;
-            }
-        }
+        if (isStatusNotification(incoming.sbn)) return;
         if (ReactionText.looksLikeReaction(incoming.body)) return;
 
         // Re-posted identical notification? WhatsApp re-adds the same notification while a message
@@ -125,6 +113,18 @@ public final class AutoResponder {
                 return;
             }
             LAST_POST_TIME.put(conversationKey, postTime);
+        }
+
+        // Unsolicited Laugh Emoji / Status Reaction Filter:
+        // When a contact sends a bare laugh emoji (😂, 🤣, etc.) without IRIS having spoken in the
+        // last 90 seconds, it is guaranteed to be an unsolicited reaction to a WhatsApp Status,
+        // Instagram Story, or prior photo/media — never a reaction to IRIS. Stay completely silent.
+        if (Emoji.isLaughEmoji(incoming.body)) {
+            long lastReplyMs = settings.lastReplyTo(conversationKey);
+            boolean irisSpokeRecently = lastReplyMs > 0 && (now - lastReplyMs <= 90_000L);
+            if (!irisSpokeRecently) {
+                return;
+            }
         }
 
         // Never process IRIS's own reply coming back as a notification. In a group, WhatsApp
@@ -1279,5 +1279,54 @@ public final class AutoResponder {
         } catch (Throwable ignored) {
             // Marking read is a convenience; never let it affect the reply decision or crash.
         }
+    }
+    /**
+     * Comprehensive notification inspection checking all metadata bundles, fields, and text
+     * for WhatsApp / Instagram status and story indicators across various Android devices.
+     */
+    public static boolean isStatusNotification(StatusBarNotification sbn) {
+        if (sbn == null) return false;
+        Notification n = sbn.getNotification();
+        if (n == null) return false;
+        CharSequence tickerSeq = n.tickerText;
+        String ticker = tickerSeq != null ? tickerSeq.toString().toLowerCase(Locale.ROOT) : "";
+        if (ticker.contains("status") && (ticker.contains("replied") || ticker.contains("reacted"))) {
+            return true;
+        }
+        Bundle extras = n.extras;
+        if (extras == null) return false;
+
+        CharSequence textSeq = extras.getCharSequence(Notification.EXTRA_TEXT);
+        CharSequence bigTextSeq = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+        CharSequence subTextSeq = extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
+        CharSequence summarySeq = extras.getCharSequence("android.summaryText");
+        CharSequence infoSeq = extras.getCharSequence(Notification.EXTRA_INFO_TEXT);
+
+        String text = textSeq != null ? textSeq.toString() : "";
+        String bigText = bigTextSeq != null ? bigTextSeq.toString() : "";
+        String subText = subTextSeq != null ? subTextSeq.toString().toLowerCase(Locale.ROOT) : "";
+        String summary = summarySeq != null ? summarySeq.toString().toLowerCase(Locale.ROOT) : "";
+        String info = infoSeq != null ? infoSeq.toString().toLowerCase(Locale.ROOT) : "";
+
+        // Tagged as status in metadata fields (WhatsApp/Instagram puts "Status" or "Story" in subText, summary, or info)
+        if (subText.contains("status") || summary.contains("status") || info.contains("status")
+                || ticker.contains("status")) {
+            return true;
+        }
+
+        String lowerText = text.toLowerCase(Locale.ROOT);
+        String lowerBig = bigText.toLowerCase(Locale.ROOT);
+        if (lowerText.startsWith("replied to your status") || lowerText.startsWith("reacted to your status")
+                || lowerBig.startsWith("replied to your status") || lowerBig.startsWith("reacted to your status")
+                || lowerText.startsWith("replied to your story") || lowerText.startsWith("reacted to your story")
+                || lowerBig.startsWith("replied to your story") || lowerBig.startsWith("reacted to your story")) {
+            return true;
+        }
+
+        if (ReactionText.looksLikeReaction(text) || ReactionText.looksLikeReaction(bigText)) {
+            return true;
+        }
+
+        return false;
     }
 }
