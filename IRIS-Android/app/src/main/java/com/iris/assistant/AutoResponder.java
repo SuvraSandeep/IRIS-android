@@ -1,6 +1,8 @@
 package com.iris.assistant;
 
+import android.app.Notification;
 import android.content.Context;
+import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
 import java.util.Calendar;
 import java.util.LinkedHashSet;
@@ -77,6 +79,24 @@ public final class AutoResponder {
         // The responder has its own app list, separate from the archive's. Ticking an app for
         // archiving must never silently authorise outgoing messages through it.
         if (!settings.allowsApp(incoming.pkg)) return;
+
+        // WhatsApp / Instagram Status or Story replies / reactions: ignore completely so IRIS
+        // does not spam contacts with auto-replies to status updates.
+        if (incoming.sbn != null && incoming.sbn.getNotification() != null
+                && incoming.sbn.getNotification().extras != null) {
+            Bundle extras = incoming.sbn.getNotification().extras;
+            CharSequence notifText = extras.getCharSequence(Notification.EXTRA_TEXT);
+            CharSequence notifSubText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
+            String rawNotif = notifText != null ? notifText.toString() : "";
+            String subText = notifSubText != null ? notifSubText.toString().toLowerCase(java.util.Locale.ROOT) : "";
+            if (ReactionText.looksLikeReaction(rawNotif)
+                    || subText.contains("status")
+                    || rawNotif.toLowerCase(java.util.Locale.ROOT).startsWith("replied to your status:")
+                    || rawNotif.toLowerCase(java.util.Locale.ROOT).startsWith("reacted to your status:")) {
+                return;
+            }
+        }
+        if (ReactionText.looksLikeReaction(incoming.body)) return;
 
         // Re-posted identical notification? WhatsApp re-adds the same notification while a message
         // stays unread, which used to clear the in-process answered set and draw a second reply.

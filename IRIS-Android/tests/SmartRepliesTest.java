@@ -635,6 +635,19 @@ public final class SmartRepliesTest {
         }
         check(flagVariants.size() == 5, "flag pool has 5 distinct variants: " + flagVariants.size());
 
+        // 10. Odia 'Hau' conversation-ender rule and updated laugh variant (v16.51.0)
+        for (String hau : new String[]{"hau", "hau thau", "hau bhai", "hau chaliba"}) {
+            String hr = SmartReplies.match(hau, ReplyTone.Tone.CASUAL);
+            check(!hr.isEmpty() && namesIris(hr), "hau names IRIS: " + hau);
+            check(hr.contains("Hau"), "hau reply mentions Hau: " + hr);
+        }
+        String nonHau = SmartReplies.match("wow bhaiya ye kya hai ye bolo", ReplyTone.Tone.CASUAL);
+        check(!nonHau.contains("Hau"), "sentence containing 'hai' does not trigger Hau: " + nonHau);
+
+        String laughSarcastic = SmartReplies.match("haha", ReplyTone.Tone.SARCASTIC, 2);
+        check(!laughSarcastic.contains("auto-responder"), "laugh does not accuse sender of laughing at bot: " + laughSarcastic);
+        check(laughSarcastic.contains("laugh"), "laugh mentions laugh: " + laughSarcastic);
+
         System.out.println("Passed " + checks + " smart reply checks");
     }
 }

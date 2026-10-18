@@ -1001,7 +1001,7 @@ public final class SmartReplies {
         m.put("laugh", new String[]{
                 "Glad I could entertain \u2014 I'm IRIS, {owner}'s assistant! Everything's saved for him.",
                 "Haha glad to help! It's all saved for {owner} to laugh at too. I'm IRIS.",
-                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
+                "Haha, glad that gave you a laugh! Everything's saved for {owner}. I'm IRIS.",
                 "Comedy gold, apparently! I'm IRIS \u2014 I've passed the laugh on to {owner}.",
                 "That's a win for the script! I'm IRIS, {owner}'s assistant \u2014 logged it.",
                 "Who said bots don't have a sense of humour? {owner} will love this thread. I'm "
@@ -2277,8 +2277,15 @@ public final class SmartReplies {
         x.add(rt("laugh", 30, "lol|haha|hahaha|lmao|rofl|hehe|lmfao",
                 "Glad I could help \u2014 I'm IRIS, {owner}'s assistant. Everything's saved for him.",
                 "Haha glad to help! It's all saved for {owner}. I'm IRIS.",
-                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
+                "Haha, glad that gave you a laugh! Everything's saved for {owner}. I'm IRIS.",
                 "Glad to entertain \u2014 saved for {owner}. I'm IRIS."));
+
+        // ─── Odia 'Hau' conversation-ender rule (Priority 60: Safe & Unambiguous) ───
+        x.add(r(60, "hau|hao|hau thau|hau thau thau|hau gale|hau rakhuchi|hau bhai|hau chaliba",
+                "'Hau' \u2014 the word that ends every conversation. Logged for {owner}. I'm IRIS.",
+                "Haha 'Hau' \u2014 classic conversation closer! Saved for {owner}. I'm IRIS.",
+                "'Hau' \u2014 the ultimate Odia conversation ender. Logged for {owner}. I'm IRIS.",
+                "'Hau' noted \u2014 saved for {owner}. I'm IRIS."));
         // Contact-name probing. HIGH priority so "what is my contact name" beats the bot-name rule
         // (which was hijacking it and firing a clipped reply).
         x.add(rt("contactname", 73, "contact name|my contact name|what is my contact|whats my contact|"

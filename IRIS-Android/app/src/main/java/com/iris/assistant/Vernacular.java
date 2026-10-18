@@ -146,9 +146,9 @@ public final class Vernacular {
                 "IRIS is here! " + O + " is away \u2014 leave a message?"));
         x.add(r(40, "hau|acha thik achi|thik achi|theek hai|sahi hai|haan bhai|chalega|thik achhi",
                 "Noted \u2014 I'm IRIS, " + O + "'s assistant. Everything's saved for him.",
-                "Hau, sorted! Everything's saved for " + O + ". IRIS.",
-                "'Hau' \u2014 the word that ends every conversation. Logged for " + O + ". IRIS.",
-                "Hau \u2014 saved for " + O + "! IRIS."));
+                "Sorted! Everything's saved for " + O + ". IRIS.",
+                "Got it \u2014 keeping " + O + " posted. IRIS.",
+                "Noted \u2014 saved for " + O + "! IRIS."));
         x.add(r(42, "dhanyabad|bahut badhiya|mast bot|badiya hai|shukriya|sahi bot|dhanyavad",
                 "Dhanyabad \u2014 I'm IRIS, " + O + "'s assistant! He built me himself; I'll pass your "
                         + "message along.",
