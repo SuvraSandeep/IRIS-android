@@ -324,6 +324,53 @@ def verify_query_semantics(connection):
         "SELECT COUNT(*) FROM notifications WHERE is_deleted = 1").fetchone()[0]
     check(survivors == 2, "flagged rows survive a range delete, since they are the point of the archive")
 
+    # ─── Quick-filter query semantics ───
+    q_photo = insert_row(connection, "q-photo", pkg="com.whatsapp", app_label="WhatsApp",
+                         image_path="shot_1.jpg", post_time=base + 10000)
+    q_video = insert_row(connection, "q-video", pkg="com.whatsapp", app_label="WhatsApp",
+                         image_path="clip_1.mp4", post_time=base + 11000)
+    q_audio = insert_row(connection, "q-audio", pkg="com.whatsapp", app_label="WhatsApp",
+                         image_path="voice_1.opus", post_time=base + 12000)
+    q_doc = insert_row(connection, "q-doc", pkg="com.whatsapp", app_label="WhatsApp",
+                       image_path="brief_1.pdf", post_time=base + 13000)
+    q_sms = insert_row(connection, "q-sms", pkg="com.google.android.apps.messaging",
+                       app_label="Messages", image_path="", post_time=base + 14000)
+
+    # PHOTOS
+    photo_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE image_path IS NOT NULL AND image_path != '' AND ("
+        "image_path LIKE '%.jpg' OR image_path LIKE '%.jpeg' OR image_path LIKE '%.png' "
+        "OR image_path LIKE '%.webp' OR image_path LIKE '%.gif')").fetchall()
+    check([r[0] for r in photo_rows] == [q_photo], "photos quick filter matches image files")
+
+    # VIDEOS
+    video_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE image_path IS NOT NULL AND image_path != '' AND ("
+        "image_path LIKE '%.mp4' OR image_path LIKE '%.3gp')").fetchall()
+    check([r[0] for r in video_rows] == [q_video], "videos quick filter matches video files")
+
+    # AUDIO
+    audio_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE image_path IS NOT NULL AND image_path != '' AND ("
+        "image_path LIKE '%.ogg' OR image_path LIKE '%.opus' OR image_path LIKE '%.m4a' "
+        "OR image_path LIKE '%.aac' OR image_path LIKE '%.amr' OR image_path LIKE '%.mp3')").fetchall()
+    check([r[0] for r in audio_rows] == [q_audio], "audio quick filter matches voice notes and audio")
+
+    # DOCS
+    doc_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE image_path IS NOT NULL AND image_path != '' AND ("
+        "image_path LIKE '%.pdf' OR image_path LIKE '%.docx' OR image_path LIKE '%.doc' "
+        "OR image_path LIKE '%.xlsx' OR image_path LIKE '%.xls' OR image_path LIKE '%.pptx' "
+        "OR image_path LIKE '%.ppt' OR image_path LIKE '%.txt' OR image_path LIKE '%.csv' "
+        "OR image_path LIKE '%.rtf' OR image_path LIKE '%.zip')").fetchall()
+    check([r[0] for r in doc_rows] == [q_doc], "docs quick filter matches documents")
+
+    # SMS
+    sms_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE pkg LIKE '%.messaging%' OR pkg LIKE '%.mms%' "
+        "OR pkg LIKE '%.sms%' OR app_label LIKE '%message%' OR app_label LIKE '%sms%'").fetchall()
+    check([r[0] for r in sms_rows] == [q_sms], "sms quick filter matches messaging apps")
+
 
 def main():
     statements = extract_statements()

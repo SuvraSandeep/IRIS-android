@@ -164,16 +164,20 @@
         android:textColorHint="@color/deck_inactive"
         android:textSize="12sp" />
 
-    <Switch
-        android:id="@+id/archiveFlaggedOnly"
+    <HorizontalScrollView
+        android:id="@+id/archiveFilterScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fontFamily="monospace"
-        android:letterSpacing="0.05"
-        android:minHeight="46dp"
-        android:text="EVIDENCE ONLY - hide the innocent"
-        android:textColor="@color/deck_text"
-        android:textSize="11sp" />
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="6dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/archiveFilterChips"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
 
     <View
         android:layout_width="match_parent"

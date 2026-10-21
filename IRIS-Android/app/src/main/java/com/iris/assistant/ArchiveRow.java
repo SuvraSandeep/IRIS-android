@@ -44,6 +44,11 @@ public final class ArchiveRow {
     /** Whether this row has a stored picture or video to show. */
     public boolean hasImage() { return imagePath != null && !imagePath.isEmpty(); }
 
+    /** Whether this row has a stored photo/picture to show. */
+    public boolean isPhoto() {
+        return hasImage() && !isVideo() && !isAudio() && !isDocument();
+    }
+
     /** Whether this row has a stored video to show. */
     public boolean isVideo() {
         if (imagePath == null || imagePath.isEmpty()) return false;

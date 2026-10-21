@@ -92,6 +92,17 @@ public final class NotificationArchive {
 
     /** Search criteria. Any field left null or zero is simply not applied. */
     public static final class Filter {
+        public static final int QUICK_ALL = 0;
+        public static final int QUICK_FLAGGED = 1;
+        public static final int QUICK_PHOTOS = 2;
+        public static final int QUICK_VIDEOS = 3;
+        public static final int QUICK_AUDIO = 4;
+        public static final int QUICK_DOCS = 5;
+        public static final int QUICK_WHATSAPP = 6;
+        public static final int QUICK_SMS = 7;
+
+        public int quickFilter = QUICK_ALL;
+
         /** Matched against package and app label. */
         public String app;
         /** Matched against sender and raw title. */
@@ -344,9 +355,54 @@ public final class NotificationArchive {
                 where.append(" AND ").append(ArchiveSchema.COL_ROW_KIND).append(" = ")
                         .append(ArchiveSchema.KIND_MESSAGE);
             }
-            if (f.flaggedOnly) {
+            if (f.flaggedOnly || f.quickFilter == Filter.QUICK_FLAGGED) {
                 where.append(" AND (").append(ArchiveSchema.COL_IS_DELETED).append(" = 1 OR ")
                         .append(ArchiveSchema.COL_IS_SUSPECTED).append(" = 1)");
+            } else if (f.quickFilter == Filter.QUICK_PHOTOS) {
+                where.append(" AND ").append(ArchiveSchema.COL_IMAGE_PATH).append(" IS NOT NULL AND ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" != '' AND (")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.jpg' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.jpeg' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.png' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.webp' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.gif')");
+            } else if (f.quickFilter == Filter.QUICK_VIDEOS) {
+                where.append(" AND ").append(ArchiveSchema.COL_IMAGE_PATH).append(" IS NOT NULL AND ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" != '' AND (")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.mp4' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.3gp')");
+            } else if (f.quickFilter == Filter.QUICK_AUDIO) {
+                where.append(" AND ").append(ArchiveSchema.COL_IMAGE_PATH).append(" IS NOT NULL AND ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" != '' AND (")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.ogg' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.opus' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.m4a' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.aac' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.amr' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.mp3')");
+            } else if (f.quickFilter == Filter.QUICK_DOCS) {
+                where.append(" AND ").append(ArchiveSchema.COL_IMAGE_PATH).append(" IS NOT NULL AND ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" != '' AND (")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.pdf' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.docx' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.doc' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.xlsx' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.xls' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.pptx' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.ppt' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.txt' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.csv' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.rtf' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.zip')");
+            } else if (f.quickFilter == Filter.QUICK_WHATSAPP) {
+                where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE '%whatsapp%' OR ")
+                        .append(ArchiveSchema.COL_APP_LABEL).append(" LIKE '%whatsapp%')");
+            } else if (f.quickFilter == Filter.QUICK_SMS) {
+                where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE '%.messaging%' OR ")
+                        .append(ArchiveSchema.COL_PKG).append(" LIKE '%.mms%' OR ")
+                        .append(ArchiveSchema.COL_PKG).append(" LIKE '%.sms%' OR ")
+                        .append(ArchiveSchema.COL_APP_LABEL).append(" LIKE '%message%' OR ")
+                        .append(ArchiveSchema.COL_APP_LABEL).append(" LIKE '%sms%')");
             }
             if (f.app != null && !f.app.trim().isEmpty()) {
                 where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE ? ESCAPE '\\'")

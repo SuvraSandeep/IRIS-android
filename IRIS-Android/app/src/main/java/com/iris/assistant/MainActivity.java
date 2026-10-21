@@ -3349,6 +3349,7 @@ public class MainActivity extends Activity {
     private static final long ARCHIVE_SEARCH_DEBOUNCE_MS = 250L;
     private static final int ARCHIVE_PAGE_SIZE = 50;
     private Runnable archiveSearchRunnable;
+    private int archiveQuickFilter = NotificationArchive.Filter.QUICK_ALL;
     private final ExecutorService archiveQueryExecutor =
             Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "iris-archive-db");
@@ -3376,7 +3377,6 @@ public class MainActivity extends Activity {
         IrisNotificationListener.captureVisibleNow();
 
         EditText search = view.findViewById(R.id.archiveSearch);
-        Switch flaggedOnly = view.findViewById(R.id.archiveFlaggedOnly);
 
         View back = view.findViewById(R.id.archiveBackButton);
         if (back != null) {
@@ -3476,12 +3476,7 @@ public class MainActivity extends Activity {
                 }
             });
         }
-        if (flaggedOnly != null) {
-            flaggedOnly.setOnCheckedChangeListener((b, checked) -> {
-                if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
-                renderArchive(view);
-            });
-        }
+        setupArchiveFilterChips(view);
         ListView list = view.findViewById(R.id.archiveList);
         if (list != null) {
             archiveFooterView = createArchiveFooterView(view);
@@ -3501,6 +3496,46 @@ public class MainActivity extends Activity {
             });
         }
         renderArchive(view);
+    }
+
+    private void setupArchiveFilterChips(final View view) {
+        LinearLayout chips = view.findViewById(R.id.archiveFilterChips);
+        if (chips == null) return;
+        chips.removeAllViews();
+        addArchiveFilterChip(chips, "ALL", NotificationArchive.Filter.QUICK_ALL, view);
+        addArchiveFilterChip(chips, "FLAGGED 🚩", NotificationArchive.Filter.QUICK_FLAGGED, view);
+        addArchiveFilterChip(chips, "PHOTOS 📷", NotificationArchive.Filter.QUICK_PHOTOS, view);
+        addArchiveFilterChip(chips, "VIDEOS 🎬", NotificationArchive.Filter.QUICK_VIDEOS, view);
+        addArchiveFilterChip(chips, "AUDIO 🎙️", NotificationArchive.Filter.QUICK_AUDIO, view);
+        addArchiveFilterChip(chips, "DOCS 📄", NotificationArchive.Filter.QUICK_DOCS, view);
+        addArchiveFilterChip(chips, "WHATSAPP", NotificationArchive.Filter.QUICK_WHATSAPP, view);
+        addArchiveFilterChip(chips, "SMS", NotificationArchive.Filter.QUICK_SMS, view);
+    }
+
+    private void addArchiveFilterChip(LinearLayout parent, String label, final int filterIndex, final View rootView) {
+        TextView chip = new TextView(this);
+        chip.setText(label);
+        chip.setTextSize(10f);
+        chip.setTypeface(android.graphics.Typeface.MONOSPACE,
+                archiveQuickFilter == filterIndex ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        chip.setPadding(dp(10), dp(6), dp(10), dp(6));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(6);
+        chip.setLayoutParams(lp);
+
+        boolean active = archiveQuickFilter == filterIndex;
+        chip.setTextColor(getColor(active ? R.color.text_primary : R.color.deck_text_dim));
+        chip.setBackgroundResource(active ? R.drawable.bg_cyber_button : R.drawable.bg_cyber_row);
+
+        chip.setOnClickListener(v -> {
+            if (archiveQuickFilter == filterIndex) return;
+            archiveQuickFilter = filterIndex;
+            setupArchiveFilterChips(rootView);
+            if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+            renderArchive(rootView);
+        });
+        parent.addView(chip);
     }
 
     /**
@@ -4162,16 +4197,17 @@ public class MainActivity extends Activity {
 
     private NotificationArchive.Filter buildArchiveFilter(View root) {
         EditText search = root.findViewById(R.id.archiveSearch);
-        Switch flaggedOnly = root.findViewById(R.id.archiveFlaggedOnly);
 
         NotificationArchive.Filter filter = new NotificationArchive.Filter();
         if (search != null) {
             String term = search.getText().toString().trim();
             if (!term.isEmpty()) { filter.search = term; }
         }
-        filter.flaggedOnly = flaggedOnly != null && flaggedOnly.isChecked();
+        filter.quickFilter = archiveQuickFilter;
+        filter.flaggedOnly = (archiveQuickFilter == NotificationArchive.Filter.QUICK_FLAGGED);
         // Markers are shown only in the unfiltered view, where the gaps they mark are meaningful.
-        filter.includeMarkers = !filter.flaggedOnly;
+        filter.includeMarkers = (archiveQuickFilter == NotificationArchive.Filter.QUICK_ALL
+                && (filter.search == null || filter.search.isEmpty()));
         return filter;
     }
 
@@ -4395,11 +4431,28 @@ public class MainActivity extends Activity {
                 if (grant != null) grant.setVisibility(result.accessGranted ? View.GONE : View.VISIBLE);
 
                 if (emptyText != null) {
-                    emptyText.setText(result.total == 0
-                            ? "Nothing in the vault yet. Tick some apps and let people incriminate "
-                              + "themselves at their own pace."
-                            : "Nothing matches that. Either your search is wrong or everyone's "
-                              + "suspiciously well behaved.");
+                    if (result.total == 0) {
+                        emptyText.setText("Nothing in the vault yet. Tick some apps and let people incriminate "
+                                + "themselves at their own pace.");
+                    } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_FLAGGED) {
+                        emptyText.setText("No incriminating evidence found. Either your search is wrong or "
+                                + "everyone's suspiciously well behaved.");
+                    } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_PHOTOS) {
+                        emptyText.setText("No photos captured in the vault matching this query.");
+                    } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_VIDEOS) {
+                        emptyText.setText("No video clips captured in the vault matching this query.");
+                    } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_AUDIO) {
+                        emptyText.setText("No voice notes or audio recordings found in the vault matching this query.");
+                    } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_DOCS) {
+                        emptyText.setText("No document attachments found in the vault matching this query.");
+                    } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_WHATSAPP) {
+                        emptyText.setText("No WhatsApp notifications found matching this query.");
+                    } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_SMS) {
+                        emptyText.setText("No SMS or text messages found matching this query.");
+                    } else {
+                        emptyText.setText("Nothing matches that. Either your search is wrong or everyone's "
+                                + "suspiciously well behaved.");
+                    }
                 }
 
                 ArchiveAdapter adapter = getArchiveAdapter(list);
