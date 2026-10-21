@@ -78,17 +78,27 @@ public final class ArchiveImages {
         return dir;
     }
 
-    /** Absolute file for a stored image name, or null when the name is empty. */
+    /** Absolute file for a stored image or video name, or null when the name is empty. */
     public static File fileFor(Context context, String storedName) {
         if (context == null || storedName == null || storedName.trim().isEmpty()) return null;
-        // Re-derived through the policy so a value read back from the database cannot contain a
-        // path separator and reach outside the archive directory.
-        String safe = ArchiveImagePolicy.fileName(storedName.replace(".jpg", ""));
+        String ext = ".jpg";
+        String lower = storedName.toLowerCase(java.util.Locale.US);
+        if (lower.endsWith(".mp4")) {
+            ext = ".mp4";
+        } else if (lower.endsWith(".3gp")) {
+            ext = ".3gp";
+        }
+        String base = storedName;
+        if (base.toLowerCase(java.util.Locale.US).endsWith(ext)) {
+            base = base.substring(0, base.length() - ext.length());
+        }
+        String safe = base.trim().replaceAll("[^A-Za-z0-9_-]", "");
         if (safe.isEmpty()) return null;
-        return new File(directory(context), safe);
+        if (safe.length() > 32) safe = safe.substring(0, 32);
+        return new File(directory(context), safe + ext);
     }
 
-    /** Total bytes currently held in stored images. */
+    /** Total bytes currently held in stored images and videos. */
     public static long bytesUsed(Context context) {
         try {
             File[] files = directory(context).listFiles();
@@ -104,15 +114,15 @@ public final class ArchiveImages {
     }
 
     /**
-     * Copy, downscale and store one image.
+     * Copy, downscale and store one image or video.
      *
      * @return the stored filename, or empty if nothing was stored
      */
     public static String store(Context context, Uri source, String mimeType, String fingerprint) {
         if (context == null || source == null) return "";
-        if (!ArchiveImagePolicy.isStorableImage(mimeType)) return "";
+        if (!ArchiveImagePolicy.isStorableMedia(mimeType)) return "";
 
-        String name = ArchiveImagePolicy.fileName(fingerprint);
+        String name = ArchiveImagePolicy.fileName(fingerprint, mimeType);
         if (name.isEmpty()) return "";
 
         if (!ArchiveImagePolicy.allowsImage(
@@ -124,6 +134,10 @@ public final class ArchiveImages {
         // Already stored, which happens when the same notification is seen again. Treated as
         // success so the caller records the path rather than retrying the decode.
         if (target.exists() && target.length() > 0) return name;
+
+        if (ArchiveImagePolicy.isStorableVideo(mimeType)) {
+            return storeVideo(context, source, target, name);
+        }
 
         Bitmap bitmap = decodeScaled(context, source);
         if (bitmap == null) return "";
@@ -141,6 +155,34 @@ public final class ArchiveImages {
             return "";
         } finally {
             bitmap.recycle();
+        }
+    }
+
+    /** Copy video stream up to MAX_SOURCE_BYTES directly to target file. */
+    private static String storeVideo(Context context, Uri source, File target, String name) {
+        try (InputStream in = context.getContentResolver().openInputStream(source);
+             OutputStream out = new FileOutputStream(target)) {
+            if (in == null) return "";
+            byte[] buffer = new byte[16384];
+            int read;
+            long total = 0;
+            while ((read = in.read(buffer)) > 0) {
+                total += read;
+                if (total > ArchiveImagePolicy.MAX_SOURCE_BYTES) {
+                    target.delete();
+                    return "";
+                }
+                out.write(buffer, 0, read);
+            }
+            out.flush();
+            if (total == 0) {
+                target.delete();
+                return "";
+            }
+            return name;
+        } catch (Throwable ignored) {
+            try { target.delete(); } catch (Throwable alsoIgnored) { }
+            return "";
         }
     }
 
@@ -185,7 +227,7 @@ public final class ArchiveImages {
     }
 
     /**
-     * Decode a stored image small enough for a list row, caching the result in LruCache.
+     * Decode a stored image or video frame small enough for a list row, caching the result in LruCache.
      *
      * Thumbnail-sized rather than full-size so memory is conserved. Returns null when the file
      * is missing, so the caller can say so instead of leaving a blank gap.
@@ -197,6 +239,16 @@ public final class ArchiveImages {
 
         File file = fileFor(context, storedName);
         if (file == null || !file.exists() || file.length() == 0) return null;
+
+        String lower = storedName.toLowerCase(java.util.Locale.US);
+        if (lower.endsWith(".mp4") || lower.endsWith(".3gp")) {
+            Bitmap frame = extractVideoFrame(file, targetPx);
+            if (frame != null) {
+                THUMB_CACHE.put(storedName, frame);
+            }
+            return frame;
+        }
+
         try {
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
@@ -212,6 +264,41 @@ public final class ArchiveImages {
             return decoded;
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    /**
+     * Extract a keyframe from a stored video file using MediaMetadataRetriever,
+     * scaled down if larger than targetPx.
+     */
+    private static Bitmap extractVideoFrame(File file, int targetPx) {
+        android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+        try {
+            mmr.setDataSource(file.getAbsolutePath());
+            Bitmap frame = mmr.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (frame == null) {
+                frame = mmr.getFrameAtTime();
+            }
+            if (frame == null) return null;
+
+            if (targetPx > 0 && (frame.getWidth() > targetPx || frame.getHeight() > targetPx)) {
+                int longest = Math.max(frame.getWidth(), frame.getHeight());
+                float ratio = (float) targetPx / (float) longest;
+                int dstW = Math.max(1, Math.round(frame.getWidth() * ratio));
+                int dstH = Math.max(1, Math.round(frame.getHeight() * ratio));
+                Bitmap scaled = Bitmap.createScaledBitmap(frame, dstW, dstH, true);
+                if (scaled != frame) {
+                    frame.recycle();
+                    frame = scaled;
+                }
+            }
+            return frame;
+        } catch (Throwable ignored) {
+            return null;
+        } finally {
+            try {
+                mmr.release();
+            } catch (Throwable ignored) { }
         }
     }
 
@@ -246,10 +333,14 @@ public final class ArchiveImages {
         THUMB_CACHE.evictAll();
     }
 
-    /** Decode a stored image at full stored size, for the single-image viewer. */
+    /** Decode a stored image or video keyframe at full stored size, for the viewer. */
     public static Bitmap full(Context context, String storedName) {
         File file = fileFor(context, storedName);
         if (file == null || !file.exists() || file.length() == 0) return null;
+        String lower = storedName.toLowerCase(java.util.Locale.US);
+        if (lower.endsWith(".mp4") || lower.endsWith(".3gp")) {
+            return extractVideoFrame(file, 0);
+        }
         try {
             return BitmapFactory.decodeFile(file.getAbsolutePath());
         } catch (Throwable ignored) {

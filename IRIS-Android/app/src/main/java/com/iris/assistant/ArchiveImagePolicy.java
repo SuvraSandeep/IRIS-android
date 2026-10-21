@@ -78,15 +78,29 @@ public final class ArchiveImagePolicy {
         return sample;
     }
 
+    /** File extension for the stored media according to MIME type. */
+    public static String extensionFor(String mimeType) {
+        if (mimeType == null) return ".jpg";
+        String lower = mimeType.trim().toLowerCase(java.util.Locale.US);
+        if ("video/mp4".equals(lower)) return ".mp4";
+        if ("video/3gpp".equals(lower) || "video/3gp".equals(lower)) return ".3gp";
+        return ".jpg";
+    }
+
     /** Stored filename for a row's image. Derived from the fingerprint, so it is already unique. */
     public static String fileName(String fingerprint) {
+        return fileName(fingerprint, "image/jpeg");
+    }
+
+    /** Stored filename for a row's media. Derived from the fingerprint with appropriate extension. */
+    public static String fileName(String fingerprint, String mimeType) {
         if (fingerprint == null || fingerprint.trim().isEmpty()) return "";
         String safe = fingerprint.trim().replaceAll("[^A-Za-z0-9_-]", "");
         if (safe.isEmpty()) return "";
         // Trimmed because a fingerprint is a full SHA-256 hex string and the leading half is
         // already far beyond collision risk for one device's archive.
         if (safe.length() > 32) safe = safe.substring(0, 32);
-        return safe + ".jpg";
+        return safe + extensionFor(mimeType);
     }
 
     /** Whether this MIME type is an image worth trying to store. */
@@ -97,5 +111,22 @@ public final class ArchiveImagePolicy {
         // Animations would be stored as a single frame, which is misleading rather than useful,
         // so they are skipped instead of silently flattened.
         return !lower.contains("gif");
+    }
+
+    /** Whether this MIME type is a video worth storing. */
+    public static boolean isStorableVideo(String mimeType) {
+        if (mimeType == null) return false;
+        String lower = mimeType.trim().toLowerCase(java.util.Locale.US);
+        return "video/mp4".equals(lower) || "video/3gpp".equals(lower) || "video/3gp".equals(lower);
+    }
+
+    /** Whether this MIME type is storable media (still image or supported video). */
+    public static boolean isStorableMedia(String mimeType) {
+        return isStorableImage(mimeType) || isStorableVideo(mimeType);
+    }
+
+    /** Alias for allowsImage covering all media types (photos and videos). */
+    public static boolean allowsMedia(long mediaBytesUsed, long sourceBytes, long ceilingBytes) {
+        return allowsImage(mediaBytesUsed, sourceBytes, ceilingBytes);
     }
 }

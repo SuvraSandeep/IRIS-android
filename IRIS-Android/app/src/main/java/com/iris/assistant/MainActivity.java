@@ -3521,6 +3521,10 @@ public class MainActivity extends Activity {
      * and explicit: a picture leaves app-private storage only when asked for by name.
      */
     private void showArchiveImage(final ArchiveRow row) {
+        if (row.isVideo()) {
+            showArchiveVideo(row);
+            return;
+        }
         android.graphics.Bitmap full = ArchiveImages.full(this, row.imagePath);
         if (full == null) {
             toast("That photo is gone. I had it, and now I don't.");
@@ -3548,6 +3552,70 @@ public class MainActivity extends Activity {
                 })
                 .setPositiveButton("Close", null)
                 .show();
+    }
+
+    /**
+     * Play an archived video in an inline cyber viewer with looping and export options.
+     */
+    private void showArchiveVideo(final ArchiveRow row) {
+        java.io.File file = ArchiveImages.fileFor(this, row.imagePath);
+        if (file == null || !file.exists() || file.length() == 0) {
+            toast("That video is gone. I had it, and now I don't.");
+            return;
+        }
+
+        FrameLayout container = new FrameLayout(this);
+        container.setBackgroundColor(getColor(R.color.deck_bg));
+
+        android.widget.VideoView videoView = new android.widget.VideoView(this);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(280), android.view.Gravity.CENTER);
+        videoView.setLayoutParams(lp);
+        container.addView(videoView);
+
+        android.widget.MediaController controller = new android.widget.MediaController(this);
+        controller.setAnchorView(videoView);
+        videoView.setMediaController(controller);
+        videoView.setVideoPath(file.getAbsolutePath());
+        videoView.setOnPreparedListener(mp -> mp.setLooping(true));
+        videoView.setOnErrorListener((mp, what, extra) -> {
+            toast("Could not play video format.");
+            return true;
+        });
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(ContactResolver.display(this, row.displayName()) + " \u2014 Video")
+                .setView(container)
+                .setNeutralButton("Save a copy", (d, w) -> {
+                    pendingImageRow = row;
+                    try {
+                        String mime = row.imagePath.toLowerCase(java.util.Locale.US).endsWith(".3gp")
+                                ? "video/3gpp" : "video/mp4";
+                        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                                .addCategory(Intent.CATEGORY_OPENABLE)
+                                .setType(mime)
+                                .putExtra(Intent.EXTRA_TITLE, "iris-" + row.imagePath);
+                        startActivityForResult(save, SAVE_ARCHIVE_IMAGE);
+                    } catch (Exception e) {
+                        toast("No app on this phone can save a file.");
+                    }
+                })
+                .setPositiveButton("Close", null)
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            try {
+                videoView.start();
+            } catch (Throwable ignored) { }
+        });
+
+        dialog.setOnDismissListener(d -> {
+            try {
+                videoView.stopPlayback();
+            } catch (Throwable ignored) { }
+        });
+
+        dialog.show();
     }
 
     /** The row whose image is being saved, held across the file-picker round trip. */
@@ -4084,7 +4152,9 @@ public class MainActivity extends Activity {
         TextView head;
         TextView meta;
         TextView body;
+        FrameLayout mediaContainer;
         ImageView shot;
+        TextView playBadge;
         TextView missingPhoto;
         TextView status;
         TextView caveat;
@@ -4174,14 +4244,36 @@ public class MainActivity extends Activity {
                 holder.body.setPadding(0, dp(4), 0, 0);
                 card.addView(holder.body);
 
-                holder.shot = new ImageView(MainActivity.this);
-                LinearLayout.LayoutParams shotParams = new LinearLayout.LayoutParams(
+                holder.mediaContainer = new FrameLayout(MainActivity.this);
+                LinearLayout.LayoutParams containerParams = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, dp(160));
-                shotParams.topMargin = dp(6);
+                containerParams.topMargin = dp(6);
+                holder.mediaContainer.setLayoutParams(containerParams);
+                holder.mediaContainer.setVisibility(View.GONE);
+
+                holder.shot = new ImageView(MainActivity.this);
+                FrameLayout.LayoutParams shotParams = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
                 holder.shot.setLayoutParams(shotParams);
                 holder.shot.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                holder.shot.setVisibility(View.GONE);
-                card.addView(holder.shot);
+                holder.mediaContainer.addView(holder.shot);
+
+                holder.playBadge = new TextView(MainActivity.this);
+                holder.playBadge.setText("\u25B6 VIDEO");
+                holder.playBadge.setTextSize(10f);
+                holder.playBadge.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                holder.playBadge.setTextColor(getColor(R.color.deck_accent));
+                holder.playBadge.setBackgroundResource(R.drawable.bg_cyber_button);
+                holder.playBadge.setPadding(dp(8), dp(3), dp(8), dp(3));
+                FrameLayout.LayoutParams badgeParams = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                        android.view.Gravity.BOTTOM | android.view.Gravity.END);
+                badgeParams.setMargins(0, 0, dp(8), dp(8));
+                holder.playBadge.setLayoutParams(badgeParams);
+                holder.playBadge.setVisibility(View.GONE);
+                holder.mediaContainer.addView(holder.playBadge);
+
+                card.addView(holder.mediaContainer);
 
                 holder.missingPhoto = new TextView(MainActivity.this);
                 holder.missingPhoto.setText("[ photo recorded but the file is missing ]");
@@ -4258,47 +4350,53 @@ public class MainActivity extends Activity {
 
         holder.body.setText(row.body.isEmpty() ? "(no text \u2014 just vibes)" : row.body);
 
-        // A captured photo. Decoded asynchronously with LruCache rather than blocking the main thread.
+        // A captured photo or video. Decoded asynchronously with LruCache rather than blocking the main thread.
         if (row.hasImage()) {
             final String imagePath = row.imagePath;
-            holder.shot.setTag(imagePath);
-            holder.shot.setContentDescription("Captured photo. Tap to open.");
+            holder.mediaContainer.setTag(imagePath);
+            holder.shot.setContentDescription(row.isVideo() ? "Captured video. Tap to play." : "Captured photo. Tap to open.");
+            holder.mediaContainer.setOnClickListener(v -> showArchiveImage(row));
             holder.shot.setOnClickListener(v -> showArchiveImage(row));
+            holder.playBadge.setVisibility(row.isVideo() ? View.VISIBLE : View.GONE);
 
             Bitmap cached = ArchiveImages.cachedThumbnail(imagePath);
             if (cached != null) {
                 holder.shot.setImageBitmap(cached);
                 holder.shot.setBackground(null);
-                holder.shot.setVisibility(View.VISIBLE);
+                holder.mediaContainer.setVisibility(View.VISIBLE);
                 holder.missingPhoto.setVisibility(View.GONE);
             } else {
                 // Render subtle cyber placeholder while loading on background worker pool
                 holder.shot.setImageBitmap(null);
                 holder.shot.setBackgroundResource(R.drawable.bg_cyber_panel);
-                holder.shot.setVisibility(View.VISIBLE);
+                holder.mediaContainer.setVisibility(View.VISIBLE);
                 holder.missingPhoto.setVisibility(View.GONE);
 
                 ArchiveImages.loadThumbnailAsync(this, imagePath, dp(220), bitmap -> {
                     // Only apply if the recycled view is still presenting the same image
-                    if (!imagePath.equals(holder.shot.getTag())) return;
+                    if (!imagePath.equals(holder.mediaContainer.getTag())) return;
                     if (bitmap != null) {
                         holder.shot.setImageBitmap(bitmap);
                         holder.shot.setBackground(null);
-                        holder.shot.setVisibility(View.VISIBLE);
+                        holder.mediaContainer.setVisibility(View.VISIBLE);
                         holder.missingPhoto.setVisibility(View.GONE);
                     } else {
-                        holder.shot.setVisibility(View.GONE);
+                        holder.mediaContainer.setVisibility(View.GONE);
                         holder.shot.setImageBitmap(null);
                         holder.shot.setBackground(null);
+                        holder.missingPhoto.setText(row.isVideo()
+                                ? "[ video recorded but the file is missing ]"
+                                : "[ photo recorded but the file is missing ]");
                         holder.missingPhoto.setVisibility(View.VISIBLE);
                     }
                 });
             }
         } else {
-            holder.shot.setVisibility(View.GONE);
+            holder.mediaContainer.setVisibility(View.GONE);
+            holder.playBadge.setVisibility(View.GONE);
             holder.shot.setImageBitmap(null);
             holder.shot.setBackground(null);
-            holder.shot.setTag(null);
+            holder.mediaContainer.setTag(null);
             holder.missingPhoto.setVisibility(View.GONE);
         }
 

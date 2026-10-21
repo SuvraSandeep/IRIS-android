@@ -38,6 +38,7 @@ public class ArchiveImagePolicyTest {
         sampleSizeIsAlwaysAUsablePowerOfTwo();
         fileNamesAreSafeAndUnique();
         onlyRealStillImagesAreStored();
+        videoAndMediaTypesAreHandledCorrectly();
         System.out.println("Passed " + checks + " archive image policy checks");
     }
 
@@ -147,5 +148,33 @@ public class ArchiveImagePolicyTest {
         check(!ArchiveImagePolicy.isStorableImage("text/plain"), "text is not an image");
         check(!ArchiveImagePolicy.isStorableImage(null), "null is not an image");
         check(!ArchiveImagePolicy.isStorableImage(""), "empty is not an image");
+    }
+
+    private static void videoAndMediaTypesAreHandledCorrectly() {
+        check(ArchiveImagePolicy.isStorableVideo("video/mp4"), "mp4 is a storable video");
+        check(ArchiveImagePolicy.isStorableVideo("video/3gpp"), "3gpp is a storable video");
+        check(ArchiveImagePolicy.isStorableVideo("video/3gp"), "3gp is a storable video");
+        check(ArchiveImagePolicy.isStorableVideo("VIDEO/MP4"), "video case is ignored");
+        check(!ArchiveImagePolicy.isStorableVideo("video/webm"), "webm is not currently stored");
+        check(!ArchiveImagePolicy.isStorableVideo("image/jpeg"), "image is not a video");
+        check(!ArchiveImagePolicy.isStorableVideo("audio/mp4"), "audio is not a video");
+        check(!ArchiveImagePolicy.isStorableVideo(null), "null is not a video");
+
+        check(ArchiveImagePolicy.isStorableMedia("image/jpeg"), "jpeg is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("image/png"), "png is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("video/mp4"), "mp4 is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("video/3gpp"), "3gpp is storable media");
+        check(!ArchiveImagePolicy.isStorableMedia("audio/ogg"), "audio is not storable media");
+        check(!ArchiveImagePolicy.isStorableMedia(null), "null is not storable media");
+
+        String fp = "3f2a9c1b4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
+        equal(ArchiveImagePolicy.fileName(fp, "video/mp4"), fp.substring(0, 32) + ".mp4",
+                "video/mp4 produces .mp4 extension");
+        equal(ArchiveImagePolicy.fileName(fp, "video/3gpp"), fp.substring(0, 32) + ".3gp",
+                "video/3gpp produces .3gp extension");
+        equal(ArchiveImagePolicy.fileName(fp, "image/jpeg"), fp.substring(0, 32) + ".jpg",
+                "image/jpeg produces .jpg extension");
+        equal(ArchiveImagePolicy.fileName(fp), fp.substring(0, 32) + ".jpg",
+                "default fileName produces .jpg extension");
     }
 }

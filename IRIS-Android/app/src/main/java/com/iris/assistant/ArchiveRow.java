@@ -41,8 +41,15 @@ public final class ArchiveRow {
      */
     public String imagePath = "";
 
-    /** Whether this row has a stored picture to show. */
+    /** Whether this row has a stored picture or video to show. */
     public boolean hasImage() { return imagePath != null && !imagePath.isEmpty(); }
+
+    /** Whether this row has a stored video to show. */
+    public boolean isVideo() {
+        if (imagePath == null || imagePath.isEmpty()) return false;
+        String lower = imagePath.toLowerCase(java.util.Locale.US);
+        return lower.endsWith(".mp4") || lower.endsWith(".3gp");
+    }
 
     /** Confidence that this message was taken back by its sender. */
     public DeletedMessageRules.Confidence confidence() {

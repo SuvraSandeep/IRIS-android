@@ -556,7 +556,7 @@ public class IrisNotificationListener extends NotificationListenerService {
         final Object uriValue = msg.get("uri");
         if (!(uriValue instanceof android.net.Uri)) return;
         final String mime = msg.getString("type");
-        if (!ArchiveImagePolicy.isStorableImage(mime)) return;
+        if (!ArchiveImagePolicy.isStorableMedia(mime)) return;
 
         final String fingerprint = NotificationArchive.fingerprintOf(context, rowId);
         if (fingerprint.isEmpty()) return;
