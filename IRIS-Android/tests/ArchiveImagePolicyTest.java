@@ -164,14 +164,43 @@ public class ArchiveImagePolicyTest {
         check(ArchiveImagePolicy.isStorableMedia("image/png"), "png is storable media");
         check(ArchiveImagePolicy.isStorableMedia("video/mp4"), "mp4 is storable media");
         check(ArchiveImagePolicy.isStorableMedia("video/3gpp"), "3gpp is storable media");
-        check(!ArchiveImagePolicy.isStorableMedia("audio/ogg"), "audio is not storable media");
+        check(ArchiveImagePolicy.isStorableMedia("audio/ogg"), "audio/ogg is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("audio/opus"), "audio/opus is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("audio/mp4"), "audio/mp4 is storable media");
+        check(!ArchiveImagePolicy.isStorableMedia("text/plain"), "text is not storable media");
         check(!ArchiveImagePolicy.isStorableMedia(null), "null is not storable media");
+
+        check(ArchiveImagePolicy.isStorableAudio("audio/ogg"), "audio/ogg is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/opus"), "audio/opus is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/mp4"), "audio/mp4 is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/m4a"), "audio/m4a is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/aac"), "audio/aac is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/amr"), "audio/amr is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/mpeg"), "audio/mpeg is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("AUDIO/OGG; codecs=opus"),
+                "audio parameters are stripped and case is ignored");
+        check(!ArchiveImagePolicy.isStorableAudio("audio/wav"), "wav is not a stored voice note format");
+        check(!ArchiveImagePolicy.isStorableAudio("image/jpeg"), "image is not audio");
+        check(!ArchiveImagePolicy.isStorableAudio("video/mp4"), "video is not audio");
+        check(!ArchiveImagePolicy.isStorableAudio(null), "null is not audio");
 
         String fp = "3f2a9c1b4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
         equal(ArchiveImagePolicy.fileName(fp, "video/mp4"), fp.substring(0, 32) + ".mp4",
                 "video/mp4 produces .mp4 extension");
         equal(ArchiveImagePolicy.fileName(fp, "video/3gpp"), fp.substring(0, 32) + ".3gp",
                 "video/3gpp produces .3gp extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/ogg"), fp.substring(0, 32) + ".ogg",
+                "audio/ogg produces .ogg extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/opus"), fp.substring(0, 32) + ".ogg",
+                "audio/opus produces .ogg extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/mp4"), fp.substring(0, 32) + ".m4a",
+                "audio/mp4 produces .m4a extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/aac"), fp.substring(0, 32) + ".aac",
+                "audio/aac produces .aac extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/amr"), fp.substring(0, 32) + ".amr",
+                "audio/amr produces .amr extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/mpeg"), fp.substring(0, 32) + ".mp3",
+                "audio/mpeg produces .mp3 extension");
         equal(ArchiveImagePolicy.fileName(fp, "image/jpeg"), fp.substring(0, 32) + ".jpg",
                 "image/jpeg produces .jpg extension");
         equal(ArchiveImagePolicy.fileName(fp), fp.substring(0, 32) + ".jpg",

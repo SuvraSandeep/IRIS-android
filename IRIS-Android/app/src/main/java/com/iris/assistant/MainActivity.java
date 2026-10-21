@@ -11,12 +11,15 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.database.Cursor;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.biometrics.BiometricPrompt;
+import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -333,6 +336,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onStop() {
+        stopArchiveAudioPlayback();
         finishFeedbackCapture();
         stopTrainingPreview();
         // Backgrounding (minimize, screen lock, an incoming call, switching apps — all routine
@@ -3635,6 +3639,222 @@ public class MainActivity extends Activity {
         }
     }
 
+    private MediaPlayer archivePlayer;
+    private String currentlyPlayingAudioPath;
+    private ArchiveViewHolder currentlyPlayingAudioHolder;
+    private long currentlyPlayingTotalMs;
+    private final Runnable audioProgressUpdater = new Runnable() {
+        @Override
+        public void run() {
+            if (archivePlayer != null && archivePlayer.isPlaying() && currentlyPlayingAudioHolder != null) {
+                int current = archivePlayer.getCurrentPosition();
+                int total = archivePlayer.getDuration();
+                if (total > 0) {
+                    float frac = (float) current / (float) total;
+                    currentlyPlayingAudioHolder.audioWaveform.setProgress(frac);
+                    currentlyPlayingAudioHolder.audioTime.setText(
+                            ArchiveImages.formatDuration(current) + " / " + ArchiveImages.formatDuration(total));
+                }
+                handler.postDelayed(this, 100);
+            }
+        }
+    };
+
+    /**
+     * Toggle playback for a voice note directly within its archive card.
+     */
+    private void toggleArchiveAudioPlayback(final ArchiveRow row, final ArchiveViewHolder holder) {
+        if (row.imagePath.equals(currentlyPlayingAudioPath) && archivePlayer != null) {
+            if (archivePlayer.isPlaying()) {
+                archivePlayer.pause();
+                holder.audioPlayBtn.setText("\u25B6");
+                handler.removeCallbacks(audioProgressUpdater);
+            } else {
+                archivePlayer.start();
+                holder.audioPlayBtn.setText("\u23F8");
+                currentlyPlayingAudioHolder = holder;
+                handler.post(audioProgressUpdater);
+            }
+            return;
+        }
+
+        stopArchiveAudioPlayback();
+
+        java.io.File file = ArchiveImages.fileFor(this, row.imagePath);
+        if (file == null || !file.exists() || file.length() == 0) {
+            toast("That voice note is gone. I had it, and now I don't.");
+            return;
+        }
+
+        try {
+            archivePlayer = new MediaPlayer();
+            archivePlayer.setDataSource(file.getAbsolutePath());
+            archivePlayer.prepare();
+            archivePlayer.start();
+
+            currentlyPlayingAudioPath = row.imagePath;
+            currentlyPlayingAudioHolder = holder;
+            currentlyPlayingTotalMs = archivePlayer.getDuration();
+
+            holder.audioPlayBtn.setText("\u23F8");
+            handler.post(audioProgressUpdater);
+
+            archivePlayer.setOnCompletionListener(mp -> {
+                holder.audioPlayBtn.setText("\u25B6");
+                holder.audioWaveform.setProgress(0f);
+                holder.audioTime.setText(ArchiveImages.formatDuration(currentlyPlayingTotalMs));
+                stopArchiveAudioPlayback();
+            });
+
+            archivePlayer.setOnErrorListener((mp, what, extra) -> {
+                toast("Could not play voice note.");
+                stopArchiveAudioPlayback();
+                return true;
+            });
+        } catch (Throwable t) {
+            toast("Could not play voice note.");
+            stopArchiveAudioPlayback();
+        }
+    }
+
+    /**
+     * Stop any currently running voice note playback.
+     */
+    private void stopArchiveAudioPlayback() {
+        handler.removeCallbacks(audioProgressUpdater);
+        if (currentlyPlayingAudioHolder != null) {
+            currentlyPlayingAudioHolder.audioPlayBtn.setText("\u25B6");
+            currentlyPlayingAudioHolder = null;
+        }
+        currentlyPlayingAudioPath = null;
+        if (archivePlayer != null) {
+            try {
+                if (archivePlayer.isPlaying()) archivePlayer.stop();
+                archivePlayer.release();
+            } catch (Throwable ignored) {
+            } finally {
+                archivePlayer = null;
+            }
+        }
+    }
+
+    /**
+     * Save a copy of an archived voice note to external storage.
+     */
+    private void saveArchiveAudio(final ArchiveRow row) {
+        pendingImageRow = row;
+        try {
+            String lower = row.imagePath.toLowerCase(java.util.Locale.US);
+            String mime = "audio/ogg";
+            if (lower.endsWith(".mp4") || lower.endsWith(".m4a")) mime = "audio/mp4";
+            else if (lower.endsWith(".aac")) mime = "audio/aac";
+            else if (lower.endsWith(".amr")) mime = "audio/amr";
+            else if (lower.endsWith(".mp3")) mime = "audio/mpeg";
+
+            Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(mime)
+                    .putExtra(Intent.EXTRA_TITLE, "iris-" + row.imagePath);
+            startActivityForResult(save, SAVE_ARCHIVE_IMAGE);
+        } catch (Exception e) {
+            toast("No app on this phone can save a file.");
+        }
+    }
+
+    /**
+     * Compact cyber waveform visualizer with playback progress track and touch scrubbing.
+     */
+    public static class WaveformView extends View {
+        private final Paint activePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint inactivePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private float progress;
+        private int seed = 42;
+        private OnSeekListener seekListener;
+
+        public interface OnSeekListener {
+            void onSeek(float fraction);
+        }
+
+        public WaveformView(Context context) {
+            super(context);
+            init(context);
+        }
+
+        private void init(Context context) {
+            activePaint.setColor(context.getColor(R.color.deck_accent));
+            activePaint.setStyle(Paint.Style.FILL);
+
+            inactivePaint.setColor(context.getColor(R.color.deck_text_dim));
+            inactivePaint.setStyle(Paint.Style.FILL);
+        }
+
+        public void setSeed(int seed) {
+            this.seed = seed;
+            invalidate();
+        }
+
+        public void setProgress(float progress) {
+            this.progress = Math.max(0f, Math.min(1f, progress));
+            invalidate();
+        }
+
+        public void setOnSeekListener(OnSeekListener listener) {
+            this.seekListener = listener;
+        }
+
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent event) {
+            if (event.getAction() == android.view.MotionEvent.ACTION_DOWN
+                    || event.getAction() == android.view.MotionEvent.ACTION_MOVE) {
+                float x = Math.max(0, Math.min(event.getX(), getWidth()));
+                float fraction = getWidth() > 0 ? x / (float) getWidth() : 0f;
+                setProgress(fraction);
+                if (seekListener != null) {
+                    seekListener.onSeek(fraction);
+                }
+                if (getParent() != null) {
+                    getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                return true;
+            }
+            return super.onTouchEvent(event);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            int w = getWidth();
+            int h = getHeight();
+            if (w <= 0 || h <= 0) return;
+
+            int barCount = 28;
+            float totalGap = w * 0.35f;
+            float gap = totalGap / (barCount - 1);
+            float barWidth = (w - totalGap) / barCount;
+            float minBarH = h * 0.18f;
+            float maxBarH = h * 0.88f;
+
+            java.util.Random rnd = new java.util.Random(seed);
+
+            for (int i = 0; i < barCount; i++) {
+                float normH = 0.25f + rnd.nextFloat() * 0.75f;
+                float wave = (float) Math.sin((i / (double) barCount) * Math.PI);
+                float barH = minBarH + (maxBarH - minBarH) * (normH * 0.7f + wave * 0.3f);
+
+                float left = i * (barWidth + gap);
+                float top = (h - barH) / 2f;
+                float right = left + barWidth;
+                float bottom = top + barH;
+                float corner = barWidth / 2f;
+
+                float barFrac = (float) i / (float) (barCount - 1);
+                Paint paint = barFrac <= progress ? activePaint : inactivePaint;
+
+                canvas.drawRoundRect(left, top, right, bottom, corner, corner, paint);
+            }
+        }
+    }
+
     /**
      * Attach swipe-to-delete to one archive row.
      *
@@ -3706,7 +3926,7 @@ public class MainActivity extends Activity {
                         v.setAlpha(1f);
                         if (Math.abs(dx) < SwipeDecision.CLAIM_SLOP_PX
                                 && Math.abs(dy) < SwipeDecision.CLAIM_SLOP_PX
-                                && row.hasImage()) {
+                                && row.hasImage() && !row.isAudio()) {
                             showArchiveImage(row);
                         }
                         return true;
@@ -3737,6 +3957,9 @@ public class MainActivity extends Activity {
     /** Slide the row out, drop it from the list, and start the undo window. */
     private void swipeAwayAndQueueDelete(final View card, final ArchiveRow row,
                                          final View root, boolean toTheRight) {
+        if (row.imagePath != null && row.imagePath.equals(currentlyPlayingAudioPath)) {
+            stopArchiveAudioPlayback();
+        }
         int distance = Math.max(card.getWidth(), dp(320));
         card.animate()
                 .translationX(toTheRight ? distance : -distance)
@@ -4156,6 +4379,12 @@ public class MainActivity extends Activity {
         ImageView shot;
         TextView playBadge;
         TextView missingPhoto;
+        LinearLayout audioContainer;
+        TextView audioPlayBtn;
+        TextView audioTitle;
+        TextView audioTime;
+        WaveformView audioWaveform;
+        TextView audioSaveBtn;
         TextView status;
         TextView caveat;
     }
@@ -4275,6 +4504,82 @@ public class MainActivity extends Activity {
 
                 card.addView(holder.mediaContainer);
 
+                holder.audioContainer = new LinearLayout(MainActivity.this);
+                holder.audioContainer.setOrientation(LinearLayout.HORIZONTAL);
+                holder.audioContainer.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                holder.audioContainer.setBackgroundResource(R.drawable.bg_cyber_panel);
+                holder.audioContainer.setPadding(dp(10), dp(8), dp(10), dp(8));
+                LinearLayout.LayoutParams audioParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                audioParams.topMargin = dp(6);
+                holder.audioContainer.setLayoutParams(audioParams);
+                holder.audioContainer.setVisibility(View.GONE);
+
+                holder.audioPlayBtn = new TextView(MainActivity.this);
+                holder.audioPlayBtn.setText("\u25B6");
+                holder.audioPlayBtn.setTextSize(14f);
+                holder.audioPlayBtn.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                holder.audioPlayBtn.setTextColor(getColor(R.color.deck_accent));
+                holder.audioPlayBtn.setGravity(android.view.Gravity.CENTER);
+                holder.audioPlayBtn.setBackgroundResource(R.drawable.bg_cyber_button);
+                LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(dp(36), dp(36));
+                holder.audioPlayBtn.setLayoutParams(playParams);
+                holder.audioContainer.addView(holder.audioPlayBtn);
+
+                LinearLayout middleCol = new LinearLayout(MainActivity.this);
+                middleCol.setOrientation(LinearLayout.VERTICAL);
+                LinearLayout.LayoutParams middleParams = new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                middleParams.setMargins(dp(10), 0, dp(8), 0);
+                middleCol.setLayoutParams(middleParams);
+
+                LinearLayout labelRow = new LinearLayout(MainActivity.this);
+                labelRow.setOrientation(LinearLayout.HORIZONTAL);
+                labelRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                LinearLayout.LayoutParams labelRowParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                labelRow.setLayoutParams(labelRowParams);
+
+                holder.audioTitle = new TextView(MainActivity.this);
+                holder.audioTitle.setText("VOICE NOTE");
+                holder.audioTitle.setTextSize(10f);
+                holder.audioTitle.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                holder.audioTitle.setTextColor(getColor(R.color.deck_accent));
+                LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                holder.audioTitle.setLayoutParams(titleParams);
+                labelRow.addView(holder.audioTitle);
+
+                holder.audioTime = new TextView(MainActivity.this);
+                holder.audioTime.setText("0:00");
+                holder.audioTime.setTextSize(10f);
+                holder.audioTime.setTypeface(android.graphics.Typeface.MONOSPACE);
+                holder.audioTime.setTextColor(getColor(R.color.deck_text_dim));
+                labelRow.addView(holder.audioTime);
+
+                middleCol.addView(labelRow);
+
+                holder.audioWaveform = new WaveformView(MainActivity.this);
+                LinearLayout.LayoutParams waveParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(22));
+                waveParams.topMargin = dp(4);
+                holder.audioWaveform.setLayoutParams(waveParams);
+                middleCol.addView(holder.audioWaveform);
+
+                holder.audioContainer.addView(middleCol);
+
+                holder.audioSaveBtn = new TextView(MainActivity.this);
+                holder.audioSaveBtn.setText("\u2913");
+                holder.audioSaveBtn.setTextSize(14f);
+                holder.audioSaveBtn.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                holder.audioSaveBtn.setTextColor(getColor(R.color.deck_text_dim));
+                holder.audioSaveBtn.setGravity(android.view.Gravity.CENTER);
+                holder.audioSaveBtn.setPadding(dp(6), dp(6), dp(6), dp(6));
+                holder.audioSaveBtn.setContentDescription("Save voice note copy");
+                holder.audioContainer.addView(holder.audioSaveBtn);
+
+                card.addView(holder.audioContainer);
+
                 holder.missingPhoto = new TextView(MainActivity.this);
                 holder.missingPhoto.setText("[ photo recorded but the file is missing ]");
                 holder.missingPhoto.setTextSize(10f);
@@ -4350,8 +4655,55 @@ public class MainActivity extends Activity {
 
         holder.body.setText(row.body.isEmpty() ? "(no text \u2014 just vibes)" : row.body);
 
-        // A captured photo or video. Decoded asynchronously with LruCache rather than blocking the main thread.
-        if (row.hasImage()) {
+        // A captured photo, video, or voice note. Decoded asynchronously with LruCache rather than blocking the main thread.
+        if (row.isAudio()) {
+            holder.mediaContainer.setVisibility(View.GONE);
+            holder.mediaContainer.setTag(null);
+            holder.playBadge.setVisibility(View.GONE);
+            holder.shot.setImageBitmap(null);
+            holder.missingPhoto.setVisibility(View.GONE);
+
+            holder.audioContainer.setVisibility(View.VISIBLE);
+            holder.audioContainer.setTag(row.imagePath);
+
+            String ext = "";
+            int dot = row.imagePath.lastIndexOf('.');
+            if (dot >= 0) ext = row.imagePath.substring(dot + 1).toUpperCase(java.util.Locale.US);
+            holder.audioTitle.setText(ext.isEmpty() ? "VOICE NOTE" : "VOICE NOTE \u00b7 " + ext);
+            holder.audioWaveform.setSeed(row.imagePath.hashCode());
+
+            boolean isCurrent = row.imagePath.equals(currentlyPlayingAudioPath);
+            if (isCurrent && archivePlayer != null && archivePlayer.isPlaying()) {
+                holder.audioPlayBtn.setText("\u23F8");
+                currentlyPlayingAudioHolder = holder;
+                int current = archivePlayer.getCurrentPosition();
+                int total = archivePlayer.getDuration();
+                float frac = total > 0 ? (float) current / (float) total : 0f;
+                holder.audioWaveform.setProgress(frac);
+                holder.audioTime.setText(ArchiveImages.formatDuration(current) + " / " + ArchiveImages.formatDuration(total));
+            } else {
+                holder.audioPlayBtn.setText("\u25B6");
+                holder.audioWaveform.setProgress(0f);
+                long dur = ArchiveImages.mediaDurationMs(this, row.imagePath);
+                holder.audioTime.setText(dur > 0 ? ArchiveImages.formatDuration(dur) : "Voice Note");
+            }
+
+            holder.audioPlayBtn.setOnClickListener(v -> toggleArchiveAudioPlayback(row, holder));
+            holder.audioWaveform.setOnSeekListener(fraction -> {
+                if (row.imagePath.equals(currentlyPlayingAudioPath) && archivePlayer != null) {
+                    int total = archivePlayer.getDuration();
+                    if (total > 0) {
+                        int seekMs = Math.round(fraction * total);
+                        archivePlayer.seekTo(seekMs);
+                        holder.audioTime.setText(
+                                ArchiveImages.formatDuration(seekMs) + " / " + ArchiveImages.formatDuration(total));
+                    }
+                }
+            });
+            holder.audioSaveBtn.setOnClickListener(v -> saveArchiveAudio(row));
+        } else if (row.hasImage()) {
+            holder.audioContainer.setVisibility(View.GONE);
+            holder.audioContainer.setTag(null);
             final String imagePath = row.imagePath;
             holder.mediaContainer.setTag(imagePath);
             holder.shot.setContentDescription(row.isVideo() ? "Captured video. Tap to play." : "Captured photo. Tap to open.");
@@ -4392,6 +4744,8 @@ public class MainActivity extends Activity {
                 });
             }
         } else {
+            holder.audioContainer.setVisibility(View.GONE);
+            holder.audioContainer.setTag(null);
             holder.mediaContainer.setVisibility(View.GONE);
             holder.playBadge.setVisibility(View.GONE);
             holder.shot.setImageBitmap(null);
@@ -4427,6 +4781,15 @@ public class MainActivity extends Activity {
             java.util.List<String> act = new java.util.ArrayList<>();
             act.add("\uD83D\uDCCC Pin to assistant queue");
             act.add("\uD83D\uDEA9 Flag as urgent");
+            if (row.hasImage()) {
+                if (row.isAudio()) {
+                    act.add("\uD83D\uDCBE Save audio copy");
+                } else if (row.isVideo()) {
+                    act.add("\uD83D\uDCBE Save video copy");
+                } else {
+                    act.add("\uD83D\uDCBE Save photo copy");
+                }
+            }
             act.add("\uD83D\uDDD1\uFE0F Delete this entry");
             new AlertDialog.Builder(this)
                     .setTitle(archiveSender)
@@ -4440,6 +4803,10 @@ public class MainActivity extends Activity {
                             FlaggedStore.get(this).addFlagged(
                                     row.body, archiveSender, row.displayAccount(), "Archived message flagged", System.currentTimeMillis());
                             toast("Flagged as urgent");
+                        } else if (sel.contains("Save audio copy")) {
+                            saveArchiveAudio(row);
+                        } else if (sel.contains("Save video copy") || sel.contains("Save photo copy")) {
+                            showArchiveImage(row);
                         } else {
                             new AlertDialog.Builder(this)
                                     .setTitle("Delete this entry?")
@@ -9381,6 +9748,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        stopArchiveAudioPlayback();
         if (telemetry != null) telemetry.close();
         diagnosticExpiry.removeCallbacksAndMessages(null);if(diagnosticPcm!=null)java.util.Arrays.fill(diagnosticPcm,(short)0);diagnosticPcm=null;captureDiagnostic=false;pendingDiagnosticExport=null;
         releaseOwnerTraining();

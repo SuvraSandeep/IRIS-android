@@ -81,9 +81,14 @@ public final class ArchiveImagePolicy {
     /** File extension for the stored media according to MIME type. */
     public static String extensionFor(String mimeType) {
         if (mimeType == null) return ".jpg";
-        String lower = mimeType.trim().toLowerCase(java.util.Locale.US);
+        String lower = mimeType.split(";")[0].trim().toLowerCase(java.util.Locale.US);
         if ("video/mp4".equals(lower)) return ".mp4";
         if ("video/3gpp".equals(lower) || "video/3gp".equals(lower)) return ".3gp";
+        if ("audio/ogg".equals(lower) || "audio/opus".equals(lower)) return ".ogg";
+        if ("audio/mp4".equals(lower) || "audio/m4a".equals(lower)) return ".m4a";
+        if ("audio/aac".equals(lower)) return ".aac";
+        if ("audio/amr".equals(lower)) return ".amr";
+        if ("audio/mpeg".equals(lower) || "audio/mp3".equals(lower)) return ".mp3";
         return ".jpg";
     }
 
@@ -120,12 +125,26 @@ public final class ArchiveImagePolicy {
         return "video/mp4".equals(lower) || "video/3gpp".equals(lower) || "video/3gp".equals(lower);
     }
 
-    /** Whether this MIME type is storable media (still image or supported video). */
-    public static boolean isStorableMedia(String mimeType) {
-        return isStorableImage(mimeType) || isStorableVideo(mimeType);
+    /** Whether this MIME type is a voice note or audio recording worth storing. */
+    public static boolean isStorableAudio(String mimeType) {
+        if (mimeType == null) return false;
+        String lower = mimeType.split(";")[0].trim().toLowerCase(java.util.Locale.US);
+        return "audio/ogg".equals(lower)
+                || "audio/opus".equals(lower)
+                || "audio/mp4".equals(lower)
+                || "audio/m4a".equals(lower)
+                || "audio/aac".equals(lower)
+                || "audio/amr".equals(lower)
+                || "audio/mpeg".equals(lower)
+                || "audio/mp3".equals(lower);
     }
 
-    /** Alias for allowsImage covering all media types (photos and videos). */
+    /** Whether this MIME type is storable media (still image, supported video, or voice note). */
+    public static boolean isStorableMedia(String mimeType) {
+        return isStorableImage(mimeType) || isStorableVideo(mimeType) || isStorableAudio(mimeType);
+    }
+
+    /** Alias for allowsImage covering all media types (photos, videos, and voice notes). */
     public static boolean allowsMedia(long mediaBytesUsed, long sourceBytes, long ceilingBytes) {
         return allowsImage(mediaBytesUsed, sourceBytes, ceilingBytes);
     }

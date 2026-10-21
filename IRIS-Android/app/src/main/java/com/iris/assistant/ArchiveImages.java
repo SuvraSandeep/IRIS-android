@@ -78,7 +78,7 @@ public final class ArchiveImages {
         return dir;
     }
 
-    /** Absolute file for a stored image or video name, or null when the name is empty. */
+    /** Absolute file for a stored image, video, or audio name, or null when the name is empty. */
     public static File fileFor(Context context, String storedName) {
         if (context == null || storedName == null || storedName.trim().isEmpty()) return null;
         String ext = ".jpg";
@@ -87,6 +87,18 @@ public final class ArchiveImages {
             ext = ".mp4";
         } else if (lower.endsWith(".3gp")) {
             ext = ".3gp";
+        } else if (lower.endsWith(".ogg")) {
+            ext = ".ogg";
+        } else if (lower.endsWith(".opus")) {
+            ext = ".opus";
+        } else if (lower.endsWith(".m4a")) {
+            ext = ".m4a";
+        } else if (lower.endsWith(".aac")) {
+            ext = ".aac";
+        } else if (lower.endsWith(".amr")) {
+            ext = ".amr";
+        } else if (lower.endsWith(".mp3")) {
+            ext = ".mp3";
         }
         String base = storedName;
         if (base.toLowerCase(java.util.Locale.US).endsWith(ext)) {
@@ -98,7 +110,7 @@ public final class ArchiveImages {
         return new File(directory(context), safe + ext);
     }
 
-    /** Total bytes currently held in stored images and videos. */
+    /** Total bytes currently held in stored media. */
     public static long bytesUsed(Context context) {
         try {
             File[] files = directory(context).listFiles();
@@ -114,7 +126,7 @@ public final class ArchiveImages {
     }
 
     /**
-     * Copy, downscale and store one image or video.
+     * Copy, downscale and store one image, video, or voice note.
      *
      * @return the stored filename, or empty if nothing was stored
      */
@@ -135,8 +147,8 @@ public final class ArchiveImages {
         // success so the caller records the path rather than retrying the decode.
         if (target.exists() && target.length() > 0) return name;
 
-        if (ArchiveImagePolicy.isStorableVideo(mimeType)) {
-            return storeVideo(context, source, target, name);
+        if (ArchiveImagePolicy.isStorableVideo(mimeType) || ArchiveImagePolicy.isStorableAudio(mimeType)) {
+            return storeStream(context, source, target, name);
         }
 
         Bitmap bitmap = decodeScaled(context, source);
@@ -158,8 +170,8 @@ public final class ArchiveImages {
         }
     }
 
-    /** Copy video stream up to MAX_SOURCE_BYTES directly to target file. */
-    private static String storeVideo(Context context, Uri source, File target, String name) {
+    /** Copy media stream (video or voice note) up to MAX_SOURCE_BYTES directly to target file. */
+    private static String storeStream(Context context, Uri source, File target, String name) {
         try (InputStream in = context.getContentResolver().openInputStream(source);
              OutputStream out = new FileOutputStream(target)) {
             if (in == null) return "";
@@ -241,6 +253,10 @@ public final class ArchiveImages {
         if (file == null || !file.exists() || file.length() == 0) return null;
 
         String lower = storedName.toLowerCase(java.util.Locale.US);
+        if (lower.endsWith(".ogg") || lower.endsWith(".opus") || lower.endsWith(".m4a")
+                || lower.endsWith(".aac") || lower.endsWith(".amr") || lower.endsWith(".mp3")) {
+            return null;
+        }
         if (lower.endsWith(".mp4") || lower.endsWith(".3gp")) {
             Bitmap frame = extractVideoFrame(file, targetPx);
             if (frame != null) {
@@ -338,6 +354,10 @@ public final class ArchiveImages {
         File file = fileFor(context, storedName);
         if (file == null || !file.exists() || file.length() == 0) return null;
         String lower = storedName.toLowerCase(java.util.Locale.US);
+        if (lower.endsWith(".ogg") || lower.endsWith(".opus") || lower.endsWith(".m4a")
+                || lower.endsWith(".aac") || lower.endsWith(".amr") || lower.endsWith(".mp3")) {
+            return null;
+        }
         if (lower.endsWith(".mp4") || lower.endsWith(".3gp")) {
             return extractVideoFrame(file, 0);
         }
@@ -348,6 +368,38 @@ public final class ArchiveImages {
             // here, so it is caught rather than allowed to take the activity down.
             return null;
         }
+    }
+
+    /**
+     * Read duration in milliseconds from a stored audio or video file.
+     * Returns 0 if reading fails.
+     */
+    public static long mediaDurationMs(Context context, String storedName) {
+        File file = fileFor(context, storedName);
+        if (file == null || !file.exists() || file.length() == 0) return 0;
+        android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+        try {
+            mmr.setDataSource(file.getAbsolutePath());
+            String dur = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
+            if (dur != null) {
+                return Long.parseLong(dur);
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            try { mmr.release(); } catch (Throwable ignored) { }
+        }
+        return 0;
+    }
+
+    /**
+     * Format milliseconds into m:ss format (e.g. 0:14, 1:05).
+     */
+    public static String formatDuration(long ms) {
+        if (ms <= 0) return "0:00";
+        long totalSec = Math.round(ms / 1000.0);
+        long min = totalSec / 60;
+        long sec = totalSec % 60;
+        return String.format(java.util.Locale.US, "%d:%02d", min, sec);
     }
 
     /**

@@ -51,6 +51,18 @@ public final class ArchiveRow {
         return lower.endsWith(".mp4") || lower.endsWith(".3gp");
     }
 
+    /** Whether this row has a stored voice note or audio recording to play. */
+    public boolean isAudio() {
+        if (imagePath == null || imagePath.isEmpty()) return false;
+        String lower = imagePath.toLowerCase(java.util.Locale.US);
+        return lower.endsWith(".ogg")
+                || lower.endsWith(".opus")
+                || lower.endsWith(".m4a")
+                || lower.endsWith(".aac")
+                || lower.endsWith(".amr")
+                || lower.endsWith(".mp3");
+    }
+
     /** Confidence that this message was taken back by its sender. */
     public DeletedMessageRules.Confidence confidence() {
         if (deleted) return DeletedMessageRules.Confidence.CONFIRMED;
