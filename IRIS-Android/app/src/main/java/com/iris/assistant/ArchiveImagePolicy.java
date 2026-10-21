@@ -89,7 +89,48 @@ public final class ArchiveImagePolicy {
         if ("audio/aac".equals(lower)) return ".aac";
         if ("audio/amr".equals(lower)) return ".amr";
         if ("audio/mpeg".equals(lower) || "audio/mp3".equals(lower)) return ".mp3";
+        if ("application/pdf".equals(lower) || "application/x-pdf".equals(lower)) return ".pdf";
+        if ("application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(lower)
+                || "application/docx".equals(lower)) return ".docx";
+        if ("application/msword".equals(lower) || "application/doc".equals(lower)) return ".doc";
+        if ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".equals(lower)
+                || "application/xlsx".equals(lower)) return ".xlsx";
+        if ("application/vnd.ms-excel".equals(lower) || "application/xls".equals(lower)) return ".xls";
+        if ("application/vnd.openxmlformats-officedocument.presentationml.presentation".equals(lower)
+                || "application/pptx".equals(lower)) return ".pptx";
+        if ("application/vnd.ms-powerpoint".equals(lower) || "application/ppt".equals(lower)) return ".ppt";
+        if ("text/plain".equals(lower)) return ".txt";
+        if ("text/csv".equals(lower)) return ".csv";
+        if ("application/rtf".equals(lower) || "text/rtf".equals(lower)) return ".rtf";
+        if ("application/zip".equals(lower) || "application/x-zip-compressed".equals(lower)) return ".zip";
         return ".jpg";
+    }
+
+    /** Resolve canonical MIME type from a stored filename extension. */
+    public static String mimeTypeFor(String storedName) {
+        if (storedName == null) return "application/octet-stream";
+        String lower = storedName.toLowerCase(java.util.Locale.US);
+        if (lower.endsWith(".pdf")) return "application/pdf";
+        if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (lower.endsWith(".doc")) return "application/msword";
+        if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+        if (lower.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        if (lower.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+        if (lower.endsWith(".txt")) return "text/plain";
+        if (lower.endsWith(".csv")) return "text/csv";
+        if (lower.endsWith(".rtf")) return "application/rtf";
+        if (lower.endsWith(".zip")) return "application/zip";
+        if (lower.endsWith(".mp4")) return "video/mp4";
+        if (lower.endsWith(".3gp")) return "video/3gpp";
+        if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
+        if (lower.endsWith(".m4a")) return "audio/mp4";
+        if (lower.endsWith(".aac")) return "audio/aac";
+        if (lower.endsWith(".amr")) return "audio/amr";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".png")) return "image/png";
+        return "application/octet-stream";
     }
 
     /** Stored filename for a row's image. Derived from the fingerprint, so it is already unique. */
@@ -139,12 +180,41 @@ public final class ArchiveImagePolicy {
                 || "audio/mp3".equals(lower);
     }
 
-    /** Whether this MIME type is storable media (still image, supported video, or voice note). */
-    public static boolean isStorableMedia(String mimeType) {
-        return isStorableImage(mimeType) || isStorableVideo(mimeType) || isStorableAudio(mimeType);
+    /** Whether this MIME type is a document or file attachment worth storing. */
+    public static boolean isStorableDocument(String mimeType) {
+        if (mimeType == null) return false;
+        String lower = mimeType.split(";")[0].trim().toLowerCase(java.util.Locale.US);
+        return "application/pdf".equals(lower)
+                || "application/x-pdf".equals(lower)
+                || "application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(lower)
+                || "application/docx".equals(lower)
+                || "application/msword".equals(lower)
+                || "application/doc".equals(lower)
+                || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".equals(lower)
+                || "application/xlsx".equals(lower)
+                || "application/vnd.ms-excel".equals(lower)
+                || "application/xls".equals(lower)
+                || "application/vnd.openxmlformats-officedocument.presentationml.presentation".equals(lower)
+                || "application/pptx".equals(lower)
+                || "application/vnd.ms-powerpoint".equals(lower)
+                || "application/ppt".equals(lower)
+                || "text/plain".equals(lower)
+                || "text/csv".equals(lower)
+                || "application/rtf".equals(lower)
+                || "text/rtf".equals(lower)
+                || "application/zip".equals(lower)
+                || "application/x-zip-compressed".equals(lower);
     }
 
-    /** Alias for allowsImage covering all media types (photos, videos, and voice notes). */
+    /** Whether this MIME type is storable media (still image, supported video, voice note, or document). */
+    public static boolean isStorableMedia(String mimeType) {
+        return isStorableImage(mimeType)
+                || isStorableVideo(mimeType)
+                || isStorableAudio(mimeType)
+                || isStorableDocument(mimeType);
+    }
+
+    /** Alias for allowsImage covering all media types (photos, videos, voice notes, and documents). */
     public static boolean allowsMedia(long mediaBytesUsed, long sourceBytes, long ceilingBytes) {
         return allowsImage(mediaBytesUsed, sourceBytes, ceilingBytes);
     }

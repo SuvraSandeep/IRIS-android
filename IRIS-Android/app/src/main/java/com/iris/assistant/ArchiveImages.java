@@ -99,6 +99,28 @@ public final class ArchiveImages {
             ext = ".amr";
         } else if (lower.endsWith(".mp3")) {
             ext = ".mp3";
+        } else if (lower.endsWith(".pdf")) {
+            ext = ".pdf";
+        } else if (lower.endsWith(".docx")) {
+            ext = ".docx";
+        } else if (lower.endsWith(".doc")) {
+            ext = ".doc";
+        } else if (lower.endsWith(".xlsx")) {
+            ext = ".xlsx";
+        } else if (lower.endsWith(".xls")) {
+            ext = ".xls";
+        } else if (lower.endsWith(".pptx")) {
+            ext = ".pptx";
+        } else if (lower.endsWith(".ppt")) {
+            ext = ".ppt";
+        } else if (lower.endsWith(".txt")) {
+            ext = ".txt";
+        } else if (lower.endsWith(".csv")) {
+            ext = ".csv";
+        } else if (lower.endsWith(".rtf")) {
+            ext = ".rtf";
+        } else if (lower.endsWith(".zip")) {
+            ext = ".zip";
         }
         String base = storedName;
         if (base.toLowerCase(java.util.Locale.US).endsWith(ext)) {
@@ -147,7 +169,9 @@ public final class ArchiveImages {
         // success so the caller records the path rather than retrying the decode.
         if (target.exists() && target.length() > 0) return name;
 
-        if (ArchiveImagePolicy.isStorableVideo(mimeType) || ArchiveImagePolicy.isStorableAudio(mimeType)) {
+        if (ArchiveImagePolicy.isStorableVideo(mimeType)
+                || ArchiveImagePolicy.isStorableAudio(mimeType)
+                || ArchiveImagePolicy.isStorableDocument(mimeType)) {
             return storeStream(context, source, target, name);
         }
 
@@ -254,7 +278,11 @@ public final class ArchiveImages {
 
         String lower = storedName.toLowerCase(java.util.Locale.US);
         if (lower.endsWith(".ogg") || lower.endsWith(".opus") || lower.endsWith(".m4a")
-                || lower.endsWith(".aac") || lower.endsWith(".amr") || lower.endsWith(".mp3")) {
+                || lower.endsWith(".aac") || lower.endsWith(".amr") || lower.endsWith(".mp3")
+                || lower.endsWith(".pdf") || lower.endsWith(".docx") || lower.endsWith(".doc")
+                || lower.endsWith(".xlsx") || lower.endsWith(".xls") || lower.endsWith(".pptx")
+                || lower.endsWith(".ppt") || lower.endsWith(".txt") || lower.endsWith(".csv")
+                || lower.endsWith(".rtf") || lower.endsWith(".zip")) {
             return null;
         }
         if (lower.endsWith(".mp4") || lower.endsWith(".3gp")) {
@@ -355,7 +383,11 @@ public final class ArchiveImages {
         if (file == null || !file.exists() || file.length() == 0) return null;
         String lower = storedName.toLowerCase(java.util.Locale.US);
         if (lower.endsWith(".ogg") || lower.endsWith(".opus") || lower.endsWith(".m4a")
-                || lower.endsWith(".aac") || lower.endsWith(".amr") || lower.endsWith(".mp3")) {
+                || lower.endsWith(".aac") || lower.endsWith(".amr") || lower.endsWith(".mp3")
+                || lower.endsWith(".pdf") || lower.endsWith(".docx") || lower.endsWith(".doc")
+                || lower.endsWith(".xlsx") || lower.endsWith(".xls") || lower.endsWith(".pptx")
+                || lower.endsWith(".ppt") || lower.endsWith(".txt") || lower.endsWith(".csv")
+                || lower.endsWith(".rtf") || lower.endsWith(".zip")) {
             return null;
         }
         if (lower.endsWith(".mp4") || lower.endsWith(".3gp")) {
@@ -368,6 +400,29 @@ public final class ArchiveImages {
             // here, so it is caught rather than allowed to take the activity down.
             return null;
         }
+    }
+
+    /**
+     * Total file size in bytes for a stored media or document file.
+     * Returns 0 if missing.
+     */
+    public static long fileSizeBytes(Context context, String storedName) {
+        File file = fileFor(context, storedName);
+        return (file != null && file.exists()) ? file.length() : 0;
+    }
+
+    /**
+     * Format byte size into a compact readable string (e.g. "420 KB", "1.4 MB").
+     */
+    public static String formatFileSize(long bytes) {
+        if (bytes <= 0) return "0 B";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) {
+            double kb = bytes / 1024.0;
+            return String.format(java.util.Locale.US, "%.1f KB", kb);
+        }
+        double mb = bytes / (1024.0 * 1024.0);
+        return String.format(java.util.Locale.US, "%.1f MB", mb);
     }
 
     /**

@@ -63,6 +63,53 @@ public final class ArchiveRow {
                 || lower.endsWith(".mp3");
     }
 
+    /** Whether this row has a stored document or file attachment. */
+    public boolean isDocument() {
+        if (imagePath == null || imagePath.isEmpty()) return false;
+        String lower = imagePath.toLowerCase(java.util.Locale.US);
+        return lower.endsWith(".pdf")
+                || lower.endsWith(".docx")
+                || lower.endsWith(".doc")
+                || lower.endsWith(".xlsx")
+                || lower.endsWith(".xls")
+                || lower.endsWith(".pptx")
+                || lower.endsWith(".ppt")
+                || lower.endsWith(".txt")
+                || lower.endsWith(".csv")
+                || lower.endsWith(".rtf")
+                || lower.endsWith(".zip");
+    }
+
+    /** Clean uppercase extension for this row's document (e.g. "PDF", "DOCX"). */
+    public String documentExtension() {
+        if (imagePath == null || imagePath.isEmpty()) return "DOC";
+        int dot = imagePath.lastIndexOf('.');
+        if (dot >= 0 && dot < imagePath.length() - 1) {
+            return imagePath.substring(dot + 1).toUpperCase(java.util.Locale.US);
+        }
+        return "DOC";
+    }
+
+    /** High-contrast short badge for this row's document type. */
+    public String documentBadge() {
+        String ext = documentExtension();
+        if ("DOCX".equals(ext) || "DOC".equals(ext)) return "DOC";
+        if ("XLSX".equals(ext) || "XLS".equals(ext)) return "XLS";
+        if ("PPTX".equals(ext) || "PPT".equals(ext)) return "PPT";
+        return ext;
+    }
+
+    /** Representative icon for document type. */
+    public String documentIcon() {
+        String badge = documentBadge();
+        if ("PDF".equals(badge)) return "\uD83D\uDCC4"; // 📄
+        if ("DOC".equals(badge)) return "\uD83D\uDCDD"; // 📝
+        if ("XLS".equals(badge)) return "\uD83D\uDCCA"; // 📊
+        if ("PPT".equals(badge)) return "\uD83D\uDCD1"; // 📑
+        if ("ZIP".equals(badge)) return "\uD83E\uDDF0"; // 🗜️
+        return "\uD83D\uDCCB"; // 📋
+    }
+
     /** Confidence that this message was taken back by its sender. */
     public DeletedMessageRules.Confidence confidence() {
         if (deleted) return DeletedMessageRules.Confidence.CONFIRMED;

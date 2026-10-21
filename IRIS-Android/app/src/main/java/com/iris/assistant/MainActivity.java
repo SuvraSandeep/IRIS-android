@@ -3525,6 +3525,10 @@ public class MainActivity extends Activity {
      * and explicit: a picture leaves app-private storage only when asked for by name.
      */
     private void showArchiveImage(final ArchiveRow row) {
+        if (row.isDocument()) {
+            openArchiveDocument(row);
+            return;
+        }
         if (row.isVideo()) {
             showArchiveVideo(row);
             return;
@@ -3751,6 +3755,48 @@ public class MainActivity extends Activity {
             else if (lower.endsWith(".amr")) mime = "audio/amr";
             else if (lower.endsWith(".mp3")) mime = "audio/mpeg";
 
+            Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(mime)
+                    .putExtra(Intent.EXTRA_TITLE, "iris-" + row.imagePath);
+            startActivityForResult(save, SAVE_ARCHIVE_IMAGE);
+        } catch (Exception e) {
+            toast("No app on this phone can save a file.");
+        }
+    }
+
+    /**
+     * Open an archived document with an external app using a grantable content:// URI.
+     */
+    private void openArchiveDocument(final ArchiveRow row) {
+        java.io.File file = ArchiveImages.fileFor(this, row.imagePath);
+        if (file == null || !file.exists() || file.length() == 0) {
+            toast("That document is gone. I had it, and now I don't.");
+            return;
+        }
+        try {
+            Uri contentUri = IrisFileProvider.uriFor(this, row.imagePath);
+            String mime = ArchiveImagePolicy.mimeTypeFor(row.imagePath);
+            Intent open = new Intent(Intent.ACTION_VIEW);
+            open.setDataAndType(contentUri, mime);
+            open.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent chooser = Intent.createChooser(open, "Open " + row.documentBadge() + " with\u2026");
+            startActivity(chooser);
+        } catch (android.content.ActivityNotFoundException e) {
+            toast("No app installed to open " + row.documentBadge() + " files.");
+        } catch (Exception e) {
+            toast("Could not open this document.");
+        }
+    }
+
+    /**
+     * Save a copy of an archived document to external storage.
+     */
+    private void saveArchiveDocument(final ArchiveRow row) {
+        pendingImageRow = row;
+        try {
+            String mime = ArchiveImagePolicy.mimeTypeFor(row.imagePath);
             Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
                     .addCategory(Intent.CATEGORY_OPENABLE)
                     .setType(mime)
@@ -4385,6 +4431,12 @@ public class MainActivity extends Activity {
         TextView audioTime;
         WaveformView audioWaveform;
         TextView audioSaveBtn;
+        LinearLayout docContainer;
+        TextView docBadge;
+        TextView docTitle;
+        TextView docMeta;
+        TextView docOpenBtn;
+        TextView docSaveBtn;
         TextView status;
         TextView caveat;
     }
@@ -4580,6 +4632,91 @@ public class MainActivity extends Activity {
 
                 card.addView(holder.audioContainer);
 
+                holder.docContainer = new LinearLayout(MainActivity.this);
+                holder.docContainer.setOrientation(LinearLayout.HORIZONTAL);
+                holder.docContainer.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                LinearLayout.LayoutParams docParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                docParams.topMargin = dp(8);
+                docParams.bottomMargin = dp(4);
+                holder.docContainer.setLayoutParams(docParams);
+                holder.docContainer.setPadding(dp(10), dp(8), dp(10), dp(8));
+                GradientDrawable docBg = new GradientDrawable();
+                docBg.setColor(getColor(R.color.deck_card));
+                docBg.setCornerRadius(dp(8));
+                docBg.setStroke(dp(1), getColor(R.color.deck_border));
+                holder.docContainer.setBackground(docBg);
+
+                holder.docBadge = new TextView(MainActivity.this);
+                holder.docBadge.setText("DOC");
+                holder.docBadge.setTextSize(11f);
+                holder.docBadge.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                holder.docBadge.setGravity(android.view.Gravity.CENTER);
+                holder.docBadge.setPadding(dp(8), dp(4), dp(8), dp(4));
+                GradientDrawable badgeBg = new GradientDrawable();
+                badgeBg.setColor(getColor(R.color.deck_card));
+                badgeBg.setCornerRadius(dp(4));
+                badgeBg.setStroke(dp(1), getColor(R.color.deck_accent));
+                holder.docBadge.setBackground(badgeBg);
+                holder.docBadge.setTextColor(getColor(R.color.deck_accent));
+                holder.docContainer.addView(holder.docBadge);
+
+                LinearLayout docTextCol = new LinearLayout(MainActivity.this);
+                docTextCol.setOrientation(LinearLayout.VERTICAL);
+                LinearLayout.LayoutParams docTextParams = new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                docTextParams.setMargins(dp(10), 0, dp(8), 0);
+                docTextCol.setLayoutParams(docTextParams);
+
+                holder.docTitle = new TextView(MainActivity.this);
+                holder.docTitle.setText("DOCUMENT");
+                holder.docTitle.setTextSize(12f);
+                holder.docTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+                holder.docTitle.setTextColor(getColor(R.color.deck_text));
+                holder.docTitle.setSingleLine(true);
+                holder.docTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                docTextCol.addView(holder.docTitle);
+
+                holder.docMeta = new TextView(MainActivity.this);
+                holder.docMeta.setText("0 KB \u00b7 Tap to open");
+                holder.docMeta.setTextSize(10f);
+                holder.docMeta.setTypeface(android.graphics.Typeface.MONOSPACE);
+                holder.docMeta.setTextColor(getColor(R.color.deck_text_dim));
+                docTextCol.addView(holder.docMeta);
+
+                holder.docContainer.addView(docTextCol);
+
+                holder.docOpenBtn = new TextView(MainActivity.this);
+                holder.docOpenBtn.setText("OPEN \u2197");
+                holder.docOpenBtn.setTextSize(10f);
+                holder.docOpenBtn.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                holder.docOpenBtn.setTextColor(getColor(R.color.deck_accent));
+                holder.docOpenBtn.setGravity(android.view.Gravity.CENTER);
+                holder.docOpenBtn.setPadding(dp(8), dp(6), dp(8), dp(6));
+                GradientDrawable openBg = new GradientDrawable();
+                openBg.setColor(getColor(R.color.deck_card));
+                openBg.setCornerRadius(dp(4));
+                openBg.setStroke(dp(1), getColor(R.color.deck_accent));
+                holder.docOpenBtn.setBackground(openBg);
+                holder.docOpenBtn.setContentDescription("Open document with external app");
+                holder.docContainer.addView(holder.docOpenBtn);
+
+                holder.docSaveBtn = new TextView(MainActivity.this);
+                holder.docSaveBtn.setText("\u2913");
+                holder.docSaveBtn.setTextSize(14f);
+                holder.docSaveBtn.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                holder.docSaveBtn.setTextColor(getColor(R.color.deck_text_dim));
+                holder.docSaveBtn.setGravity(android.view.Gravity.CENTER);
+                LinearLayout.LayoutParams docSaveParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                docSaveParams.leftMargin = dp(4);
+                holder.docSaveBtn.setLayoutParams(docSaveParams);
+                holder.docSaveBtn.setPadding(dp(6), dp(6), dp(6), dp(6));
+                holder.docSaveBtn.setContentDescription("Save document copy");
+                holder.docContainer.addView(holder.docSaveBtn);
+
+                card.addView(holder.docContainer);
+
                 holder.missingPhoto = new TextView(MainActivity.this);
                 holder.missingPhoto.setText("[ photo recorded but the file is missing ]");
                 holder.missingPhoto.setTextSize(10f);
@@ -4655,13 +4792,15 @@ public class MainActivity extends Activity {
 
         holder.body.setText(row.body.isEmpty() ? "(no text \u2014 just vibes)" : row.body);
 
-        // A captured photo, video, or voice note. Decoded asynchronously with LruCache rather than blocking the main thread.
+        // A captured photo, video, voice note, or document. Decoded asynchronously with LruCache rather than blocking the main thread.
         if (row.isAudio()) {
             holder.mediaContainer.setVisibility(View.GONE);
             holder.mediaContainer.setTag(null);
             holder.playBadge.setVisibility(View.GONE);
             holder.shot.setImageBitmap(null);
             holder.missingPhoto.setVisibility(View.GONE);
+            holder.docContainer.setVisibility(View.GONE);
+            holder.docContainer.setTag(null);
 
             holder.audioContainer.setVisibility(View.VISIBLE);
             holder.audioContainer.setTag(row.imagePath);
@@ -4701,9 +4840,52 @@ public class MainActivity extends Activity {
                 }
             });
             holder.audioSaveBtn.setOnClickListener(v -> saveArchiveAudio(row));
+        } else if (row.isDocument()) {
+            holder.mediaContainer.setVisibility(View.GONE);
+            holder.mediaContainer.setTag(null);
+            holder.playBadge.setVisibility(View.GONE);
+            holder.shot.setImageBitmap(null);
+            holder.missingPhoto.setVisibility(View.GONE);
+            holder.audioContainer.setVisibility(View.GONE);
+            holder.audioContainer.setTag(null);
+
+            holder.docContainer.setVisibility(View.VISIBLE);
+            holder.docContainer.setTag(row.imagePath);
+
+            String badge = row.documentBadge();
+            holder.docBadge.setText(row.documentIcon() + " " + badge);
+
+            int badgeColor;
+            if ("PDF".equals(badge)) {
+                badgeColor = getColor(R.color.deck_error);
+            } else if ("DOC".equals(badge)) {
+                badgeColor = getColor(R.color.deck_accent);
+            } else if ("XLS".equals(badge) || "CSV".equals(badge)) {
+                badgeColor = getColor(R.color.deck_healthy);
+            } else if ("PPT".equals(badge)) {
+                badgeColor = getColor(R.color.deck_attention);
+            } else {
+                badgeColor = getColor(R.color.deck_accent);
+            }
+            holder.docBadge.setTextColor(badgeColor);
+            GradientDrawable badgeBg = new GradientDrawable();
+            badgeBg.setColor(getColor(R.color.deck_card));
+            badgeBg.setCornerRadius(dp(4));
+            badgeBg.setStroke(dp(1), badgeColor);
+            holder.docBadge.setBackground(badgeBg);
+
+            holder.docTitle.setText(row.documentExtension() + " ATTACHMENT");
+            long size = ArchiveImages.fileSizeBytes(this, row.imagePath);
+            holder.docMeta.setText(ArchiveImages.formatFileSize(size) + " \u00b7 Tap to open");
+
+            holder.docContainer.setOnClickListener(v -> openArchiveDocument(row));
+            holder.docOpenBtn.setOnClickListener(v -> openArchiveDocument(row));
+            holder.docSaveBtn.setOnClickListener(v -> saveArchiveDocument(row));
         } else if (row.hasImage()) {
             holder.audioContainer.setVisibility(View.GONE);
             holder.audioContainer.setTag(null);
+            holder.docContainer.setVisibility(View.GONE);
+            holder.docContainer.setTag(null);
             final String imagePath = row.imagePath;
             holder.mediaContainer.setTag(imagePath);
             holder.shot.setContentDescription(row.isVideo() ? "Captured video. Tap to play." : "Captured photo. Tap to open.");
@@ -4746,6 +4928,8 @@ public class MainActivity extends Activity {
         } else {
             holder.audioContainer.setVisibility(View.GONE);
             holder.audioContainer.setTag(null);
+            holder.docContainer.setVisibility(View.GONE);
+            holder.docContainer.setTag(null);
             holder.mediaContainer.setVisibility(View.GONE);
             holder.playBadge.setVisibility(View.GONE);
             holder.shot.setImageBitmap(null);
@@ -4784,6 +4968,9 @@ public class MainActivity extends Activity {
             if (row.hasImage()) {
                 if (row.isAudio()) {
                     act.add("\uD83D\uDCBE Save audio copy");
+                } else if (row.isDocument()) {
+                    act.add("\uD83D\uDCC2 Open with\u2026");
+                    act.add("\uD83D\uDCBE Save document copy");
                 } else if (row.isVideo()) {
                     act.add("\uD83D\uDCBE Save video copy");
                 } else {
@@ -4803,8 +4990,12 @@ public class MainActivity extends Activity {
                             FlaggedStore.get(this).addFlagged(
                                     row.body, archiveSender, row.displayAccount(), "Archived message flagged", System.currentTimeMillis());
                             toast("Flagged as urgent");
+                        } else if (sel.contains("Open with")) {
+                            openArchiveDocument(row);
                         } else if (sel.contains("Save audio copy")) {
                             saveArchiveAudio(row);
+                        } else if (sel.contains("Save document copy")) {
+                            saveArchiveDocument(row);
                         } else if (sel.contains("Save video copy") || sel.contains("Save photo copy")) {
                             showArchiveImage(row);
                         } else {
