@@ -29,11 +29,16 @@ import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.AbsListView;
 import android.widget.ArrayAdapter;
+import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
@@ -3527,6 +3532,7 @@ public class MainActivity extends Activity {
         final float[] start = new float[2];
         final long[] startedAt = new long[1];
         final boolean[] claimed = new boolean[1];
+        final Runnable[] longPressCallback = new Runnable[1];
 
         card.setOnTouchListener((v, event) -> {
             switch (event.getActionMasked()) {
@@ -3535,14 +3541,26 @@ public class MainActivity extends Activity {
                     start[1] = event.getRawY();
                     startedAt[0] = System.currentTimeMillis();
                     claimed[0] = false;
+                    longPressCallback[0] = () -> {
+                        if (!claimed[0]) {
+                            v.performLongClick();
+                        }
+                    };
+                    handler.postDelayed(longPressCallback[0], android.view.ViewConfiguration.getLongPressTimeout());
                     return true;
 
                 case android.view.MotionEvent.ACTION_MOVE: {
                     float dx = event.getRawX() - start[0];
                     float dy = event.getRawY() - start[1];
+                    if (Math.abs(dx) > SwipeDecision.CLAIM_SLOP_PX || Math.abs(dy) > SwipeDecision.CLAIM_SLOP_PX) {
+                        if (longPressCallback[0] != null) {
+                            handler.removeCallbacks(longPressCallback[0]);
+                            longPressCallback[0] = null;
+                        }
+                    }
                     if (!claimed[0] && SwipeDecision.claimsGesture(dx, dy)) {
                         claimed[0] = true;
-                        // Stop the ScrollView stealing the gesture back mid-swipe.
+                        // Stop the parent ListView stealing the gesture back mid-swipe.
                         v.getParent().requestDisallowInterceptTouchEvent(true);
                     }
                     if (claimed[0]) {
@@ -3553,6 +3571,10 @@ public class MainActivity extends Activity {
                 }
 
                 case android.view.MotionEvent.ACTION_UP: {
+                    if (longPressCallback[0] != null) {
+                        handler.removeCallbacks(longPressCallback[0]);
+                        longPressCallback[0] = null;
+                    }
                     float dx = event.getRawX() - start[0];
                     float dy = event.getRawY() - start[1];
                     long elapsed = Math.max(1, System.currentTimeMillis() - startedAt[0]);
@@ -3580,6 +3602,10 @@ public class MainActivity extends Activity {
                 }
 
                 case android.view.MotionEvent.ACTION_CANCEL:
+                    if (longPressCallback[0] != null) {
+                        handler.removeCallbacks(longPressCallback[0]);
+                        longPressCallback[0] = null;
+                    }
                     v.animate().translationX(0).alpha(1f).setDuration(140).start();
                     return true;
 
@@ -3598,8 +3624,12 @@ public class MainActivity extends Activity {
                 .alpha(0f)
                 .setDuration(160)
                 .withEndAction(() -> {
-                    LinearLayout list = root.findViewById(R.id.archiveList);
-                    if (list != null) list.removeView(card);
+                    card.setTranslationX(0);
+                    card.setAlpha(1f);
+                    ListView list = root.findViewById(R.id.archiveList);
+                    if (list != null && list.getAdapter() instanceof ArchiveAdapter) {
+                        ((ArchiveAdapter) list.getAdapter()).removeRow(row);
+                    }
                     queueArchiveDelete(row, root);
                 })
                 .start();
@@ -3719,7 +3749,8 @@ public class MainActivity extends Activity {
 
     /** Re-read the archive and rebuild the card list against the current filters. */
     private void renderArchive(View root) {
-        LinearLayout list = root.findViewById(R.id.archiveList);
+        ListView list = root.findViewById(R.id.archiveList);
+        TextView emptyText = root.findViewById(R.id.archiveEmptyText);
         TextView summary = root.findViewById(R.id.archiveSummary);
         TextView warning = root.findViewById(R.id.archiveWarning);
         EditText search = root.findViewById(R.id.archiveSearch);
@@ -3761,6 +3792,22 @@ public class MainActivity extends Activity {
             rows = NotificationArchive.query(this, filter);
         }
 
+        // Filter out any rows pending delete in the undo window
+        if (!pendingDeletes.isEmpty()) {
+            java.util.List<ArchiveRow> filtered = new java.util.ArrayList<>();
+            for (ArchiveRow r : rows) {
+                boolean pending = false;
+                for (ArchiveRow p : pendingDeletes) {
+                    if (p.id == r.id) {
+                        pending = true;
+                        break;
+                    }
+                }
+                if (!pending) filtered.add(r);
+            }
+            rows = filtered;
+        }
+
         int total = NotificationArchive.totalMessages(this);
         int flagged = NotificationArchive.totalFlagged(this);
         if (summary != null) {
@@ -3793,40 +3840,158 @@ public class MainActivity extends Activity {
         View grant = root.findViewById(R.id.archiveGrantButton);
         if (grant != null) grant.setVisibility(accessGranted ? View.GONE : View.VISIBLE);
 
-        list.removeAllViews();
-        if (rows.isEmpty()) {
-            TextView empty = new TextView(this);
-            empty.setText(total == 0
+        if (emptyText != null) {
+            emptyText.setText(total == 0
                     ? "Nothing in the vault yet. Tick some apps and let people incriminate "
                       + "themselves at their own pace."
                     : "Nothing matches that. Either your search is wrong or everyone's "
                       + "suspiciously well behaved.");
-            empty.setTextColor(getColor(R.color.deck_text_dim));
-            empty.setTextSize(12f);
-            empty.setTypeface(android.graphics.Typeface.MONOSPACE);
-            empty.setPadding(0, dp(16), 0, dp(16));
-            list.addView(empty);
-            return;
         }
-        for (ArchiveRow row : rows) list.addView(archiveCard(row, root));
+
+        ArchiveAdapter adapter;
+        if (list.getAdapter() instanceof ArchiveAdapter) {
+            adapter = (ArchiveAdapter) list.getAdapter();
+        } else {
+            adapter = new ArchiveAdapter(root);
+            list.setAdapter(adapter);
+            if (emptyText != null) list.setEmptyView(emptyText);
+        }
+        adapter.setItems(rows);
+    }
+
+    private static class ArchiveViewHolder {
+        LinearLayout card;
+        TextView head;
+        TextView meta;
+        TextView body;
+        ImageView shot;
+        TextView missingPhoto;
+        TextView status;
+        TextView caveat;
+    }
+
+    private class ArchiveAdapter extends BaseAdapter {
+        private final java.util.List<ArchiveRow> items = new java.util.ArrayList<>();
+        private final View root;
+
+        ArchiveAdapter(View root) {
+            this.root = root;
+        }
+
+        void setItems(java.util.List<ArchiveRow> newItems) {
+            items.clear();
+            if (newItems != null) items.addAll(newItems);
+            notifyDataSetChanged();
+        }
+
+        void removeRow(ArchiveRow row) {
+            for (int i = 0; i < items.size(); i++) {
+                if (items.get(i).id == row.id) {
+                    items.remove(i);
+                    break;
+                }
+            }
+            notifyDataSetChanged();
+        }
+
+        @Override
+        public int getCount() {
+            return items.size();
+        }
+
+        @Override
+        public ArchiveRow getItem(int position) {
+            return items.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return items.get(position).id;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            ArchiveViewHolder holder;
+            if (convertView == null) {
+                holder = new ArchiveViewHolder();
+                LinearLayout card = new LinearLayout(MainActivity.this);
+                card.setOrientation(LinearLayout.VERTICAL);
+                card.setPadding(dp(12), dp(10), dp(12), dp(10));
+                card.setLayoutParams(new AbsListView.LayoutParams(
+                        AbsListView.LayoutParams.MATCH_PARENT, AbsListView.LayoutParams.WRAP_CONTENT));
+
+                holder.card = card;
+
+                holder.head = new TextView(MainActivity.this);
+                holder.head.setTextSize(13f);
+                holder.head.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                card.addView(holder.head);
+
+                holder.meta = new TextView(MainActivity.this);
+                holder.meta.setTextSize(10f);
+                holder.meta.setTypeface(android.graphics.Typeface.MONOSPACE);
+                holder.meta.setTextColor(getColor(R.color.deck_text_dim));
+                card.addView(holder.meta);
+
+                holder.body = new TextView(MainActivity.this);
+                holder.body.setTextSize(13f);
+                holder.body.setTextColor(getColor(R.color.deck_text));
+                holder.body.setPadding(0, dp(4), 0, 0);
+                card.addView(holder.body);
+
+                holder.shot = new ImageView(MainActivity.this);
+                LinearLayout.LayoutParams shotParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(160));
+                shotParams.topMargin = dp(6);
+                holder.shot.setLayoutParams(shotParams);
+                holder.shot.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                holder.shot.setVisibility(View.GONE);
+                card.addView(holder.shot);
+
+                holder.missingPhoto = new TextView(MainActivity.this);
+                holder.missingPhoto.setText("[ photo recorded but the file is missing ]");
+                holder.missingPhoto.setTextSize(10f);
+                holder.missingPhoto.setTypeface(android.graphics.Typeface.MONOSPACE);
+                holder.missingPhoto.setTextColor(getColor(R.color.deck_text_dim));
+                holder.missingPhoto.setPadding(0, dp(6), 0, 0);
+                holder.missingPhoto.setVisibility(View.GONE);
+                card.addView(holder.missingPhoto);
+
+                holder.status = new TextView(MainActivity.this);
+                holder.status.setTextSize(12f);
+                holder.status.setTypeface(null, android.graphics.Typeface.BOLD);
+                holder.status.setPadding(0, dp(6), 0, 0);
+                holder.status.setVisibility(View.GONE);
+                card.addView(holder.status);
+
+                holder.caveat = new TextView(MainActivity.this);
+                holder.caveat.setTextSize(11f);
+                holder.caveat.setTextColor(getColor(R.color.text_muted));
+                holder.caveat.setVisibility(View.GONE);
+                card.addView(holder.caveat);
+
+                card.setTag(holder);
+                convertView = card;
+            } else {
+                holder = (ArchiveViewHolder) convertView.getTag();
+                convertView.setTranslationX(0f);
+                convertView.setAlpha(1f);
+            }
+
+            final ArchiveRow row = getItem(position);
+            bindArchiveCard(holder, row, root);
+            return convertView;
+        }
     }
 
     /**
-     * One archive entry.
+     * Bind one archive entry to its recycled view holder.
      *
      * A flagged card is tinted and carries the status line; the original text stays fully visible,
      * which is the entire point. A suspected flag is styled distinctly from a confirmed one so a
      * guess can never be mistaken for a fact.
      */
-    private View archiveCard(final ArchiveRow row, final View root) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(12), dp(10), dp(12), dp(10));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(6);
-        card.setLayoutParams(params);
-
+    private void bindArchiveCard(final ArchiveViewHolder holder, final ArchiveRow row, final View root) {
         DeletedMessageRules.Confidence confidence = row.confidence();
         boolean marker = !row.isMessage();
 
@@ -3835,96 +4000,74 @@ public class MainActivity extends Activity {
         // share one style: that distinction is carried by the [STATUS] line, which is worded so a
         // guess cannot read as a fact, and encoding it in colour too would invite reading a colour
         // as proof.
-        card.setBackgroundResource(confidence == DeletedMessageRules.Confidence.NONE
+        holder.card.setBackgroundResource(confidence == DeletedMessageRules.Confidence.NONE
                 ? R.drawable.bg_cyber_row : R.drawable.bg_cyber_row_flagged);
 
-        TextView head = new TextView(this);
         String who = row.sender.isEmpty() ? row.rawTitle : row.sender;
         if (who.isEmpty()) who = "Someone who left no name";
         // Resolved at read time, never stored: the table is append-only, and looking up late means
         // a contact saved today also names rows captured weeks ago.
         who = ContactResolver.display(this, who);
         String where = row.accountLabel.isEmpty() ? row.appLabel : row.accountLabel;
-        head.setText(marker ? "\u2014 " + where : who + (row.group.isEmpty() ? "" : " \u00b7 " + row.group));
-        head.setTextSize(13f);
-        head.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
-        head.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
+        holder.head.setText(marker ? "\u2014 " + where : who + (row.group.isEmpty() ? "" : " \u00b7 " + row.group));
+        holder.head.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
                 ? R.color.deck_error : R.color.deck_accent));
-        card.addView(head);
 
         if (!marker) {
-            TextView meta = new TextView(this);
-            meta.setText(where + " \u00b7 " + DeletedMessageRules.formatTime(
+            holder.meta.setVisibility(View.VISIBLE);
+            holder.meta.setText(where + " \u00b7 " + DeletedMessageRules.formatTime(
                     row.postTime, java.util.TimeZone.getDefault()));
-            meta.setTextSize(10f);
-            meta.setTypeface(android.graphics.Typeface.MONOSPACE);
-            meta.setTextColor(getColor(R.color.deck_text_dim));
-            card.addView(meta);
+        } else {
+            holder.meta.setVisibility(View.GONE);
         }
 
-        TextView body = new TextView(this);
-        body.setText(row.body.isEmpty() ? "(no text \u2014 just vibes)" : row.body);
-        body.setTextSize(13f);
-        body.setTextColor(getColor(R.color.deck_text));
-        body.setPadding(0, dp(4), 0, 0);
-        card.addView(body);
+        holder.body.setText(row.body.isEmpty() ? "(no text \u2014 just vibes)" : row.body);
 
         // A captured photo. Decoded at thumbnail size rather than full size: a list of twenty
         // full-resolution bitmaps would exhaust memory, and this runs on the main thread.
         if (row.hasImage()) {
             android.graphics.Bitmap thumb = ArchiveImages.thumbnail(this, row.imagePath, dp(220));
             if (thumb != null) {
-                android.widget.ImageView shot = new android.widget.ImageView(this);
-                LinearLayout.LayoutParams shotParams = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, dp(160));
-                shotParams.topMargin = dp(6);
-                shot.setLayoutParams(shotParams);
-                shot.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-                shot.setImageBitmap(thumb);
-                shot.setContentDescription("Captured photo. Tap to open.");
-                shot.setOnClickListener(v -> showArchiveImage(row));
-                card.addView(shot);
+                holder.shot.setImageBitmap(thumb);
+                holder.shot.setVisibility(View.VISIBLE);
+                holder.shot.setContentDescription("Captured photo. Tap to open.");
+                holder.shot.setOnClickListener(v -> showArchiveImage(row));
+                holder.missingPhoto.setVisibility(View.GONE);
             } else {
-                // The row says there is an image but the file is gone. Said plainly rather than
-                // leaving a blank gap, because a silent absence looks like a rendering bug.
-                TextView missing = new TextView(this);
-                missing.setText("[ photo recorded but the file is missing ]");
-                missing.setTextSize(10f);
-                missing.setTypeface(android.graphics.Typeface.MONOSPACE);
-                missing.setTextColor(getColor(R.color.deck_text_dim));
-                missing.setPadding(0, dp(6), 0, 0);
-                card.addView(missing);
+                holder.shot.setVisibility(View.GONE);
+                holder.shot.setImageBitmap(null);
+                holder.missingPhoto.setVisibility(View.VISIBLE);
             }
+        } else {
+            holder.shot.setVisibility(View.GONE);
+            holder.shot.setImageBitmap(null);
+            holder.missingPhoto.setVisibility(View.GONE);
         }
 
         if (confidence != DeletedMessageRules.Confidence.NONE) {
-            TextView status = new TextView(this);
-            status.setText(DeletedMessageRules.statusLabel(
+            holder.status.setVisibility(View.VISIBLE);
+            holder.status.setText(DeletedMessageRules.statusLabel(
                     confidence, row.deletionTime, java.util.TimeZone.getDefault()));
-            status.setTextSize(12f);
-            status.setTypeface(null, android.graphics.Typeface.BOLD);
-            status.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
+            holder.status.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
                     ? R.color.danger : R.color.magenta));
-            status.setPadding(0, dp(6), 0, 0);
-            card.addView(status);
 
-            TextView caveat = new TextView(this);
-            caveat.setText(DeletedMessageRules.flagCaveat(confidence));
-            caveat.setTextSize(11f);
-            caveat.setTextColor(getColor(R.color.text_muted));
-            card.addView(caveat);
+            holder.caveat.setVisibility(View.VISIBLE);
+            holder.caveat.setText(DeletedMessageRules.flagCaveat(confidence));
+        } else {
+            holder.status.setVisibility(View.GONE);
+            holder.caveat.setVisibility(View.GONE);
         }
 
-        card.setContentDescription((confidence == DeletedMessageRules.Confidence.CONFIRMED
+        holder.card.setContentDescription((confidence == DeletedMessageRules.Confidence.CONFIRMED
                 ? "Unsent message from " : "Message from ") + who + ": " + row.body);
 
         // Swipe sideways to delete, which replaced long-press-and-confirm at the owner's request.
         // Long-press is kept as a secondary route with its confirmation intact, so there is still
         // a deliberate, unmistakable way to remove an entry that cannot be triggered by accident.
-        attachSwipeToDelete(card, row, root);
+        attachSwipeToDelete(holder.card, row, root);
 
         final String archiveSender = who;
-        card.setOnLongClickListener(v -> {
+        holder.card.setOnLongClickListener(v -> {
             java.util.List<String> act = new java.util.ArrayList<>();
             act.add("\uD83D\uDCCC Pin to assistant queue");
             act.add("\uD83D\uDEA9 Flag as urgent");
@@ -3959,7 +4102,6 @@ public class MainActivity extends Activity {
                     }).show();
             return true;
         });
-        return card;
     }
 
     /** Bind the Command Deck telemetry to the freshly-inflated assistant view. */
