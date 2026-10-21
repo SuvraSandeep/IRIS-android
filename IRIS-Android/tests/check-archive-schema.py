@@ -371,6 +371,38 @@ def verify_query_semantics(connection):
         "OR pkg LIKE '%.sms%' OR app_label LIKE '%message%' OR app_label LIKE '%sms%'").fetchall()
     check([r[0] for r in sms_rows] == [q_sms], "sms quick filter matches messaging apps")
 
+    # ─── Conversation grouping query semantics ───
+    thread_expr = "(CASE WHEN group_name != '' THEN group_name ELSE (CASE WHEN sender != '' THEN sender ELSE raw_title END) END)"
+    sub_expr = "(CASE WHEN n2.group_name != '' THEN n2.group_name ELSE (CASE WHEN n2.sender != '' THEN n2.sender ELSE n2.raw_title END) END)"
+    conv_sql = f"""
+    SELECT 
+        notifications.pkg,
+        MAX(notifications.app_label) AS max_app,
+        MAX(notifications.group_name) AS max_grp,
+        {thread_expr} AS thread_title,
+        COUNT(*) AS total_count,
+        SUM(CASE WHEN notifications.is_deleted = 1 OR notifications.is_suspected = 1 THEN 1 ELSE 0 END) AS flagged_count,
+        SUM(CASE WHEN notifications.image_path LIKE '%.jpg' OR notifications.image_path LIKE '%.jpeg' OR notifications.image_path LIKE '%.png' OR notifications.image_path LIKE '%.webp' OR notifications.image_path LIKE '%.gif' THEN 1 ELSE 0 END) AS photo_count,
+        SUM(CASE WHEN notifications.image_path LIKE '%.mp4' OR notifications.image_path LIKE '%.3gp' THEN 1 ELSE 0 END) AS video_count,
+        SUM(CASE WHEN notifications.image_path LIKE '%.ogg' OR notifications.image_path LIKE '%.opus' OR notifications.image_path LIKE '%.m4a' OR notifications.image_path LIKE '%.aac' OR notifications.image_path LIKE '%.amr' OR notifications.image_path LIKE '%.mp3' THEN 1 ELSE 0 END) AS audio_count,
+        SUM(CASE WHEN notifications.image_path LIKE '%.pdf' OR notifications.image_path LIKE '%.docx' OR notifications.image_path LIKE '%.doc' OR notifications.image_path LIKE '%.xlsx' OR notifications.image_path LIKE '%.xls' OR notifications.image_path LIKE '%.pptx' OR notifications.image_path LIKE '%.ppt' OR notifications.image_path LIKE '%.txt' OR notifications.image_path LIKE '%.csv' OR notifications.image_path LIKE '%.rtf' OR notifications.image_path LIKE '%.zip' THEN 1 ELSE 0 END) AS doc_count,
+        MAX(notifications.post_time) AS last_time,
+        (SELECT body FROM notifications n2 WHERE n2.pkg = notifications.pkg AND {sub_expr} = {thread_expr} ORDER BY post_time DESC, _id DESC LIMIT 1) AS last_body,
+        (SELECT sender FROM notifications n2 WHERE n2.pkg = notifications.pkg AND {sub_expr} = {thread_expr} ORDER BY post_time DESC, _id DESC LIMIT 1) AS last_sender
+    FROM notifications
+    WHERE notifications.row_kind = 0
+    GROUP BY notifications.pkg, thread_title
+    ORDER BY last_time DESC
+    """
+    conv_rows = connection.execute(conv_sql).fetchall()
+    check(len(conv_rows) > 0, "conversation query aggregates threads")
+    # Verify thread filtering
+    thread_rows = connection.execute(
+        f"SELECT COUNT(*) FROM notifications WHERE row_kind = 0 AND pkg = ? AND {thread_expr} = ?",
+        (conv_rows[0][0], conv_rows[0][3])).fetchone()[0]
+    check(thread_rows == conv_rows[0][4], "thread message count matches aggregated total_count")
+
+
 
 def main():
     statements = extract_statements()

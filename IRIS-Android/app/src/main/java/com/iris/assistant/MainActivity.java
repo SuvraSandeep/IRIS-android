@@ -30,6 +30,8 @@ import android.provider.ContactsContract;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+import android.text.TextUtils;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -3350,6 +3352,11 @@ public class MainActivity extends Activity {
     private static final int ARCHIVE_PAGE_SIZE = 50;
     private Runnable archiveSearchRunnable;
     private int archiveQuickFilter = NotificationArchive.Filter.QUICK_ALL;
+    private static final int ARCHIVE_VIEW_TIMELINE = 0;
+    private static final int ARCHIVE_VIEW_CONVERSATIONS = 1;
+    private int archiveViewMode = ARCHIVE_VIEW_TIMELINE;
+    private String archiveCurrentThreadTitle = null;
+    private String archiveCurrentThreadPkg = null;
     private final ExecutorService archiveQueryExecutor =
             Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "iris-archive-db");
@@ -3383,9 +3390,56 @@ public class MainActivity extends Activity {
             // Leaving commits any queued deletes: the owner swiped deliberately, so navigating
             // away confirms that intent rather than silently cancelling it.
             back.setOnClickListener(v -> {
+                if (archiveCurrentThreadTitle != null) {
+                    archiveCurrentThreadTitle = null;
+                    archiveCurrentThreadPkg = null;
+                    updateArchiveViewModeButtons(view);
+                    if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                    renderArchive(view);
+                    return;
+                }
                 if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
                 flushArchiveDeletes();
                 showLogs();
+            });
+        }
+
+        Button btnTimeline = view.findViewById(R.id.archiveModeTimeline);
+        if (btnTimeline != null) {
+            btnTimeline.setOnClickListener(v -> {
+                if (archiveViewMode != ARCHIVE_VIEW_TIMELINE || archiveCurrentThreadTitle != null) {
+                    archiveViewMode = ARCHIVE_VIEW_TIMELINE;
+                    archiveCurrentThreadTitle = null;
+                    archiveCurrentThreadPkg = null;
+                    updateArchiveViewModeButtons(view);
+                    if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                    renderArchive(view);
+                }
+            });
+        }
+
+        Button btnConvs = view.findViewById(R.id.archiveModeConversations);
+        if (btnConvs != null) {
+            btnConvs.setOnClickListener(v -> {
+                if (archiveViewMode != ARCHIVE_VIEW_CONVERSATIONS || archiveCurrentThreadTitle != null) {
+                    archiveViewMode = ARCHIVE_VIEW_CONVERSATIONS;
+                    archiveCurrentThreadTitle = null;
+                    archiveCurrentThreadPkg = null;
+                    updateArchiveViewModeButtons(view);
+                    if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                    renderArchive(view);
+                }
+            });
+        }
+
+        Button threadBack = view.findViewById(R.id.archiveThreadBackButton);
+        if (threadBack != null) {
+            threadBack.setOnClickListener(v -> {
+                archiveCurrentThreadTitle = null;
+                archiveCurrentThreadPkg = null;
+                updateArchiveViewModeButtons(view);
+                if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                renderArchive(view);
             });
         }
 
@@ -3460,6 +3514,7 @@ public class MainActivity extends Activity {
                     .setPositiveButton("Erase everything", (d, w) -> {
                         if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
                         int removed = NotificationArchive.deleteEverything(this);
+                        ConversationReadTracker.clearAll(this);
                         toast(removed + " entries gone. I remember nothing. Allegedly.");
                         renderArchive(view);
                     }).show());
@@ -3495,7 +3550,45 @@ public class MainActivity extends Activity {
                 }
             });
         }
+        updateArchiveViewModeButtons(view);
         renderArchive(view);
+    }
+
+    private void updateArchiveViewModeButtons(View root) {
+        if (root == null) return;
+        Button btnTimeline = root.findViewById(R.id.archiveModeTimeline);
+        Button btnConvs = root.findViewById(R.id.archiveModeConversations);
+        LinearLayout threadHeader = root.findViewById(R.id.archiveThreadHeader);
+
+        boolean isTimeline = archiveViewMode == ARCHIVE_VIEW_TIMELINE;
+        if (btnTimeline != null) {
+            btnTimeline.setBackgroundResource(isTimeline ? R.drawable.bg_cyber_button : R.drawable.bg_cyber_row);
+            btnTimeline.setTextColor(getColor(isTimeline ? R.color.deck_accent : R.color.deck_text_dim));
+            btnTimeline.setTypeface(Typeface.MONOSPACE, isTimeline ? Typeface.BOLD : Typeface.NORMAL);
+        }
+        if (btnConvs != null) {
+            btnConvs.setBackgroundResource(!isTimeline ? R.drawable.bg_cyber_button : R.drawable.bg_cyber_row);
+            btnConvs.setTextColor(getColor(!isTimeline ? R.color.deck_accent : R.color.deck_text_dim));
+            btnConvs.setTypeface(Typeface.MONOSPACE, !isTimeline ? Typeface.BOLD : Typeface.NORMAL);
+        }
+        if (threadHeader != null) {
+            threadHeader.setVisibility(archiveCurrentThreadTitle != null ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void openConversationThread(ConversationGroup conv, View root) {
+        if (conv == null || root == null) return;
+        archiveCurrentThreadTitle = conv.threadTitle;
+        archiveCurrentThreadPkg = conv.pkg;
+        updateArchiveViewModeButtons(root);
+        TextView titleTv = root.findViewById(R.id.archiveThreadTitle);
+        if (titleTv != null) {
+            String contact = ContactResolver.display(this, conv.displayName());
+            titleTv.setText(contact + " \u00b7 [" + conv.displayApp() + "] (" + conv.totalCount + " msgs"
+                    + (conv.flaggedCount > 0 ? " \u00b7 🚩 " + conv.flaggedCount : "") + ")");
+        }
+        if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+        renderArchive(root);
     }
 
     private void setupArchiveFilterChips(final View view) {
@@ -4195,6 +4288,15 @@ public class MainActivity extends Activity {
         return a instanceof ArchiveAdapter ? (ArchiveAdapter) a : null;
     }
 
+    private ArchiveConversationAdapter getConversationAdapter(ListView list) {
+        if (list == null) return null;
+        android.widget.ListAdapter a = list.getAdapter();
+        if (a instanceof android.widget.HeaderViewListAdapter) {
+            a = ((android.widget.HeaderViewListAdapter) a).getWrappedAdapter();
+        }
+        return a instanceof ArchiveConversationAdapter ? (ArchiveConversationAdapter) a : null;
+    }
+
     private NotificationArchive.Filter buildArchiveFilter(View root) {
         EditText search = root.findViewById(R.id.archiveSearch);
 
@@ -4205,8 +4307,12 @@ public class MainActivity extends Activity {
         }
         filter.quickFilter = archiveQuickFilter;
         filter.flaggedOnly = (archiveQuickFilter == NotificationArchive.Filter.QUICK_FLAGGED);
-        // Markers are shown only in the unfiltered view, where the gaps they mark are meaningful.
-        filter.includeMarkers = (archiveQuickFilter == NotificationArchive.Filter.QUICK_ALL
+        filter.conversationPkg = archiveCurrentThreadPkg;
+        filter.conversationThread = archiveCurrentThreadTitle;
+        // Markers are shown only in the unfiltered timeline view, where the gaps they mark are meaningful.
+        filter.includeMarkers = (archiveViewMode == ARCHIVE_VIEW_TIMELINE
+                && archiveCurrentThreadTitle == null
+                && archiveQuickFilter == NotificationArchive.Filter.QUICK_ALL
                 && (filter.search == null || filter.search.isEmpty()));
         return filter;
     }
@@ -4262,6 +4368,7 @@ public class MainActivity extends Activity {
     }
 
     private void loadMoreArchiveRows(final View root) {
+        if (archiveViewMode == ARCHIVE_VIEW_CONVERSATIONS && archiveCurrentThreadTitle == null) return;
         if (!archiveHasMore || archiveIsLoadingMore) return;
         if (archiveQueryExecutor.isShutdown()) return;
         final ListView list = root.findViewById(R.id.archiveList);
@@ -4319,6 +4426,7 @@ public class MainActivity extends Activity {
     private static class ArchiveQueryResult {
         final long queryId;
         final java.util.List<ArchiveRow> rows;
+        final java.util.List<ConversationGroup> conversations;
         final int total;
         final int flagged;
         final long sizeBytes;
@@ -4328,11 +4436,14 @@ public class MainActivity extends Activity {
         final boolean accessGranted;
         final boolean hasMore;
 
-        ArchiveQueryResult(long queryId, java.util.List<ArchiveRow> rows, int total, int flagged,
+        ArchiveQueryResult(long queryId, java.util.List<ArchiveRow> rows,
+                           java.util.List<ConversationGroup> conversations,
+                           int total, int flagged,
                            long sizeBytes, ArchiveSchema.Usage usage, String usageMessage,
                            NotificationArchive.Status health, boolean accessGranted, boolean hasMore) {
             this.queryId = queryId;
             this.rows = rows;
+            this.conversations = conversations;
             this.total = total;
             this.flagged = flagged;
             this.sizeBytes = sizeBytes;
@@ -4353,6 +4464,7 @@ public class MainActivity extends Activity {
         if (list == null) return;
         if (archiveQueryExecutor.isShutdown()) return;
 
+        final boolean isRootConvView = (archiveViewMode == ARCHIVE_VIEW_CONVERSATIONS && archiveCurrentThreadTitle == null);
         final NotificationArchive.Filter filter = buildArchiveFilter(root);
         filter.limit = ARCHIVE_PAGE_SIZE + 1;
         filter.offset = 0;
@@ -4370,22 +4482,30 @@ public class MainActivity extends Activity {
         final Context context = this;
 
         archiveQueryExecutor.execute(() -> {
-            java.util.List<ArchiveRow> rows = NotificationArchive.query(context, filter);
+            java.util.List<ArchiveRow> rows = java.util.Collections.emptyList();
+            java.util.List<ConversationGroup> convs = java.util.Collections.emptyList();
+            boolean hasMore = false;
 
-            // Filter out any rows pending delete in the undo window
-            if (!pendingIds.isEmpty()) {
-                java.util.List<ArchiveRow> filtered = new java.util.ArrayList<>();
-                for (ArchiveRow r : rows) {
-                    if (!pendingIds.contains(r.id)) {
-                        filtered.add(r);
+            if (isRootConvView) {
+                convs = NotificationArchive.queryConversations(context, filter);
+            } else {
+                rows = NotificationArchive.query(context, filter);
+
+                // Filter out any rows pending delete in the undo window
+                if (!pendingIds.isEmpty()) {
+                    java.util.List<ArchiveRow> filtered = new java.util.ArrayList<>();
+                    for (ArchiveRow r : rows) {
+                        if (!pendingIds.contains(r.id)) {
+                            filtered.add(r);
+                        }
                     }
+                    rows = filtered;
                 }
-                rows = filtered;
-            }
 
-            final boolean hasMore = rows.size() > ARCHIVE_PAGE_SIZE;
-            if (hasMore) {
-                rows = new java.util.ArrayList<>(rows.subList(0, ARCHIVE_PAGE_SIZE));
+                hasMore = rows.size() > ARCHIVE_PAGE_SIZE;
+                if (hasMore) {
+                    rows = new java.util.ArrayList<>(rows.subList(0, ARCHIVE_PAGE_SIZE));
+                }
             }
 
             int total = NotificationArchive.totalMessages(context);
@@ -4397,7 +4517,7 @@ public class MainActivity extends Activity {
             NotificationArchive.Status health = NotificationArchive.status(context, accessGranted, isConnected);
 
             final ArchiveQueryResult result = new ArchiveQueryResult(
-                    queryId, rows, total, flagged, sizeBytes, usage, usageMessage, health, accessGranted, hasMore);
+                    queryId, rows, convs, total, flagged, sizeBytes, usage, usageMessage, health, accessGranted, hasMore);
 
             handler.post(() -> {
                 // Ignore stale results if another query was dispatched
@@ -4405,9 +4525,18 @@ public class MainActivity extends Activity {
                 if (isFinishing() || isDestroyed()) return;
 
                 if (summary != null) {
-                    summary.setText(result.total + " LOGGED \u00b7 "
-                            + result.flagged + " INCRIMINATING \u00b7 "
-                            + ArchiveSchema.readableSize(result.sizeBytes));
+                    if (isRootConvView) {
+                        summary.setText(result.conversations.size() + " CHATS \u00b7 "
+                                + result.flagged + " INCRIMINATING \u00b7 "
+                                + ArchiveSchema.readableSize(result.sizeBytes));
+                    } else if (archiveCurrentThreadTitle != null) {
+                        summary.setText("THREAD \u00b7 " + result.rows.size() + " LOADED \u00b7 "
+                                + ArchiveSchema.readableSize(result.sizeBytes));
+                    } else {
+                        summary.setText(result.total + " LOGGED \u00b7 "
+                                + result.flagged + " INCRIMINATING \u00b7 "
+                                + ArchiveSchema.readableSize(result.sizeBytes));
+                    }
                 }
                 if (warning != null) {
                     boolean show = result.usage == ArchiveSchema.Usage.CRITICAL || result.usage == ArchiveSchema.Usage.FULL;
@@ -4434,6 +4563,26 @@ public class MainActivity extends Activity {
                     if (result.total == 0) {
                         emptyText.setText("Nothing in the vault yet. Tick some apps and let people incriminate "
                                 + "themselves at their own pace.");
+                    } else if (isRootConvView) {
+                        if (archiveQuickFilter == NotificationArchive.Filter.QUICK_FLAGGED) {
+                            emptyText.setText("No conversations with incriminating evidence found.");
+                        } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_PHOTOS) {
+                            emptyText.setText("No conversations with photos captured found.");
+                        } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_VIDEOS) {
+                            emptyText.setText("No conversations with video clips found.");
+                        } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_AUDIO) {
+                            emptyText.setText("No conversations with voice notes found.");
+                        } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_DOCS) {
+                            emptyText.setText("No conversations with documents found.");
+                        } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_WHATSAPP) {
+                            emptyText.setText("No WhatsApp conversations found.");
+                        } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_SMS) {
+                            emptyText.setText("No SMS conversations found.");
+                        } else {
+                            emptyText.setText("No conversations match your search or filter.");
+                        }
+                    } else if (archiveCurrentThreadTitle != null) {
+                        emptyText.setText("No receipts found in this conversation matching your filter.");
                     } else if (archiveQuickFilter == NotificationArchive.Filter.QUICK_FLAGGED) {
                         emptyText.setText("No incriminating evidence found. Either your search is wrong or "
                                 + "everyone's suspiciously well behaved.");
@@ -4455,16 +4604,27 @@ public class MainActivity extends Activity {
                     }
                 }
 
-                ArchiveAdapter adapter = getArchiveAdapter(list);
-                if (adapter == null) {
-                    adapter = new ArchiveAdapter(root);
-                    list.setAdapter(adapter);
-                    if (emptyText != null) list.setEmptyView(emptyText);
+                if (isRootConvView) {
+                    ArchiveConversationAdapter convAdapter = getConversationAdapter(list);
+                    if (convAdapter == null) {
+                        convAdapter = new ArchiveConversationAdapter(root);
+                        list.setAdapter(convAdapter);
+                        if (emptyText != null) list.setEmptyView(emptyText);
+                    }
+                    convAdapter.setItems(result.conversations);
+                    archiveHasMore = false;
+                    updateArchiveFooter(false, convAdapter.getCount());
+                } else {
+                    ArchiveAdapter adapter = getArchiveAdapter(list);
+                    if (adapter == null) {
+                        adapter = new ArchiveAdapter(root);
+                        list.setAdapter(adapter);
+                        if (emptyText != null) list.setEmptyView(emptyText);
+                    }
+                    adapter.setItems(result.rows);
+                    archiveHasMore = result.hasMore;
+                    updateArchiveFooter(archiveHasMore, adapter.getCount());
                 }
-                adapter.setItems(result.rows);
-
-                archiveHasMore = result.hasMore;
-                updateArchiveFooter(archiveHasMore, adapter.getCount());
             });
         });
     }
@@ -5068,6 +5228,258 @@ public class MainActivity extends Activity {
                                     }).show();
                         }
                     }).show();
+            return true;
+        });
+    }
+
+    private static class ConversationViewHolder {
+        LinearLayout card;
+        TextView appBadge;
+        TextView title;
+        TextView time;
+        TextView totalBadge;
+        TextView unreadBadge;
+        TextView flaggedBadge;
+        TextView mediaBadges;
+        TextView preview;
+    }
+
+    private class ArchiveConversationAdapter extends BaseAdapter {
+        private final java.util.List<ConversationGroup> items = new java.util.ArrayList<>();
+        private final View root;
+
+        ArchiveConversationAdapter(View root) {
+            this.root = root;
+        }
+
+        void setItems(java.util.List<ConversationGroup> newItems) {
+            items.clear();
+            if (newItems != null) items.addAll(newItems);
+            notifyDataSetChanged();
+        }
+
+        @Override
+        public int getCount() {
+            return items.size();
+        }
+
+        @Override
+        public ConversationGroup getItem(int position) {
+            return items.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            ConversationViewHolder holder;
+            if (convertView == null) {
+                holder = new ConversationViewHolder();
+                LinearLayout card = new LinearLayout(MainActivity.this);
+                card.setOrientation(LinearLayout.VERTICAL);
+                card.setPadding(dp(12), dp(10), dp(12), dp(10));
+                card.setLayoutParams(new AbsListView.LayoutParams(
+                        AbsListView.LayoutParams.MATCH_PARENT, AbsListView.LayoutParams.WRAP_CONTENT));
+
+                holder.card = card;
+
+                // Row 1: Header (App badge + Title + Time)
+                LinearLayout headRow = new LinearLayout(MainActivity.this);
+                headRow.setOrientation(LinearLayout.HORIZONTAL);
+                headRow.setGravity(Gravity.CENTER_VERTICAL);
+                LinearLayout.LayoutParams headParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                headRow.setLayoutParams(headParams);
+
+                holder.appBadge = new TextView(MainActivity.this);
+                holder.appBadge.setTextSize(9f);
+                holder.appBadge.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+                holder.appBadge.setTextColor(getColor(R.color.deck_accent));
+                holder.appBadge.setBackgroundResource(R.drawable.bg_cyber_button);
+                holder.appBadge.setPadding(dp(6), dp(2), dp(6), dp(2));
+                headRow.addView(holder.appBadge);
+
+                holder.title = new TextView(MainActivity.this);
+                holder.title.setTextSize(13f);
+                holder.title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+                holder.title.setTextColor(getColor(R.color.text_primary));
+                holder.title.setSingleLine(true);
+                holder.title.setEllipsize(TextUtils.TruncateAt.END);
+                LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                titleParams.leftMargin = dp(8);
+                titleParams.rightMargin = dp(8);
+                holder.title.setLayoutParams(titleParams);
+                headRow.addView(holder.title);
+
+                holder.time = new TextView(MainActivity.this);
+                holder.time.setTextSize(10f);
+                holder.time.setTypeface(Typeface.MONOSPACE);
+                holder.time.setTextColor(getColor(R.color.deck_text_dim));
+                headRow.addView(holder.time);
+
+                card.addView(headRow);
+
+                // Row 2: Badges (Total, Unread, Flagged, Media)
+                LinearLayout badgeRow = new LinearLayout(MainActivity.this);
+                badgeRow.setOrientation(LinearLayout.HORIZONTAL);
+                badgeRow.setGravity(Gravity.CENTER_VERTICAL);
+                LinearLayout.LayoutParams badgeRowParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                badgeRowParams.topMargin = dp(6);
+                badgeRow.setLayoutParams(badgeRowParams);
+
+                holder.totalBadge = new TextView(MainActivity.this);
+                holder.totalBadge.setTextSize(10f);
+                holder.totalBadge.setTypeface(Typeface.MONOSPACE);
+                holder.totalBadge.setTextColor(getColor(R.color.deck_text_dim));
+                badgeRow.addView(holder.totalBadge);
+
+                holder.unreadBadge = new TextView(MainActivity.this);
+                holder.unreadBadge.setTextSize(9f);
+                holder.unreadBadge.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+                holder.unreadBadge.setTextColor(getColor(R.color.deck_bg));
+                holder.unreadBadge.setBackgroundColor(getColor(R.color.deck_accent));
+                holder.unreadBadge.setPadding(dp(6), dp(2), dp(6), dp(2));
+                LinearLayout.LayoutParams unreadParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                unreadParams.leftMargin = dp(8);
+                holder.unreadBadge.setLayoutParams(unreadParams);
+                badgeRow.addView(holder.unreadBadge);
+
+                holder.flaggedBadge = new TextView(MainActivity.this);
+                holder.flaggedBadge.setTextSize(9f);
+                holder.flaggedBadge.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+                holder.flaggedBadge.setTextColor(getColor(R.color.deck_error));
+                holder.flaggedBadge.setBackgroundResource(R.drawable.bg_cyber_button);
+                holder.flaggedBadge.setPadding(dp(6), dp(2), dp(6), dp(2));
+                LinearLayout.LayoutParams flaggedParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                flaggedParams.leftMargin = dp(8);
+                holder.flaggedBadge.setLayoutParams(flaggedParams);
+                badgeRow.addView(holder.flaggedBadge);
+
+                holder.mediaBadges = new TextView(MainActivity.this);
+                holder.mediaBadges.setTextSize(10f);
+                holder.mediaBadges.setTypeface(Typeface.MONOSPACE);
+                holder.mediaBadges.setTextColor(getColor(R.color.deck_accent));
+                LinearLayout.LayoutParams mediaParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                mediaParams.leftMargin = dp(8);
+                holder.mediaBadges.setLayoutParams(mediaParams);
+                badgeRow.addView(holder.mediaBadges);
+
+                card.addView(badgeRow);
+
+                // Row 3: Preview snippet
+                holder.preview = new TextView(MainActivity.this);
+                holder.preview.setTextSize(12f);
+                holder.preview.setTextColor(getColor(R.color.deck_text));
+                holder.preview.setSingleLine(true);
+                holder.preview.setEllipsize(TextUtils.TruncateAt.END);
+                LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                previewParams.topMargin = dp(6);
+                holder.preview.setLayoutParams(previewParams);
+                card.addView(holder.preview);
+
+                card.setTag(holder);
+                convertView = card;
+            } else {
+                holder = (ConversationViewHolder) convertView.getTag();
+            }
+
+            final ConversationGroup conv = getItem(position);
+            bindConversationCard(holder, conv, root);
+            return convertView;
+        }
+    }
+
+    private void bindConversationCard(final ConversationViewHolder holder, final ConversationGroup conv, final View root) {
+        holder.card.setBackgroundResource(conv.hasFlagged()
+                ? R.drawable.bg_cyber_row_flagged : R.drawable.bg_cyber_row);
+
+        holder.appBadge.setText(conv.displayApp().toUpperCase(java.util.Locale.US));
+
+        String contact = ContactResolver.display(this, conv.displayName());
+        if (conv.isGroup()) {
+            holder.title.setText("\uD83D\uDC65 " + contact);
+        } else {
+            holder.title.setText(contact);
+        }
+
+        if (conv.lastPostTime > 0) {
+            holder.time.setText(DeletedMessageRules.formatTime(conv.lastPostTime, java.util.TimeZone.getDefault()));
+            holder.time.setVisibility(View.VISIBLE);
+        } else {
+            holder.time.setVisibility(View.GONE);
+        }
+
+        holder.totalBadge.setText(conv.totalCount + (conv.totalCount == 1 ? " msg" : " msgs"));
+
+        if (conv.hasUnread()) {
+            holder.unreadBadge.setText(conv.unreadCount + " NEW");
+            holder.unreadBadge.setVisibility(View.VISIBLE);
+        } else {
+            holder.unreadBadge.setVisibility(View.GONE);
+        }
+
+        if (conv.hasFlagged()) {
+            holder.flaggedBadge.setText("\uD83D\uDEA9 " + conv.flaggedCount + " INCRIMINATING");
+            holder.flaggedBadge.setVisibility(View.VISIBLE);
+        } else {
+            holder.flaggedBadge.setVisibility(View.GONE);
+        }
+
+        StringBuilder mediaSb = new StringBuilder();
+        if (conv.photoCount > 0) mediaSb.append("\uD83D\uDCF7 ").append(conv.photoCount).append(" ");
+        if (conv.videoCount > 0) mediaSb.append("\uD83C\uDFAC ").append(conv.videoCount).append(" ");
+        if (conv.audioCount > 0) mediaSb.append("\uD83C\uDF99\uFE0F ").append(conv.audioCount).append(" ");
+        if (conv.docCount > 0) mediaSb.append("\uD83D\uDCC4 ").append(conv.docCount);
+        String mediaStr = mediaSb.toString().trim();
+        if (!mediaStr.isEmpty()) {
+            holder.mediaBadges.setText(mediaStr);
+            holder.mediaBadges.setVisibility(View.VISIBLE);
+        } else {
+            holder.mediaBadges.setVisibility(View.GONE);
+        }
+
+        String previewText;
+        if (conv.lastBody != null && !conv.lastBody.isEmpty()) {
+            if (conv.isGroup() && conv.lastSender != null && !conv.lastSender.isEmpty()) {
+                previewText = conv.lastSender + ": " + conv.lastBody;
+            } else {
+                previewText = conv.lastBody;
+            }
+        } else {
+            previewText = "(media attachment)";
+        }
+        holder.preview.setText(previewText);
+
+        holder.card.setOnClickListener(v -> {
+            ConversationReadTracker.markRead(MainActivity.this, conv.pkg, conv.threadTitle);
+            openConversationThread(conv, root);
+        });
+
+        holder.card.setOnLongClickListener(v -> {
+            java.util.List<String> options = new java.util.ArrayList<>();
+            options.add("\uD83D\uDCAC Open conversation");
+            options.add("\u2713 Mark as read");
+            new AlertDialog.Builder(this)
+                    .setTitle(ContactResolver.display(this, conv.displayName()))
+                    .setItems(options.toArray(new String[0]), (d, which) -> {
+                        if (which == 0) {
+                            ConversationReadTracker.markRead(MainActivity.this, conv.pkg, conv.threadTitle);
+                            openConversationThread(conv, root);
+                        } else if (which == 1) {
+                            ConversationReadTracker.markRead(MainActivity.this, conv.pkg, conv.threadTitle);
+                            renderArchive(root);
+                        }
+                    })
+                    .show();
             return true;
         });
     }

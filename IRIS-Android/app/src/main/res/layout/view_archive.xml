@@ -144,6 +144,41 @@
             android:textSize="11sp" />
     </LinearLayout>
 
+    <LinearLayout
+        android:id="@+id/archiveViewModeRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/archiveModeTimeline"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08"
+            android:text="TIMELINE ⏱️"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_accent"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/archiveModeConversations"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_marginLeft="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_cyber_row"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08"
+            android:text="CHATS 💬"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_text_dim"
+            android:textSize="11sp" />
+    </LinearLayout>
+
     <EditText
         android:id="@+id/archiveSearch"
         android:layout_width="match_parent"
@@ -178,6 +213,46 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal" />
     </HorizontalScrollView>
+
+    <LinearLayout
+        android:id="@+id/archiveThreadHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/bg_cyber_panel"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/archiveThreadBackButton"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.05"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:text="← ALL CHATS"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_accent"
+            android:textSize="10sp" />
+
+        <TextView
+            android:id="@+id/archiveThreadTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:maxLines="1"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <View
         android:layout_width="match_parent"
