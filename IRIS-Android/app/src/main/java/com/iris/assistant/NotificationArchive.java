@@ -693,6 +693,31 @@ public final class NotificationArchive {
                 + ArchiveSchema.COL_IS_SUSPECTED + " = 1");
     }
 
+    /**
+     * Cheap fingerprint to see whether the archive has changed since the last paint.
+     *
+     * Used by the archive auto-watch poller to refresh the screen only when rows are added,
+     * flagged, or removed, without re-querying or rebuilding the whole view unnecessarily.
+     */
+    public static String signature(Context context) {
+        if (context == null) return "";
+        try {
+            SQLiteDatabase db = database(context);
+            if (db == null) return "";
+            Cursor cursor = db.rawQuery("SELECT COUNT(*), MAX(" + ArchiveSchema.COL_POST_TIME
+                    + "), SUM(" + ArchiveSchema.COL_IS_DELETED + " + " + ArchiveSchema.COL_IS_SUSPECTED
+                    + ") FROM " + ArchiveSchema.TABLE, null);
+            try {
+                if (cursor != null && cursor.moveToFirst()) {
+                    return cursor.getInt(0) + ":" + cursor.getLong(1) + ":" + cursor.getInt(2);
+                }
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+        } catch (Throwable ignored) { }
+        return "";
+    }
+
     private static int countWhere(Context context, String where) {
         if (context == null) return 0;
         try {

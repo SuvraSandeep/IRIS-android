@@ -403,6 +403,23 @@ public final class ArchiveImages {
     }
 
     /**
+     * Decode full-sized image asynchronously on worker pool.
+     */
+    public static void loadFullAsync(Context context, String storedName, ThumbnailCallback callback) {
+        if (context == null || storedName == null || storedName.trim().isEmpty()) {
+            if (callback != null) MAIN_HANDLER.post(() -> callback.onLoaded(null));
+            return;
+        }
+        Context appCtx = context.getApplicationContext();
+        DECODER_POOL.execute(() -> {
+            Bitmap decoded = full(appCtx, storedName);
+            if (callback != null) {
+                MAIN_HANDLER.post(() -> callback.onLoaded(decoded));
+            }
+        });
+    }
+
+    /**
      * Total file size in bytes for a stored media or document file.
      * Returns 0 if missing.
      */

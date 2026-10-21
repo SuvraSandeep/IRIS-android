@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
+import android.app.Dialog;
 import android.app.KeyguardManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -16,6 +17,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -34,6 +36,8 @@ import android.speech.SpeechRecognizer;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AbsListView;
@@ -47,6 +51,7 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.RelativeLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
@@ -3367,6 +3372,11 @@ public class MainActivity extends Activity {
     private int archiveViewMode = ARCHIVE_VIEW_TIMELINE;
     private String archiveCurrentThreadTitle = null;
     private String archiveCurrentThreadPkg = null;
+    private static final int ARCHIVE_DENSITY_DETAILED = 0;
+    private static final int ARCHIVE_DENSITY_COMPACT = 1;
+    private int archiveDensityMode = ARCHIVE_DENSITY_DETAILED;
+    private final java.util.Set<Long> archiveExpandedRowIds = new java.util.HashSet<>();
+    private String archiveLastSignature = "";
     private final ExecutorService archiveQueryExecutor =
             Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "iris-archive-db");
@@ -3561,8 +3571,55 @@ public class MainActivity extends Activity {
                 }
             });
         }
+
+        Button btnDensity = view.findViewById(R.id.archiveDensityToggle);
+        if (btnDensity != null) {
+            btnDensity.setOnClickListener(v -> {
+                archiveDensityMode = (archiveDensityMode == ARCHIVE_DENSITY_DETAILED)
+                        ? ARCHIVE_DENSITY_COMPACT : ARCHIVE_DENSITY_DETAILED;
+                updateArchiveDensityButton(view);
+                renderArchive(view);
+            });
+        }
+
         updateArchiveViewModeButtons(view);
+        updateArchiveDensityButton(view);
+        startArchiveWatch(view);
         renderArchive(view);
+    }
+
+    private void updateArchiveDensityButton(View root) {
+        if (root == null) return;
+        Button btnDensity = root.findViewById(R.id.archiveDensityToggle);
+        if (btnDensity != null) {
+            boolean isCompact = (archiveDensityMode == ARCHIVE_DENSITY_COMPACT);
+            btnDensity.setText(isCompact ? "DETAILED ▥" : "COMPACT ▤");
+            btnDensity.setBackgroundResource(isCompact ? R.drawable.bg_cyber_button : R.drawable.bg_cyber_row);
+            btnDensity.setTextColor(getColor(isCompact ? R.color.deck_accent : R.color.deck_text_dim));
+            btnDensity.setTypeface(Typeface.MONOSPACE, isCompact ? Typeface.BOLD : Typeface.NORMAL);
+        }
+    }
+
+    private void startArchiveWatch(final View view) {
+        archiveLastSignature = NotificationArchive.signature(this);
+        view.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (isFinishing() || isDestroyed()) return;
+                if (!view.isAttachedToWindow() || commsSection != 2) return;
+
+                IrisNotificationListener.captureVisibleNow();
+                String current = NotificationArchive.signature(MainActivity.this);
+                if (!current.equals(archiveLastSignature)) {
+                    archiveLastSignature = current;
+                    EditText search = view.findViewById(R.id.archiveSearch);
+                    boolean isSearching = (search != null && search.getText().length() > 0 && archiveSearchRunnable != null);
+                    if (!isSearching) {
+                        renderArchive(view);
+                    }
+                }
+                view.postDelayed(this, 3000);
+            }
+        }, 3000);
     }
 
     private void updateArchiveViewModeButtons(View root) {
@@ -3849,112 +3906,372 @@ public class MainActivity extends Activity {
         }
     }
 
-    /**
-     * Full-size viewer for one captured photo, with the only route out of the archive.
-     *
-     * The export is text-only by the owner's decision, so saving here is deliberately per-image
-     * and explicit: a picture leaves app-private storage only when asked for by name.
-     */
-    private void showArchiveImage(final ArchiveRow row) {
-        if (row.isDocument()) {
-            openArchiveDocument(row);
-            return;
-        }
-        if (row.isVideo()) {
-            showArchiveVideo(row);
-            return;
-        }
-        android.graphics.Bitmap full = ArchiveImages.full(this, row.imagePath);
-        if (full == null) {
-            toast("That photo is gone. I had it, and now I don't.");
-            return;
-        }
-        android.widget.ImageView view = new android.widget.ImageView(this);
-        view.setImageBitmap(full);
-        view.setAdjustViewBounds(true);
-        view.setBackgroundColor(getColor(R.color.deck_bg));
-
-        new AlertDialog.Builder(this)
-                .setTitle(ContactResolver.display(this, row.displayName()))
-                .setView(view)
-                .setNeutralButton("Save a copy", (d, w) -> {
-                    pendingImageRow = row;
-                    try {
-                        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
-                                .addCategory(Intent.CATEGORY_OPENABLE)
-                                .setType("image/jpeg")
-                                .putExtra(Intent.EXTRA_TITLE, "iris-" + row.imagePath);
-                        startActivityForResult(save, SAVE_ARCHIVE_IMAGE);
-                    } catch (Exception e) {
-                        toast("No app on this phone can save a file.");
-                    }
-                })
-                .setPositiveButton("Close", null)
-                .show();
+    private TextView createCyberActionButton(String text) {
+        TextView btn = new TextView(this);
+        btn.setText(text);
+        btn.setTextSize(10f);
+        btn.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        btn.setTextColor(getColor(R.color.deck_accent));
+        btn.setGravity(Gravity.CENTER);
+        btn.setBackgroundResource(R.drawable.bg_cyber_button);
+        btn.setPadding(dp(6), dp(5), dp(6), dp(5));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        lp.setMargins(dp(2), 0, dp(2), 0);
+        btn.setLayoutParams(lp);
+        return btn;
     }
 
-    /**
-     * Play an archived video in an inline cyber viewer with looping and export options.
-     */
-    private void showArchiveVideo(final ArchiveRow row) {
-        java.io.File file = ArchiveImages.fileFor(this, row.imagePath);
-        if (file == null || !file.exists() || file.length() == 0) {
-            toast("That video is gone. I had it, and now I don't.");
+    private void shareArchiveReceipt(final ArchiveRow row) {
+        if (row == null) return;
+        String who = row.sender.isEmpty() ? row.rawTitle : row.sender;
+        who = ContactResolver.display(this, who);
+        String where = row.accountLabel.isEmpty() ? row.appLabel : row.accountLabel;
+        String time = DeletedMessageRules.formatTime(row.postTime, java.util.TimeZone.getDefault());
+        String text = "[IRIS RECEIPT]\nFrom: " + who + " (" + where + ")\nTime: " + time + "\n\n" + row.body;
+
+        Intent share = new Intent(Intent.ACTION_SEND);
+        if (row.hasImage()) {
+            try {
+                Uri contentUri = IrisFileProvider.uriFor(this, row.imagePath);
+                String mime = ArchiveImagePolicy.mimeTypeFor(row.imagePath);
+                share.putExtra(Intent.EXTRA_STREAM, contentUri);
+                share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                share.setType(mime != null ? mime : "*/*");
+            } catch (Throwable t) {
+                share.setType("text/plain");
+            }
+        } else {
+            share.setType("text/plain");
+        }
+        share.putExtra(Intent.EXTRA_TEXT, text);
+        try {
+            startActivity(Intent.createChooser(share, "Share receipt via\u2026"));
+        } catch (Exception e) {
+            toast("No app available to share this receipt.");
+        }
+    }
+
+    private static class ZoomableTouchListener implements View.OnTouchListener {
+        private final ScaleGestureDetector scaleDetector;
+        private float scaleFactor = 1.0f;
+        private float lastX, lastY;
+        private float startX, startY;
+        private final Runnable onSwipePrev;
+        private final Runnable onSwipeNext;
+
+        ZoomableTouchListener(Context context, Runnable onSwipePrev, Runnable onSwipeNext) {
+            this.onSwipePrev = onSwipePrev;
+            this.onSwipeNext = onSwipeNext;
+            this.scaleDetector = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                @Override
+                public boolean onScale(ScaleGestureDetector detector) {
+                    scaleFactor *= detector.getScaleFactor();
+                    scaleFactor = Math.max(1.0f, Math.min(scaleFactor, 4.0f));
+                    return true;
+                }
+            });
+        }
+
+        @Override
+        public boolean onTouch(View v, MotionEvent event) {
+            scaleDetector.onTouchEvent(event);
+            ImageView img = (ImageView) v;
+
+            int action = event.getActionMasked();
+            switch (action) {
+                case MotionEvent.ACTION_DOWN:
+                    lastX = event.getX();
+                    lastY = event.getY();
+                    startX = event.getX();
+                    startY = event.getY();
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (!scaleDetector.isInProgress()) {
+                        float dx = event.getX() - lastX;
+                        float dy = event.getY() - lastY;
+                        if (scaleFactor > 1.05f) {
+                            img.setTranslationX(img.getTranslationX() + dx);
+                            img.setTranslationY(img.getTranslationY() + dy);
+                        }
+                        lastX = event.getX();
+                        lastY = event.getY();
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (scaleFactor <= 1.05f) {
+                        float totalDx = event.getX() - startX;
+                        float totalDy = Math.abs(event.getY() - startY);
+                        if (totalDx > 100 && totalDy < 150 && onSwipePrev != null) {
+                            onSwipePrev.run();
+                            return true;
+                        } else if (totalDx < -100 && totalDy < 150 && onSwipeNext != null) {
+                            onSwipeNext.run();
+                            return true;
+                        }
+                    }
+                    break;
+            }
+
+            img.setScaleX(scaleFactor);
+            img.setScaleY(scaleFactor);
+            if (scaleFactor <= 1.0f) {
+                img.setTranslationX(0f);
+                img.setTranslationY(0f);
+            }
+            return true;
+        }
+    }
+
+    private void showArchiveMediaLightbox(final ArchiveRow initialRow) {
+        if (initialRow == null) return;
+        if (initialRow.isDocument()) {
+            openArchiveDocument(initialRow);
             return;
         }
 
-        FrameLayout container = new FrameLayout(this);
-        container.setBackgroundColor(getColor(R.color.deck_bg));
-
-        android.widget.VideoView videoView = new android.widget.VideoView(this);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(280), android.view.Gravity.CENTER);
-        videoView.setLayoutParams(lp);
-        container.addView(videoView);
-
-        android.widget.MediaController controller = new android.widget.MediaController(this);
-        controller.setAnchorView(videoView);
-        videoView.setMediaController(controller);
-        videoView.setVideoPath(file.getAbsolutePath());
-        videoView.setOnPreparedListener(mp -> mp.setLooping(true));
-        videoView.setOnErrorListener((mp, what, extra) -> {
-            toast("Could not play video format.");
-            return true;
-        });
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(ContactResolver.display(this, row.displayName()) + " \u2014 Video")
-                .setView(container)
-                .setNeutralButton("Save a copy", (d, w) -> {
-                    pendingImageRow = row;
-                    try {
-                        String mime = row.imagePath.toLowerCase(java.util.Locale.US).endsWith(".3gp")
-                                ? "video/3gpp" : "video/mp4";
-                        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
-                                .addCategory(Intent.CATEGORY_OPENABLE)
-                                .setType(mime)
-                                .putExtra(Intent.EXTRA_TITLE, "iris-" + row.imagePath);
-                        startActivityForResult(save, SAVE_ARCHIVE_IMAGE);
-                    } catch (Exception e) {
-                        toast("No app on this phone can save a file.");
+        ListView list = findViewById(R.id.archiveList);
+        ArchiveAdapter adapter = getArchiveAdapter(list);
+        final java.util.List<ArchiveRow> mediaRows = new java.util.ArrayList<>();
+        int initIdx = 0;
+        if (adapter != null) {
+            for (ArchiveRow r : adapter.getRawRows()) {
+                if (r.hasImage() && !r.isDocument() && !r.isAudio()) {
+                    if (r.id == initialRow.id) {
+                        initIdx = mediaRows.size();
                     }
-                })
-                .setPositiveButton("Close", null)
-                .create();
+                    mediaRows.add(r);
+                }
+            }
+        }
+        if (mediaRows.isEmpty()) {
+            mediaRows.add(initialRow);
+        }
+        final int[] currentIndex = new int[] { initIdx };
 
-        dialog.setOnShowListener(d -> {
-            try {
-                videoView.start();
-            } catch (Throwable ignored) { }
+        final Dialog lightbox = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        final RelativeLayout root = new RelativeLayout(this);
+        root.setBackgroundColor(0xFF070816);
+
+        // Top Header Bar
+        final LinearLayout topBar = new LinearLayout(this);
+        topBar.setId(View.generateViewId());
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.setPadding(dp(16), dp(16), dp(16), dp(12));
+        topBar.setBackgroundColor(0xCC0F1028);
+
+        TextView closeBtn = new TextView(this);
+        closeBtn.setText("✕");
+        closeBtn.setTextSize(18f);
+        closeBtn.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        closeBtn.setTextColor(getColor(R.color.deck_accent));
+        closeBtn.setPadding(dp(4), dp(4), dp(12), dp(4));
+        closeBtn.setOnClickListener(v -> lightbox.dismiss());
+        topBar.addView(closeBtn);
+
+        LinearLayout titleCol = new LinearLayout(this);
+        titleCol.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        titleCol.setLayoutParams(tlp);
+
+        final TextView titleTv = new TextView(this);
+        titleTv.setTextSize(13f);
+        titleTv.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        titleTv.setTextColor(getColor(R.color.deck_accent));
+        titleTv.setSingleLine(true);
+        titleCol.addView(titleTv);
+
+        final TextView subtitleTv = new TextView(this);
+        subtitleTv.setTextSize(10f);
+        subtitleTv.setTypeface(Typeface.MONOSPACE);
+        subtitleTv.setTextColor(getColor(R.color.deck_text_dim));
+        titleCol.addView(subtitleTv);
+
+        topBar.addView(titleCol);
+
+        TextView shareBtn = new TextView(this);
+        shareBtn.setText("↗");
+        shareBtn.setTextSize(18f);
+        shareBtn.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        shareBtn.setTextColor(getColor(R.color.deck_accent));
+        shareBtn.setPadding(dp(10), dp(4), dp(4), dp(4));
+        topBar.addView(shareBtn);
+
+        RelativeLayout.LayoutParams topLp = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+        topLp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        root.addView(topBar, topLp);
+
+        // Bottom Action Bar
+        final LinearLayout bottomBar = new LinearLayout(this);
+        bottomBar.setId(View.generateViewId());
+        bottomBar.setOrientation(LinearLayout.VERTICAL);
+        bottomBar.setPadding(dp(16), dp(10), dp(16), dp(16));
+        bottomBar.setBackgroundColor(0xCC0F1028);
+
+        final TextView captionTv = new TextView(this);
+        captionTv.setTextSize(12f);
+        captionTv.setTextColor(getColor(R.color.deck_text));
+        captionTv.setMaxLines(3);
+        captionTv.setEllipsize(TextUtils.TruncateAt.END);
+        captionTv.setPadding(0, 0, 0, dp(8));
+        bottomBar.addView(captionTv);
+
+        LinearLayout bottomNavRow = new LinearLayout(this);
+        bottomNavRow.setOrientation(LinearLayout.HORIZONTAL);
+        bottomNavRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        final TextView prevBtn = createCyberActionButton("◀ PREV");
+        final TextView saveBtn = createCyberActionButton("💾 SAVE");
+        final TextView copyBtn = createCyberActionButton("📋 COPY");
+        final TextView nextBtn = createCyberActionButton("NEXT ▶");
+
+        bottomNavRow.addView(prevBtn);
+        bottomNavRow.addView(saveBtn);
+        bottomNavRow.addView(copyBtn);
+        bottomNavRow.addView(nextBtn);
+        bottomBar.addView(bottomNavRow);
+
+        RelativeLayout.LayoutParams btmLp = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+        btmLp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        root.addView(bottomBar, btmLp);
+
+        // Center Content Container
+        final FrameLayout centerContainer = new FrameLayout(this);
+        RelativeLayout.LayoutParams centerLp = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
+        centerLp.addRule(RelativeLayout.BELOW, topBar.getId());
+        centerLp.addRule(RelativeLayout.ABOVE, bottomBar.getId());
+        root.addView(centerContainer, centerLp);
+
+        final Runnable[] updateMediaDisplay = new Runnable[1];
+        updateMediaDisplay[0] = () -> {
+            centerContainer.removeAllViews();
+            int idx = currentIndex[0];
+            if (idx < 0 || idx >= mediaRows.size()) return;
+            final ArchiveRow currentRow = mediaRows.get(idx);
+
+            String who = currentRow.sender.isEmpty() ? currentRow.rawTitle : currentRow.sender;
+            who = ContactResolver.display(MainActivity.this, who);
+            String where = currentRow.accountLabel.isEmpty() ? currentRow.appLabel : currentRow.accountLabel;
+            String time = DeletedMessageRules.formatTime(currentRow.postTime, java.util.TimeZone.getDefault());
+
+            titleTv.setText(who);
+            subtitleTv.setText(where + " \u00b7 " + time + " \u00b7 [" + (idx + 1) + " / " + mediaRows.size() + "]");
+            captionTv.setText(currentRow.body.isEmpty() ? "(no caption)" : currentRow.body);
+
+            prevBtn.setEnabled(idx > 0);
+            prevBtn.setAlpha(idx > 0 ? 1f : 0.4f);
+            nextBtn.setEnabled(idx < mediaRows.size() - 1);
+            nextBtn.setAlpha(idx < mediaRows.size() - 1 ? 1f : 0.4f);
+
+            shareBtn.setOnClickListener(v -> shareArchiveReceipt(currentRow));
+            saveBtn.setOnClickListener(v -> {
+                pendingImageRow = currentRow;
+                try {
+                    Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                            .addCategory(Intent.CATEGORY_OPENABLE)
+                            .setType(currentRow.isVideo() ? "video/mp4" : "image/jpeg")
+                            .putExtra(Intent.EXTRA_TITLE, "iris-" + currentRow.imagePath);
+                    startActivityForResult(save, SAVE_ARCHIVE_IMAGE);
+                } catch (Exception e) {
+                    toast("No app on this phone can save a file.");
+                }
+            });
+            copyBtn.setOnClickListener(v -> {
+                android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                if (clipboard != null) {
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("IRIS Media Text", currentRow.body));
+                    toast("Caption copied to clipboard");
+                }
+            });
+
+            if (currentRow.isVideo()) {
+                java.io.File file = ArchiveImages.fileFor(MainActivity.this, currentRow.imagePath);
+                if (file != null && file.exists() && file.length() > 0) {
+                    android.widget.VideoView videoView = new android.widget.VideoView(MainActivity.this);
+                    FrameLayout.LayoutParams vlp = new FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER);
+                    videoView.setLayoutParams(vlp);
+                    centerContainer.addView(videoView);
+
+                    android.widget.MediaController controller = new android.widget.MediaController(MainActivity.this);
+                    controller.setAnchorView(videoView);
+                    videoView.setMediaController(controller);
+                    videoView.setVideoPath(file.getAbsolutePath());
+                    videoView.setOnPreparedListener(mp -> {
+                        mp.setLooping(true);
+                        videoView.start();
+                    });
+                } else {
+                    TextView gone = new TextView(MainActivity.this);
+                    gone.setText("[ Video file is missing ]");
+                    gone.setTypeface(Typeface.MONOSPACE);
+                    gone.setTextColor(getColor(R.color.deck_text_dim));
+                    gone.setGravity(Gravity.CENTER);
+                    centerContainer.addView(gone);
+                }
+            } else {
+                final ImageView photoView = new ImageView(MainActivity.this);
+                FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER);
+                photoView.setLayoutParams(plp);
+                photoView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                centerContainer.addView(photoView);
+
+                Bitmap cached = ArchiveImages.cachedThumbnail(currentRow.imagePath);
+                if (cached != null) {
+                    photoView.setImageBitmap(cached);
+                }
+                ArchiveImages.loadFullAsync(MainActivity.this, currentRow.imagePath, full -> {
+                    if (full != null) {
+                        photoView.setImageBitmap(full);
+                    }
+                });
+
+                Runnable onSwipePrev = () -> {
+                    if (currentIndex[0] > 0) {
+                        currentIndex[0]--;
+                        updateMediaDisplay[0].run();
+                    }
+                };
+                Runnable onSwipeNext = () -> {
+                    if (currentIndex[0] < mediaRows.size() - 1) {
+                        currentIndex[0]++;
+                        updateMediaDisplay[0].run();
+                    }
+                };
+                photoView.setOnTouchListener(new ZoomableTouchListener(MainActivity.this, onSwipePrev, onSwipeNext));
+            }
+        };
+
+        prevBtn.setOnClickListener(v -> {
+            if (currentIndex[0] > 0) {
+                currentIndex[0]--;
+                updateMediaDisplay[0].run();
+            }
+        });
+        nextBtn.setOnClickListener(v -> {
+            if (currentIndex[0] < mediaRows.size() - 1) {
+                currentIndex[0]++;
+                updateMediaDisplay[0].run();
+            }
         });
 
-        dialog.setOnDismissListener(d -> {
-            try {
-                videoView.stopPlayback();
-            } catch (Throwable ignored) { }
-        });
+        updateMediaDisplay[0].run();
+        lightbox.setContentView(root);
+        lightbox.show();
+    }
 
-        dialog.show();
+    private void showArchiveImage(final ArchiveRow row) {
+        showArchiveMediaLightbox(row);
+    }
+
+    private void showArchiveVideo(final ArchiveRow row) {
+        showArchiveMediaLightbox(row);
     }
 
     /** The row whose image is being saved, held across the file-picker round trip. */
@@ -4866,6 +5183,7 @@ public class MainActivity extends Activity {
         TextView head;
         TextView meta;
         TextView body;
+        TextView expandToggle;
         FrameLayout mediaContainer;
         ImageView shot;
         TextView playBadge;
@@ -4884,6 +5202,11 @@ public class MainActivity extends Activity {
         TextView docSaveBtn;
         TextView status;
         TextView caveat;
+        LinearLayout quickActionsBar;
+        TextView btnCopy;
+        TextView btnShare;
+        TextView btnPin;
+        TextView btnFlag;
     }
 
     private class ArchiveAdapter extends BaseAdapter {
@@ -4931,6 +5254,10 @@ public class MainActivity extends Activity {
 
         int getRawCount() {
             return rawRows.size();
+        }
+
+        java.util.List<ArchiveRow> getRawRows() {
+            return rawRows;
         }
 
         private boolean isSameDay(Calendar c1, Calendar c2) {
@@ -5067,6 +5394,14 @@ public class MainActivity extends Activity {
                 holder.body.setTextColor(getColor(R.color.deck_text));
                 holder.body.setPadding(0, dp(4), 0, 0);
                 card.addView(holder.body);
+
+                holder.expandToggle = new TextView(MainActivity.this);
+                holder.expandToggle.setTextSize(10f);
+                holder.expandToggle.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                holder.expandToggle.setTextColor(getColor(R.color.deck_accent));
+                holder.expandToggle.setPadding(0, dp(4), 0, dp(2));
+                holder.expandToggle.setVisibility(View.GONE);
+                card.addView(holder.expandToggle);
 
                 holder.mediaContainer = new FrameLayout(MainActivity.this);
                 LinearLayout.LayoutParams containerParams = new LinearLayout.LayoutParams(
@@ -5282,6 +5617,25 @@ public class MainActivity extends Activity {
                 holder.caveat.setVisibility(View.GONE);
                 card.addView(holder.caveat);
 
+                holder.quickActionsBar = new LinearLayout(MainActivity.this);
+                holder.quickActionsBar.setOrientation(LinearLayout.HORIZONTAL);
+                holder.quickActionsBar.setGravity(Gravity.CENTER_VERTICAL);
+                LinearLayout.LayoutParams qaParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                qaParams.topMargin = dp(8);
+                holder.quickActionsBar.setLayoutParams(qaParams);
+
+                holder.btnCopy = createCyberActionButton("\uD83D\uDCCB COPY");
+                holder.btnShare = createCyberActionButton("\u2197 SHARE");
+                holder.btnPin = createCyberActionButton("\uD83D\uDCCC PIN");
+                holder.btnFlag = createCyberActionButton("\uD83D\uDEA9 FLAG");
+
+                holder.quickActionsBar.addView(holder.btnCopy);
+                holder.quickActionsBar.addView(holder.btnShare);
+                holder.quickActionsBar.addView(holder.btnPin);
+                holder.quickActionsBar.addView(holder.btnFlag);
+                card.addView(holder.quickActionsBar);
+
                 card.setTag(holder);
                 convertView = card;
             } else {
@@ -5327,65 +5681,37 @@ public class MainActivity extends Activity {
         holder.head.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
                 ? R.color.deck_error : R.color.deck_accent));
 
-        if (!marker) {
-            holder.meta.setVisibility(View.VISIBLE);
-            holder.meta.setText(where + " \u00b7 " + DeletedMessageRules.formatTime(
-                    row.postTime, java.util.TimeZone.getDefault()));
-        } else {
-            holder.meta.setVisibility(View.GONE);
-        }
-
         holder.body.setText(row.body.isEmpty() ? "(no text \u2014 just vibes)" : row.body);
 
-        // A captured photo, video, voice note, or document. Decoded asynchronously with LruCache rather than blocking the main thread.
-        if (row.isAudio()) {
-            holder.mediaContainer.setVisibility(View.GONE);
-            holder.mediaContainer.setTag(null);
-            holder.playBadge.setVisibility(View.GONE);
-            holder.shot.setImageBitmap(null);
-            holder.missingPhoto.setVisibility(View.GONE);
-            holder.docContainer.setVisibility(View.GONE);
-            holder.docContainer.setTag(null);
+        if (archiveDensityMode == ARCHIVE_DENSITY_COMPACT) {
+            holder.card.setPadding(dp(12), dp(6), dp(12), dp(6));
+            holder.body.setMaxLines(1);
+            holder.body.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            holder.expandToggle.setVisibility(View.GONE);
 
-            holder.audioContainer.setVisibility(View.VISIBLE);
-            holder.audioContainer.setTag(row.imagePath);
-
-            String ext = "";
-            int dot = row.imagePath.lastIndexOf('.');
-            if (dot >= 0) ext = row.imagePath.substring(dot + 1).toUpperCase(java.util.Locale.US);
-            holder.audioTitle.setText(ext.isEmpty() ? "VOICE NOTE" : "VOICE NOTE \u00b7 " + ext);
-            holder.audioWaveform.setSeed(row.imagePath.hashCode());
-
-            boolean isCurrent = row.imagePath.equals(currentlyPlayingAudioPath);
-            if (isCurrent && archivePlayer != null && archivePlayer.isPlaying()) {
-                holder.audioPlayBtn.setText("\u23F8");
-                currentlyPlayingAudioHolder = holder;
-                int current = archivePlayer.getCurrentPosition();
-                int total = archivePlayer.getDuration();
-                float frac = total > 0 ? (float) current / (float) total : 0f;
-                holder.audioWaveform.setProgress(frac);
-                holder.audioTime.setText(ArchiveImages.formatDuration(current) + " / " + ArchiveImages.formatDuration(total));
-            } else {
-                holder.audioPlayBtn.setText("\u25B6");
-                holder.audioWaveform.setProgress(0f);
-                long dur = ArchiveImages.mediaDurationMs(this, row.imagePath);
-                holder.audioTime.setText(dur > 0 ? ArchiveImages.formatDuration(dur) : "Voice Note");
-            }
-
-            holder.audioPlayBtn.setOnClickListener(v -> toggleArchiveAudioPlayback(row, holder));
-            holder.audioWaveform.setOnSeekListener(fraction -> {
-                if (row.imagePath.equals(currentlyPlayingAudioPath) && archivePlayer != null) {
-                    int total = archivePlayer.getDuration();
-                    if (total > 0) {
-                        int seekMs = Math.round(fraction * total);
-                        archivePlayer.seekTo(seekMs);
-                        holder.audioTime.setText(
-                                ArchiveImages.formatDuration(seekMs) + " / " + ArchiveImages.formatDuration(total));
-                    }
+            if (!marker) {
+                StringBuilder metaSb = new StringBuilder();
+                metaSb.append(where).append(" \u00b7 ").append(DeletedMessageRules.formatTime(
+                        row.postTime, java.util.TimeZone.getDefault()));
+                if (row.isAudio()) {
+                    metaSb.append(" \u00b7 \uD83C\uDF99\uFE0F AUDIO");
+                } else if (row.isDocument()) {
+                    metaSb.append(" \u00b7 \uD83D\uDCC4 ").append(row.documentBadge());
+                } else if (row.isVideo()) {
+                    metaSb.append(" \u00b7 \uD83C\uDFAC VIDEO");
+                } else if (row.hasImage()) {
+                    metaSb.append(" \u00b7 \uD83D\uDCF7 PHOTO");
                 }
-            });
-            holder.audioSaveBtn.setOnClickListener(v -> saveArchiveAudio(row));
-        } else if (row.isDocument()) {
+                if (confidence != DeletedMessageRules.Confidence.NONE) {
+                    metaSb.append(" \u00b7 \uD83D\uDEA9 ").append(DeletedMessageRules.statusLabel(
+                            confidence, row.deletionTime, java.util.TimeZone.getDefault()));
+                }
+                holder.meta.setText(metaSb.toString());
+                holder.meta.setVisibility(View.VISIBLE);
+            } else {
+                holder.meta.setVisibility(View.GONE);
+            }
+
             holder.mediaContainer.setVisibility(View.GONE);
             holder.mediaContainer.setTag(null);
             holder.playBadge.setVisibility(View.GONE);
@@ -5393,108 +5719,251 @@ public class MainActivity extends Activity {
             holder.missingPhoto.setVisibility(View.GONE);
             holder.audioContainer.setVisibility(View.GONE);
             holder.audioContainer.setTag(null);
-
-            holder.docContainer.setVisibility(View.VISIBLE);
-            holder.docContainer.setTag(row.imagePath);
-
-            String badge = row.documentBadge();
-            holder.docBadge.setText(row.documentIcon() + " " + badge);
-
-            int badgeColor;
-            if ("PDF".equals(badge)) {
-                badgeColor = getColor(R.color.deck_error);
-            } else if ("DOC".equals(badge)) {
-                badgeColor = getColor(R.color.deck_accent);
-            } else if ("XLS".equals(badge) || "CSV".equals(badge)) {
-                badgeColor = getColor(R.color.deck_healthy);
-            } else if ("PPT".equals(badge)) {
-                badgeColor = getColor(R.color.deck_attention);
-            } else {
-                badgeColor = getColor(R.color.deck_accent);
-            }
-            holder.docBadge.setTextColor(badgeColor);
-            GradientDrawable badgeBg = new GradientDrawable();
-            badgeBg.setColor(getColor(R.color.deck_card));
-            badgeBg.setCornerRadius(dp(4));
-            badgeBg.setStroke(dp(1), badgeColor);
-            holder.docBadge.setBackground(badgeBg);
-
-            holder.docTitle.setText(row.documentExtension() + " ATTACHMENT");
-            long size = ArchiveImages.fileSizeBytes(this, row.imagePath);
-            holder.docMeta.setText(ArchiveImages.formatFileSize(size) + " \u00b7 Tap to open");
-
-            holder.docContainer.setOnClickListener(v -> openArchiveDocument(row));
-            holder.docOpenBtn.setOnClickListener(v -> openArchiveDocument(row));
-            holder.docSaveBtn.setOnClickListener(v -> saveArchiveDocument(row));
-        } else if (row.hasImage()) {
-            holder.audioContainer.setVisibility(View.GONE);
-            holder.audioContainer.setTag(null);
             holder.docContainer.setVisibility(View.GONE);
             holder.docContainer.setTag(null);
-            final String imagePath = row.imagePath;
-            holder.mediaContainer.setTag(imagePath);
-            holder.shot.setContentDescription(row.isVideo() ? "Captured video. Tap to play." : "Captured photo. Tap to open.");
-            holder.mediaContainer.setOnClickListener(v -> showArchiveImage(row));
-            holder.shot.setOnClickListener(v -> showArchiveImage(row));
-            holder.playBadge.setVisibility(row.isVideo() ? View.VISIBLE : View.GONE);
-
-            Bitmap cached = ArchiveImages.cachedThumbnail(imagePath);
-            if (cached != null) {
-                holder.shot.setImageBitmap(cached);
-                holder.shot.setBackground(null);
-                holder.mediaContainer.setVisibility(View.VISIBLE);
-                holder.missingPhoto.setVisibility(View.GONE);
-            } else {
-                // Render subtle cyber placeholder while loading on background worker pool
-                holder.shot.setImageBitmap(null);
-                holder.shot.setBackgroundResource(R.drawable.bg_cyber_panel);
-                holder.mediaContainer.setVisibility(View.VISIBLE);
-                holder.missingPhoto.setVisibility(View.GONE);
-
-                ArchiveImages.loadThumbnailAsync(this, imagePath, dp(220), bitmap -> {
-                    // Only apply if the recycled view is still presenting the same image
-                    if (!imagePath.equals(holder.mediaContainer.getTag())) return;
-                    if (bitmap != null) {
-                        holder.shot.setImageBitmap(bitmap);
-                        holder.shot.setBackground(null);
-                        holder.mediaContainer.setVisibility(View.VISIBLE);
-                        holder.missingPhoto.setVisibility(View.GONE);
-                    } else {
-                        holder.mediaContainer.setVisibility(View.GONE);
-                        holder.shot.setImageBitmap(null);
-                        holder.shot.setBackground(null);
-                        holder.missingPhoto.setText(row.isVideo()
-                                ? "[ video recorded but the file is missing ]"
-                                : "[ photo recorded but the file is missing ]");
-                        holder.missingPhoto.setVisibility(View.VISIBLE);
-                    }
-                });
-            }
-        } else {
-            holder.audioContainer.setVisibility(View.GONE);
-            holder.audioContainer.setTag(null);
-            holder.docContainer.setVisibility(View.GONE);
-            holder.docContainer.setTag(null);
-            holder.mediaContainer.setVisibility(View.GONE);
-            holder.playBadge.setVisibility(View.GONE);
-            holder.shot.setImageBitmap(null);
-            holder.shot.setBackground(null);
-            holder.mediaContainer.setTag(null);
-            holder.missingPhoto.setVisibility(View.GONE);
-        }
-
-        if (confidence != DeletedMessageRules.Confidence.NONE) {
-            holder.status.setVisibility(View.VISIBLE);
-            holder.status.setText(DeletedMessageRules.statusLabel(
-                    confidence, row.deletionTime, java.util.TimeZone.getDefault()));
-            holder.status.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
-                    ? R.color.danger : R.color.magenta));
-
-            holder.caveat.setVisibility(View.VISIBLE);
-            holder.caveat.setText(DeletedMessageRules.flagCaveat(confidence));
-        } else {
             holder.status.setVisibility(View.GONE);
             holder.caveat.setVisibility(View.GONE);
+            holder.quickActionsBar.setVisibility(View.GONE);
+
+            if (row.hasImage()) {
+                holder.card.setOnClickListener(v -> {
+                    if (row.isAudio()) {
+                        toggleArchiveAudioPlayback(row, holder);
+                    } else if (row.isDocument()) {
+                        openArchiveDocument(row);
+                    } else {
+                        showArchiveImage(row);
+                    }
+                });
+            } else {
+                holder.card.setOnClickListener(null);
+            }
+        } else {
+            // Detailed Mode
+            holder.card.setPadding(dp(12), dp(10), dp(12), dp(10));
+            holder.card.setOnClickListener(null);
+
+            if (!marker) {
+                holder.meta.setVisibility(View.VISIBLE);
+                holder.meta.setText(where + " \u00b7 " + DeletedMessageRules.formatTime(
+                        row.postTime, java.util.TimeZone.getDefault()));
+            } else {
+                holder.meta.setVisibility(View.GONE);
+            }
+
+            boolean isLong = row.body.length() > 160 || (row.body.contains("\n") && row.body.split("\n").length > 3);
+            if (isLong) {
+                boolean expanded = archiveExpandedRowIds.contains(row.id);
+                holder.expandToggle.setVisibility(View.VISIBLE);
+                if (expanded) {
+                    holder.body.setMaxLines(Integer.MAX_VALUE);
+                    holder.body.setEllipsize(null);
+                    holder.expandToggle.setText("[ SHOW LESS \u25B2 ]");
+                } else {
+                    holder.body.setMaxLines(4);
+                    holder.body.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    holder.expandToggle.setText("[ SHOW MORE \u25BC ]");
+                }
+                holder.expandToggle.setOnClickListener(v -> {
+                    if (archiveExpandedRowIds.contains(row.id)) {
+                        archiveExpandedRowIds.remove(row.id);
+                    } else {
+                        archiveExpandedRowIds.add(row.id);
+                    }
+                    ListView list = root.findViewById(R.id.archiveList);
+                    ArchiveAdapter adapter = getArchiveAdapter(list);
+                    if (adapter != null) {
+                        adapter.notifyDataSetChanged();
+                    }
+                });
+            } else {
+                holder.body.setMaxLines(Integer.MAX_VALUE);
+                holder.body.setEllipsize(null);
+                holder.expandToggle.setVisibility(View.GONE);
+            }
+
+            // A captured photo, video, voice note, or document. Decoded asynchronously with LruCache rather than blocking the main thread.
+            if (row.isAudio()) {
+                holder.mediaContainer.setVisibility(View.GONE);
+                holder.mediaContainer.setTag(null);
+                holder.playBadge.setVisibility(View.GONE);
+                holder.shot.setImageBitmap(null);
+                holder.missingPhoto.setVisibility(View.GONE);
+                holder.docContainer.setVisibility(View.GONE);
+                holder.docContainer.setTag(null);
+
+                holder.audioContainer.setVisibility(View.VISIBLE);
+                holder.audioContainer.setTag(row.imagePath);
+
+                String ext = "";
+                int dot = row.imagePath.lastIndexOf('.');
+                if (dot >= 0) ext = row.imagePath.substring(dot + 1).toUpperCase(java.util.Locale.US);
+                holder.audioTitle.setText(ext.isEmpty() ? "VOICE NOTE" : "VOICE NOTE \u00b7 " + ext);
+                holder.audioWaveform.setSeed(row.imagePath.hashCode());
+
+                boolean isCurrent = row.imagePath.equals(currentlyPlayingAudioPath);
+                if (isCurrent && archivePlayer != null && archivePlayer.isPlaying()) {
+                    holder.audioPlayBtn.setText("\u23F8");
+                    currentlyPlayingAudioHolder = holder;
+                    int current = archivePlayer.getCurrentPosition();
+                    int total = archivePlayer.getDuration();
+                    float frac = total > 0 ? (float) current / (float) total : 0f;
+                    holder.audioWaveform.setProgress(frac);
+                    holder.audioTime.setText(ArchiveImages.formatDuration(current) + " / " + ArchiveImages.formatDuration(total));
+                } else {
+                    holder.audioPlayBtn.setText("\u25B6");
+                    holder.audioWaveform.setProgress(0f);
+                    long dur = ArchiveImages.mediaDurationMs(this, row.imagePath);
+                    holder.audioTime.setText(dur > 0 ? ArchiveImages.formatDuration(dur) : "Voice Note");
+                }
+
+                holder.audioPlayBtn.setOnClickListener(v -> toggleArchiveAudioPlayback(row, holder));
+                holder.audioWaveform.setOnSeekListener(fraction -> {
+                    if (row.imagePath.equals(currentlyPlayingAudioPath) && archivePlayer != null) {
+                        int total = archivePlayer.getDuration();
+                        if (total > 0) {
+                            int seekMs = Math.round(fraction * total);
+                            archivePlayer.seekTo(seekMs);
+                            holder.audioTime.setText(
+                                    ArchiveImages.formatDuration(seekMs) + " / " + ArchiveImages.formatDuration(total));
+                        }
+                    }
+                });
+                holder.audioSaveBtn.setOnClickListener(v -> saveArchiveAudio(row));
+            } else if (row.isDocument()) {
+                holder.mediaContainer.setVisibility(View.GONE);
+                holder.mediaContainer.setTag(null);
+                holder.playBadge.setVisibility(View.GONE);
+                holder.shot.setImageBitmap(null);
+                holder.missingPhoto.setVisibility(View.GONE);
+                holder.audioContainer.setVisibility(View.GONE);
+                holder.audioContainer.setTag(null);
+
+                holder.docContainer.setVisibility(View.VISIBLE);
+                holder.docContainer.setTag(row.imagePath);
+
+                String badge = row.documentBadge();
+                holder.docBadge.setText(row.documentIcon() + " " + badge);
+
+                int badgeColor;
+                if ("PDF".equals(badge)) {
+                    badgeColor = getColor(R.color.deck_error);
+                } else if ("DOC".equals(badge)) {
+                    badgeColor = getColor(R.color.deck_accent);
+                } else if ("XLS".equals(badge) || "CSV".equals(badge)) {
+                    badgeColor = getColor(R.color.deck_healthy);
+                } else if ("PPT".equals(badge)) {
+                    badgeColor = getColor(R.color.deck_attention);
+                } else {
+                    badgeColor = getColor(R.color.deck_accent);
+                }
+                holder.docBadge.setTextColor(badgeColor);
+                GradientDrawable badgeBg = new GradientDrawable();
+                badgeBg.setColor(getColor(R.color.deck_card));
+                badgeBg.setCornerRadius(dp(4));
+                badgeBg.setStroke(dp(1), badgeColor);
+                holder.docBadge.setBackground(badgeBg);
+
+                holder.docTitle.setText(row.documentExtension() + " ATTACHMENT");
+                long size = ArchiveImages.fileSizeBytes(this, row.imagePath);
+                holder.docMeta.setText(ArchiveImages.formatFileSize(size) + " \u00b7 Tap to open");
+
+                holder.docContainer.setOnClickListener(v -> openArchiveDocument(row));
+                holder.docOpenBtn.setOnClickListener(v -> openArchiveDocument(row));
+                holder.docSaveBtn.setOnClickListener(v -> saveArchiveDocument(row));
+            } else if (row.hasImage()) {
+                holder.audioContainer.setVisibility(View.GONE);
+                holder.audioContainer.setTag(null);
+                holder.docContainer.setVisibility(View.GONE);
+                holder.docContainer.setTag(null);
+                final String imagePath = row.imagePath;
+                holder.mediaContainer.setTag(imagePath);
+                holder.shot.setContentDescription(row.isVideo() ? "Captured video. Tap to play." : "Captured photo. Tap to open.");
+                holder.mediaContainer.setOnClickListener(v -> showArchiveImage(row));
+                holder.shot.setOnClickListener(v -> showArchiveImage(row));
+                holder.playBadge.setVisibility(row.isVideo() ? View.VISIBLE : View.GONE);
+
+                Bitmap cached = ArchiveImages.cachedThumbnail(imagePath);
+                if (cached != null) {
+                    holder.shot.setImageBitmap(cached);
+                    holder.shot.setBackground(null);
+                    holder.mediaContainer.setVisibility(View.VISIBLE);
+                    holder.missingPhoto.setVisibility(View.GONE);
+                } else {
+                    // Render subtle cyber placeholder while loading on background worker pool
+                    holder.shot.setImageBitmap(null);
+                    holder.shot.setBackgroundResource(R.drawable.bg_cyber_panel);
+                    holder.mediaContainer.setVisibility(View.VISIBLE);
+                    holder.missingPhoto.setVisibility(View.GONE);
+
+                    ArchiveImages.loadThumbnailAsync(this, imagePath, dp(220), bitmap -> {
+                        // Only apply if the recycled view is still presenting the same image
+                        if (!imagePath.equals(holder.mediaContainer.getTag())) return;
+                        if (bitmap != null) {
+                            holder.shot.setImageBitmap(bitmap);
+                            holder.shot.setBackground(null);
+                            holder.mediaContainer.setVisibility(View.VISIBLE);
+                            holder.missingPhoto.setVisibility(View.GONE);
+                        } else {
+                            holder.mediaContainer.setVisibility(View.GONE);
+                            holder.shot.setImageBitmap(null);
+                            holder.shot.setBackground(null);
+                            holder.missingPhoto.setText(row.isVideo()
+                                    ? "[ video recorded but the file is missing ]"
+                                    : "[ photo recorded but the file is missing ]");
+                            holder.missingPhoto.setVisibility(View.VISIBLE);
+                        }
+                    });
+                }
+            } else {
+                holder.audioContainer.setVisibility(View.GONE);
+                holder.audioContainer.setTag(null);
+                holder.docContainer.setVisibility(View.GONE);
+                holder.docContainer.setTag(null);
+                holder.mediaContainer.setVisibility(View.GONE);
+                holder.playBadge.setVisibility(View.GONE);
+                holder.shot.setImageBitmap(null);
+                holder.shot.setBackground(null);
+                holder.mediaContainer.setTag(null);
+                holder.missingPhoto.setVisibility(View.GONE);
+            }
+
+            if (confidence != DeletedMessageRules.Confidence.NONE) {
+                holder.status.setVisibility(View.VISIBLE);
+                holder.status.setText(DeletedMessageRules.statusLabel(
+                        confidence, row.deletionTime, java.util.TimeZone.getDefault()));
+                holder.status.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
+                        ? R.color.danger : R.color.magenta));
+
+                holder.caveat.setVisibility(View.VISIBLE);
+                holder.caveat.setText(DeletedMessageRules.flagCaveat(confidence));
+            } else {
+                holder.status.setVisibility(View.GONE);
+                holder.caveat.setVisibility(View.GONE);
+            }
+
+            holder.quickActionsBar.setVisibility(View.VISIBLE);
+            holder.btnCopy.setOnClickListener(v -> {
+                android.content.ClipboardManager clipboard =
+                        (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                if (clipboard != null) {
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("Receipt", row.body);
+                    clipboard.setPrimaryClip(clip);
+                    toast("Copied receipt text");
+                }
+            });
+            holder.btnShare.setOnClickListener(v -> shareArchiveReceipt(row));
+            final String pinSender = who;
+            holder.btnPin.setOnClickListener(v -> {
+                FlaggedStore.get(MainActivity.this).addPinned(
+                        row.body, pinSender, row.displayAccount(), "Archived message pinned", System.currentTimeMillis());
+                toast("Pinned to assistant queue");
+            });
+            holder.btnFlag.setOnClickListener(v -> {
+                FlaggedStore.get(MainActivity.this).addFlagged(
+                        row.body, pinSender, row.displayAccount(), "Archived message flagged", System.currentTimeMillis());
+                toast("Flagged as urgent");
+            });
         }
 
         holder.card.setContentDescription((confidence == DeletedMessageRules.Confidence.CONFIRMED
