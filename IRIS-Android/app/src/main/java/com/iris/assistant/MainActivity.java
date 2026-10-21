@@ -3343,6 +3343,7 @@ public class MainActivity extends Activity {
     }
 
     private static final long ARCHIVE_SEARCH_DEBOUNCE_MS = 250L;
+    private static final int ARCHIVE_PAGE_SIZE = 50;
     private Runnable archiveSearchRunnable;
     private final ExecutorService archiveQueryExecutor =
             Executors.newSingleThreadExecutor(r -> {
@@ -3351,6 +3352,10 @@ public class MainActivity extends Activity {
                 return t;
             });
     private long archiveQuerySequence = 0L;
+    private boolean archiveHasMore = false;
+    private boolean archiveIsLoadingMore = false;
+    private View archiveFooterView;
+    private TextView archiveFooterText;
 
     /** Wire the ARCHIVE section. Unchanged behaviour; only the host view moved. */
     private void bindArchiveSection(View view) {
@@ -3471,6 +3476,24 @@ public class MainActivity extends Activity {
             flaggedOnly.setOnCheckedChangeListener((b, checked) -> {
                 if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
                 renderArchive(view);
+            });
+        }
+        ListView list = view.findViewById(R.id.archiveList);
+        if (list != null) {
+            archiveFooterView = createArchiveFooterView(view);
+            list.addFooterView(archiveFooterView, null, true);
+            list.setOnScrollListener(new AbsListView.OnScrollListener() {
+                @Override
+                public void onScrollStateChanged(AbsListView v, int scrollState) { }
+
+                @Override
+                public void onScroll(AbsListView v, int firstVisibleItem, int visibleItemCount, int totalItemCount) {
+                    if (archiveHasMore && !archiveIsLoadingMore && totalItemCount > 0) {
+                        if (firstVisibleItem + visibleItemCount >= totalItemCount - 3) {
+                            loadMoreArchiveRows(view);
+                        }
+                    }
+                }
             });
         }
         renderArchive(view);
@@ -3655,8 +3678,12 @@ public class MainActivity extends Activity {
                     card.setTranslationX(0);
                     card.setAlpha(1f);
                     ListView list = root.findViewById(R.id.archiveList);
-                    if (list != null && list.getAdapter() instanceof ArchiveAdapter) {
-                        ((ArchiveAdapter) list.getAdapter()).removeRow(row);
+                    ArchiveAdapter adapter = getArchiveAdapter(list);
+                    if (adapter != null) {
+                        adapter.removeRow(row);
+                        if (!archiveHasMore) {
+                            updateArchiveFooter(false, adapter.getCount());
+                        }
                     }
                     queueArchiveDelete(row, root);
                 })
@@ -3787,6 +3814,135 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private ArchiveAdapter getArchiveAdapter(ListView list) {
+        if (list == null) return null;
+        android.widget.ListAdapter a = list.getAdapter();
+        if (a instanceof android.widget.HeaderViewListAdapter) {
+            a = ((android.widget.HeaderViewListAdapter) a).getWrappedAdapter();
+        }
+        return a instanceof ArchiveAdapter ? (ArchiveAdapter) a : null;
+    }
+
+    private NotificationArchive.Filter buildArchiveFilter(View root) {
+        EditText search = root.findViewById(R.id.archiveSearch);
+        Switch flaggedOnly = root.findViewById(R.id.archiveFlaggedOnly);
+
+        NotificationArchive.Filter filter = new NotificationArchive.Filter();
+        if (search != null) {
+            String term = search.getText().toString().trim();
+            if (!term.isEmpty()) { filter.search = term; }
+        }
+        filter.flaggedOnly = flaggedOnly != null && flaggedOnly.isChecked();
+        // Markers are shown only in the unfiltered view, where the gaps they mark are meaningful.
+        filter.includeMarkers = !filter.flaggedOnly;
+        return filter;
+    }
+
+    private View createArchiveFooterView(final View root) {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setGravity(android.view.Gravity.CENTER);
+        container.setPadding(0, dp(12), 0, dp(24));
+
+        TextView text = new TextView(this);
+        text.setText("Load more receipts \u25BC");
+        text.setTextSize(11f);
+        text.setTextColor(getColor(R.color.deck_accent));
+        text.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        text.setGravity(android.view.Gravity.CENTER);
+        text.setPadding(dp(16), dp(8), dp(16), dp(8));
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(getColor(R.color.deck_card));
+        bg.setCornerRadius(dp(4));
+        bg.setStroke(dp(1), getColor(R.color.deck_border));
+        text.setBackground(bg);
+
+        container.addView(text);
+        archiveFooterText = text;
+
+        container.setOnClickListener(v -> loadMoreArchiveRows(root));
+        return container;
+    }
+
+    private void updateArchiveFooter(boolean hasMore, int loadedCount) {
+        if (archiveFooterText == null) return;
+        if (archiveFooterView != null) archiveFooterView.setVisibility(View.VISIBLE);
+        if (hasMore) {
+            archiveFooterText.setText("Load more receipts \u25BC");
+            archiveFooterText.setTextColor(getColor(R.color.deck_accent));
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(getColor(R.color.deck_card));
+            bg.setCornerRadius(dp(4));
+            bg.setStroke(dp(1), getColor(R.color.deck_border));
+            archiveFooterText.setBackground(bg);
+        } else {
+            if (loadedCount > 0) {
+                archiveFooterText.setText("\u2500\u2500 All " + loadedCount
+                        + (loadedCount == 1 ? " receipt" : " receipts") + " loaded \u2500\u2500");
+                archiveFooterText.setTextColor(getColor(R.color.deck_text_dim));
+                archiveFooterText.setBackground(null);
+            } else {
+                if (archiveFooterView != null) archiveFooterView.setVisibility(View.GONE);
+            }
+        }
+    }
+
+    private void loadMoreArchiveRows(final View root) {
+        if (!archiveHasMore || archiveIsLoadingMore) return;
+        if (archiveQueryExecutor.isShutdown()) return;
+        final ListView list = root.findViewById(R.id.archiveList);
+        final ArchiveAdapter adapter = getArchiveAdapter(list);
+        if (adapter == null) return;
+
+        archiveIsLoadingMore = true;
+        if (archiveFooterText != null) {
+            archiveFooterText.setText("Loading more receipts\u2026");
+            archiveFooterText.setTextColor(getColor(R.color.deck_text_dim));
+        }
+
+        final int offset = adapter.getCount();
+        final NotificationArchive.Filter filter = buildArchiveFilter(root);
+        filter.limit = ARCHIVE_PAGE_SIZE + 1;
+        filter.offset = offset;
+
+        final java.util.List<Long> pendingIds = new java.util.ArrayList<>();
+        for (ArchiveRow p : pendingDeletes) pendingIds.add(p.id);
+
+        final long queryId = archiveQuerySequence;
+        final Context context = this;
+
+        archiveQueryExecutor.execute(() -> {
+            java.util.List<ArchiveRow> batch = NotificationArchive.query(context, filter);
+
+            if (!pendingIds.isEmpty()) {
+                java.util.List<ArchiveRow> filtered = new java.util.ArrayList<>();
+                for (ArchiveRow r : batch) {
+                    if (!pendingIds.contains(r.id)) filtered.add(r);
+                }
+                batch = filtered;
+            }
+
+            final boolean hasMore = batch.size() > ARCHIVE_PAGE_SIZE;
+            if (hasMore) {
+                batch = new java.util.ArrayList<>(batch.subList(0, ARCHIVE_PAGE_SIZE));
+            }
+            final java.util.List<ArchiveRow> finalBatch = batch;
+
+            handler.post(() -> {
+                archiveIsLoadingMore = false;
+                if (queryId != archiveQuerySequence) return;
+                if (isFinishing() || isDestroyed()) return;
+
+                if (!finalBatch.isEmpty()) {
+                    adapter.addItems(finalBatch);
+                }
+                archiveHasMore = hasMore;
+                updateArchiveFooter(archiveHasMore, adapter.getCount());
+            });
+        });
+    }
+
     private static class ArchiveQueryResult {
         final long queryId;
         final java.util.List<ArchiveRow> rows;
@@ -3797,10 +3953,11 @@ public class MainActivity extends Activity {
         final String usageMessage;
         final NotificationArchive.Status health;
         final boolean accessGranted;
+        final boolean hasMore;
 
         ArchiveQueryResult(long queryId, java.util.List<ArchiveRow> rows, int total, int flagged,
                            long sizeBytes, ArchiveSchema.Usage usage, String usageMessage,
-                           NotificationArchive.Status health, boolean accessGranted) {
+                           NotificationArchive.Status health, boolean accessGranted, boolean hasMore) {
             this.queryId = queryId;
             this.rows = rows;
             this.total = total;
@@ -3810,6 +3967,7 @@ public class MainActivity extends Activity {
             this.usageMessage = usageMessage;
             this.health = health;
             this.accessGranted = accessGranted;
+            this.hasMore = hasMore;
         }
     }
 
@@ -3819,20 +3977,12 @@ public class MainActivity extends Activity {
         TextView emptyText = root.findViewById(R.id.archiveEmptyText);
         TextView summary = root.findViewById(R.id.archiveSummary);
         TextView warning = root.findViewById(R.id.archiveWarning);
-        EditText search = root.findViewById(R.id.archiveSearch);
-        Switch flaggedOnly = root.findViewById(R.id.archiveFlaggedOnly);
         if (list == null) return;
         if (archiveQueryExecutor.isShutdown()) return;
 
-        NotificationArchive.Filter filter = new NotificationArchive.Filter();
-        if (search != null) {
-            String term = search.getText().toString().trim();
-            if (!term.isEmpty()) { filter.sender = term; filter.text = term; }
-        }
-        filter.flaggedOnly = flaggedOnly != null && flaggedOnly.isChecked();
-        // Markers are shown only in the unfiltered view, where the gaps they mark are meaningful.
-        filter.includeMarkers = !filter.flaggedOnly;
-        filter.limit = 300;
+        final NotificationArchive.Filter filter = buildArchiveFilter(root);
+        filter.limit = ARCHIVE_PAGE_SIZE + 1;
+        filter.offset = 0;
 
         // Snapshot pending delete IDs on UI thread to avoid concurrent access to pendingDeletes set
         final java.util.List<Long> pendingIds = new java.util.ArrayList<>();
@@ -3841,35 +3991,13 @@ public class MainActivity extends Activity {
         }
 
         final long queryId = ++archiveQuerySequence;
+        archiveIsLoadingMore = false;
         final boolean accessGranted = notificationAccessGranted();
         final boolean isConnected = IrisNotificationListener.isConnected();
         final Context context = this;
 
         archiveQueryExecutor.execute(() -> {
-            // A free-text term should match EITHER sender or body, but the query ANDs its fields. Run
-            // both and merge, rather than silently searching only one of them.
-            java.util.List<ArchiveRow> rows;
-            if (filter.sender != null) {
-                NotificationArchive.Filter bySender = new NotificationArchive.Filter();
-                bySender.sender = filter.sender;
-                bySender.flaggedOnly = filter.flaggedOnly;
-                bySender.includeMarkers = false;
-                bySender.limit = filter.limit;
-
-                NotificationArchive.Filter byText = new NotificationArchive.Filter();
-                byText.text = filter.text;
-                byText.flaggedOnly = filter.flaggedOnly;
-                byText.includeMarkers = false;
-                byText.limit = filter.limit;
-
-                java.util.LinkedHashMap<Long, ArchiveRow> merged = new java.util.LinkedHashMap<>();
-                for (ArchiveRow row : NotificationArchive.query(context, bySender)) merged.put(row.id, row);
-                for (ArchiveRow row : NotificationArchive.query(context, byText)) merged.put(row.id, row);
-                rows = new java.util.ArrayList<>(merged.values());
-                java.util.Collections.sort(rows, (a, b) -> Long.compare(b.postTime, a.postTime));
-            } else {
-                rows = NotificationArchive.query(context, filter);
-            }
+            java.util.List<ArchiveRow> rows = NotificationArchive.query(context, filter);
 
             // Filter out any rows pending delete in the undo window
             if (!pendingIds.isEmpty()) {
@@ -3882,6 +4010,11 @@ public class MainActivity extends Activity {
                 rows = filtered;
             }
 
+            final boolean hasMore = rows.size() > ARCHIVE_PAGE_SIZE;
+            if (hasMore) {
+                rows = new java.util.ArrayList<>(rows.subList(0, ARCHIVE_PAGE_SIZE));
+            }
+
             int total = NotificationArchive.totalMessages(context);
             int flagged = NotificationArchive.totalFlagged(context);
             long sizeBytes = NotificationArchive.sizeBytes(context);
@@ -3891,7 +4024,7 @@ public class MainActivity extends Activity {
             NotificationArchive.Status health = NotificationArchive.status(context, accessGranted, isConnected);
 
             final ArchiveQueryResult result = new ArchiveQueryResult(
-                    queryId, rows, total, flagged, sizeBytes, usage, usageMessage, health, accessGranted);
+                    queryId, rows, total, flagged, sizeBytes, usage, usageMessage, health, accessGranted, hasMore);
 
             handler.post(() -> {
                 // Ignore stale results if another query was dispatched
@@ -3899,7 +4032,7 @@ public class MainActivity extends Activity {
                 if (isFinishing() || isDestroyed()) return;
 
                 if (summary != null) {
-                    summary.setText(result.total + (result.total == 1 ? " LOGGED \u00b7 " : " LOGGED \u00b7 ")
+                    summary.setText(result.total + " LOGGED \u00b7 "
                             + result.flagged + " INCRIMINATING \u00b7 "
                             + ArchiveSchema.readableSize(result.sizeBytes));
                 }
@@ -3932,15 +4065,16 @@ public class MainActivity extends Activity {
                               + "suspiciously well behaved.");
                 }
 
-                ArchiveAdapter adapter;
-                if (list.getAdapter() instanceof ArchiveAdapter) {
-                    adapter = (ArchiveAdapter) list.getAdapter();
-                } else {
+                ArchiveAdapter adapter = getArchiveAdapter(list);
+                if (adapter == null) {
                     adapter = new ArchiveAdapter(root);
                     list.setAdapter(adapter);
                     if (emptyText != null) list.setEmptyView(emptyText);
                 }
                 adapter.setItems(result.rows);
+
+                archiveHasMore = result.hasMore;
+                updateArchiveFooter(archiveHasMore, adapter.getCount());
             });
         });
     }
@@ -3967,6 +4101,21 @@ public class MainActivity extends Activity {
         void setItems(java.util.List<ArchiveRow> newItems) {
             items.clear();
             if (newItems != null) items.addAll(newItems);
+            notifyDataSetChanged();
+        }
+
+        void addItems(java.util.List<ArchiveRow> newItems) {
+            if (newItems == null || newItems.isEmpty()) return;
+            for (ArchiveRow row : newItems) {
+                boolean exists = false;
+                for (ArchiveRow existing : items) {
+                    if (existing.id == row.id) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) items.add(row);
+            }
             notifyDataSetChanged();
         }
 
@@ -9158,6 +9307,10 @@ public class MainActivity extends Activity {
         if (archiveQueryExecutor != null) {
             archiveQueryExecutor.shutdown();
         }
+        archiveFooterView = null;
+        archiveFooterText = null;
+        archiveHasMore = false;
+        archiveIsLoadingMore = false;
         super.onDestroy();
     }
 

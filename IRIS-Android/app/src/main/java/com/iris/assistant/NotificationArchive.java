@@ -98,12 +98,15 @@ public final class NotificationArchive {
         public String sender;
         /** Free text, matched against the message body. */
         public String text;
+        /** Unified search matched against sender, raw title, or message body. */
+        public String search;
         public long fromMs;
         public long toMs;
         public boolean flaggedOnly;
         /** Include listener-gap and capture-paused markers alongside messages. */
         public boolean includeMarkers;
         public int limit = 200;
+        public int offset = 0;
     }
 
     // ─── Writing ───
@@ -363,6 +366,15 @@ public final class NotificationArchive {
                 where.append(" AND ").append(ArchiveSchema.COL_BODY).append(" LIKE ? ESCAPE '\\'");
                 args.add(contains(f.text));
             }
+            if (f.search != null && !f.search.trim().isEmpty()) {
+                where.append(" AND (").append(ArchiveSchema.COL_SENDER).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_RAW_TITLE).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_BODY).append(" LIKE ? ESCAPE '\\')");
+                String like = contains(f.search);
+                args.add(like);
+                args.add(like);
+                args.add(like);
+            }
             if (f.fromMs > 0) {
                 where.append(" AND ").append(ArchiveSchema.COL_POST_TIME).append(" >= ?");
                 args.add(String.valueOf(f.fromMs));
@@ -373,10 +385,11 @@ public final class NotificationArchive {
             }
 
             int limit = f.limit <= 0 ? 200 : f.limit;
+            String limitClause = f.offset > 0 ? (limit + " OFFSET " + f.offset) : String.valueOf(limit);
             Cursor cursor = db.query(ArchiveSchema.TABLE, null, where.toString(),
                     args.toArray(new String[0]), null, null,
                     ArchiveSchema.COL_POST_TIME + " DESC, " + ArchiveSchema.COL_ID + " DESC",
-                    String.valueOf(limit));
+                    limitClause);
             try {
                 while (cursor != null && cursor.moveToNext()) out.add(readRow(cursor));
             } finally {
