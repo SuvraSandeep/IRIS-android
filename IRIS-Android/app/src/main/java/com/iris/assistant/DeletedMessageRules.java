@@ -53,17 +53,49 @@ public final class DeletedMessageRules {
     private static final int MAX_SENDER_NAME = 48;
 
     /**
-     * Placeholders meaning the OTHER person removed a message. English only, by owner decision:
-     * a non-English messaging app uses different wording and detection will silently fail, which
-     * is a stated limitation rather than an oversight.
+     * Placeholders meaning the OTHER person removed a message.
+     * Multilingual coverage: English, Hindi, Odia, Spanish, French.
      */
     private static final String[] SENDER_DELETED = {
+            // English
             "this message was deleted",
             "message was deleted",
             "message deleted",
             "message unsent",
             "unsent a message",
-            "deleted this message"
+            "deleted this message",
+            // Hindi (हिंदी)
+            "यह संदेश हटा दिया गया था",
+            "यह संदेश हटा दिया गया है",
+            "यह संदेश हटा दिया गया",
+            "संदेश हटा दिया गया था",
+            "संदेश हटा दिया गया",
+            "यह संदेश मिटा दिया गया था",
+            "यह संदेश मिटा दिया गया",
+            // Odia (ଓଡ଼ିଆ)
+            "ଏହି ବାର୍ତ୍ତାଟି ଡିଲିଟ୍ କରାଯାଇଛି",
+            "ଏହି ବାର୍ତ୍ତାଟି ଡିଲିଟ୍ ହୋଇଛି",
+            "ଏହି ମେସେଜ୍ ଡିଲିଟ୍ କରାଯାଇଛି",
+            "ମେସେଜ୍ ଡିଲିଟ୍ କରାଯାଇଛି",
+            "ଏହି ସନ୍ଦେଶ ହଟାଇ ଦିଆଯାଇଛି",
+            // Spanish (Español)
+            "este mensaje fue eliminado",
+            "este mensaje ha sido eliminado",
+            "se eliminó este mensaje",
+            "se elimino este mensaje",
+            "mensaje eliminado",
+            "mensaje anulado",
+            "anuló un mensaje",
+            "anulo un mensaje",
+            // French (Français)
+            "ce message a été supprimé",
+            "ce message a ete supprime",
+            "ce message a été effacé",
+            "ce message a ete efface",
+            "message supprimé",
+            "message supprime",
+            "a annulé l'envoi d'un message",
+            "a annule l'envoi d'un message"
     };
 
     /**
@@ -71,9 +103,29 @@ public final class DeletedMessageRules {
      * the feature exists to catch what other people took back, not to report the owner to himself.
      */
     private static final String[] OWN_DELETED = {
+            // English
             "you deleted this message",
             "you unsent a message",
-            "you deleted a message"
+            "you deleted a message",
+            // Hindi (हिंदी)
+            "आपने यह संदेश हटा दिया था",
+            "आपने यह संदेश हटा दिया है",
+            "आपने यह संदेश हटा दिया",
+            "आपने संदेश हटा दिया",
+            "आपने यह संदेश मिटा दिया",
+            // Odia (ଓଡ଼ିଆ)
+            "ଆପଣ ଏହି ବାର୍ତ୍ତାଟି ଡିଲିଟ୍ କରିଛନ୍ତି",
+            "ଆପଣ ଏହି ମେସେଜ୍ ଡିଲିଟ୍ କରିଛନ୍ତି",
+            "ଆପଣ ଏହି ସନ୍ଦେଶ ହଟାଇ ଦେଇଛନ୍ତି",
+            // Spanish (Español)
+            "eliminaste este mensaje",
+            "has eliminado este mensaje",
+            "anulaste un mensaje",
+            // French (Français)
+            "vous avez supprimé ce message",
+            "vous avez supprime ce message",
+            "vous avez annulé l'envoi d'un message",
+            "vous avez annule l'envoi d'un message"
     };
 
     /** How a notification left the shade. Mapped from Android's REASON_* constants by the listener. */
@@ -281,6 +333,67 @@ public final class DeletedMessageRules {
             return "[STATUS: SENDER UNSENT THIS MESSAGE AT " + when + "]";
         }
         return "[STATUS: POSSIBLY UNSENT AT " + when + " \u2014 NOT CONFIRMED]";
+    }
+
+    /**
+     * Exact forensic timeline indicating when the message was posted, when it was deleted or withdrawn,
+     * and its total active lifespan (e.g. "Sent at 10:14 PM → Deleted at 10:19 PM (Existed for 5m 12s)").
+     */
+    public static String deletionTimeline(Confidence confidence, long postTime, long deletionTime, TimeZone zone) {
+        if (confidence == null || confidence == Confidence.NONE) return "";
+        if (deletionTime > 0 && postTime > 0 && deletionTime >= postTime) {
+            String sentAt = formatClockTime(postTime, zone);
+            String action = (confidence == Confidence.CONFIRMED) ? "Deleted at " : "Withdrawn at ";
+            String deletedAt = formatClockTime(deletionTime, zone);
+            String lifespan = formatDuration(deletionTime - postTime);
+            return "Sent at " + sentAt + " \u2192 " + action + deletedAt + " (Existed for " + lifespan + ")";
+        } else if (deletionTime > 0) {
+            String action = (confidence == Confidence.CONFIRMED) ? "Deleted at " : "Withdrawn at ";
+            return action + formatClockTime(deletionTime, zone);
+        }
+        return "";
+    }
+
+    /**
+     * Overloaded status label including both the status banner and exact forensics timeline when available.
+     */
+    public static String statusLabel(Confidence confidence, long postTime, long deletionTime, TimeZone zone) {
+        if (confidence == null || confidence == Confidence.NONE) return "";
+        String base = statusLabel(confidence, deletionTime, zone);
+        String timeline = deletionTimeline(confidence, postTime, deletionTime, zone);
+        if (!timeline.isEmpty()) {
+            return base + "\n" + timeline;
+        }
+        return base;
+    }
+
+    /** Formats a timestamp into clock time (e.g. "10:14 PM"). */
+    public static String formatClockTime(long whenMs, TimeZone zone) {
+        if (whenMs <= 0) return "";
+        SimpleDateFormat format = new SimpleDateFormat("h:mm a", Locale.US);
+        format.setTimeZone(zone == null ? TimeZone.getTimeZone("UTC") : zone);
+        return format.format(new Date(whenMs));
+    }
+
+    /** Formats a millisecond duration into a concise forensic lifespan (e.g. "5m 12s", "42s", "1h 14m 30s"). */
+    public static String formatDuration(long durationMs) {
+        if (durationMs <= 0) return "< 1s";
+        long totalSeconds = durationMs / 1000L;
+        if (totalSeconds < 1) return "< 1s";
+        long days = totalSeconds / 86400L;
+        long hours = (totalSeconds % 86400L) / 3600L;
+        long minutes = (totalSeconds % 3600L) / 60L;
+        long seconds = totalSeconds % 60L;
+
+        if (days > 0) {
+            return days + "d " + hours + "h " + minutes + "m";
+        } else if (hours > 0) {
+            return hours + "h " + minutes + "m " + seconds + "s";
+        } else if (minutes > 0) {
+            return minutes + "m " + seconds + "s";
+        } else {
+            return seconds + "s";
+        }
     }
 
     /**

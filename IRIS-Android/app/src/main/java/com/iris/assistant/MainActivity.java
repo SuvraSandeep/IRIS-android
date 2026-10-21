@@ -5705,6 +5705,9 @@ public class MainActivity extends Activity {
                 if (confidence != DeletedMessageRules.Confidence.NONE) {
                     metaSb.append(" \u00b7 \uD83D\uDEA9 ").append(DeletedMessageRules.statusLabel(
                             confidence, row.deletionTime, java.util.TimeZone.getDefault()));
+                    if (row.deletionTime > row.postTime && row.postTime > 0) {
+                        metaSb.append(" (").append(DeletedMessageRules.formatDuration(row.deletionTime - row.postTime)).append(")");
+                    }
                 }
                 holder.meta.setText(metaSb.toString());
                 holder.meta.setVisibility(View.VISIBLE);
@@ -5931,7 +5934,7 @@ public class MainActivity extends Activity {
             if (confidence != DeletedMessageRules.Confidence.NONE) {
                 holder.status.setVisibility(View.VISIBLE);
                 holder.status.setText(DeletedMessageRules.statusLabel(
-                        confidence, row.deletionTime, java.util.TimeZone.getDefault()));
+                        confidence, row.postTime, row.deletionTime, java.util.TimeZone.getDefault()));
                 holder.status.setTextColor(getColor(confidence == DeletedMessageRules.Confidence.CONFIRMED
                         ? R.color.danger : R.color.magenta));
 
