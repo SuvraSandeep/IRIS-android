@@ -3606,21 +3606,30 @@ public class MainActivity extends Activity {
         view.postDelayed(new Runnable() {
             @Override public void run() {
                 if (isFinishing() || isDestroyed()) return;
-                if (!view.isAttachedToWindow() || commsSection != 2) return;
+                if (!view.isAttachedToWindow() || commsSection != 0) return;
 
-                IrisNotificationListener.captureVisibleNow();
-                String current = NotificationArchive.signature(MainActivity.this);
-                if (!current.equals(archiveLastSignature)) {
-                    archiveLastSignature = current;
-                    EditText search = view.findViewById(R.id.archiveSearch);
-                    boolean isSearching = (search != null && search.getText().length() > 0 && archiveSearchRunnable != null);
-                    if (!isSearching) {
-                        renderArchive(view);
+                archiveQueryExecutor.execute(() -> {
+                    IrisNotificationListener.captureVisibleNow();
+                    final String current = NotificationArchive.signature(MainActivity.this);
+                    if (!current.equals(archiveLastSignature)) {
+                        archiveLastSignature = current;
+                        runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            if (!view.isAttachedToWindow() || commsSection != 0) return;
+                            EditText search = view.findViewById(R.id.archiveSearch);
+                            boolean isSearching = (search != null && search.getText().length() > 0 && archiveSearchRunnable != null);
+                            if (!isSearching) {
+                                renderArchive(view);
+                            }
+                        });
                     }
+                });
+
+                if (view.isAttachedToWindow() && commsSection == 0) {
+                    view.postDelayed(this, 2500);
                 }
-                view.postDelayed(this, 3000);
             }
-        }, 3000);
+        }, 2500);
     }
 
     private void updateArchiveViewModeButtons(View root) {
