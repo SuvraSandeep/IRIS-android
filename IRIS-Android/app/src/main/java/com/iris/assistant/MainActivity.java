@@ -3377,6 +3377,7 @@ public class MainActivity extends Activity {
     private int archiveDensityMode = ARCHIVE_DENSITY_DETAILED;
     private final java.util.Set<Long> archiveExpandedRowIds = new java.util.HashSet<>();
     private String archiveLastSignature = "";
+    private NotificationArchive.Filter pendingExportFilter = null;
     private final ExecutorService archiveQueryExecutor =
             Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "iris-archive-db");
@@ -8191,8 +8192,10 @@ public class MainActivity extends Activity {
     private static final int IMPORT_MEMORY = 206;
     private static final int EXPORT_ARCHIVE_CSV = 207;
     private static final int EXPORT_ARCHIVE_TEXT = 208;
-    /** Saving one captured photo. The export itself stays text-only by the owner's decision. */
+    /** Saving one captured photo. */
     private static final int SAVE_ARCHIVE_IMAGE = 209;
+    private static final int EXPORT_ARCHIVE_ZIP = 210;
+    private static final int EXPORT_ARCHIVE_HTML = 211;
 
     private void createMemoryDocument() {
         startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
@@ -10845,28 +10848,53 @@ public class MainActivity extends Activity {
                 }, "IRIS-ExportLogs").start();
             } else if (requestCode == SAVE_ARCHIVE_IMAGE) {
                 writeArchiveImage(uri);
-            } else if (requestCode == EXPORT_ARCHIVE_CSV || requestCode == EXPORT_ARCHIVE_TEXT) {
-                final boolean csv = requestCode == EXPORT_ARCHIVE_CSV;
+            } else if (requestCode == EXPORT_ARCHIVE_CSV || requestCode == EXPORT_ARCHIVE_TEXT
+                    || requestCode == EXPORT_ARCHIVE_ZIP || requestCode == EXPORT_ARCHIVE_HTML) {
+                final int req = requestCode;
+                final NotificationArchive.Filter queryFilter;
+                if (pendingExportFilter != null) {
+                    queryFilter = pendingExportFilter;
+                    queryFilter.limit = Integer.MAX_VALUE;
+                    pendingExportFilter = null;
+                } else {
+                    queryFilter = new NotificationArchive.Filter();
+                    queryFilter.includeMarkers = true;
+                    queryFilter.limit = Integer.MAX_VALUE;
+                }
+
                 new Thread(() -> {
                     try {
-                        NotificationArchive.Filter all = new NotificationArchive.Filter();
-                        all.includeMarkers = true;
-                        // Export everything, including capture gaps, so the file is a full record
-                        // rather than a filtered view the owner might later mistake for complete.
-                        all.limit = Integer.MAX_VALUE;
                         java.util.List<ArchiveRow> rows =
-                                NotificationArchive.query(getApplicationContext(), all);
+                                NotificationArchive.query(getApplicationContext(), queryFilter);
                         java.util.TimeZone zone = java.util.TimeZone.getDefault();
-                        String body = csv
-                                ? ArchiveExport.toCsv(rows, zone)
-                                : ArchiveExport.toText(rows, System.currentTimeMillis(), zone);
-                        writeText(uri, body);
+
+                        if (req == EXPORT_ARCHIVE_ZIP) {
+                            try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
+                                ArchiveExport.writeZip(out, rows, zone, storedName -> {
+                                    java.io.File f = ArchiveImages.fileFor(getApplicationContext(), storedName);
+                                    return (f != null && f.exists()) ? new java.io.FileInputStream(f) : null;
+                                });
+                            }
+                        } else if (req == EXPORT_ARCHIVE_HTML) {
+                            String html = ArchiveExport.toHtmlReport(rows, System.currentTimeMillis(), zone, null);
+                            writeText(uri, html);
+                        } else if (req == EXPORT_ARCHIVE_CSV) {
+                            String body = ArchiveExport.toCsv(rows, zone);
+                            writeText(uri, body);
+                        } else {
+                            String body = ArchiveExport.toText(rows, System.currentTimeMillis(), zone);
+                            writeText(uri, body);
+                        }
+
                         AppSettings settings = new AppSettings(getApplicationContext());
                         settings.setLastArchiveExportAt(System.currentTimeMillis());
                         settings.setArchiveRowsSinceExport(0);
                         final int count = rows.size();
-                        runOnUiThread(() -> toast("Exported " + count
-                                + (count == 1 ? " entry." : " entries.")));
+                        final String formatName = req == EXPORT_ARCHIVE_ZIP ? "ZIP backup"
+                                : (req == EXPORT_ARCHIVE_HTML ? "HTML report"
+                                : (req == EXPORT_ARCHIVE_CSV ? "CSV" : "text transcript"));
+                        runOnUiThread(() -> toast("Exported " + formatName + " (" + count
+                                + (count == 1 ? " entry)." : " entries).")));
                     } catch (Exception error) {
                         runOnUiThread(() -> toast("Archive export failed."));
                     }
@@ -10875,38 +10903,87 @@ public class MainActivity extends Activity {
         } catch (Exception error) { toast("That didn't work: " + error.getMessage()); }
     }
 
+    private boolean isArchiveFilterActive(NotificationArchive.Filter filter) {
+        if (filter == null) return false;
+        if (filter.search != null && !filter.search.trim().isEmpty()) return true;
+        if (filter.quickFilter != NotificationArchive.Filter.QUICK_ALL) return true;
+        if (filter.fromMs > 0 || filter.toMs > 0) return true;
+        if (filter.conversationThread != null && !filter.conversationThread.isEmpty()) return true;
+        return false;
+    }
+
     /**
-     * Export the archive. CSV for filtering in a spreadsheet, plain text for reading.
-     *
-     * Offered as a choice rather than writing both, so the owner picks one destination instead of
-     * being walked through two file pickers in a row.
+     * Export the archive. Supports full ZIP backup (with media), standalone HTML forensic report,
+     * CSV spreadsheet, and plain text transcript, with selective filtering support.
      */
     private void exportArchive() {
         if (NotificationArchive.totalMessages(this) == 0) {
             toast("Nothing to export yet.");
             return;
         }
+
+        View archiveRoot = findViewById(R.id.archiveView);
+        final NotificationArchive.Filter activeFilter = archiveRoot != null ? buildArchiveFilter(archiveRoot) : null;
+        boolean hasFilter = isArchiveFilterActive(activeFilter);
+
+        if (hasFilter) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Export Archive")
+                    .setMessage("A filter or search query is currently active in your vault.\n\n"
+                            + "Would you like to export only the currently filtered entries, or the entire database?")
+                    .setNeutralButton("Cancel", null)
+                    .setNegativeButton("Entire Archive", (d, w) -> {
+                        pendingExportFilter = null;
+                        showExportFormatPicker(false);
+                    })
+                    .setPositiveButton("Filtered View", (d, w) -> {
+                        pendingExportFilter = activeFilter;
+                        showExportFormatPicker(true);
+                    })
+                    .show();
+        } else {
+            pendingExportFilter = null;
+            showExportFormatPicker(false);
+        }
+    }
+
+    private void showExportFormatPicker(final boolean isFiltered) {
+        String[] options = new String[] {
+                "\uD83D\uDCE6 Full ZIP Backup (with photos & media)",
+                "\uD83C\uDF10 Standalone HTML Forensic Report",
+                "\uD83D\uDCCA CSV Spreadsheet",
+                "\uD83D\uDCC4 Plain Text Transcript"
+        };
+
         new AlertDialog.Builder(this)
-                .setTitle("Export archive")
-                .setMessage("CSV opens in a spreadsheet and can be sorted and filtered. "
-                        + "Readable text is laid out for reading straight through.\n\n"
-                        + "Either way this is the only copy that survives a reset or a new phone, "
-                        + "because the archive is never included in a backup.")
-                .setNeutralButton("Cancel", null)
-                .setNegativeButton("Readable text", (d, w) -> startArchiveExport(
-                        EXPORT_ARCHIVE_TEXT, "text/plain", "txt"))
-                .setPositiveButton("CSV", (d, w) -> startArchiveExport(
-                        EXPORT_ARCHIVE_CSV, "text/csv", "csv"))
+                .setTitle(isFiltered ? "Export Filtered Archive" : "Export Archive")
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0:
+                            startArchiveExport(EXPORT_ARCHIVE_ZIP, "application/zip", "zip", isFiltered);
+                            break;
+                        case 1:
+                            startArchiveExport(EXPORT_ARCHIVE_HTML, "text/html", "html", isFiltered);
+                            break;
+                        case 2:
+                            startArchiveExport(EXPORT_ARCHIVE_CSV, "text/csv", "csv", isFiltered);
+                            break;
+                        case 3:
+                            startArchiveExport(EXPORT_ARCHIVE_TEXT, "text/plain", "txt", isFiltered);
+                            break;
+                    }
+                })
+                .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    private void startArchiveExport(int requestCode, String mimeType, String extension) {
+    private void startArchiveExport(int requestCode, String mimeType, String extension, boolean isFiltered) {
         try {
             startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT)
                     .addCategory(Intent.CATEGORY_OPENABLE)
                     .setType(mimeType)
                     .putExtra(Intent.EXTRA_TITLE, ArchiveExport.fileName(
-                            extension, System.currentTimeMillis(), java.util.TimeZone.getDefault())),
+                            extension, isFiltered, System.currentTimeMillis(), java.util.TimeZone.getDefault())),
                     requestCode);
         } catch (Exception e) {
             toast("No file picker available on this phone.");
