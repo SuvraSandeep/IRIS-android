@@ -59,6 +59,8 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     /** Launch extra: open the notification archive directly, used by the unsent-message alert. */
@@ -3340,6 +3342,16 @@ public class MainActivity extends Activity {
         });
     }
 
+    private static final long ARCHIVE_SEARCH_DEBOUNCE_MS = 250L;
+    private Runnable archiveSearchRunnable;
+    private final ExecutorService archiveQueryExecutor =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "iris-archive-db");
+                t.setPriority(Thread.NORM_PRIORITY - 1);
+                return t;
+            });
+    private long archiveQuerySequence = 0L;
+
     /** Wire the ARCHIVE section. Unchanged behaviour; only the host view moved. */
     private void bindArchiveSection(View view) {
         ArchiveAlerts.clear(this);
@@ -3361,12 +3373,19 @@ public class MainActivity extends Activity {
         if (back != null) {
             // Leaving commits any queued deletes: the owner swiped deliberately, so navigating
             // away confirms that intent rather than silently cancelling it.
-            back.setOnClickListener(v -> { flushArchiveDeletes(); showLogs(); });
+            back.setOnClickListener(v -> {
+                if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                flushArchiveDeletes();
+                showLogs();
+            });
         }
 
         View apps = view.findViewById(R.id.archiveAppsButton);
         if (apps != null) {
-            apps.setOnClickListener(v -> ArchiveAppPicker.show(this, () -> renderArchive(view)));
+            apps.setOnClickListener(v -> ArchiveAppPicker.show(this, () -> {
+                if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                renderArchive(view);
+            }));
         }
 
         View export = view.findViewById(R.id.archiveExportButton);
@@ -3378,6 +3397,7 @@ public class MainActivity extends Activity {
         View refresh = view.findViewById(R.id.archiveRefreshButton);
         if (refresh != null) {
             refresh.setOnClickListener(v -> {
+                if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
                 IrisNotificationListener.ensureConnected(this);
                 IrisNotificationListener.captureVisibleNow();
                 renderArchive(view);
@@ -3429,6 +3449,7 @@ public class MainActivity extends Activity {
                             + "to keep the evidence.")
                     .setNegativeButton("On reflection, no", null)
                     .setPositiveButton("Erase everything", (d, w) -> {
+                        if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
                         int removed = NotificationArchive.deleteEverything(this);
                         toast(removed + " entries gone. I remember nothing. Allegedly.");
                         renderArchive(view);
@@ -3439,11 +3460,18 @@ public class MainActivity extends Activity {
             search.addTextChangedListener(new android.text.TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
                 @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
-                @Override public void afterTextChanged(android.text.Editable s) { renderArchive(view); }
+                @Override public void afterTextChanged(android.text.Editable s) {
+                    if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                    archiveSearchRunnable = () -> renderArchive(view);
+                    handler.postDelayed(archiveSearchRunnable, ARCHIVE_SEARCH_DEBOUNCE_MS);
+                }
             });
         }
         if (flaggedOnly != null) {
-            flaggedOnly.setOnCheckedChangeListener((b, checked) -> renderArchive(view));
+            flaggedOnly.setOnCheckedChangeListener((b, checked) -> {
+                if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                renderArchive(view);
+            });
         }
         renderArchive(view);
     }
@@ -3663,6 +3691,7 @@ public class MainActivity extends Activity {
         int restored = pendingDeletes.size();
         pendingDeletes.clear();
         hideUndoBar(root);
+        if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
         renderArchive(root);
         toast(restored == 1 ? "Kept it. Close call."
                             : "Kept all " + restored + " of them. Close call.");
@@ -3712,10 +3741,21 @@ public class MainActivity extends Activity {
     private void renderArchiveSummaryOnly(View root) {
         TextView summary = root.findViewById(R.id.archiveSummary);
         if (summary == null) return;
-        int total = NotificationArchive.totalMessages(this);
-        int flagged = NotificationArchive.totalFlagged(this);
-        summary.setText(total + " LOGGED \u00b7 " + flagged + " INCRIMINATING \u00b7 "
-                + ArchiveSchema.readableSize(NotificationArchive.sizeBytes(this)));
+        if (archiveQueryExecutor.isShutdown()) return;
+        final Context context = this;
+        archiveQueryExecutor.execute(() -> {
+            int total = NotificationArchive.totalMessages(context);
+            int flagged = NotificationArchive.totalFlagged(context);
+            long sizeBytes = NotificationArchive.sizeBytes(context);
+            handler.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                TextView curSummary = root.findViewById(R.id.archiveSummary);
+                if (curSummary != null) {
+                    curSummary.setText(total + " LOGGED \u00b7 " + flagged + " INCRIMINATING \u00b7 "
+                            + ArchiveSchema.readableSize(sizeBytes));
+                }
+            });
+        });
     }
 
     /** Rows swiped away but not yet committed to the database. */
@@ -3747,6 +3787,32 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private static class ArchiveQueryResult {
+        final long queryId;
+        final java.util.List<ArchiveRow> rows;
+        final int total;
+        final int flagged;
+        final long sizeBytes;
+        final ArchiveSchema.Usage usage;
+        final String usageMessage;
+        final NotificationArchive.Status health;
+        final boolean accessGranted;
+
+        ArchiveQueryResult(long queryId, java.util.List<ArchiveRow> rows, int total, int flagged,
+                           long sizeBytes, ArchiveSchema.Usage usage, String usageMessage,
+                           NotificationArchive.Status health, boolean accessGranted) {
+            this.queryId = queryId;
+            this.rows = rows;
+            this.total = total;
+            this.flagged = flagged;
+            this.sizeBytes = sizeBytes;
+            this.usage = usage;
+            this.usageMessage = usageMessage;
+            this.health = health;
+            this.accessGranted = accessGranted;
+        }
+    }
+
     /** Re-read the archive and rebuild the card list against the current filters. */
     private void renderArchive(View root) {
         ListView list = root.findViewById(R.id.archiveList);
@@ -3756,6 +3822,7 @@ public class MainActivity extends Activity {
         EditText search = root.findViewById(R.id.archiveSearch);
         Switch flaggedOnly = root.findViewById(R.id.archiveFlaggedOnly);
         if (list == null) return;
+        if (archiveQueryExecutor.isShutdown()) return;
 
         NotificationArchive.Filter filter = new NotificationArchive.Filter();
         if (search != null) {
@@ -3767,96 +3834,115 @@ public class MainActivity extends Activity {
         filter.includeMarkers = !filter.flaggedOnly;
         filter.limit = 300;
 
-        // A free-text term should match EITHER sender or body, but the query ANDs its fields. Run
-        // both and merge, rather than silently searching only one of them.
-        java.util.List<ArchiveRow> rows;
-        if (filter.sender != null) {
-            NotificationArchive.Filter bySender = new NotificationArchive.Filter();
-            bySender.sender = filter.sender;
-            bySender.flaggedOnly = filter.flaggedOnly;
-            bySender.includeMarkers = false;
-            bySender.limit = filter.limit;
-
-            NotificationArchive.Filter byText = new NotificationArchive.Filter();
-            byText.text = filter.text;
-            byText.flaggedOnly = filter.flaggedOnly;
-            byText.includeMarkers = false;
-            byText.limit = filter.limit;
-
-            java.util.LinkedHashMap<Long, ArchiveRow> merged = new java.util.LinkedHashMap<>();
-            for (ArchiveRow row : NotificationArchive.query(this, bySender)) merged.put(row.id, row);
-            for (ArchiveRow row : NotificationArchive.query(this, byText)) merged.put(row.id, row);
-            rows = new java.util.ArrayList<>(merged.values());
-            java.util.Collections.sort(rows, (a, b) -> Long.compare(b.postTime, a.postTime));
-        } else {
-            rows = NotificationArchive.query(this, filter);
+        // Snapshot pending delete IDs on UI thread to avoid concurrent access to pendingDeletes set
+        final java.util.List<Long> pendingIds = new java.util.ArrayList<>();
+        for (ArchiveRow p : pendingDeletes) {
+            pendingIds.add(p.id);
         }
 
-        // Filter out any rows pending delete in the undo window
-        if (!pendingDeletes.isEmpty()) {
-            java.util.List<ArchiveRow> filtered = new java.util.ArrayList<>();
-            for (ArchiveRow r : rows) {
-                boolean pending = false;
-                for (ArchiveRow p : pendingDeletes) {
-                    if (p.id == r.id) {
-                        pending = true;
-                        break;
+        final long queryId = ++archiveQuerySequence;
+        final boolean accessGranted = notificationAccessGranted();
+        final boolean isConnected = IrisNotificationListener.isConnected();
+        final Context context = this;
+
+        archiveQueryExecutor.execute(() -> {
+            // A free-text term should match EITHER sender or body, but the query ANDs its fields. Run
+            // both and merge, rather than silently searching only one of them.
+            java.util.List<ArchiveRow> rows;
+            if (filter.sender != null) {
+                NotificationArchive.Filter bySender = new NotificationArchive.Filter();
+                bySender.sender = filter.sender;
+                bySender.flaggedOnly = filter.flaggedOnly;
+                bySender.includeMarkers = false;
+                bySender.limit = filter.limit;
+
+                NotificationArchive.Filter byText = new NotificationArchive.Filter();
+                byText.text = filter.text;
+                byText.flaggedOnly = filter.flaggedOnly;
+                byText.includeMarkers = false;
+                byText.limit = filter.limit;
+
+                java.util.LinkedHashMap<Long, ArchiveRow> merged = new java.util.LinkedHashMap<>();
+                for (ArchiveRow row : NotificationArchive.query(context, bySender)) merged.put(row.id, row);
+                for (ArchiveRow row : NotificationArchive.query(context, byText)) merged.put(row.id, row);
+                rows = new java.util.ArrayList<>(merged.values());
+                java.util.Collections.sort(rows, (a, b) -> Long.compare(b.postTime, a.postTime));
+            } else {
+                rows = NotificationArchive.query(context, filter);
+            }
+
+            // Filter out any rows pending delete in the undo window
+            if (!pendingIds.isEmpty()) {
+                java.util.List<ArchiveRow> filtered = new java.util.ArrayList<>();
+                for (ArchiveRow r : rows) {
+                    if (!pendingIds.contains(r.id)) {
+                        filtered.add(r);
                     }
                 }
-                if (!pending) filtered.add(r);
+                rows = filtered;
             }
-            rows = filtered;
-        }
 
-        int total = NotificationArchive.totalMessages(this);
-        int flagged = NotificationArchive.totalFlagged(this);
-        if (summary != null) {
-            summary.setText(total + (total == 1 ? " LOGGED \u00b7 " : " LOGGED \u00b7 ")
-                    + flagged + " INCRIMINATING \u00b7 " + ArchiveSchema.readableSize(
-                    NotificationArchive.sizeBytes(this)));
-        }
-        if (warning != null) {
-            ArchiveSchema.Usage usage = NotificationArchive.usage(this);
-            boolean show = usage == ArchiveSchema.Usage.CRITICAL || usage == ArchiveSchema.Usage.FULL;
-            warning.setText(show ? NotificationArchive.usageMessage(this) : "");
-            warning.setVisibility(show ? View.VISIBLE : View.GONE);
-        }
+            int total = NotificationArchive.totalMessages(context);
+            int flagged = NotificationArchive.totalFlagged(context);
+            long sizeBytes = NotificationArchive.sizeBytes(context);
+            ArchiveSchema.Usage usage = NotificationArchive.usage(context);
+            String usageMessage = (usage == ArchiveSchema.Usage.CRITICAL || usage == ArchiveSchema.Usage.FULL)
+                    ? NotificationArchive.usageMessage(context) : "";
+            NotificationArchive.Status health = NotificationArchive.status(context, accessGranted, isConnected);
 
-        // Capture health. Every failure path in the archive is deliberately silent so it cannot
-        // crash the notification listener, which made an empty list ambiguous: not switched on, no
-        // apps ticked, access not granted, reader not bound, or a storage fault all looked the
-        // same. This says which, so the owner is not left guessing.
-        boolean accessGranted = notificationAccessGranted();
-        NotificationArchive.Status health = NotificationArchive.status(
-                this, accessGranted, IrisNotificationListener.isConnected());
-        TextView status = root.findViewById(R.id.archiveStatus);
-        if (status != null) {
-            status.setText(health.text);
-            status.setTextColor(getColor(health.problem ? R.color.deck_error : R.color.deck_text_dim));
-        }
+            final ArchiveQueryResult result = new ArchiveQueryResult(
+                    queryId, rows, total, flagged, sizeBytes, usage, usageMessage, health, accessGranted);
 
-        // Offer the grant button only while access is actually missing, so the screen is not
-        // permanently nagging about a permission that is already in place.
-        View grant = root.findViewById(R.id.archiveGrantButton);
-        if (grant != null) grant.setVisibility(accessGranted ? View.GONE : View.VISIBLE);
+            handler.post(() -> {
+                // Ignore stale results if another query was dispatched
+                if (result.queryId != archiveQuerySequence) return;
+                if (isFinishing() || isDestroyed()) return;
 
-        if (emptyText != null) {
-            emptyText.setText(total == 0
-                    ? "Nothing in the vault yet. Tick some apps and let people incriminate "
-                      + "themselves at their own pace."
-                    : "Nothing matches that. Either your search is wrong or everyone's "
-                      + "suspiciously well behaved.");
-        }
+                if (summary != null) {
+                    summary.setText(result.total + (result.total == 1 ? " LOGGED \u00b7 " : " LOGGED \u00b7 ")
+                            + result.flagged + " INCRIMINATING \u00b7 "
+                            + ArchiveSchema.readableSize(result.sizeBytes));
+                }
+                if (warning != null) {
+                    boolean show = result.usage == ArchiveSchema.Usage.CRITICAL || result.usage == ArchiveSchema.Usage.FULL;
+                    warning.setText(result.usageMessage);
+                    warning.setVisibility(show ? View.VISIBLE : View.GONE);
+                }
 
-        ArchiveAdapter adapter;
-        if (list.getAdapter() instanceof ArchiveAdapter) {
-            adapter = (ArchiveAdapter) list.getAdapter();
-        } else {
-            adapter = new ArchiveAdapter(root);
-            list.setAdapter(adapter);
-            if (emptyText != null) list.setEmptyView(emptyText);
-        }
-        adapter.setItems(rows);
+                // Capture health. Every failure path in the archive is deliberately silent so it cannot
+                // crash the notification listener, which made an empty list ambiguous: not switched on, no
+                // apps ticked, access not granted, reader not bound, or a storage fault all looked the
+                // same. This says which, so the owner is not left guessing.
+                TextView status = root.findViewById(R.id.archiveStatus);
+                if (status != null) {
+                    status.setText(result.health.text);
+                    status.setTextColor(getColor(result.health.problem ? R.color.deck_error : R.color.deck_text_dim));
+                }
+
+                // Offer the grant button only while access is actually missing, so the screen is not
+                // permanently nagging about a permission that is already in place.
+                View grant = root.findViewById(R.id.archiveGrantButton);
+                if (grant != null) grant.setVisibility(result.accessGranted ? View.GONE : View.VISIBLE);
+
+                if (emptyText != null) {
+                    emptyText.setText(result.total == 0
+                            ? "Nothing in the vault yet. Tick some apps and let people incriminate "
+                              + "themselves at their own pace."
+                            : "Nothing matches that. Either your search is wrong or everyone's "
+                              + "suspiciously well behaved.");
+                }
+
+                ArchiveAdapter adapter;
+                if (list.getAdapter() instanceof ArchiveAdapter) {
+                    adapter = (ArchiveAdapter) list.getAdapter();
+                } else {
+                    adapter = new ArchiveAdapter(root);
+                    list.setAdapter(adapter);
+                    if (emptyText != null) list.setEmptyView(emptyText);
+                }
+                adapter.setItems(result.rows);
+            });
+        });
     }
 
     private static class ArchiveViewHolder {
@@ -4116,6 +4202,7 @@ public class MainActivity extends Activity {
                                     .setPositiveButton("Delete", (dd, ww) -> {
                                         if (NotificationArchive.deleteRow(this, row.id)) {
                                             toast("Gone. I never saw it.");
+                                            if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
                                             renderArchive(root);
                                         } else {
                                             toast("Could not delete that entry.");
@@ -9064,6 +9151,13 @@ public class MainActivity extends Activity {
         if (trainVosk != null) { trainVosk.close(); trainVosk = null; }
         if (activeTrainingDialog != null && activeTrainingDialog.isShowing()) { activeTrainingDialog.dismiss(); }
         activeTrainingDialog = null;
+        if (archiveSearchRunnable != null) {
+            handler.removeCallbacks(archiveSearchRunnable);
+            archiveSearchRunnable = null;
+        }
+        if (archiveQueryExecutor != null) {
+            archiveQueryExecutor.shutdown();
+        }
         super.onDestroy();
     }
 
