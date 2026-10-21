@@ -515,6 +515,15 @@ public final class NotificationArchive {
                 args.add(like);
             }
 
+            if (f.fromMs > 0) {
+                where.append(" AND ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_POST_TIME).append(" >= ?");
+                args.add(String.valueOf(f.fromMs));
+            }
+            if (f.toMs > 0) {
+                where.append(" AND ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_POST_TIME).append(" <= ?");
+                args.add(String.valueOf(f.toMs));
+            }
+
             StringBuilder having = new StringBuilder();
             if (f.flaggedOnly || f.quickFilter == Filter.QUICK_FLAGGED) {
                 having.append("flagged_count > 0");

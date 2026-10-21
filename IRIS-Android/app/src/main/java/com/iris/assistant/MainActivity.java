@@ -3,6 +3,7 @@ package com.iris.assistant;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DatePickerDialog;
 import android.app.KeyguardManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -61,6 +62,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -3352,6 +3354,14 @@ public class MainActivity extends Activity {
     private static final int ARCHIVE_PAGE_SIZE = 50;
     private Runnable archiveSearchRunnable;
     private int archiveQuickFilter = NotificationArchive.Filter.QUICK_ALL;
+    private static final int DATE_PRESET_ALL = 0;
+    private static final int DATE_PRESET_TODAY = 1;
+    private static final int DATE_PRESET_YESTERDAY = 2;
+    private static final int DATE_PRESET_THIS_WEEK = 3;
+    private static final int DATE_PRESET_CUSTOM = 4;
+    private int archiveDatePreset = DATE_PRESET_ALL;
+    private long archiveCustomFromMs = 0L;
+    private long archiveCustomToMs = 0L;
     private static final int ARCHIVE_VIEW_TIMELINE = 0;
     private static final int ARCHIVE_VIEW_CONVERSATIONS = 1;
     private int archiveViewMode = ARCHIVE_VIEW_TIMELINE;
@@ -3532,6 +3542,7 @@ public class MainActivity extends Activity {
             });
         }
         setupArchiveFilterChips(view);
+        setupArchiveDateChips(view);
         ListView list = view.findViewById(R.id.archiveList);
         if (list != null) {
             archiveFooterView = createArchiveFooterView(view);
@@ -3629,6 +3640,198 @@ public class MainActivity extends Activity {
             renderArchive(rootView);
         });
         parent.addView(chip);
+    }
+
+    private void setupArchiveDateChips(final View view) {
+        LinearLayout chips = view.findViewById(R.id.archiveDateChips);
+        if (chips == null) return;
+        chips.removeAllViews();
+        addArchiveDateChip(chips, "ALL TIME", DATE_PRESET_ALL, view);
+        addArchiveDateChip(chips, "TODAY", DATE_PRESET_TODAY, view);
+        addArchiveDateChip(chips, "YESTERDAY", DATE_PRESET_YESTERDAY, view);
+        addArchiveDateChip(chips, "THIS WEEK", DATE_PRESET_THIS_WEEK, view);
+
+        String customLabel = "CUSTOM 📅";
+        if (archiveDatePreset == DATE_PRESET_CUSTOM && archiveCustomFromMs > 0 && archiveCustomToMs > 0) {
+            SimpleDateFormat sdf = new SimpleDateFormat("MMM d", Locale.US);
+            customLabel = sdf.format(new Date(archiveCustomFromMs)) + " \u2013 "
+                    + sdf.format(new Date(archiveCustomToMs)) + " 📅";
+        }
+        addArchiveDateChip(chips, customLabel, DATE_PRESET_CUSTOM, view);
+    }
+
+    private void addArchiveDateChip(LinearLayout parent, String label, final int presetIndex, final View rootView) {
+        TextView chip = new TextView(this);
+        chip.setText(label);
+        chip.setTextSize(10f);
+        chip.setTypeface(android.graphics.Typeface.MONOSPACE,
+                archiveDatePreset == presetIndex ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        chip.setPadding(dp(10), dp(6), dp(10), dp(6));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(6);
+        chip.setLayoutParams(lp);
+
+        boolean active = archiveDatePreset == presetIndex;
+        chip.setTextColor(getColor(active ? R.color.text_primary : R.color.deck_text_dim));
+        chip.setBackgroundResource(active ? R.drawable.bg_cyber_button : R.drawable.bg_cyber_row);
+
+        chip.setOnClickListener(v -> {
+            if (presetIndex == DATE_PRESET_CUSTOM) {
+                showCustomDatePickerDialog(rootView);
+                return;
+            }
+            if (archiveDatePreset == presetIndex) return;
+            archiveDatePreset = presetIndex;
+            setupArchiveDateChips(rootView);
+            if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+            renderArchive(rootView);
+        });
+        parent.addView(chip);
+    }
+
+    private void showCustomDatePickerDialog(final View rootView) {
+        if (archiveDatePreset == DATE_PRESET_CUSTOM && archiveCustomFromMs > 0) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Date Range Filter")
+                    .setItems(new String[]{"\uD83D\uDCC5 Change date range", "\u21BA Reset to ALL TIME"}, (d, which) -> {
+                        if (which == 0) {
+                            promptStartDatePicker(rootView);
+                        } else {
+                            archiveDatePreset = DATE_PRESET_ALL;
+                            archiveCustomFromMs = 0L;
+                            archiveCustomToMs = 0L;
+                            setupArchiveDateChips(rootView);
+                            if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                            renderArchive(rootView);
+                        }
+                    })
+                    .show();
+            return;
+        }
+        promptStartDatePicker(rootView);
+    }
+
+    private void promptStartDatePicker(final View rootView) {
+        final Calendar cal = Calendar.getInstance();
+        if (archiveCustomFromMs > 0) cal.setTimeInMillis(archiveCustomFromMs);
+
+        toast("Select START date for vault filter");
+        DatePickerDialog startDialog = new DatePickerDialog(this, (view, year, month, dayOfMonth) -> {
+            final Calendar startCal = Calendar.getInstance();
+            startCal.set(Calendar.YEAR, year);
+            startCal.set(Calendar.MONTH, month);
+            startCal.set(Calendar.DAY_OF_MONTH, dayOfMonth);
+            startCal.set(Calendar.HOUR_OF_DAY, 0);
+            startCal.set(Calendar.MINUTE, 0);
+            startCal.set(Calendar.SECOND, 0);
+            startCal.set(Calendar.MILLISECOND, 0);
+
+            final Calendar endDefault = Calendar.getInstance();
+            if (archiveCustomToMs > 0 && archiveCustomToMs >= startCal.getTimeInMillis()) {
+                endDefault.setTimeInMillis(archiveCustomToMs);
+            } else {
+                endDefault.setTimeInMillis(startCal.getTimeInMillis());
+            }
+
+            toast("Select END date for vault filter");
+            DatePickerDialog endDialog = new DatePickerDialog(MainActivity.this, (endView, endYear, endMonth, endDayOfMonth) -> {
+                Calendar endCal = Calendar.getInstance();
+                endCal.set(Calendar.YEAR, endYear);
+                endCal.set(Calendar.MONTH, endMonth);
+                endCal.set(Calendar.DAY_OF_MONTH, endDayOfMonth);
+                endCal.set(Calendar.HOUR_OF_DAY, 23);
+                endCal.set(Calendar.MINUTE, 59);
+                endCal.set(Calendar.SECOND, 59);
+                endCal.set(Calendar.MILLISECOND, 999);
+
+                long startMs = startCal.getTimeInMillis();
+                long endMs = endCal.getTimeInMillis();
+                if (startMs > endMs) {
+                    long tmp = startMs;
+                    startMs = endMs;
+                    endMs = tmp;
+                }
+
+                archiveCustomFromMs = startMs;
+                archiveCustomToMs = endMs;
+                archiveDatePreset = DATE_PRESET_CUSTOM;
+                setupArchiveDateChips(rootView);
+                if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                renderArchive(rootView);
+            }, endDefault.get(Calendar.YEAR), endDefault.get(Calendar.MONTH), endDefault.get(Calendar.DAY_OF_MONTH));
+
+            endDialog.setTitle("Select END Date");
+            endDialog.show();
+        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH));
+
+        startDialog.setTitle("Select START Date");
+        startDialog.show();
+    }
+
+    private long[] getArchiveDateRange() {
+        if (archiveDatePreset == DATE_PRESET_ALL) {
+            return new long[]{0L, 0L};
+        }
+        if (archiveDatePreset == DATE_PRESET_TODAY) {
+            Calendar c = Calendar.getInstance();
+            c.set(Calendar.HOUR_OF_DAY, 0);
+            c.set(Calendar.MINUTE, 0);
+            c.set(Calendar.SECOND, 0);
+            c.set(Calendar.MILLISECOND, 0);
+            long from = c.getTimeInMillis();
+            c.set(Calendar.HOUR_OF_DAY, 23);
+            c.set(Calendar.MINUTE, 59);
+            c.set(Calendar.SECOND, 59);
+            c.set(Calendar.MILLISECOND, 999);
+            long to = c.getTimeInMillis();
+            return new long[]{from, to};
+        }
+        if (archiveDatePreset == DATE_PRESET_YESTERDAY) {
+            Calendar c = Calendar.getInstance();
+            c.add(Calendar.DAY_OF_YEAR, -1);
+            c.set(Calendar.HOUR_OF_DAY, 0);
+            c.set(Calendar.MINUTE, 0);
+            c.set(Calendar.SECOND, 0);
+            c.set(Calendar.MILLISECOND, 0);
+            long from = c.getTimeInMillis();
+            c.set(Calendar.HOUR_OF_DAY, 23);
+            c.set(Calendar.MINUTE, 59);
+            c.set(Calendar.SECOND, 59);
+            c.set(Calendar.MILLISECOND, 999);
+            long to = c.getTimeInMillis();
+            return new long[]{from, to};
+        }
+        if (archiveDatePreset == DATE_PRESET_THIS_WEEK) {
+            Calendar c = Calendar.getInstance();
+            c.set(Calendar.DAY_OF_WEEK, c.getFirstDayOfWeek());
+            c.set(Calendar.HOUR_OF_DAY, 0);
+            c.set(Calendar.MINUTE, 0);
+            c.set(Calendar.SECOND, 0);
+            c.set(Calendar.MILLISECOND, 0);
+            long from = c.getTimeInMillis();
+            if (from > System.currentTimeMillis()) {
+                c.add(Calendar.WEEK_OF_YEAR, -1);
+                from = c.getTimeInMillis();
+            }
+            long to = System.currentTimeMillis();
+            return new long[]{from, to};
+        }
+        if (archiveDatePreset == DATE_PRESET_CUSTOM) {
+            return new long[]{archiveCustomFromMs, archiveCustomToMs};
+        }
+        return new long[]{0L, 0L};
+    }
+
+    private String getArchiveDateRangeLabel() {
+        if (archiveDatePreset == DATE_PRESET_TODAY) return "TODAY";
+        if (archiveDatePreset == DATE_PRESET_YESTERDAY) return "YESTERDAY";
+        if (archiveDatePreset == DATE_PRESET_THIS_WEEK) return "THIS WEEK";
+        if (archiveDatePreset == DATE_PRESET_CUSTOM && archiveCustomFromMs > 0 && archiveCustomToMs > 0) {
+            SimpleDateFormat sdf = new SimpleDateFormat("MMM d", Locale.US);
+            return sdf.format(new Date(archiveCustomFromMs)) + " \u2013 " + sdf.format(new Date(archiveCustomToMs));
+        }
+        return "ALL TIME";
     }
 
     /**
@@ -4147,7 +4350,7 @@ public class MainActivity extends Activity {
                     if (adapter != null) {
                         adapter.removeRow(row);
                         if (!archiveHasMore) {
-                            updateArchiveFooter(false, adapter.getCount());
+                            updateArchiveFooter(false, adapter.getRawCount());
                         }
                     }
                     queueArchiveDelete(row, root);
@@ -4307,12 +4510,16 @@ public class MainActivity extends Activity {
         }
         filter.quickFilter = archiveQuickFilter;
         filter.flaggedOnly = (archiveQuickFilter == NotificationArchive.Filter.QUICK_FLAGGED);
+        long[] dateRange = getArchiveDateRange();
+        filter.fromMs = dateRange[0];
+        filter.toMs = dateRange[1];
         filter.conversationPkg = archiveCurrentThreadPkg;
         filter.conversationThread = archiveCurrentThreadTitle;
         // Markers are shown only in the unfiltered timeline view, where the gaps they mark are meaningful.
         filter.includeMarkers = (archiveViewMode == ARCHIVE_VIEW_TIMELINE
                 && archiveCurrentThreadTitle == null
                 && archiveQuickFilter == NotificationArchive.Filter.QUICK_ALL
+                && archiveDatePreset == DATE_PRESET_ALL
                 && (filter.search == null || filter.search.isEmpty()));
         return filter;
     }
@@ -4381,7 +4588,7 @@ public class MainActivity extends Activity {
             archiveFooterText.setTextColor(getColor(R.color.deck_text_dim));
         }
 
-        final int offset = adapter.getCount();
+        final int offset = adapter.getRawCount();
         final NotificationArchive.Filter filter = buildArchiveFilter(root);
         filter.limit = ARCHIVE_PAGE_SIZE + 1;
         filter.offset = offset;
@@ -4418,7 +4625,7 @@ public class MainActivity extends Activity {
                     adapter.addItems(finalBatch);
                 }
                 archiveHasMore = hasMore;
-                updateArchiveFooter(archiveHasMore, adapter.getCount());
+                updateArchiveFooter(archiveHasMore, adapter.getRawCount());
             });
         });
     }
@@ -4525,15 +4732,16 @@ public class MainActivity extends Activity {
                 if (isFinishing() || isDestroyed()) return;
 
                 if (summary != null) {
+                    String dateSuffix = (archiveDatePreset != DATE_PRESET_ALL) ? (" \u00b7 " + getArchiveDateRangeLabel()) : "";
                     if (isRootConvView) {
-                        summary.setText(result.conversations.size() + " CHATS \u00b7 "
+                        summary.setText(result.conversations.size() + " CHATS" + dateSuffix + " \u00b7 "
                                 + result.flagged + " INCRIMINATING \u00b7 "
                                 + ArchiveSchema.readableSize(result.sizeBytes));
                     } else if (archiveCurrentThreadTitle != null) {
-                        summary.setText("THREAD \u00b7 " + result.rows.size() + " LOADED \u00b7 "
+                        summary.setText("THREAD \u00b7 " + result.rows.size() + " LOADED" + dateSuffix + " \u00b7 "
                                 + ArchiveSchema.readableSize(result.sizeBytes));
                     } else {
-                        summary.setText(result.total + " LOGGED \u00b7 "
+                        summary.setText(result.total + " LOGGED" + dateSuffix + " \u00b7 "
                                 + result.flagged + " INCRIMINATING \u00b7 "
                                 + ArchiveSchema.readableSize(result.sizeBytes));
                     }
@@ -4563,6 +4771,9 @@ public class MainActivity extends Activity {
                     if (result.total == 0) {
                         emptyText.setText("Nothing in the vault yet. Tick some apps and let people incriminate "
                                 + "themselves at their own pace.");
+                    } else if (archiveDatePreset != DATE_PRESET_ALL && ((isRootConvView && result.conversations.isEmpty()) || (!isRootConvView && result.rows.isEmpty()))) {
+                        emptyText.setText("No receipts found for " + getArchiveDateRangeLabel()
+                                + ". Try switching to [ALL TIME] or expanding your date range.");
                     } else if (isRootConvView) {
                         if (archiveQuickFilter == NotificationArchive.Filter.QUICK_FLAGGED) {
                             emptyText.setText("No conversations with incriminating evidence found.");
@@ -4623,10 +4834,31 @@ public class MainActivity extends Activity {
                     }
                     adapter.setItems(result.rows);
                     archiveHasMore = result.hasMore;
-                    updateArchiveFooter(archiveHasMore, adapter.getCount());
+                    updateArchiveFooter(archiveHasMore, adapter.getRawCount());
                 }
             });
         });
+    }
+
+    private static class ArchiveDisplayItem {
+        static final int TYPE_MESSAGE = 0;
+        static final int TYPE_DATE_SEPARATOR = 1;
+
+        final int type;
+        final ArchiveRow row;
+        final String dateLabel;
+
+        ArchiveDisplayItem(ArchiveRow row) {
+            this.type = TYPE_MESSAGE;
+            this.row = row;
+            this.dateLabel = null;
+        }
+
+        ArchiveDisplayItem(String dateLabel) {
+            this.type = TYPE_DATE_SEPARATOR;
+            this.row = null;
+            this.dateLabel = dateLabel;
+        }
     }
 
     private static class ArchiveViewHolder {
@@ -4655,7 +4887,8 @@ public class MainActivity extends Activity {
     }
 
     private class ArchiveAdapter extends BaseAdapter {
-        private final java.util.List<ArchiveRow> items = new java.util.ArrayList<>();
+        private final java.util.List<ArchiveRow> rawRows = new java.util.ArrayList<>();
+        private final java.util.List<ArchiveDisplayItem> displayItems = new java.util.ArrayList<>();
         private final View root;
 
         ArchiveAdapter(View root) {
@@ -4663,8 +4896,9 @@ public class MainActivity extends Activity {
         }
 
         void setItems(java.util.List<ArchiveRow> newItems) {
-            items.clear();
-            if (newItems != null) items.addAll(newItems);
+            rawRows.clear();
+            if (newItems != null) rawRows.addAll(newItems);
+            rebuildDisplayItems();
             notifyDataSetChanged();
         }
 
@@ -4672,44 +4906,140 @@ public class MainActivity extends Activity {
             if (newItems == null || newItems.isEmpty()) return;
             for (ArchiveRow row : newItems) {
                 boolean exists = false;
-                for (ArchiveRow existing : items) {
+                for (ArchiveRow existing : rawRows) {
                     if (existing.id == row.id) {
                         exists = true;
                         break;
                     }
                 }
-                if (!exists) items.add(row);
+                if (!exists) rawRows.add(row);
             }
+            rebuildDisplayItems();
             notifyDataSetChanged();
         }
 
         void removeRow(ArchiveRow row) {
-            for (int i = 0; i < items.size(); i++) {
-                if (items.get(i).id == row.id) {
-                    items.remove(i);
+            for (int i = 0; i < rawRows.size(); i++) {
+                if (rawRows.get(i).id == row.id) {
+                    rawRows.remove(i);
                     break;
                 }
             }
+            rebuildDisplayItems();
             notifyDataSetChanged();
+        }
+
+        int getRawCount() {
+            return rawRows.size();
+        }
+
+        private boolean isSameDay(Calendar c1, Calendar c2) {
+            return c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR)
+                    && c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR);
+        }
+
+        private String formatDateSeparator(long timeMs) {
+            if (timeMs <= 0) return "\u2500\u2500 UNKNOWN DATE \u2500\u2500";
+            Calendar now = Calendar.getInstance();
+            Calendar target = Calendar.getInstance();
+            target.setTimeInMillis(timeMs);
+
+            if (isSameDay(now, target)) {
+                return "\u2500\u2500 TODAY \u2500\u2500";
+            }
+
+            Calendar yesterday = Calendar.getInstance();
+            yesterday.add(Calendar.DAY_OF_YEAR, -1);
+            if (isSameDay(yesterday, target)) {
+                return "\u2500\u2500 YESTERDAY \u2500\u2500";
+            }
+
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US);
+            return "\u2500\u2500 " + sdf.format(new java.util.Date(timeMs)).toUpperCase(java.util.Locale.US) + " \u2500\u2500";
+        }
+
+        private void rebuildDisplayItems() {
+            displayItems.clear();
+            if (rawRows.isEmpty()) return;
+
+            Calendar lastCal = null;
+            Calendar curCal = Calendar.getInstance();
+
+            for (ArchiveRow row : rawRows) {
+                if (row.postTime > 0) {
+                    curCal.setTimeInMillis(row.postTime);
+                    if (lastCal == null || !isSameDay(lastCal, curCal)) {
+                        displayItems.add(new ArchiveDisplayItem(formatDateSeparator(row.postTime)));
+                        lastCal = Calendar.getInstance();
+                        lastCal.setTimeInMillis(row.postTime);
+                    }
+                }
+                displayItems.add(new ArchiveDisplayItem(row));
+            }
         }
 
         @Override
         public int getCount() {
-            return items.size();
+            return displayItems.size();
         }
 
         @Override
-        public ArchiveRow getItem(int position) {
-            return items.get(position);
+        public int getViewTypeCount() {
+            return 2;
+        }
+
+        @Override
+        public int getItemViewType(int position) {
+            return displayItems.get(position).type;
+        }
+
+        @Override
+        public boolean areAllItemsEnabled() {
+            return false;
+        }
+
+        @Override
+        public boolean isEnabled(int position) {
+            return displayItems.get(position).type == ArchiveDisplayItem.TYPE_MESSAGE;
+        }
+
+        @Override
+        public ArchiveDisplayItem getItem(int position) {
+            return displayItems.get(position);
         }
 
         @Override
         public long getItemId(int position) {
-            return items.get(position).id;
+            ArchiveDisplayItem item = displayItems.get(position);
+            if (item.type == ArchiveDisplayItem.TYPE_MESSAGE && item.row != null) {
+                return item.row.id;
+            }
+            return -position - 1;
         }
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
+            int viewType = getItemViewType(position);
+            ArchiveDisplayItem item = displayItems.get(position);
+
+            if (viewType == ArchiveDisplayItem.TYPE_DATE_SEPARATOR) {
+                TextView sep;
+                if (convertView == null) {
+                    sep = new TextView(MainActivity.this);
+                    sep.setTextSize(11f);
+                    sep.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+                    sep.setTextColor(getColor(R.color.deck_accent));
+                    sep.setGravity(android.view.Gravity.CENTER);
+                    sep.setPadding(dp(12), dp(14), dp(12), dp(6));
+                    sep.setLetterSpacing(0.08f);
+                    convertView = sep;
+                } else {
+                    sep = (TextView) convertView;
+                }
+                sep.setText(item.dateLabel);
+                return convertView;
+            }
+
             ArchiveViewHolder holder;
             if (convertView == null) {
                 holder = new ArchiveViewHolder();
@@ -4960,8 +5290,10 @@ public class MainActivity extends Activity {
                 convertView.setAlpha(1f);
             }
 
-            final ArchiveRow row = getItem(position);
-            bindArchiveCard(holder, row, root);
+            final ArchiveRow row = item.row;
+            if (row != null) {
+                bindArchiveCard(holder, row, root);
+            }
             return convertView;
         }
     }
