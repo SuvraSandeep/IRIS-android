@@ -3473,7 +3473,7 @@ public class MainActivity extends Activity {
         }
 
         View export = view.findViewById(R.id.archiveExportButton);
-        if (export != null) export.setOnClickListener(v -> exportArchive());
+        if (export != null) export.setOnClickListener(v -> exportArchive(view));
 
         // Capture is push-based, so the list does not update itself while the screen sits open.
         // Switching tabs and returning worked only because that rebuilt the view; an explicit
@@ -10917,13 +10917,17 @@ public class MainActivity extends Activity {
      * CSV spreadsheet, and plain text transcript, with selective filtering support.
      */
     private void exportArchive() {
+        exportArchive(findViewById(R.id.archiveView));
+    }
+
+    private void exportArchive(View archiveRoot) {
         if (NotificationArchive.totalMessages(this) == 0) {
             toast("Nothing to export yet.");
             return;
         }
 
-        View archiveRoot = findViewById(R.id.archiveView);
-        final NotificationArchive.Filter activeFilter = archiveRoot != null ? buildArchiveFilter(archiveRoot) : null;
+        View root = archiveRoot != null ? archiveRoot : findViewById(R.id.archiveView);
+        final NotificationArchive.Filter activeFilter = root != null ? buildArchiveFilter(root) : null;
         boolean hasFilter = isArchiveFilterActive(activeFilter);
 
         if (hasFilter) {
