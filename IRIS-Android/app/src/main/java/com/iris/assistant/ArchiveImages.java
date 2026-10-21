@@ -4,10 +4,16 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.LruCache;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * Copies an image out of a notification and into the archive.
@@ -24,6 +30,40 @@ import java.io.OutputStream;
  * performs the IO.
  */
 public final class ArchiveImages {
+
+    private static final int CACHE_SIZE_KB;
+    static {
+        int maxMemoryKb = (int) (Runtime.getRuntime().maxMemory() / 1024);
+        // Use up to 1/8th of available runtime memory, safely bounded between 4MB and 32MB
+        CACHE_SIZE_KB = Math.max(4096, Math.min(32768, maxMemoryKb / 8));
+    }
+
+    /** In-memory thumbnail cache to prevent duplicate disk reads and decodes. */
+    private static final LruCache<String, Bitmap> THUMB_CACHE =
+            new LruCache<String, Bitmap>(CACHE_SIZE_KB) {
+                @Override
+                protected int sizeOf(String key, Bitmap bitmap) {
+                    return bitmap != null ? Math.max(1, bitmap.getByteCount() / 1024) : 1;
+                }
+            };
+
+    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
+
+    /** Background worker pool for off-main-thread image decoding. */
+    private static final ExecutorService DECODER_POOL =
+            Executors.newFixedThreadPool(2, new ThreadFactory() {
+                private int count = 1;
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r, "iris-archive-img-" + (count++));
+                    t.setPriority(Thread.NORM_PRIORITY - 1);
+                    return t;
+                }
+            });
+
+    public interface ThumbnailCallback {
+        void onLoaded(Bitmap bitmap);
+    }
 
     private ArchiveImages() { }
 
@@ -134,13 +174,27 @@ public final class ArchiveImages {
     }
 
     /**
-     * Decode a stored image small enough for a list row.
+     * Look up a decoded thumbnail from the in-memory LruCache without touching disk.
+     * Returns null if not cached or already recycled.
+     */
+    public static Bitmap cachedThumbnail(String storedName) {
+        if (storedName == null || storedName.trim().isEmpty()) return null;
+        Bitmap cached = THUMB_CACHE.get(storedName);
+        if (cached != null && !cached.isRecycled()) return cached;
+        return null;
+    }
+
+    /**
+     * Decode a stored image small enough for a list row, caching the result in LruCache.
      *
-     * Thumbnail-sized rather than full-size because this runs on the main thread while building
-     * the list: twenty full-resolution bitmaps would exhaust memory and stall scrolling. Returns
-     * null when the file is missing, so the caller can say so instead of leaving a blank gap.
+     * Thumbnail-sized rather than full-size so memory is conserved. Returns null when the file
+     * is missing, so the caller can say so instead of leaving a blank gap.
      */
     public static Bitmap thumbnail(Context context, String storedName, int targetPx) {
+        if (context == null || storedName == null || storedName.trim().isEmpty()) return null;
+        Bitmap cached = cachedThumbnail(storedName);
+        if (cached != null) return cached;
+
         File file = fileFor(context, storedName);
         if (file == null || !file.exists() || file.length() == 0) return null;
         try {
@@ -151,10 +205,45 @@ public final class ArchiveImages {
             BitmapFactory.Options opts = new BitmapFactory.Options();
             opts.inSampleSize = ArchiveImagePolicy.sampleSize(
                     bounds.outWidth, bounds.outHeight, Math.max(1, targetPx));
-            return BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+            Bitmap decoded = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+            if (decoded != null) {
+                THUMB_CACHE.put(storedName, decoded);
+            }
+            return decoded;
         } catch (Throwable ignored) {
             return null;
         }
+    }
+
+    /**
+     * Offload thumbnail decoding to a background worker pool and cache in LruCache.
+     * The callback is always invoked on the main UI thread.
+     */
+    public static void loadThumbnailAsync(Context context, String storedName, int targetPx,
+                                          ThumbnailCallback callback) {
+        if (context == null || storedName == null || storedName.trim().isEmpty()) {
+            if (callback != null) MAIN_HANDLER.post(() -> callback.onLoaded(null));
+            return;
+        }
+
+        Bitmap cached = cachedThumbnail(storedName);
+        if (cached != null) {
+            if (callback != null) callback.onLoaded(cached);
+            return;
+        }
+
+        Context appCtx = context.getApplicationContext();
+        DECODER_POOL.execute(() -> {
+            Bitmap decoded = thumbnail(appCtx, storedName, targetPx);
+            if (callback != null) {
+                MAIN_HANDLER.post(() -> callback.onLoaded(decoded));
+            }
+        });
+    }
+
+    /** Clear the in-memory thumbnail cache. */
+    public static void clearCache() {
+        THUMB_CACHE.evictAll();
     }
 
     /** Decode a stored image at full stored size, for the single-image viewer. */
@@ -192,6 +281,9 @@ public final class ArchiveImages {
 
     /** Remove one stored image. Safe to call when there is none. */
     public static void delete(Context context, String storedName) {
+        if (storedName != null && !storedName.trim().isEmpty()) {
+            THUMB_CACHE.remove(storedName);
+        }
         File file = fileFor(context, storedName);
         if (file == null) return;
         try { file.delete(); } catch (Throwable ignored) { }
@@ -204,6 +296,7 @@ public final class ArchiveImages {
      * silently occupy storage forever, with no row left pointing at them.
      */
     public static int deleteAll(Context context) {
+        clearCache();
         int removed = 0;
         try {
             File[] files = directory(context).listFiles();
@@ -229,6 +322,7 @@ public final class ArchiveImages {
             if (files == null) return 0;
             for (File file : files) {
                 if (keepNames.contains(file.getName())) continue;
+                THUMB_CACHE.remove(file.getName());
                 if (file.delete()) removed++;
             }
         } catch (Throwable ignored) { }

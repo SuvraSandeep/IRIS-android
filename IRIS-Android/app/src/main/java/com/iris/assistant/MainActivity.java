@@ -4023,24 +4023,47 @@ public class MainActivity extends Activity {
 
         holder.body.setText(row.body.isEmpty() ? "(no text \u2014 just vibes)" : row.body);
 
-        // A captured photo. Decoded at thumbnail size rather than full size: a list of twenty
-        // full-resolution bitmaps would exhaust memory, and this runs on the main thread.
+        // A captured photo. Decoded asynchronously with LruCache rather than blocking the main thread.
         if (row.hasImage()) {
-            android.graphics.Bitmap thumb = ArchiveImages.thumbnail(this, row.imagePath, dp(220));
-            if (thumb != null) {
-                holder.shot.setImageBitmap(thumb);
+            final String imagePath = row.imagePath;
+            holder.shot.setTag(imagePath);
+            holder.shot.setContentDescription("Captured photo. Tap to open.");
+            holder.shot.setOnClickListener(v -> showArchiveImage(row));
+
+            Bitmap cached = ArchiveImages.cachedThumbnail(imagePath);
+            if (cached != null) {
+                holder.shot.setImageBitmap(cached);
+                holder.shot.setBackground(null);
                 holder.shot.setVisibility(View.VISIBLE);
-                holder.shot.setContentDescription("Captured photo. Tap to open.");
-                holder.shot.setOnClickListener(v -> showArchiveImage(row));
                 holder.missingPhoto.setVisibility(View.GONE);
             } else {
-                holder.shot.setVisibility(View.GONE);
+                // Render subtle cyber placeholder while loading on background worker pool
                 holder.shot.setImageBitmap(null);
-                holder.missingPhoto.setVisibility(View.VISIBLE);
+                holder.shot.setBackgroundResource(R.drawable.bg_cyber_panel);
+                holder.shot.setVisibility(View.VISIBLE);
+                holder.missingPhoto.setVisibility(View.GONE);
+
+                ArchiveImages.loadThumbnailAsync(this, imagePath, dp(220), bitmap -> {
+                    // Only apply if the recycled view is still presenting the same image
+                    if (!imagePath.equals(holder.shot.getTag())) return;
+                    if (bitmap != null) {
+                        holder.shot.setImageBitmap(bitmap);
+                        holder.shot.setBackground(null);
+                        holder.shot.setVisibility(View.VISIBLE);
+                        holder.missingPhoto.setVisibility(View.GONE);
+                    } else {
+                        holder.shot.setVisibility(View.GONE);
+                        holder.shot.setImageBitmap(null);
+                        holder.shot.setBackground(null);
+                        holder.missingPhoto.setVisibility(View.VISIBLE);
+                    }
+                });
             }
         } else {
             holder.shot.setVisibility(View.GONE);
             holder.shot.setImageBitmap(null);
+            holder.shot.setBackground(null);
+            holder.shot.setTag(null);
             holder.missingPhoto.setVisibility(View.GONE);
         }
 
