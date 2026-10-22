@@ -202,8 +202,8 @@ public class CallManager {
 
     public void handleRedial() {
         ProfileStore store = new ProfileStore(context);
-        List<ProfileStore.Entry> recent = store.recentCalls();
-        if (recent.isEmpty()) {
+        List<ProfileStore.Entry> recent = store.frequentContacts(1);
+        if (recent.isEmpty() || recent.get(0).lastCalled == 0) {
             host.broadcastMessage("I don’t have anyone to call back yet.");
             LogStore.append(context, "REDIAL", "No recent calls");
             host.rearmAfterAction();

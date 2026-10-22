@@ -1,5 +1,11 @@
 # Changelog
 
+## 16.81.2
+
+- CallManager Symbol Resolution:
+  - ProfileStore Redial Symbol: Replaced non-existent `store.recentCalls()` in `CallManager.java` `handleRedial()` with `store.frequentContacts(1)` and `lastCalled` verification, fully matching the established pattern in `IrisListeningService.java`.
+  - Verification: 100% clean compilation and bracket balancing across all 206 Java files and full pass across all 9 offline test suites.
+
 ## 16.81.1
 
 - CI Build & Modular Symbol Resolution Fixes:
