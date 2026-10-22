@@ -135,7 +135,7 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v16.77.1**:
+* **v16.77.1 (Commit `2ab82af` / `cc53370`)**:
   * **CI Build Fix (ParseSources.java & onActivityResult Syntax)**: Fixed unclosed `else if (archiveViewController.handleActivityResult(...))` block in `MainActivity.java` `onActivityResult()`, eliminating the orphaned `try-catch` syntax error that failed `ParseSources.java` in GitHub Actions CI run `39818154538`.
   * **Missing Symbol Fix (IrisIntent.COMPOSE_MESSAGE)**: Added missing `COMPOSE_MESSAGE` enum constant and sensitivity mapping to `IrisIntent.java`, resolving `cannot find symbol` compiler error in `IntentParser.java` during `test-speech.sh`.
   * **Automated Syntax Sweep**: Verified all 280 Java files across app and test suites have 100% clean brace balancing and syntax parsing.
