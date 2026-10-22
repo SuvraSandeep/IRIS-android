@@ -61,6 +61,9 @@ DEFAULT_TARGETS = [
     "DeletedMessageRules.java",
     "DeletedQuery.java",
     "IrisFileProvider.java",
+    "ArchiveViewController.java",
+    "VoicePipelineCoordinator.java",
+    "PlanRunner.java",
 ]
 
 JAVA_LANG = {

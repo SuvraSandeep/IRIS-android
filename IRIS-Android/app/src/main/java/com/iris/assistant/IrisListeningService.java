@@ -38,7 +38,7 @@ import java.util.Calendar;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class IrisListeningService extends Service implements RecognitionListener {
+public class IrisListeningService extends Service implements RecognitionListener, PlanRunner.Host {
     public static final String ACTION_START = "com.iris.assistant.START";
     public static final String ACTION_STOP = "com.iris.assistant.STOP";
     public static final String ACTION_CONFIRM_CALL = "com.iris.assistant.CONFIRM_CALL";
@@ -423,7 +423,21 @@ public class IrisListeningService extends Service implements RecognitionListener
     private int pendingCandidateIndex;
     private AudioManager audioManager;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
-    private AudioDeviceCallback audioDeviceCallback;
+    private final VoicePipelineCoordinator voiceCoordinator =
+            new VoicePipelineCoordinator(this, handler, this::onAudioRouteChanged);
+    private final PlanRunner planRunner = new PlanRunner(this);
+
+    private void onAudioRouteChanged(String label) {
+        if (!isRunning) return;
+        microphoneLabel = label;
+        broadcastState(true, phase);
+        updateListeningNotification("Active through " + microphoneLabel);
+    }
+
+    @Override
+    public Context getContext() {
+        return this;
+    }
     private TextToSpeech textToSpeech;
     private boolean ttsReady;
     private android.media.MediaPlayer serverTtsPlayer;
@@ -954,7 +968,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if(voiceSession!=null){voiceSession.close();voiceSession=null;LogStore.append(this,"MIC_HANDOFF","External speech provider owns capture; buffered handoff is offline-only");}
         // A command window is short, so the headset mic is worth it here (and only here).
         if (!btMicAllowed) {
-            btMicAllowed = true;
+            btMicAllowed = true; voiceCoordinator.setBtMicAllowed(true);
             microphoneLabel = configureAudioRoute();
         }
         IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Command listening");
@@ -1285,7 +1299,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         // Safety net: a new command should never inherit a stale pause-flag from a prior
         // command that ended abnormally (e.g. crashed mid-flow before rearmAfterAction ran).
-        commandPausedMedia = false;
+        commandPausedMedia = false; voiceCoordinator.resetCommandPausedMedia();
         String clean = heard == null ? "" : heard.trim();
         if (clean.isEmpty()) {
             rearmAfterAction();
@@ -1373,6 +1387,11 @@ public class IrisListeningService extends Service implements RecognitionListener
         // ── Phase 2: structured understanding, used ONLY to ask for a missing detail. ──
         // Complete commands keep flowing through the proven keyword router below, unchanged.
         Plan plan = IntentParser.parse(clean);
+        if (plan.isExecutable()) {
+            if (planRunner.execute(plan)) {
+                return;
+            }
+        }
         if (!plan.isUnknown() && !plan.isComplete()) {
             String question = IntentParser.clarifyQuestion(plan);
             if (!question.isEmpty()) {
@@ -2205,7 +2224,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             b.getIntExtra(BatteryManager.EXTRA_LEVEL,-1),b.getIntExtra(BatteryManager.EXTRA_SCALE,-1));
     }
 
-    private void handleQuickAction(String normalized) {
+    public void handleQuickAction(String normalized) {
         if (normalized.matches(".*\\b(time|what time)\\b.*")) {
             Calendar cal = Calendar.getInstance();
             int hour = cal.get(Calendar.HOUR_OF_DAY);
@@ -2266,7 +2285,7 @@ public class IrisListeningService extends Service implements RecognitionListener
      *  - "read my notifications / whatsapp"     → read the recent few
      * Prompts to grant Notification Access if needed.
      */
-    private void handleNotifications(String normalized) {
+    public void handleNotifications(String normalized) {
         if (!notificationAccessGranted()) {
             String msg = "I need notification access first. Opening the settings — enable IRIS there.";
             broadcastMessage(msg);
@@ -2366,14 +2385,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         LogStore.append(this, "NOTIF", "Read " + count + " of " + items.size() + scope);
     }
 
-    private void reply(String text) {
+    public void reply(String text) {
         broadcastMessage("\uD83D\uDD14 " + text);
         lastActionSummary = text;
         speakThenRun(text, this::rearmAfterAction);
     }
 
     /** Speak weather/forecast for the current location via free Open-Meteo. */
-    private void handleWeather(String normalized) {
+    public void handleWeather(String normalized) {
         // Offline-only mode is a hard promise that nothing reaches the network, and weather is
         // inherently a network lookup - so say so plainly instead of appearing to try and then
         // failing with a confusing error.
@@ -2413,7 +2432,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Tell the user their current place name (reverse-geocoded). */
-    private void handleLocation() {
+    public void handleLocation() {
         if (!hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
                 && !hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
             String msg = "I need location permission for that. Open the IRIS app and grant location access.";
@@ -2863,7 +2882,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Set a system alarm. Parses hour/minute/am-pm; opens the clock UI if that is refused. */
-    private void handleSetAlarm(String timeText) {
+    public void handleSetAlarm(String timeText) {
         int[] hm = parseClockTime(timeText);
         // 1. Try to create it silently (needs the SET_ALARM permission + a clock app that supports it).
         if (hm != null) {
@@ -2906,7 +2925,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Set a system countdown timer. */
-    private void handleSetTimer(String durationText) {
+    public void handleSetTimer(String durationText) {
         int seconds = parseDurationSeconds(durationText);
         try {
             Intent i = new Intent(android.provider.AlarmClock.ACTION_SET_TIMER);
@@ -2939,7 +2958,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Schedule a reminder via AlarmManager; ReminderReceiver posts the notification. */
-    private void handleReminder(String task, String inAt, String timeText) {
+    public void handleReminder(String task, String inAt, String timeText) {
         long triggerAt;
         String whenSpoken;
         if ("in".equalsIgnoreCase(inAt)) {
@@ -2996,7 +3015,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Toggle the flashlight/torch. */
-    private void handleTorch(boolean on) {
+    public void handleTorch(boolean on) {
         try {
             android.hardware.camera2.CameraManager cm =
                     (android.hardware.camera2.CameraManager) getSystemService(CAMERA_SERVICE);
@@ -3040,7 +3059,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Control whatever is currently playing (any media app) via media key events. */
-    private void handleMediaControl(String n) {
+    public void handleMediaControl(String n) {
         int key; String msg;
         if (n.matches(".*\\b(next|skip)\\b.*")) { key = android.view.KeyEvent.KEYCODE_MEDIA_NEXT; msg = "Next track."; }
         else if (n.matches(".*\\b(previous|prev|last|back)\\b.*")) { key = android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS; msg = "Previous track."; }
@@ -3059,7 +3078,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Set media volume to a percentage (0-100). */
-    private void handleSetVolumePercent(String value) {
+    public void handleSetVolumePercent(String value) {
         int pct = parseNumberWords(value);
         if (pct < 0) {
             String m = "I didn't catch the volume level.";
@@ -3096,7 +3115,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Silent / vibrate / normal ringer. Needs Do Not Disturb access on modern Android. */
     /** Take a single screenshot. Prefers the no-dialog accessibility path; falls back to MediaProjection. */
-    private void handleScreenshot() {
+    public void handleScreenshot() {
         if (Build.VERSION.SDK_INT >= 30 && IrisAccessibilityService.available()
                 && IrisAccessibilityService.instance.takeScreenshotNow()) {
             String m = "Screenshot taken.";
@@ -3163,7 +3182,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Take a single still photo (not video) via the same lock-screen-capable camera activity. */
-    private void handleTakePhoto(String camWord, boolean flashRequested) {
+    public void handleTakePhoto(String camWord, boolean flashRequested) {
         if (!hasPermission(Manifest.permission.CAMERA)) {
             String m = "I need camera permission to take a photo — opening settings so you can allow it.";
             broadcastMessage(m);
@@ -3515,7 +3534,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         reply("I can't undo " + ActionLedger.spoken(r) + ".");
     }
 
-    private void handleAppIntegration(AppRequest request) {
+    public void handleAppIntegration(AppRequest request) {
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         // Sharing/search payloads can be private, regardless of the camera lock-screen setting.
         if (keyguard != null && keyguard.isKeyguardLocked()) {
@@ -3652,7 +3671,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Full rundown: ringer, DND, airplane, internet/Wi-Fi, Bluetooth, battery. */
-    private void handlePhoneStatus() {
+    public void handlePhoneStatus() {
         StringBuilder sb = new StringBuilder();
         AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -3895,7 +3914,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Turn a phone mode on/off, checking current state and telling the user what happened. */
-    private void handleModeSet(String actionRaw, String modeRaw, String trailingRaw) {
+    public void handleModeSet(String actionRaw, String modeRaw, String trailingRaw) {
         String a = actionRaw == null ? "" : actionRaw.toLowerCase(Locale.ROOT);
         String t = trailingRaw == null ? "" : trailingRaw.toLowerCase(Locale.ROOT);
         boolean turnOff = a.contains("off") || a.startsWith("disable") || a.startsWith("stop")
@@ -3963,7 +3982,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Report whether a mode is currently on. */
-    private void handleModeQuery(String modeRaw) {
+    public void handleModeQuery(String modeRaw) {
         String mode = canonMode(modeRaw);
         AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -3993,7 +4012,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Airplane mode can't be toggled by apps — report state and open settings if a change is wanted. */
-    private void handleAirplane(boolean turnOn) {
+    public void handleAirplane(boolean turnOn) {
         boolean isOn = airplaneOn();
         if (turnOn == isOn) { inform("Airplane mode is already " + (isOn ? "on." : "off.")); return; }
         String msg = "I can't switch airplane mode directly — opening settings so you can toggle it.";
@@ -4015,7 +4034,7 @@ public class IrisListeningService extends Service implements RecognitionListener
      * mode above) AND turn on IRIS's own resource-saving mode. "...for yourself" / "...for
      * IRIS" / "...for you" = IRIS-only, no system settings screen opened.
      */
-    private void handleBatterySaverSet(String actionRaw, String onOffRaw, String scopeRaw) {
+    public void handleBatterySaverSet(String actionRaw, String onOffRaw, String scopeRaw) {
         String a = actionRaw == null ? "" : actionRaw.toLowerCase(Locale.ROOT);
         String o = onOffRaw == null ? "" : onOffRaw.toLowerCase(Locale.ROOT);
         boolean turnOff = a.contains("off") || a.startsWith("disable") || a.startsWith("stop") || "off".equals(o);
@@ -4043,7 +4062,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** "Is battery saving mode on?" — reports both IRIS's own mode and, where readable, Android's. */
-    private void handleBatterySaverQuery() {
+    public void handleBatterySaverQuery() {
         boolean irisOn = settings.irisPowerSaver();
         String msg;
         try {
@@ -4057,7 +4076,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         inform(msg);
     }
 
-    private void handleRinger(int mode) {
+    public void handleRinger(int mode) {
         try {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (Build.VERSION.SDK_INT >= 23 && nm != null && !nm.isNotificationPolicyAccessGranted()
@@ -4079,7 +4098,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Toggle Do Not Disturb. Needs DND (notification policy) access. */
-    private void handleDnd(boolean on) {
+    public void handleDnd(boolean on) {
         try {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (Build.VERSION.SDK_INT < 23 || nm == null) {
@@ -4109,7 +4128,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Play a local song/artist by name via any installed music app (offline). */
-    private void handlePlaySong(String query) {
+    public void handlePlaySong(String query) {
         if (query == null || query.trim().isEmpty()) { handleMediaControl("play"); return; }
         String q = query.trim();
         String lower = q.toLowerCase(Locale.ROOT);
@@ -4180,7 +4199,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Adjust media volume. */
-    private void handleVolume(String normalized) {
+    public void handleVolume(String normalized) {
         try {
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
             int stream = AudioManager.STREAM_MUSIC;
@@ -4211,7 +4230,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Open the WiFi/Bluetooth settings panel (toggling isn't allowed by Android). */
-    private void handleConnectivity(String which) {
+    public void handleConnectivity(String which) {
         boolean bt = which != null && which.toLowerCase(Locale.ROOT).startsWith("bluetooth");
         try {
             Intent i;
@@ -4234,7 +4253,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Do a web search in the browser. */
-    private void handleWebSearch(String query) {
+    public void handleWebSearch(String query) {
         try {
             Intent i = new Intent(Intent.ACTION_VIEW,
                     Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)));
@@ -4249,7 +4268,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Start turn-by-turn navigation (or a map) to a destination. */
-    private void handleNavigate(String destination) {
+    public void handleNavigate(String destination) {
         try {
             Intent i = new Intent(Intent.ACTION_VIEW,
                     Uri.parse("google.navigation:q=" + Uri.encode(destination)));
@@ -4271,7 +4290,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
     /** Compose an email (resolves a contact's address when possible). */
-    private void handleEmail(String recipient, String body) {
+    public void handleEmail(String recipient, String body) {
         try {
             String to = recipient;
             if (!recipient.contains("@")) {
@@ -4295,7 +4314,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Open the calendar to create an event, pre-filling title and time. */
-    private void handleCalendar(String title, String when) {
+    public void handleCalendar(String title, String when) {
         try {
             Intent i = new Intent(Intent.ACTION_INSERT);
             i.setData(android.provider.CalendarContract.Events.CONTENT_URI);
@@ -5593,7 +5612,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
-    private void rearmAfterAction() {
+    public void rearmAfterAction() {
         VoiceEndurance.event("REARM");wakeAckPending=false;
         historyId="";
         replyCompletion.cancel();
@@ -5617,124 +5636,44 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private String configureAudioRoute() {
-        if(audioManager==null)audioManager=(AudioManager)getSystemService(AUDIO_SERVICE);
-        // Capture owners request and observe their actual AudioRecord route.
-        return AudioRouteController.observed;
+        return voiceCoordinator.configureAudioRoute();
     }
 
-    /** Diagnostic: log every detected audio input device's exact AudioDeviceInfo type whenever
-     *  the mic route is (re)configured. Lets a "still using phone mic despite headphones"
-     *  report be root-caused from a log capture — e.g. a no-name wired headset reporting as a
-     *  type not yet covered by the wired-device check in chooseDevice() below — instead of
-     *  guessing at the device model over remote description. */
     private void logDetectedInputDevices(AudioManager manager) {
-        try {
-            StringBuilder sb = new StringBuilder("Input devices:");
-            java.util.List<AudioDeviceInfo> devices = Build.VERSION.SDK_INT >= 31
-                    ? manager.getAvailableCommunicationDevices()
-                    : arrayToList(manager.getDevices(AudioManager.GET_DEVICES_INPUTS));
-            if (devices.isEmpty()) sb.append(" (none reported)");
-            for (AudioDeviceInfo d : devices) {
-                sb.append(' ').append('[').append(d.getType()).append(' ')
-                        .append(readableDeviceName(d)).append(']');
-            }
-            android.util.Log.i("IRIS", sb.toString());
-            LogStore.append(this, "AUDIO ROUTE", sb.toString());
-        } catch (Throwable ignored) { }
+        voiceCoordinator.logDetectedInputDevices();
     }
 
-    /** True if the mic is a Bluetooth headset (SCO/BLE) that needs communication mode. */
     private boolean isBluetoothMic(AudioDeviceInfo device) {
-        if (device == null) return false;
-        int t = device.getType();
-        return t == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-                || (Build.VERSION.SDK_INT >= 31 && t == AudioDeviceInfo.TYPE_BLE_HEADSET);
+        return voiceCoordinator.isBluetoothMic(device);
     }
 
     private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference) {
-        // Automatic may use the Bluetooth mic ONLY for a short command window / explicit
-        // recording. Holding it during always-on wake listening forces A2DP into call-quality
-        // SCO, which is what made music sound bad while IRIS was merely awake.
-        boolean musicPlaying = false;
-        try { musicPlaying = audioManager != null && audioManager.isMusicActive(); } catch (Throwable ignored) { }
-        return chooseDevice(devices, preference, btMicAllowed && !musicPlaying);
+        return voiceCoordinator.chooseDevice(devices, preference);
     }
 
     private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference,
                                          boolean allowBluetoothInAuto) {
-        AudioDeviceInfo builtIn = null, btDev = null, wiredDev = null;
-        for (AudioDeviceInfo device : devices) {
-            int type = device.getType();
-            if (type == AudioDeviceInfo.TYPE_BUILTIN_MIC || type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) builtIn = device;
-            boolean bluetooth = type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-                    || (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_HEADSET);
-            // Some USB-C earphones/dongles report as a generic USB device, not USB_HEADSET —
-            // treat any USB input with a mic as wired so they aren't missed as "phone mic".
-            boolean wired = type == AudioDeviceInfo.TYPE_WIRED_HEADSET || type == AudioDeviceInfo.TYPE_USB_HEADSET
-                    || type == AudioDeviceInfo.TYPE_USB_DEVICE || type == AudioDeviceInfo.TYPE_USB_ACCESSORY;
-            if (bluetooth) btDev = device;
-            if (wired) wiredDev = device;
-        }
-        if ("Phone".equals(preference)) return builtIn;
-        if ("Bluetooth".equals(preference)) return btDev != null ? btDev : builtIn;
-        if ("Wired / USB".equals(preference)) return wiredDev != null ? wiredDev : builtIn;
-        // Automatic: wired first (never disturbs playback), then the Bluetooth headset you're
-        // actually wearing — but only when music isn't playing, so the tone never changes.
-        if (wiredDev != null) return wiredDev;
-        if (btDev != null && allowBluetoothInAuto) return btDev;
-        return builtIn;
+        return voiceCoordinator.chooseDevice(devices, preference, allowBluetoothInAuto);
     }
 
     private List<AudioDeviceInfo> arrayToList(AudioDeviceInfo[] devices) {
-        List<AudioDeviceInfo> result = new ArrayList<>();
-        Collections.addAll(result, devices);
-        return result;
+        return VoicePipelineCoordinator.arrayToList(devices);
     }
 
     private String readableDeviceName(AudioDeviceInfo device) {
-        int type = device.getType();
-        if (type == AudioDeviceInfo.TYPE_BUILTIN_MIC || type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE)
-            return "Phone microphone";
-        String product = device.getProductName() == null ? "" : device.getProductName().toString().trim();
-        switch (type) {
-            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
-                return (product.isEmpty() ? "Bluetooth headset" : product) + " (Bluetooth)";
-            case AudioDeviceInfo.TYPE_WIRED_HEADSET:
-                return (product.isEmpty() ? "Wired headset" : product) + " (wired)";
-            case AudioDeviceInfo.TYPE_USB_HEADSET:
-                return (product.isEmpty() ? "USB headset" : product) + " (USB)";
-            default:
-                if (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-                    return (product.isEmpty() ? "Bluetooth headset" : product) + " (Bluetooth)";
-                return product.isEmpty() ? "Phone microphone" : product + " microphone";
-        }
+        return VoicePipelineCoordinator.readableDeviceName(device);
     }
 
     private void registerAudioChanges() {
-        if (audioManager == null || audioDeviceCallback != null) return;
-        audioDeviceCallback = new AudioDeviceCallback() {
-            @Override public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) { refreshAudioRoute(); }
-            @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) { refreshAudioRoute(); }
-        };
-        audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler);
+        voiceCoordinator.registerAudioChanges();
     }
 
     private void refreshAudioRoute() {
-        if (!isRunning) return;
-        handler.postDelayed(() -> {
-            microphoneLabel = configureAudioRoute();
-            broadcastState(true, phase);
-            updateListeningNotification("Active through " + microphoneLabel);
-        }, 300);
+        voiceCoordinator.refreshAudioRoute();
     }
 
     private void releaseAudioRoute() {
-        if (audioManager == null) return;
-        try {
-            if (audioDeviceCallback != null) audioManager.unregisterAudioDeviceCallback(audioDeviceCallback);
-        } catch (Exception ignored) { }
-        audioDeviceCallback = null;
-        audioManager = null;
+        voiceCoordinator.releaseAudioRoute();
     }
 
     private Notification.Builder baseListeningNotificationBuilder(String contentText) {
@@ -5986,71 +5925,17 @@ public class IrisListeningService extends Service implements RecognitionListener
      * the source outright, then PLAY resumes it afterwards.
      */
     private void requestSpeechFocus() {
-        try {
-            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-            if (am == null) return;
-            // Only the FIRST speech-focus request in a command may pause media — later
-            // utterances in the same command (e.g. "Taking a photo…" then "Saved a photo to…")
-            // must not re-sample isMusicActive(), which is flaky and can report a false "true"
-            // for a session that already stopped, causing an unwanted resume later.
-            if (!commandPausedMedia && am.isMusicActive()) {
-                commandPausedMedia = true;
-                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                        android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE));
-                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                        android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE));
-            }
-            // Still take brief focus so the system doesn't let anything else start while we talk.
-            if (Build.VERSION.SDK_INT >= 26) {
-                android.media.AudioFocusRequest req = new android.media.AudioFocusRequest.Builder(
-                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-                        .setAudioAttributes(new android.media.AudioAttributes.Builder()
-                                .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
-                                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                        .build();
-                if (am.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                    speechFocusRequest = req;
-                }
-            } else {
-                am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
-            }
-        } catch (Exception ignored) { }
+        voiceCoordinator.requestSpeechFocus();
     }
 
-    /** Release audio focus after this utterance. Does NOT resume media — resuming is deferred
-     *  to {@link #finishCommandMediaResume()}, called once the whole command finishes, so a
-     *  multi-utterance flow (e.g. photo capture's "Taking a photo…" + "Saved a photo to…")
-     *  doesn't resume media between its own utterances. */
     private void abandonSpeechFocus() {
-        try {
-            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-            if (am == null) return;
-            if (Build.VERSION.SDK_INT >= 26 && speechFocusRequest instanceof android.media.AudioFocusRequest) {
-                am.abandonAudioFocusRequest((android.media.AudioFocusRequest) speechFocusRequest);
-                speechFocusRequest = null;
-            } else {
-                am.abandonAudioFocus(null);
-            }
-        } catch (Exception ignored) { }
+        voiceCoordinator.abandonSpeechFocus();
     }
 
-    /** Resume media if — and only if — this command actually paused it, exactly once. Call
-     *  this when the whole command flow ends (rearmAfterAction), or when speech is cut short
-     *  by the user or a service stop (stopSpeaking/onDestroy), never after each utterance. */
     private void finishCommandMediaResume() {
-        if (!commandPausedMedia) return;
-        commandPausedMedia = false;
-        try {
-            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-            if (am == null) return;
-            am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                    android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
-            am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                    android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
-        } catch (Exception ignored) { }
+        voiceCoordinator.finishCommandMediaResume();
     }
 
-    /** Immediately stop whatever IRIS is saying (TTS or server audio) and return to listening. */
     private void stopSpeaking() {
         speechCancelled = true;
         replyCompletion.cancel();
@@ -6100,7 +5985,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         try { if (voskEngine != null) voskEngine.stop(); } catch (Throwable ignored) { }
     }
 
-    private void speak(String text) {
+    public void speak(String text) {
         if (text == null || text.isEmpty()) return;
         if (!settings.voiceReplies()) return;
         if (useServerTts()) { speakServerThenRun(text, null); return; }
@@ -6200,7 +6085,7 @@ public class IrisListeningService extends Service implements RecognitionListener
      * Prevents the mic from cutting off IRIS mid-sentence.
      * If voice replies are off or TTS fails, runs the callback after a short delay.
      */
-    private void speakThenRun(String text, Runnable afterSpeaking) {
+    public void speakThenRun(String text, Runnable afterSpeaking) {
         boolean minor = nextOutputMinor; nextOutputMinor = false;
         mirrorToWatch(text, minor);
         if (useServerTts() && text != null && !text.isEmpty() && settings.voiceReplies()) {
@@ -6407,7 +6292,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 .putExtra(EXTRA_NAME, name).putExtra(EXTRA_NUMBER, number));
     }
 
-    private void broadcastMessage(String text) {
+    public void broadcastMessage(String text) {
         CommandHistory.reply(this,historyId,text);
         if (text != null) sendBroadcast(new Intent(EVENT_MESSAGE).setPackage(getPackageName()).putExtra(EXTRA_TEXT, text));
     }

@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.72.1` / `versionCode 468` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.73.0` / `versionCode 469` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -31,7 +31,7 @@
 | **Media Playback & Viewer** | Working | Native `VideoView` for clips, interactive `WaveformView` audio player for voice notes, file-opener intent for docs, and photo lightbox viewer. |
 | **Unsent / Deleted Detection** | Working | `DeletedMessageRules.java`. Distinguishes confirmed deletions from suspected deletions (app withdrawal while screen was off), preserving original text with warning banners. |
 | **Full-Screen Fluid Viewport** | Working | Collapsible cyber status bar (`archiveDiagBody`), fast-scroll thumb, 100% native velocity scroll inertia (card touch listener decoupling), and inline one-tap `[🗑️ DEL]`. |
-| **Forensic Exports & Backup** | Working | `ArchiveExport.java`. Generates forensic HTML dark-mode reports with embedded thumbnails, self-contained ZIP backups containing media files, and filtered CSV exports. |
+| **Forensic Exports & Backup** | Working | `ArchiveExport.java` + `ArchiveViewController.java`. Generates forensic HTML dark-mode reports with embedded thumbnails, self-contained ZIP backups containing media files, and filtered CSV exports. |
 | **Multi-Store Wipe-All Purge** | Working | Completely purges SQLite rows, deletes disk media (`ArchiveImages.deleteAll`), reclaims storage (`VACUUM` + WAL truncation), clears `NotificationStore` and `FlaggedStore`, physically dismisses active shade notifications (`IrisNotificationListener.dismissAll`), and establishes synchronous epoch wipe barriers. |
 
 ### B. Auto-Responder / Comms Deck (`com.iris.assistant`)
@@ -50,7 +50,7 @@
 | **Speech-to-Text (STT)** | Working | Small offline Vosk models (en-IN + en-US). |
 | **Voice Activity Detection** | Working | Silero VAD on-device via ONNX Runtime. |
 | **Speaker Verification** | Working | ECAPA-TDNN ONNX model verifying owner voiceprint. |
-| **Command Routing** | Working | Deterministic rule-based planner (`LocalPlanner.java`, `IntentParser.java`). |
+| **Command Routing** | Working | Deterministic rule-based planner (`LocalPlanner.java`, `IntentParser.java`) + centralized `PlanRunner.java`. |
 
 ### D. Server Mode & External Integrations
 | Feature | Status | Description |
@@ -68,7 +68,7 @@ Run from `IRIS-Android/` before every commit:
 python tests/check-archive-schema.py     # 73/73 tests pass
 
 # 2. Check for unresolved type names and layout ID bindings
-python tests/check-unresolved-types.py    # 33 files checked, 280 layout IDs resolved
+python tests/check-unresolved-types.py    # 36 files checked, 280 layout IDs resolved
 
 # 3. Validate all 38 XML layout and drawable resources
 python tests/check-xml.py                # 38 resource files validated
@@ -79,6 +79,7 @@ python tests/check-xml.py                # 38 resource files validated
 ## 3. Architecture & Key Files Map
 
 * **Notification Vault (Archive):**
+  * `ArchiveViewController.java`: Dedicated UI controller managing pagination, date presets/custom picker chips, photo lightbox with scale/zoom/pan, video player, audio waveform player, swipe-to-delete queue with undo bar, and multi-format forensic exports (ZIP, HTML report, CSV, plain text).
   * `ArchiveSchema.java`: Schema DDL, append-only triggers, size quotas, and migration definitions.
   * `NotificationArchive.java`: Database helper, query builder, thread grouper, and authorised wipe logic.
   * `DeletedMessageRules.java`: Placeholder detection, deletion classification, and confidence scoring.
@@ -91,14 +92,24 @@ python tests/check-xml.py                # 38 resource files validated
   * `ResponderSettings.java`: SharedPreferences wrapper with `urgentOnly` toggle state.
   * `SmartReplies.java`: Context-aware keyword and vernacular reply engine.
   * `view_comms_responder.xml`: Responder UI deck with quick `[URGENT MESSAGES ONLY]` toggle button.
+* **Voice & Execution Controllers:**
+  * `VoicePipelineCoordinator.java`: Low-level audio routing, `AudioDeviceCallback` lifecycle, input device enumeration/selection, speech focus request/abandon, and media key play/pause dispatch.
+  * `PlanRunner.java`: Phase 2/5 Android tool executor centralizing execution of structured plans and tool calls against device hardware and intents.
+  * `LocalPlanner.java` & `IntentParser.java`: Intent parsing and structured plan generation.
 * **Glue & UI Orchestration:**
-  * `MainActivity.java`: UI binding for Vault, Responder, Contacts, and Flagged decks; touch scroll decoupling; Wipe-All coordinator.
+  * `MainActivity.java`: Host UI activity & navigation tabs; delegates Notification Vault entirely to `ArchiveViewController`.
+  * `IrisListeningService.java`: Foreground lifecycle and hotword service; delegates audio routing to `VoicePipelineCoordinator` and plan execution to `PlanRunner`.
   * `IrisNotificationListener.java`: System `NotificationListenerService` capturing active notifications, enforcing the `lastWipeEpoch` barrier, and handling system notification shade dismissal.
 
 ---
 
 ## 4. Recent Milestones & Release History
 
+* **v16.73.0 (God Classes Modularization)**:
+  * **`ArchiveViewController` Extraction**: Moved 3,194 lines out of `MainActivity.java` into a dedicated domain controller for vault list rendering, pagination, filter chips, lightbox, media players, swipe-to-delete queue with undo bar, and forensic exports (ZIP, HTML report, CSV, text). Reduced `MainActivity.java` by ~28%.
+  * **`VoicePipelineCoordinator` Extraction**: Extracted low-level audio hardware loops, `AudioDeviceCallback` lifecycle, audio routing enumeration, speech focus request/abandon, and media key play/pause dispatch out of `IrisListeningService.java`.
+  * **`PlanRunner` Execution Centralization**: Implemented `PlanRunner.java` adhering to Agent Architecture Phase 2/5 specification, centralizing tool call and structured plan dispatching through a clean `Host` interface.
+  * **Verification**: All 73 schema checks, 36 unresolved type checks across 280 layout IDs, and 38 XML resource files pass 100%.
 * **v16.72.1 (Commit `98a0ca1`)**:
   * Enhanced Auto-Responder status deck with explicit cyber warning notice when Urgent-Only mode is active.
 * **v16.72.0 (Commit `73880d8`)**:
