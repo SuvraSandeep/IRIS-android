@@ -805,13 +805,39 @@ public final class NotificationArchive {
             where.append(" AND ").append(ArchiveSchema.COL_IS_DELETED).append(" = 0 AND ")
                     .append(ArchiveSchema.COL_IS_SUSPECTED).append(" = 0");
         }
-        return authorisedDelete(context, where.toString(),
+        int removed = authorisedDelete(context, where.toString(),
                 new String[]{String.valueOf(fromMs), String.valueOf(toMs)});
+        if (removed > 0) vacuumAndCheckpoint(context);
+        return removed;
     }
 
     /** Delete everything, including flagged rows. Only from the explicit confirmed-dialog action. */
     public static int deleteEverything(Context context) {
-        return authorisedDelete(context, "1 = 1", new String[0]);
+        if (context == null) return 0;
+        int removed = authorisedDelete(context, "1 = 1", new String[0]);
+        // Wipe all captured media files from disk and purge memory thumbnail caches
+        try {
+            ArchiveImages.deleteAll(context);
+        } catch (Throwable ignored) { }
+        // Compact database pages and truncate WAL to zero out disk footprint
+        vacuumAndCheckpoint(context);
+        return removed;
+    }
+
+    /**
+     * Reclaim all freed pages and truncate the write-ahead log to eliminate file bloat on disk.
+     */
+    public static void vacuumAndCheckpoint(Context context) {
+        if (context == null) return;
+        synchronized (LOCK) {
+            try {
+                SQLiteDatabase db = database(context);
+                if (db != null) {
+                    try { db.execSQL("VACUUM"); } catch (Throwable ignored) { }
+                    try { db.execSQL("PRAGMA wal_checkpoint(TRUNCATE)"); } catch (Throwable ignored) { }
+                }
+            } catch (Throwable ignored) { }
+        }
     }
 
     /**
@@ -857,6 +883,7 @@ public final class NotificationArchive {
                 db = database(context);
                 if (db == null) return 0;
             } catch (Throwable t) {
+                noteError("obtaining archive database for delete", t);
                 return 0;
             }
             try {
@@ -875,6 +902,7 @@ public final class NotificationArchive {
                     db.endTransaction();
                 }
             } catch (Throwable t) {
+                noteError("deleting archive rows", t);
                 return 0;
             }
         }
@@ -882,9 +910,9 @@ public final class NotificationArchive {
 
     private static void setDeleteAllowed(SQLiteDatabase db, boolean allowed) {
         ContentValues values = new ContentValues();
+        values.put("k", ArchiveSchema.KEY_DELETE_ALLOWED);
         values.put("v", allowed ? 1 : 0);
-        db.update(ArchiveSchema.CONTROL, values, "k = ?",
-                new String[]{ArchiveSchema.KEY_DELETE_ALLOWED});
+        db.insertWithOnConflict(ArchiveSchema.CONTROL, null, values, SQLiteDatabase.CONFLICT_REPLACE);
     }
 
     // ─── Plumbing ───

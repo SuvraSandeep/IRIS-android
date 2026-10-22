@@ -108,13 +108,28 @@ public class IrisNotificationListener extends NotificationListenerService {
         try {
             StatusBarNotification[] active = service.getActiveNotifications();
             if (active != null) {
+                AppSettings settings = new AppSettings(service.getApplicationContext());
+                long lastWipe = settings.lastArchiveWipeAt();
                 for (StatusBarNotification sbn : active) {
+                    if (sbn == null) continue;
+                    // Do not re-capture notifications that predate an explicit owner wipe
+                    if (lastWipe > 0 && sbn.getPostTime() <= lastWipe) continue;
                     service.onNotificationPosted(sbn);
                     offered++;
                 }
             }
         } catch (Throwable ignored) { }
         return offered;
+    }
+
+    /** Clear in-memory deletion-tracking state when the owner wipes the archive. */
+    public static void clearTracked() {
+        IrisNotificationListener service = instance;
+        if (service != null) {
+            synchronized (service.tracked) {
+                service.tracked.clear();
+            }
+        }
     }
 
     /**
@@ -620,6 +635,9 @@ public class IrisNotificationListener extends NotificationListenerService {
     private long recordOne(Context context, AppSettings settings, StatusBarNotification sbn,
                            String pkg, String appLabel, String key, Bundle extras,
                            String rawTitle, String sender, String group, String body, long when) {
+        if (settings != null && settings.lastArchiveWipeAt() > 0 && when <= settings.lastArchiveWipeAt()) {
+            return 0;
+        }
         NotificationArchive.Capture capture = new NotificationArchive.Capture();
         capture.pkg = pkg;
         capture.appLabel = appLabel;

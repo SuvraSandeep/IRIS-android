@@ -3534,8 +3534,45 @@ public class MainActivity extends Activity {
                     .setNegativeButton("On reflection, no", null)
                     .setPositiveButton("Erase everything", (d, w) -> {
                         if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+
+                        // Clear any pending swipe-delete operations immediately
+                        for (Runnable commit : pendingDeleteCommits.values()) handler.removeCallbacks(commit);
+                        pendingDeleteCommits.clear();
+                        pendingDeletes.clear();
+                        hideUndoBar(view);
+
+                        // Reset thread view, expanded card states, filters, and pagination
+                        archiveCurrentThreadTitle = null;
+                        archiveCurrentThreadPkg = null;
+                        archiveExpandedRowIds.clear();
+                        archiveOffset = 0;
+                        archiveHasMore = false;
+                        archiveQuickFilter = NotificationArchive.Filter.QUICK_ALL;
+                        archiveDatePreset = DATE_PRESET_ALL;
+                        setupArchiveFilterChips(view);
+                        setupArchiveDateChips(view);
+                        EditText searchBox = view.findViewById(R.id.archiveSearch);
+                        if (searchBox != null) searchBox.setText("");
+
+                        // Immediately clear the ListView adapter on the UI thread so old rows disappear instantly
+                        ListView list = view.findViewById(R.id.archiveList);
+                        if (list != null) {
+                            ArchiveAdapter adapter = getArchiveAdapter(list);
+                            if (adapter != null) adapter.setItems(java.util.Collections.emptyList());
+                            ArchiveConversationAdapter convAdapter = getConversationAdapter(list);
+                            if (convAdapter != null) convAdapter.setItems(java.util.Collections.emptyList());
+                        }
+
+                        // Set wipe barrier to ignore shade notifications that arrived before this wipe
+                        AppSettings settings = new AppSettings(this);
+                        settings.setLastArchiveWipeAt(System.currentTimeMillis());
+                        settings.setArchiveRowsSinceExport(0);
+                        IrisNotificationListener.clearTracked();
+
                         int removed = NotificationArchive.deleteEverything(this);
                         ConversationReadTracker.clearAll(this);
+                        archiveLastSignature = NotificationArchive.signature(this);
+
                         toast(removed + " entries gone. I remember nothing. Allegedly.");
                         renderArchive(view);
                     }).show());
@@ -3609,7 +3646,6 @@ public class MainActivity extends Activity {
                 if (!view.isAttachedToWindow() || commsSection != 0) return;
 
                 archiveQueryExecutor.execute(() -> {
-                    IrisNotificationListener.captureVisibleNow();
                     final String current = NotificationArchive.signature(MainActivity.this);
                     if (!current.equals(archiveLastSignature)) {
                         archiveLastSignature = current;
