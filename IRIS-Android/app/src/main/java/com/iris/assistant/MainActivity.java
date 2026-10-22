@@ -7972,6 +7972,7 @@ public class MainActivity extends Activity {
                 }, "IRIS-ExportLogs").start();
             } else if (archiveViewController.handleActivityResult(requestCode, resultCode, data)) {
                 // Handled by ArchiveViewController
+            }
         } catch (Exception error) { toast("That didn't work: " + error.getMessage()); }
     }
 

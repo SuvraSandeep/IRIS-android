@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.77.0` / `versionCode 473` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.77.1` / `versionCode 474` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -135,7 +135,12 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v16.77.0 (Commit `60cabce`)**:
+* **v16.77.1**:
+  * **CI Build Fix (ParseSources.java & onActivityResult Syntax)**: Fixed unclosed `else if (archiveViewController.handleActivityResult(...))` block in `MainActivity.java` `onActivityResult()`, eliminating the orphaned `try-catch` syntax error that failed `ParseSources.java` in GitHub Actions CI run `39818154538`.
+  * **Automated Syntax Sweep**: Verified all 280 Java files across app and test suites have 100% clean brace balancing and syntax parsing.
+  * **Verification**: All 8 test suites pass 100% (`check-archive-schema.py`, `check-unresolved-types.py`, `check-xml.py`, `check-training-layout.py`, `check-speech-pipeline.py`, `check-planning-pipeline.py`, `check-comms-deck.py`, and `check-server-and-watch.py`).
+
+* **v16.77.0 (Commit `63992af` / `60cabce`)**:
   * **Server Mode SSE Streaming & Low-Latency TTS (§5, Handoff §1, §6)**: Added `POST /chat/stream` in `IRIS-Android/server/app.py` streaming token deltas over `text/event-stream`. Upgraded `ServerClient.java` with `StreamListener`, `chatStream()`, and `findSentenceSplit()` sentence boundary detection. Wired into `IrisListeningService.java`: Sentence 1 begins speaking immediately with `TextToSpeech.QUEUE_FLUSH`, dropping perceived latency from 8.0s down to ~800ms. Subsequent sentences queue with `QUEUE_ADD`. Action tags (`[CALL]`, `[TIME]`) are intercepted and dispatched to `handleLlmOutput()` without speaking raw bracket syntax. Added `scheduleStreamRearm()` with utterance tracking and watchdog timer.
   * **Multi-Transport Watch Companion Bridge (WebSocket + BLE GATT)**: Resolved loopback HTTP blocking on newer Zepp OS / OEM runtimes by adding RFC 6455 local WebSocket support (`ws://127.0.0.1:18473/ws`) to `WatchBridge.java` with SHA-1 handshake and binary frame handling. Implemented `WatchGattBridge.java` providing an authenticated BLE GATT server (UUID `00001847-0000-1000-8000-00805f9b34fb`) with token verification, CCCD notifications, and command routing. Upgraded `IRIS-Watch/app-side/index.js` to automatically fall back to WebSocket when HTTP fetch fails.
   * **Verification**: All 7 test suites pass 100% (`check-archive-schema.py`, `check-unresolved-types.py`, `check-xml.py`, `check-speech-pipeline.py`, `check-planning-pipeline.py`, `check-comms-deck.py`, and `check-server-and-watch.py`).

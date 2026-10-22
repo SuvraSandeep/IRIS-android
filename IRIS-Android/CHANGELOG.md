@@ -1,5 +1,10 @@
 # Changelog
 
+## 16.77.1
+
+- Fix syntax error in `MainActivity.java` `onActivityResult()` caused by unclosed `else if (archiveViewController.handleActivityResult(...))` block.
+- Restored clean brace balancing and syntax parsing for CI `ParseSources.java` regression suite.
+
 ## 16.77.0
 
 - Server Mode & Watch Companion Bridge (§5, Handoff §1, §6).
