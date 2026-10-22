@@ -77,6 +77,27 @@ public final class AudioFocusSession implements AutoCloseable {
         this.autoResumeMediaOnClose = false;
     }
 
+    public synchronized boolean isClosed() {
+        return closed;
+    }
+
+    public synchronized void abandonFocusOnly() {
+        if (closed) return;
+        try {
+            if (focusGranted && audioManager != null) {
+                if (Build.VERSION.SDK_INT >= 26 && focusRequest instanceof AudioFocusRequest) {
+                    audioManager.abandonAudioFocusRequest((AudioFocusRequest) focusRequest);
+                } else {
+                    audioManager.abandonAudioFocus(null);
+                }
+            }
+        } catch (Exception ignored) { }
+        finally {
+            focusRequest = null;
+            focusGranted = false;
+        }
+    }
+
     public synchronized void resumeMedia() {
         if (mediaPaused) {
             mediaPaused = false;

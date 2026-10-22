@@ -1387,7 +1387,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         // Safety net: a new command should never inherit a stale pause-flag from a prior
         // command that ended abnormally (e.g. crashed mid-flow before rearmAfterAction ran).
-        commandPausedMedia = false; voiceCoordinator.resetCommandPausedMedia();
+        voiceCoordinator.resetCommandPausedMedia();
         String clean = heard == null ? "" : heard.trim();
         if (clean.isEmpty()) {
             rearmAfterAction();
@@ -5710,14 +5710,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
-    private Object speechFocusRequest;
     private volatile boolean speechCancelled;
     private boolean wakeAckPending;
-    private final ReplyCompletionGate replyCompletion=new ReplyCompletionGate();
-    /** Set once per command the first time we actually pause media for speech; only this
-     *  flag (not per-utterance state) decides whether media is resumed, and only once, when
-     *  the whole command finishes — never after each individual TTS utterance. */
-    private volatile boolean commandPausedMedia;
+    private final ReplyCompletionGate replyCompletion = new ReplyCompletionGate();
     private String lastUserCommand = "";
     private String lastActionSummary = "";
     private volatile boolean nextOutputMinor;

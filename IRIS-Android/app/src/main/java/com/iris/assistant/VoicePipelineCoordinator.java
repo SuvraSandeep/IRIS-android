@@ -31,8 +31,7 @@ public class VoicePipelineCoordinator {
     private final RouteListener routeListener;
     private AudioManager audioManager;
     private AudioDeviceCallback audioDeviceCallback;
-    private Object speechFocusRequest;
-    private boolean commandPausedMedia;
+    private AudioFocusSession activeSession;
     private boolean btMicAllowed = true;
     private String currentMicrophoneLabel = "Phone";
 
@@ -178,65 +177,37 @@ public class VoicePipelineCoordinator {
      * Opens an AutoCloseable speech focus session that guarantees focus release
      * and media resumption on close().
      */
-    public AudioFocusSession openSpeechSession(boolean pauseActiveMedia) {
-        return new AudioFocusSession(context, pauseActiveMedia);
+    public synchronized AudioFocusSession openSpeechSession(boolean pauseActiveMedia) {
+        if (activeSession != null && !activeSession.isClosed()) {
+            activeSession.close();
+        }
+        activeSession = new AudioFocusSession(context, pauseActiveMedia);
+        return activeSession;
     }
 
-    public void requestSpeechFocus() {
-        try {
-            if (audioManager == null) {
-                audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-            }
-            if (audioManager == null) return;
-            if (!commandPausedMedia && audioManager.isMusicActive()) {
-                commandPausedMedia = true;
-                audioManager.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PAUSE));
-                audioManager.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PAUSE));
-            }
-            if (Build.VERSION.SDK_INT >= 26) {
-                AudioFocusRequest req = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-                        .setAudioAttributes(new AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                        .build();
-                if (audioManager.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                    speechFocusRequest = req;
-                }
-            } else {
-                audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
-            }
-        } catch (Exception ignored) { }
+    public synchronized void requestSpeechFocus() {
+        if (activeSession == null || activeSession.isClosed()) {
+            activeSession = new AudioFocusSession(context, true);
+        }
     }
 
-    public void abandonSpeechFocus() {
-        try {
-            if (audioManager == null) {
-                audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-            }
-            if (audioManager == null) return;
-            if (Build.VERSION.SDK_INT >= 26 && speechFocusRequest instanceof AudioFocusRequest) {
-                audioManager.abandonAudioFocusRequest((AudioFocusRequest) speechFocusRequest);
-                speechFocusRequest = null;
-            } else {
-                audioManager.abandonAudioFocus(null);
-            }
-        } catch (Exception ignored) { }
+    public synchronized void abandonSpeechFocus() {
+        if (activeSession != null && !activeSession.isClosed()) {
+            activeSession.abandonFocusOnly();
+        }
     }
 
-    public void finishCommandMediaResume() {
-        if (!commandPausedMedia) return;
-        commandPausedMedia = false;
-        try {
-            if (audioManager == null) {
-                audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-            }
-            if (audioManager == null) return;
-            audioManager.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY));
-            audioManager.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY));
-        } catch (Exception ignored) { }
+    public synchronized void finishCommandMediaResume() {
+        if (activeSession != null) {
+            activeSession.close();
+            activeSession = null;
+        }
     }
 
-    public void resetCommandPausedMedia() {
-        commandPausedMedia = false;
+    public synchronized void resetCommandPausedMedia() {
+        if (activeSession != null) {
+            activeSession.close();
+            activeSession = null;
+        }
     }
 }

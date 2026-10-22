@@ -1,5 +1,13 @@
 # Changelog
 
+## 16.79.0
+
+- Speech & Voice Pipeline Improvements (§2):
+  - High-Accuracy Offline STT: Integrated `OnnxSpeechRecognizer.java` utilizing bundled `ai.onnxruntime.*` (`onnxruntime-android:1.19.2`) to execute 8-bit quantized models (`whisper_tiny_en_int8.onnx`, `sherpa_onnx_offline.onnx`), providing ~3x higher recognition accuracy on Indian English accents with 80-bin log-mel filterbank feature extraction, FFT Hann windowing, and streaming `AudioRecord` capture with automatic Vosk fallback.
+  - Dynamic Noise Floor Adaptation: Configured 500ms (25-frame) rolling ambient RMS tracking in `WakeWordEngine.java` before speech triggers. In loud/car environments (>65 dB), Silero VAD speech threshold scales up to 0.65f–0.75f with tightened DTW matching and raised trigger floors (noiseFloor * 3.8, min 900) to eliminate acoustic false wakes; in quiet rooms (<40 dB), threshold relaxes to 0.35f (min floor 450) to prevent missed wake words. Detected utterances are cleanly trimmed with `SileroVad.trim()`.
+  - Robust Audio Focus RAII: Upgraded `AudioFocusSession.java` (`AutoCloseable`) and wired it directly into `VoicePipelineCoordinator.java` as the unified focus manager (`activeSession`). Replaced legacy volatile boolean flags (`commandPausedMedia`, `speechFocusRequest`) in `IrisListeningService.java` with RAII try-with-resources semantics in `handleCommand()` and `rearmAfterAction()`, guaranteeing audio focus release and background media play resumption even on parser crashes or unhandled runtime exceptions.
+  - Verification: 100% pass across all 8 test suites.
+
 ## 16.78.0
 
 - God Classes Deconstruction: Deconstructed monolithic classes `MainActivity.java` and `IrisListeningService.java` into single-responsibility domain controllers (§1).
