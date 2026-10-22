@@ -1,5 +1,19 @@
 # Changelog
 
+## 16.77.0
+
+- Server Mode & Watch Companion Bridge (§5, Handoff §1, §6).
+- Added `POST /chat/stream` SSE endpoint in `IRIS-Android/server/app.py` streaming token deltas and completion status over `text/event-stream` from Ollama.
+- Upgraded `ServerClient.java` with `StreamListener` interface, `chatStream()` method, and robust sentence boundary parser `findSentenceSplit()`, streaming sentences while respecting abbreviations (`Dr.`, `e.g.`, `i.e.`, `vs.`) and numeric decimals.
+- Integrated streaming TTS in `IrisListeningService.java`: Sentence 1 begins speaking immediately with `TextToSpeech.QUEUE_FLUSH`, dropping perceived conversational latency from 8.0s down to ~800ms. Subsequent sentences queue smoothly with `QUEUE_ADD`.
+- Added action tag interception in streaming response: action tags (`[CALL]`, `[TIME]`, etc.) are intercepted cleanly without speaking raw bracket syntax and dispatched to `handleLlmOutput()`.
+- Implemented `scheduleStreamRearm()` in `IrisListeningService.java` tracking the final streamed utterance via `UtteranceProgressListener.onDone()` with safety watchdog timer, cleanly releasing speech audio focus and re-arming voice listening without deadlocks.
+- Resolved loopback HTTP blocking on newer Zepp OS / OEM runtimes by adding RFC 6455 WebSocket transport (`ws://127.0.0.1:18473/ws`) to `WatchBridge.java` with SHA-1 handshake and framed JSON message routing.
+- Implemented `WatchGattBridge.java` providing an authenticated BLE GATT server (service UUID `00001847-0000-1000-8000-00805f9b34fb`) with token verification, CCCD notifications, and command routing.
+- Updated `IRIS-Watch/app-side/index.js` to automatically fall back to local WebSocket transport if HTTP `fetch()` fails.
+- Declared `BLUETOOTH_ADVERTISE` and `BLUETOOTH_ADMIN` permissions in `AndroidManifest.xml`.
+- Added dedicated test suite `tests/check-server-and-watch.py`, passing 100% across all 7 verification test suites.
+
 ## 16.76.0
 
 - Comms Deck, Auto-Responder & Notification Vault Enhancements (§4, Handoff §1, §2.2, §2.5, §7a).

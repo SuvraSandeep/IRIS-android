@@ -1958,22 +1958,67 @@ public class IrisListeningService extends Service implements RecognitionListener
             final String msg = original;
             new Thread(() -> {
                 long t0 = System.currentTimeMillis();
-                String reply = new ServerClient(settings.serverUrl(), settings.serverToken())
-                        .chat(msg, conversation.turnsJson(), profileJson(), 4000, 25000);
-                long dt = System.currentTimeMillis() - t0;
-                handler.post(() -> {
-                    if (reply != null && !reply.isEmpty()) {
-                        serverMonitor.recordSuccess(dt);
-                        try {
-                            conversation.add(msg, reply.replaceAll("\\[.*?\\]", "").trim());
-                            handleLlmOutput(reply, store);
-                        } catch (Throwable t) {
+                java.util.concurrent.atomic.AtomicBoolean isAction = new java.util.concurrent.atomic.AtomicBoolean(false);
+                java.util.concurrent.atomic.AtomicInteger sentencesSpoken = new java.util.concurrent.atomic.AtomicInteger(0);
+                java.util.concurrent.atomic.AtomicBoolean firstSentenceSpoken = new java.util.concurrent.atomic.AtomicBoolean(false);
+                ServerClient client = new ServerClient(settings.serverUrl(), settings.serverToken());
+                client.chatStream(msg, conversation.turnsJson(), profileJson(), 4000, 25000, new ServerClient.StreamListener() {
+                    @Override
+                    public void onSentence(String sentence, int index) {
+                        handler.post(() -> {
+                            if (sentence == null || sentence.trim().isEmpty()) return;
+                            String trimmed = sentence.trim();
+                            if (index == 1 && trimmed.startsWith("[")) {
+                                isAction.set(true);
+                            }
+                            if (!isAction.get() && !trimmed.startsWith("[") && settings.voiceReplies() && !"Silent".equals(settings.personality())) {
+                                int count = sentencesSpoken.incrementAndGet();
+                                boolean first = firstSentenceSpoken.compareAndSet(false, true);
+                                speakStreamSentence(trimmed, count, first);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onComplete(String fullReply) {
+                        long dt = System.currentTimeMillis() - t0;
+                        handler.post(() -> {
+                            if (fullReply != null && !fullReply.isEmpty()) {
+                                serverMonitor.recordSuccess(dt);
+                                try {
+                                    if (isAction.get() || fullReply.trim().startsWith("[")) {
+                                        conversation.add(msg, fullReply.replaceAll("\\[.*?\\]", "").trim());
+                                        handleLlmOutput(fullReply, store);
+                                    } else {
+                                        String clean = fullReply.replaceAll("\\[.*?\\]", "").trim();
+                                        if (clean.isEmpty()) clean = "Okay.";
+                                        conversation.add(msg, clean);
+                                        broadcastMessage(clean);
+                                        mirrorToWatch(clean, false);
+                                        if (sentencesSpoken.get() == 0) {
+                                            handler.postDelayed(IrisListeningService.this::rearmAfterAction, 800);
+                                        } else {
+                                            scheduleStreamRearm(sentencesSpoken.get(), clean.length());
+                                        }
+                                    }
+                                } catch (Throwable t) {
+                                    offlineChat(msg, normalized, store);
+                                }
+                            } else {
+                                serverMonitor.recordFailure();
+                                LogStore.append(IrisListeningService.this, "SERVER", "chat miss \u2192 offline");
+                                offlineChat(msg, normalized, store);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        handler.post(() -> {
+                            serverMonitor.recordFailure();
+                            LogStore.append(IrisListeningService.this, "SERVER", "chat stream error \u2192 offline");
                             offlineChat(msg, normalized, store);
-                        }
-                    } else {
-                        serverMonitor.recordFailure();
-                        LogStore.append(IrisListeningService.this, "SERVER", "chat miss \u2192 offline");
-                        offlineChat(msg, normalized, store);
+                        });
                     }
                 });
             }, "IRIS-Server-Chat").start();
@@ -6353,6 +6398,62 @@ public class IrisListeningService extends Service implements RecognitionListener
         }catch(Exception error){handler.post(complete);}
         // A missing callback must not leave the assistant permanently in a command phase.
         handler.postDelayed(complete,Math.min(60_000L,Math.max(acknowledgement?2500L:6000L,text.length()*90L+2000L)));
+    }
+
+    private void speakStreamSentence(String sentence, int index, boolean isFirst) {
+        if (textToSpeech == null || !ttsReady) return;
+        speechCancelled = false;
+        if (isFirst) {
+            requestSpeechFocus();
+            startStopWordListener();
+            try {
+                textToSpeech.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, "stream_part_" + index);
+            } catch (Exception ignored) { }
+        } else {
+            try {
+                textToSpeech.speak(sentence, TextToSpeech.QUEUE_ADD, null, "stream_part_" + index);
+            } catch (Exception ignored) { }
+        }
+    }
+
+    private void scheduleStreamRearm(int totalSentences, int totalChars) {
+        final long token = replyCompletion.begin();
+        final String lastUtterance = "stream_part_" + totalSentences;
+        speechCancelled = false;
+        Runnable complete = () -> {
+            if (!replyCompletion.complete(token)) return;
+            stopWordEngine();
+            if (textToSpeech != null) {
+                textToSpeech.setOnUtteranceProgressListener(null);
+            }
+            abandonSpeechFocus();
+            if (isRunning && !speechCancelled) rearmAfterAction();
+        };
+
+        if (textToSpeech != null && ttsReady) {
+            textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                @Override
+                public void onStart(String id) {
+                    if (replyCompletion.pending(token)) VoiceEndurance.event("STREAM_REPLY_STARTED");
+                }
+
+                @Override
+                public void onDone(String id) {
+                    if (lastUtterance.equals(id)) {
+                        handler.postDelayed(complete, 300);
+                    }
+                }
+
+                @Override
+                public void onError(String id) {
+                    if (lastUtterance.equals(id)) {
+                        handler.post(complete);
+                    }
+                }
+            });
+        }
+        long maxDelay = Math.min(60_000L, Math.max(6000L, totalChars * 90L + 3000L));
+        handler.postDelayed(complete, maxDelay);
     }
 
     private String callTimingWarning(String name, String number) {

@@ -68,6 +68,9 @@ DEFAULT_TARGETS = [
     "OnnxSpeechRecognizer.java",
     "OnnxSlmEngine.java",
     "AutoModeDetector.java",
+    "ServerClient.java",
+    "WatchBridge.java",
+    "WatchGattBridge.java",
 ]
 
 JAVA_LANG = {

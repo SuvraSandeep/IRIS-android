@@ -3,8 +3,10 @@ package com.iris.assistant;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -56,6 +58,161 @@ final class ServerClient {
         } catch (Throwable t) {
             return null;
         } finally { if (c != null) c.disconnect(); }
+    }
+
+    interface StreamListener {
+        /** Called on each completed sentence extracted from the SSE stream. */
+        void onSentence(String sentence, int index);
+        /** Called when the stream has concluded with the full response text. */
+        void onComplete(String fullReply);
+        /** Called if an unrecoverable network or stream error occurs. */
+        void onError(Throwable error);
+    }
+
+    /**
+     * Stream chat from POST /chat/stream, invoking listener.onSentence() for each completed sentence
+     * and listener.onComplete() when the stream finishes.
+     * If the server does not support streaming (e.g. 404), falls back automatically to POST /chat.
+     */
+    void chatStream(String message, JSONArray context, JSONObject profile, int connectMs, int readMs, StreamListener listener) {
+        HttpURLConnection c = null;
+        try {
+            c = open("/chat/stream", "POST", connectMs, readMs);
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json");
+            c.setRequestProperty("Accept", "text/event-stream");
+            JSONObject body = new JSONObject();
+            body.put("message", message == null ? "" : message);
+            if (context != null) body.put("context", context);
+            if (profile != null) body.put("profile", profile);
+            writeBody(c, body.toString().getBytes(StandardCharsets.UTF_8));
+
+            int code = c.getResponseCode();
+            if (code == 404) {
+                // Server does not support /chat/stream; fall back to synchronous /chat
+                c.disconnect();
+                c = null;
+                String reply = chat(message, context, profile, connectMs, readMs);
+                if (reply != null && !reply.isEmpty()) {
+                    if (listener != null) {
+                        listener.onSentence(reply, 1);
+                        listener.onComplete(reply);
+                    }
+                } else if (listener != null) {
+                    listener.onError(new java.io.IOException("Server returned 404 and fallback chat failed"));
+                }
+                return;
+            }
+
+            if (code / 100 != 2) {
+                if (listener != null) listener.onError(new java.io.IOException("HTTP error " + code));
+                return;
+            }
+
+            StringBuilder fullReply = new StringBuilder();
+            StringBuilder pending = new StringBuilder();
+            int sentenceIndex = 0;
+
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    line = line.trim();
+                    if (!line.startsWith("data:")) continue;
+                    String jsonStr = line.substring(5).trim();
+                    if (jsonStr.isEmpty()) continue;
+
+                    JSONObject chunk = new JSONObject(jsonStr);
+                    if (chunk.has("error")) {
+                        throw new java.io.IOException(chunk.optString("error", "Stream error"));
+                    }
+                    String delta = chunk.optString("delta", "");
+                    boolean done = chunk.optBoolean("done", false);
+
+                    if (!delta.isEmpty()) {
+                        fullReply.append(delta);
+                        pending.append(delta);
+
+                        // Check for sentence boundaries
+                        while (true) {
+                            int split = findSentenceSplit(pending.toString());
+                            if (split <= 0) break;
+                            String sentence = pending.substring(0, split).trim();
+                            pending.delete(0, split);
+                            if (!sentence.isEmpty()) {
+                                sentenceIndex++;
+                                if (listener != null) listener.onSentence(sentence, sentenceIndex);
+                            }
+                        }
+                    }
+
+                    if (done) break;
+                }
+            }
+
+            // Flush any remaining text in pending buffer
+            String remaining = pending.toString().trim();
+            if (!remaining.isEmpty()) {
+                sentenceIndex++;
+                if (listener != null) listener.onSentence(remaining, sentenceIndex);
+            }
+
+            if (listener != null) {
+                listener.onComplete(fullReply.toString().trim());
+            }
+        } catch (Throwable t) {
+            if (listener != null) listener.onError(t);
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    static int findSentenceSplit(String s) {
+        if (s == null || s.length() < 3) return -1;
+        int openBrackets = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '[') {
+                openBrackets++;
+            } else if (c == ']' && openBrackets > 0) {
+                openBrackets--;
+            }
+
+            if (openBrackets == 0) {
+                if (c == '.' || c == '!' || c == '?') {
+                    if (i + 1 < s.length()) {
+                        char next = s.charAt(i + 1);
+                        if (Character.isWhitespace(next)) {
+                            if (c == '.' && isAbbreviation(s, i)) {
+                                continue;
+                            }
+                            return i + 1;
+                        }
+                    }
+                } else if (c == ']') {
+                    if (i + 1 < s.length() && Character.isWhitespace(s.charAt(i + 1))) {
+                        return i + 1;
+                    }
+                } else if (c == '\n') {
+                    if (i + 1 < s.length() && s.charAt(i + 1) == '\n') {
+                        return i + 1;
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static boolean isAbbreviation(String s, int dotIdx) {
+        int start = dotIdx - 1;
+        while (start >= 0 && (Character.isLetter(s.charAt(start)) || s.charAt(start) == '.')) {
+            start--;
+        }
+        String word = s.substring(start + 1, dotIdx).replace(".", "").toLowerCase(java.util.Locale.ROOT);
+        return word.equals("mr") || word.equals("mrs") || word.equals("ms")
+                || word.equals("dr") || word.equals("vs") || word.equals("etc")
+                || word.equals("eg") || word.equals("ie") || word.equals("sr") || word.equals("jr")
+                || word.equals("prof") || word.equals("inc") || word.equals("ltd");
     }
 
     /** POST /transcribe (16k mono WAV) → recognized text, or null on failure. */

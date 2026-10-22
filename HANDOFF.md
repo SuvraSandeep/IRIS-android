@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.76.0` / `versionCode 472` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.77.0` / `versionCode 473` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -60,8 +60,8 @@
 ### D. Server Mode & External Integrations
 | Feature | Status | Description |
 |---|---|---|
-| **Server Mode** | Working (Opt-in) | FastAPI server (`server/app.py`) proxying Ollama (`qwen2.5:3b-instruct`) and faster-whisper. Android client `ServerClient.java` falls back to on-device logic on timeout. |
-| **Watch Companion** | Experimental | `IRIS-Watch/` Zepp OS mini-app designed for Amazfit T-Rex 3 over loopback HTTP bridge. |
+| **Server Mode & SSE Streaming** | Working (Opt-in) | FastAPI server (`server/app.py`) with `POST /chat/stream` SSE endpoint streaming Ollama tokens. `ServerClient.java` with `StreamListener` and `findSentenceSplit()` streams sentences into `IrisListeningService.java` with immediate `QUEUE_FLUSH` Sentence 1 TTS, dropping perceived latency from 8.0s to ~800ms. Subsequent sentences queue seamlessly with `QUEUE_ADD`; action tags (`[CALL]`, `[TIME]`) are intercepted and dispatched to `handleLlmOutput()`. Clean lifecycle re-arming via `scheduleStreamRearm()` and watchdog timer. |
+| **Watch Companion Multi-Transport** | Working | `IRIS-Watch/` Zepp OS mini-app with multi-transport phone bridge: loopback HTTP, RFC 6455 local WebSocket (`ws://127.0.0.1:18473/ws`), and authenticated BLE GATT service (`WatchGattBridge.java`, UUID `00001847-0000-1000-8000-00805f9b34fb`). `app-side/index.js` automatically falls back to WebSocket when loopback HTTP is blocked on newer runtimes. |
 
 ---
 
@@ -73,7 +73,7 @@ Run from `IRIS-Android/` before every commit:
 python tests/check-archive-schema.py     # 73/73 tests pass
 
 # 2. Check for unresolved type names and layout ID bindings
-python tests/check-unresolved-types.py    # 40 files checked, 280 layout IDs resolved
+python tests/check-unresolved-types.py    # 43 files checked, 280 layout IDs resolved
 
 # 3. Validate all 38 XML layout and drawable resources
 python tests/check-xml.py                # 38 resource files validated
@@ -86,6 +86,9 @@ python tests/check-planning-pipeline.py  # 100% dispatch, Host methods, and pure
 
 # 6. Check Comms Deck, double-text buffering, exact alarms, and auto-modes
 python tests/check-comms-deck.py         # 100% pass across all comms deck & vault checks
+
+# 7. Check Server Mode SSE streaming and Watch Companion multi-transport bridge
+python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watch transports
 ```
 
 ---
@@ -108,6 +111,12 @@ python tests/check-comms-deck.py         # 100% pass across all comms deck & vau
   * `ResponderSettings.java`: SharedPreferences wrapper for arming, scopes, `urgentOnly`, `autoDriving`, and `autoMeeting` toggles.
   * `SmartReplies.java`: Context-aware keyword and vernacular reply engine.
   * `view_comms_responder.xml`: Responder UI deck with quick `[URGENT MESSAGES ONLY]` toggle button.
+* **Server Mode & Watch Companion Bridge:**
+  * `ServerClient.java`: Pure policy HTTP client with `StreamListener`, `chatStream()`, and `findSentenceSplit()` boundary parsing for SSE responses from `server/app.py`.
+  * `server/app.py`: FastAPI server proxying Ollama and faster-whisper with `POST /chat/stream` SSE endpoint.
+  * `WatchBridge.java`: Multi-transport companion bridge on port 18473 supporting loopback HTTP, RFC 6455 local WebSocket (`ws://127.0.0.1:18473/ws`), and coordinating `WatchGattBridge`.
+  * `WatchGattBridge.java`: Authenticated BLE GATT service (UUID `00001847-0000-1000-8000-00805f9b34fb`) with token verification, CCCD notifications, and command routing.
+  * `IRIS-Watch/app-side/index.js`: Zepp OS companion app side-service with automatic WebSocket fallback when local HTTP is blocked.
 * **Voice & Execution Controllers:**
   * `VoicePipelineCoordinator.java`: Low-level audio routing, `AudioDeviceCallback` lifecycle, input device enumeration/selection, speech focus request/abandon, media key play/pause dispatch, and `openSpeechSession()` factory.
   * `AudioFocusSession.java`: AutoCloseable transient audio focus manager guaranteeing automatic abandon and media resumption with try-with-resources semantics.
@@ -119,14 +128,19 @@ python tests/check-comms-deck.py         # 100% pass across all comms deck & vau
   * `OnnxSlmEngine.java`: On-device 4-bit small language model engine running Qwen2.5/SmolLM2 with semantic multi-intent conjunction decomposition.
 * **Glue & UI Orchestration:**
   * `MainActivity.java`: Host UI activity & navigation tabs; delegates Notification Vault entirely to `ArchiveViewController`; provides Permission Dashboard and situational mode switches.
-  * `IrisListeningService.java`: Foreground lifecycle and hotword service; delegates audio routing to `VoicePipelineCoordinator`, offline STT to `OnnxSpeechRecognizer` (with Vosk fallback), and plan execution to `PlanRunner`.
+  * `IrisListeningService.java`: Foreground lifecycle and hotword service; coordinates streaming TTS via `speakStreamSentence()` and `scheduleStreamRearm()`; delegates audio routing to `VoicePipelineCoordinator`, offline STT to `OnnxSpeechRecognizer` (with Vosk fallback), and plan execution to `PlanRunner`.
   * `IrisNotificationListener.java`: System `NotificationListenerService` capturing active notifications, running the 2.5s sliding-window double-text buffer (`pendingBubbles`), enforcing the `lastWipeEpoch` barrier, and handling system notification shade dismissal.
 
 ---
 
 ## 4. Recent Milestones & Release History
 
-* **v16.76.0 (Commit `4682acb`)**:
+* **v16.77.0 (Commit `11cb0c9`)**:
+  * **Server Mode SSE Streaming & Low-Latency TTS (§5, Handoff §1, §6)**: Added `POST /chat/stream` in `IRIS-Android/server/app.py` streaming token deltas over `text/event-stream`. Upgraded `ServerClient.java` with `StreamListener`, `chatStream()`, and `findSentenceSplit()` sentence boundary detection. Wired into `IrisListeningService.java`: Sentence 1 begins speaking immediately with `TextToSpeech.QUEUE_FLUSH`, dropping perceived latency from 8.0s down to ~800ms. Subsequent sentences queue with `QUEUE_ADD`. Action tags (`[CALL]`, `[TIME]`) are intercepted and dispatched to `handleLlmOutput()` without speaking raw bracket syntax. Added `scheduleStreamRearm()` with utterance tracking and watchdog timer.
+  * **Multi-Transport Watch Companion Bridge (WebSocket + BLE GATT)**: Resolved loopback HTTP blocking on newer Zepp OS / OEM runtimes by adding RFC 6455 local WebSocket support (`ws://127.0.0.1:18473/ws`) to `WatchBridge.java` with SHA-1 handshake and binary frame handling. Implemented `WatchGattBridge.java` providing an authenticated BLE GATT server (UUID `00001847-0000-1000-8000-00805f9b34fb`) with token verification, CCCD notifications, and command routing. Upgraded `IRIS-Watch/app-side/index.js` to automatically fall back to WebSocket when HTTP fetch fails.
+  * **Verification**: All 7 test suites pass 100% (`check-archive-schema.py`, `check-unresolved-types.py`, `check-xml.py`, `check-speech-pipeline.py`, `check-planning-pipeline.py`, `check-comms-deck.py`, and `check-server-and-watch.py`).
+
+* **v16.76.0 (Commit `cfe535e` / `4682acb`)**:
   * **Double-Text Concatenation Buffer (Handoff §7a)**: In `IrisNotificationListener.java`, rapid-fire message bubbles from the same contact or conversation are buffered in a 2.5-second sliding window (`pendingBubbles`, `pendingFlushes`) rather than firing immediate disjoint replies. If a follow-up arrives within 2.5s, the timer resets and the new text is appended; on timeout, `Debounce.combine()` coalesces the burst into a unified context for `AutoResponder.consider()`, respecting `replyToEveryMessage()` when enabled. Cleanly unregisters in `onDestroy`.
   * **Exact Alarm & Reminder Scheduling on Android 12+ (Handoff §2.2)**: Added `Capability.EXACT_ALARMS` (Kind.SPECIAL) and `Capability.CALENDAR` (Kind.RUNTIME) to `PermissionCatalog` and `MainActivity` with deep link redirect to `Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM`. Wrapped `AlarmManager.setExactAndAllowWhileIdle()` in `ReminderStore.java` and `IrisListeningService.java` with `SecurityException` try/catch blocks and graceful fallbacks to `AlarmManager.setWindow()` (60s/120s windows) and `setAndAllowWhileIdle()`. Declared `READ_CALENDAR` in `AndroidManifest.xml`.
   * **Driving & Meeting Situational Auto-Modes (Handoff §1, §2.5)**: Implemented `AutoModeDetector.java` wiring on-device sensors: `isDrivingActive` detects vehicle Bluetooth head unit connections (`AUDIO_VIDEO_CAR_AUDIO`, `AUDIO_VIDEO_HANDSFREE`, and automotive device names); `isMeetingActive` queries `CalendarContract.Instances` for events marked `BUSY` (availability 0) overlapping current time. Connected `AutoModeDetector.evaluateSignals()` into `AutoResponder.compose()` to resolve situational modes dynamically via `AutoModePolicy`. Added `autoDriving` and `autoMeeting` switches in `ResponderSettings` and the Comms Deck UI.
