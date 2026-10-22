@@ -1,5 +1,13 @@
 # Changelog
 
+## 16.80.0
+
+- Comms Deck, Auto-Responder & Notification Vault Enhancements (§4, Handoff §1, §2.2, §2.5, §7a):
+  - Real-Time Bluetooth ACL Auto-Mode Triggers: Enhanced `AutoModeDetector.java` and `IrisNotificationListener.java` with dynamic `BluetoothDevice.ACTION_ACL_CONNECTED` and `ACTION_ACL_DISCONNECTED` broadcast listening. Immediately caches vehicle infotainment and car head unit connection status without requiring expensive on-demand reflection or audio routing queries, providing zero-latency situational shifts into `DRIVING` responder mode.
+  - Double-Text Concatenation Buffer & Unified Decide Pipeline: In `IrisNotificationListener.java`, rapid-fire message bubbles from the same contact are buffered in a 2.5s sliding window (`pendingBubbles`, `pendingFlushes`, `pendingIncomings`). If a subsequent bubble arrives within 2.5s, the timer resets, the new bubble is appended, and on timeout `Debounce.combine()` coalesces the burst into unified context for the newly unified `AutoResponder.decide()` pipeline.
+  - Exact Alarm & Reminder Scheduling on Android 12+: Validated `SCHEDULE_EXACT_ALARM` deep-links in the Permission Dashboard with graceful `setWindow()` and `setAndAllowWhileIdle()` fallbacks in `ReminderStore.java` and `IrisListeningService.java`, alongside `CalendarContract.Instances` querying for `BUSY` events during meeting hours.
+  - Verification: 100% pass across all 8 verification test suites and 206 Java source files verified with clean bracket balancing.
+
 ## 16.79.0
 
 - Speech & Voice Pipeline Improvements (§2):

@@ -84,6 +84,7 @@ public class IrisNotificationListener extends NotificationListenerService {
     private volatile long lastInteractiveAt;
 
     private BroadcastReceiver screenWatcher;
+    private BroadcastReceiver bluetoothWatcher;
 
     /**
      * Whether the system has the notification reader bound.
@@ -225,6 +226,7 @@ public class IrisNotificationListener extends NotificationListenerService {
         instance = this;
         blindSince = 0L;
         startScreenWatch();
+        startBluetoothWatch();
         // Records that capture resumed. A gap between a disconnect marker and this one is a window
         // the archive genuinely did not see, which the owner can then judge for themselves rather
         // than being shown an apparently continuous record.
@@ -252,6 +254,7 @@ public class IrisNotificationListener extends NotificationListenerService {
         archiveMark(ArchiveSchema.KIND_LISTENER_DISCONNECTED,
                 "Notification capture stopped. Messages arriving now are not being saved.");
         stopScreenWatch();
+        stopBluetoothWatch();
         if (instance == this) instance = null;
         // Stamped only on the first disconnect of a run, so repeated failed rebinds report the
         // true total outage rather than resetting the clock each attempt.
@@ -288,6 +291,7 @@ public class IrisNotificationListener extends NotificationListenerService {
 
     @Override public void onDestroy() {
         stopScreenWatch();
+        stopBluetoothWatch();
         synchronized (bubbleLock) {
             for (Runnable r : pendingFlushes.values()) {
                 bubbleHandler.removeCallbacks(r);
@@ -308,6 +312,32 @@ public class IrisNotificationListener extends NotificationListenerService {
         }
         if (instance == this) instance = null;
         super.onDestroy();
+    }
+
+    /**
+     * Watch for Bluetooth car head unit / handsfree connections to trigger driving mode without latency.
+     */
+    private void startBluetoothWatch() {
+        if (bluetoothWatcher != null) return;
+        try {
+            bluetoothWatcher = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    AutoModeDetector.onBluetoothAclEvent(intent);
+                }
+            };
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED);
+            filter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED);
+            registerReceiver(bluetoothWatcher, filter);
+        } catch (Exception e) {
+            bluetoothWatcher = null;
+        }
+    }
+
+    private void stopBluetoothWatch() {
+        if (bluetoothWatcher == null) return;
+        try { unregisterReceiver(bluetoothWatcher); } catch (Exception ignored) { }
+        bluetoothWatcher = null;
     }
 
     /**
@@ -583,7 +613,7 @@ public class IrisNotificationListener extends NotificationListenerService {
                 responderWorker().execute(new Runnable() {
                     @Override public void run() {
                         try {
-                            AutoResponder.consider(context, incoming);
+                            AutoResponder.decide(context, incoming);
                         } catch (Throwable ignored) { }
                     }
                 });
@@ -626,7 +656,7 @@ public class IrisNotificationListener extends NotificationListenerService {
                             responderWorker().execute(new Runnable() {
                                 @Override public void run() {
                                     try {
-                                        AutoResponder.consider(context, toProcess);
+                                        AutoResponder.decide(context, toProcess);
                                     } catch (Throwable ignored) { }
                                 }
                             });

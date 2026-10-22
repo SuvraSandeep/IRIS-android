@@ -21,14 +21,47 @@ import java.util.Locale;
 public final class AutoModeDetector {
 
     private static final String TAG = "IRIS-AutoMode";
+    private static volatile Boolean cachedCarBluetoothConnected = null;
+    private static volatile long lastBluetoothCheckMs = 0;
 
     private AutoModeDetector() { }
+
+    /**
+     * Handles Bluetooth ACL connection events (e.g. ACTION_ACL_CONNECTED / ACTION_ACL_DISCONNECTED)
+     * to immediately update vehicle connection state without latency.
+     */
+    public static void onBluetoothAclEvent(android.content.Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        if (android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)) {
+            android.bluetooth.BluetoothDevice device =
+                    intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
+            if (device != null && isCarDevice(device)) {
+                cachedCarBluetoothConnected = true;
+                lastBluetoothCheckMs = System.currentTimeMillis();
+                Log.i(TAG, "Car Bluetooth connected: " + device.getName());
+            }
+        } else if (android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
+            android.bluetooth.BluetoothDevice device =
+                    intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
+            if (device != null && isCarDevice(device)) {
+                cachedCarBluetoothConnected = false;
+                lastBluetoothCheckMs = System.currentTimeMillis();
+                Log.i(TAG, "Car Bluetooth disconnected: " + device.getName());
+            }
+        }
+    }
 
     /**
      * Checks if the device is currently connected to a vehicle Bluetooth head unit or car kit.
      */
     public static boolean isDrivingActive(Context context) {
         if (context == null) return false;
+        long now = System.currentTimeMillis();
+        if (cachedCarBluetoothConnected != null && (now - lastBluetoothCheckMs < 120_000L)) {
+            return cachedCarBluetoothConnected;
+        }
+        boolean driving = false;
         try {
             // 1. Check AudioManager audio routes (fast, no permissions needed)
             AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
@@ -39,54 +72,61 @@ public final class AutoModeDetector {
                         if (d == null) continue;
                         CharSequence name = d.getProductName();
                         if (name != null && isCarName(name.toString())) {
-                            return true;
+                            driving = true;
+                            break;
                         }
                     }
                 }
             }
 
-            // 2. Check BluetoothAdapter connected devices (if permission granted)
-            if (Build.VERSION.SDK_INT >= 31 && context.checkSelfPermission(
-                    android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                return false;
-            }
+            if (!driving) {
+                // 2. Check BluetoothAdapter connected devices (if permission granted)
+                if (Build.VERSION.SDK_INT < 31 || context.checkSelfPermission(
+                        android.Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
 
-            android.bluetooth.BluetoothManager bm =
-                    (android.bluetooth.BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
-            android.bluetooth.BluetoothAdapter adapter = bm == null ? null : bm.getAdapter();
-            if (adapter == null || !adapter.isEnabled()) return false;
-
-            // Check A2DP and HEADSET connected devices
-            int[] profiles = {
-                    android.bluetooth.BluetoothProfile.A2DP,
-                    android.bluetooth.BluetoothProfile.HEADSET
-            };
-            for (int p : profiles) {
-                try {
-                    for (android.bluetooth.BluetoothDevice d : bm.getConnectedDevices(p)) {
-                        if (d == null) continue;
-                        if (isCarDevice(d)) return true;
-                    }
-                } catch (Throwable ignored) { }
-            }
-
-            // Check bonded devices using reflection isConnected()
-            try {
-                for (android.bluetooth.BluetoothDevice d : adapter.getBondedDevices()) {
-                    if (d == null) continue;
-                    try {
-                        java.lang.reflect.Method m = d.getClass().getMethod("isConnected");
-                        if (Boolean.TRUE.equals(m.invoke(d))) {
-                            if (isCarDevice(d)) return true;
+                    android.bluetooth.BluetoothManager bm =
+                            (android.bluetooth.BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+                    android.bluetooth.BluetoothAdapter adapter = bm == null ? null : bm.getAdapter();
+                    if (adapter != null && adapter.isEnabled()) {
+                        // Check A2DP and HEADSET connected devices
+                        int[] profiles = {
+                                android.bluetooth.BluetoothProfile.A2DP,
+                                android.bluetooth.BluetoothProfile.HEADSET
+                        };
+                        for (int p : profiles) {
+                            try {
+                                for (android.bluetooth.BluetoothDevice d : bm.getConnectedDevices(p)) {
+                                    if (d == null) continue;
+                                    if (isCarDevice(d)) { driving = true; break; }
+                                }
+                            } catch (Throwable ignored) { }
+                            if (driving) break;
                         }
-                    } catch (Throwable ignored) { }
-                }
-            } catch (Throwable ignored) { }
 
+                        // Check bonded devices using reflection isConnected()
+                        if (!driving) {
+                            try {
+                                for (android.bluetooth.BluetoothDevice d : adapter.getBondedDevices()) {
+                                    if (d == null) continue;
+                                    try {
+                                        java.lang.reflect.Method m = d.getClass().getMethod("isConnected");
+                                        if (Boolean.TRUE.equals(m.invoke(d))) {
+                                            if (isCarDevice(d)) { driving = true; break; }
+                                        }
+                                    } catch (Throwable ignored) { }
+                                    if (driving) break;
+                                }
+                            } catch (Throwable ignored) { }
+                        }
+                    }
+                }
+            }
         } catch (Throwable t) {
             Log.w(TAG, "Driving detection error: " + t.getMessage());
         }
-        return false;
+        cachedCarBluetoothConnected = driving;
+        lastBluetoothCheckMs = now;
+        return driving;
     }
 
     private static boolean isCarDevice(android.bluetooth.BluetoothDevice d) {

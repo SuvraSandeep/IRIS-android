@@ -59,6 +59,11 @@ def test_double_text_buffering():
     check("Debounce.combine" in content, "Debounce.combine called to coalesce rapid-fire bubbles")
     check("bubbleHandler.removeCallbacks" in content, "Sliding window timer reset on rapid-fire bubble arrival")
     check("onDestroy" in content and "pendingFlushes.clear()" in content, "onDestroy cleans up pending bubble flushes")
+    check("AutoResponder.decide" in content, "AutoResponder.decide called in IrisNotificationListener")
+    ar_path = APP_SRC / "AutoResponder.java"
+    ar_content = ar_path.read_text(encoding="utf-8")
+    check("public static void decide(Context context, Incoming incoming)" in ar_content,
+          "AutoResponder.decide implemented")
 
 
 def test_exact_alarms_and_reminders():
@@ -110,6 +115,10 @@ def test_auto_modes():
           "AutoModeDetector.evaluateSignals implemented")
     check("CalendarContract.Instances.AVAILABILITY_BUSY" in amd_content,
           "AutoModeDetector checks CalendarContract for BUSY availability")
+    check("onBluetoothAclEvent" in amd_content, "AutoModeDetector.onBluetoothAclEvent implemented")
+    inl_path = APP_SRC / "IrisNotificationListener.java"
+    inl_content = inl_path.read_text(encoding="utf-8")
+    check("startBluetoothWatch" in inl_content, "IrisNotificationListener.startBluetoothWatch implemented")
 
     # 2. ResponderSettings
     rs_path = APP_SRC / "ResponderSettings.java"

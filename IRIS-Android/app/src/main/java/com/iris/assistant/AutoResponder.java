@@ -59,6 +59,13 @@ public final class AutoResponder {
     }
 
     /**
+     * Entry point for the responder decision pipeline (alias for {@link #consider(Context, Incoming)}).
+     */
+    public static void decide(Context context, Incoming incoming) {
+        consider(context, incoming);
+    }
+
+    /**
      * Consider one notification and record what would happen.
      *
      * Called once per notification rather than once per message. The newest message is the one
