@@ -135,7 +135,7 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v16.77.1 (Commit `8a279d0`)**:
+* **v16.77.1 (Commit `7300d4d` / `8a279d0`)**:
   * **CI Build Fix (ParseSources.java & onActivityResult Syntax)**: Fixed unclosed `else if (archiveViewController.handleActivityResult(...))` block in `MainActivity.java` `onActivityResult()`, eliminating the orphaned `try-catch` syntax error that failed `ParseSources.java` in GitHub Actions CI run `39818154538`.
   * **Missing Symbol Fix (IrisIntent.COMPOSE_MESSAGE)**: Added missing `COMPOSE_MESSAGE` enum constant and sensitivity mapping to `IrisIntent.java`, resolving `cannot find symbol` compiler error in `IntentParser.java` during `test-speech.sh`.
   * **Android Compilation Fixes (`ArchiveViewController`, `PlanRunner`, `MainActivity`)**: Added missing `Bitmap` and `GradientDrawable` imports in `ArchiveViewController`, implemented `findViewById()`, `isFinishing()`, and `isDestroyed()` lifecycle helpers, corrected `rootView` export typo, restored `openNotificationAccessSettings()` in `MainActivity`, and wired `handleOpenApp()` in `PlanRunner.Host` and `IrisListeningService`.
