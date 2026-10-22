@@ -23,20 +23,20 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:fontFamily="monospace"
-        android:text="I write down every notification from the apps you tick, STG. When somebody deletes a message hoping you never saw it \u2014 I already have it. I\u0027m not saying I enjoy this. I\u0027m saying I\u0027m unreasonably good at it."
+        android:text="I write down every notification from the apps you tick, STG. When somebody deletes a message hoping you never saw it \u2014 I already have it."
         android:textColor="@color/deck_text_dim"
-        android:textSize="12sp" />
+        android:textSize="11sp" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="6dp"
         android:background="@drawable/bg_cyber_panel"
         android:orientation="vertical"
-        android:paddingBottom="11dp"
-        android:paddingLeft="13dp"
-        android:paddingRight="11dp"
-        android:paddingTop="11dp">
+        android:paddingBottom="7dp"
+        android:paddingLeft="10dp"
+        android:paddingRight="10dp"
+        android:paddingTop="7dp">
 
         <TextView
             android:layout_width="match_parent"
@@ -85,28 +85,28 @@
     <Button
         android:id="@+id/archiveGrantButton"
         android:layout_width="match_parent"
-        android:layout_height="46dp"
-        android:layout_marginTop="9dp"
+        android:layout_height="40dp"
+        android:layout_marginTop="6dp"
         android:background="@drawable/bg_button_primary"
         android:fontFamily="monospace"
         android:letterSpacing="0.15"
         android:text="GRANT ME EYES"
         android:textAllCaps="false"
         android:textColor="@color/ink"
-        android:textSize="13sp"
+        android:textSize="12sp"
         android:textStyle="bold"
         android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="9dp"
+        android:layout_marginTop="6dp"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/archiveAppsButton"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="38dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
@@ -119,7 +119,7 @@
         <Button
             android:id="@+id/archiveRefreshButton"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="38dp"
             android:layout_marginLeft="6dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
@@ -133,7 +133,7 @@
         <Button
             android:id="@+id/archiveExportButton"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="38dp"
             android:layout_marginLeft="6dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
@@ -149,13 +149,13 @@
         android:id="@+id/archiveViewModeRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="6dp"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/archiveModeTimeline"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="36dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
@@ -168,7 +168,7 @@
         <Button
             android:id="@+id/archiveModeConversations"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="36dp"
             android:layout_marginLeft="6dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_row"
@@ -182,7 +182,7 @@
         <Button
             android:id="@+id/archiveDensityToggle"
             android:layout_width="wrap_content"
-            android:layout_height="38dp"
+            android:layout_height="36dp"
             android:layout_marginLeft="6dp"
             android:background="@drawable/bg_cyber_row"
             android:fontFamily="monospace"
@@ -199,18 +199,18 @@
         android:id="@+id/archiveSearch"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="6dp"
         android:background="@drawable/bg_cyber_input"
         android:fontFamily="monospace"
         android:hint="search the receipts\u2026"
         android:importantForAutofill="no"
         android:inputType="text"
         android:maxLines="1"
-        android:minHeight="46dp"
-        android:paddingBottom="10dp"
+        android:minHeight="38dp"
+        android:paddingBottom="7dp"
         android:paddingLeft="10dp"
         android:paddingRight="10dp"
-        android:paddingTop="10dp"
+        android:paddingTop="7dp"
         android:textColor="@color/deck_accent"
         android:textColorHint="@color/deck_inactive"
         android:textSize="12sp" />

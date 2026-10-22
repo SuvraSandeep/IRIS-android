@@ -515,6 +515,7 @@ public final class AutoResponder {
         policy.contactRule = settings.effectiveContactRule(conversationKey, resolvedSender);
         policy.nameRuleBlocked = settings.nameRuleBlocks(resolvedSender);
         policy.allowlistOnly = settings.allowlistOnly();
+        policy.urgentOnly = settings.urgentOnly();
         policy.cooldownMs = settings.cooldownMs();
         policy.lastReplyToConversationMs = settings.lastReplyTo(conversationKey);
         policy.coalesceWindowMs = Debounce.DEFAULT_WINDOW_MS;
@@ -531,6 +532,18 @@ public final class AutoResponder {
         policy.dailyCapTotal = settings.dailyCapTotal();
 
         ResponderGuards.Verdict verdict = ResponderGuards.evaluate(message, policy);
+
+        // Urgent-Only Mode: block any message that does not exhibit urgency
+        boolean isUrgent = category.kind == MessageCategory.Kind.URGENT
+                || UrgencyScore.isUrgent(incoming.body, burst)
+                || SentimentScore.score(incoming.body).distressed()
+                || confirmsRing || urgentFamily || ringRequest
+                || FlagDetector.isExplicitFlagCommand(incoming.body)
+                || incoming.placeholder
+                || message.senderDeletion;
+        if (settings.urgentOnly() && !isUrgent) {
+            verdict = ResponderGuards.Verdict.NOT_URGENT;
+        }
 
         // An owner override on the category is applied after the guards, so the log still reports
         // the more fundamental reason when there is one. A fixed reply set by name is the owner

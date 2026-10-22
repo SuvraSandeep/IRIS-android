@@ -53,6 +53,7 @@ public final class ResponderSettings {
     private static final String K_MENTION_WORDS = "mention_words";
     private static final String K_NAME_PATTERNS = "name_patterns";
     private static final String K_ALLOWLIST_ONLY = "allowlist_only";
+    private static final String K_URGENT_ONLY = "urgent_only";
     private static final String K_ROTATION = "rotation";
     private static final String K_COUNTER_DAY = "counter_day";
     private static final String K_REPLIES_TODAY = "replies_today";
@@ -168,6 +169,11 @@ public final class ResponderSettings {
     public boolean allowlistOnly() { return prefs.getBoolean(K_ALLOWLIST_ONLY, false); }
     public void setAllowlistOnly(boolean v) {
         prefs.edit().putBoolean(K_ALLOWLIST_ONLY, v).apply();
+    }
+
+    public boolean urgentOnly() { return prefs.getBoolean(K_URGENT_ONLY, false); }
+    public void setUrgentOnly(boolean v) {
+        prefs.edit().putBoolean(K_URGENT_ONLY, v).apply();
     }
 
     /**

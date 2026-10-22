@@ -143,6 +143,7 @@ public class ResponderGuardsTest {
         groupMentionsRule();
         unsavedContactsAreRefusedByDefault();
         toneDrivenSilence();
+        urgentOnlyBlocksNonUrgent();
         burstProducesOneReplyNotSeven();
         sameTextIsNotAnsweredTwice();
         familyPriorityBypassesRateLimitsOnly();
@@ -472,6 +473,28 @@ public class ResponderGuardsTest {
             verdict(nothing, sendablePolicy(), ResponderGuards.Verdict.CATEGORY_SILENT,
                     "an unrecognised message is silent in " + tone);
         }
+    }
+
+    private static void urgentOnlyBlocksNonUrgent() {
+        ResponderGuards.Message m = sendableMessage();
+        m.category = MessageCategory.Kind.GREETING;
+        ResponderGuards.Policy p = sendablePolicy();
+        p.urgentOnly = true;
+
+        verdict(m, p, ResponderGuards.Verdict.NOT_URGENT,
+                "urgent-only mode blocks a regular greeting");
+
+        ResponderGuards.Message urgent = sendableMessage();
+        urgent.category = MessageCategory.Kind.URGENT;
+        verdict(urgent, p, ResponderGuards.Verdict.SEND,
+                "urgent-only mode permits an urgent message");
+
+        // Family priority bypasses urgent-only mode
+        ResponderGuards.Policy family = sendablePolicy();
+        family.urgentOnly = true;
+        family.familyPriority = true;
+        verdict(m, family, ResponderGuards.Verdict.SEND,
+                "family priority sends even when urgent-only is on");
     }
 
     /** Seven messages arrived in one notification on the owner's phone. One reply, not seven. */

@@ -113,7 +113,11 @@ public class IrisNotificationListener extends NotificationListenerService {
                 for (StatusBarNotification sbn : active) {
                     if (sbn == null) continue;
                     // Do not re-capture notifications that predate an explicit owner wipe
-                    if (lastWipe > 0 && sbn.getPostTime() <= lastWipe) continue;
+                    if (lastWipe > 0) {
+                        long pt = sbn.getPostTime();
+                        long wt = (sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
+                        if ((pt > 0 && pt <= lastWipe) || (wt > 0 && wt <= lastWipe)) continue;
+                    }
                     service.onNotificationPosted(sbn);
                     offered++;
                 }
@@ -398,6 +402,12 @@ public class IrisNotificationListener extends NotificationListenerService {
 
         // A deletion placeholder flags an existing row instead of becoming one.
         if (DeletedMessageRules.isAnyDeletionPlaceholder(text)) {
+            long lastWipe = settings.lastArchiveWipeAt();
+            if (lastWipe > 0) {
+                long pt = sbn.getPostTime();
+                long wt = (sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
+                if ((pt > 0 && pt <= lastWipe) || (wt > 0 && wt <= lastWipe)) return;
+            }
             synchronized (tracked) {
                 Tracked state = tracked.get(key);
                 if (state == null) { state = new Tracked(); tracked.put(key, state); }
@@ -635,8 +645,14 @@ public class IrisNotificationListener extends NotificationListenerService {
     private long recordOne(Context context, AppSettings settings, StatusBarNotification sbn,
                            String pkg, String appLabel, String key, Bundle extras,
                            String rawTitle, String sender, String group, String body, long when) {
-        if (settings != null && settings.lastArchiveWipeAt() > 0 && when <= settings.lastArchiveWipeAt()) {
-            return 0;
+        if (settings != null) {
+            long lastWipe = settings.lastArchiveWipeAt();
+            if (lastWipe > 0) {
+                if (when > 0 && when <= lastWipe) return 0;
+                long pt = sbn != null ? sbn.getPostTime() : 0L;
+                long wt = (sbn != null && sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
+                if ((pt > 0 && pt <= lastWipe) || (wt > 0 && wt <= lastWipe)) return 0;
+            }
         }
         NotificationArchive.Capture capture = new NotificationArchive.Capture();
         capture.pkg = pkg;

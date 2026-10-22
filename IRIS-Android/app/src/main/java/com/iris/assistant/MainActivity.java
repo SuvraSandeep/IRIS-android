@@ -1771,6 +1771,20 @@ public class MainActivity extends Activity {
                     ResponderAppPicker.show(this, () -> renderResponder(view)));
         }
 
+        Button urgentToggle = view.findViewById(R.id.responderUrgentOnlyToggle);
+        if (urgentToggle != null) {
+            urgentToggle.setOnClickListener(v -> {
+                boolean next = !settings.urgentOnly();
+                settings.setUrgentOnly(next);
+                if (next) {
+                    toast("Urgent-Only mode ACTIVE: IRIS will only reply to urgent or distressed messages.");
+                } else {
+                    toast("Urgent-Only mode OFF: Standard reply filters restored.");
+                }
+                renderResponder(view);
+            });
+        }
+
         View testSend = view.findViewById(R.id.responderTestSend);
         if (testSend != null) testSend.setOnClickListener(v -> testSendNow(view));
 
@@ -1910,6 +1924,16 @@ public class MainActivity extends Activity {
         }
         highlightResponderState(view, settings.state());
 
+        Button urgentToggle = view.findViewById(R.id.responderUrgentOnlyToggle);
+        if (urgentToggle != null) {
+            boolean active = settings.urgentOnly();
+            urgentToggle.setText(active ? "⚠️ URGENT MESSAGES ONLY: ACTIVE" : "URGENT MESSAGES ONLY: OFF");
+            urgentToggle.setTextColor(getColor(active ? R.color.deck_error : R.color.deck_accent));
+            urgentToggle.setBackgroundResource(active ? R.drawable.bg_cyber_button_danger : R.drawable.bg_cyber_button);
+            urgentToggle.setTypeface(android.graphics.Typeface.MONOSPACE,
+                    active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        }
+
         LinearLayout host = view.findViewById(R.id.responderSettingsHost);
         if (host != null) {
             host.removeAllViews();
@@ -1931,6 +1955,13 @@ public class MainActivity extends Activity {
             host.addView(sectionLabel("SCOPE"));
             host.addView(sectionNote("Who IRIS may reply to. In groups it stays quiet unless "
                     + "you're named by name, @handle or number."));
+            host.addView(responderSwitch("Urgent messages only",
+                    settings.urgentOnly(),
+                    on -> {
+                        settings.setUrgentOnly(on);
+                        toast(on ? "Urgent-Only mode ACTIVE: only urgent/distressed messages answered"
+                                 : "Urgent-Only mode OFF: all allowed categories answered");
+                    }, view));
             host.addView(responderSwitch("Answer one-to-one chats",
                     settings.replyToPersonal(), on -> settings.setReplyToPersonal(on), view));
             host.addView(responderSwitch("Answer group chats",
@@ -3545,7 +3576,6 @@ public class MainActivity extends Activity {
                         archiveCurrentThreadTitle = null;
                         archiveCurrentThreadPkg = null;
                         archiveExpandedRowIds.clear();
-                        archiveOffset = 0;
                         archiveHasMore = false;
                         archiveQuickFilter = NotificationArchive.Filter.QUICK_ALL;
                         archiveDatePreset = DATE_PRESET_ALL;
@@ -3564,7 +3594,6 @@ public class MainActivity extends Activity {
                         }
 
                         // Set wipe barrier to ignore shade notifications that arrived before this wipe
-                        AppSettings settings = new AppSettings(this);
                         settings.setLastArchiveWipeAt(System.currentTimeMillis());
                         settings.setArchiveRowsSinceExport(0);
                         IrisNotificationListener.clearTracked();
@@ -4645,8 +4674,9 @@ public class MainActivity extends Activity {
                     if (claimed[0]) {
                         v.setTranslationX(dx);
                         v.setAlpha(SwipeDecision.dragAlpha(dx, v.getWidth()));
+                        return true;
                     }
-                    return true;
+                    return false;
                 }
 
                 case android.view.MotionEvent.ACTION_UP: {
@@ -4665,11 +4695,14 @@ public class MainActivity extends Activity {
                         v.setTranslationX(0);
                         v.setAlpha(1f);
                         if (Math.abs(dx) < SwipeDecision.CLAIM_SLOP_PX
-                                && Math.abs(dy) < SwipeDecision.CLAIM_SLOP_PX
-                                && row.hasImage() && !row.isAudio()) {
-                            showArchiveImage(row);
+                                && Math.abs(dy) < SwipeDecision.CLAIM_SLOP_PX) {
+                            if (row.hasImage() && !row.isAudio() && !row.isDocument()) {
+                                showArchiveImage(row);
+                            } else if (archiveDensityMode == ARCHIVE_DENSITY_COMPACT) {
+                                v.performClick();
+                            }
                         }
-                        return true;
+                        return false;
                     }
 
                     if (SwipeDecision.dismisses(dx, velocity, v.getWidth())) {
@@ -4685,8 +4718,10 @@ public class MainActivity extends Activity {
                         handler.removeCallbacks(longPressCallback[0]);
                         longPressCallback[0] = null;
                     }
-                    v.animate().translationX(0).alpha(1f).setDuration(140).start();
-                    return true;
+                    v.setTranslationX(0);
+                    v.setAlpha(1f);
+                    claimed[0] = false;
+                    return false;
 
                 default:
                     return false;

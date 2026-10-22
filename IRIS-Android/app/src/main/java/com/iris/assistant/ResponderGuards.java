@@ -100,7 +100,9 @@ public final class ResponderGuards {
         /** IRIS has already explained itself to this conversation today. */
         TO_IRIS_CAP,
         /** The responder has had its allowance for the day. */
-        DAILY_CAP
+        DAILY_CAP,
+        /** Urgent-Only mode is enabled and this message is not urgent. */
+        NOT_URGENT
     }
 
     /** Facts about the message being considered. */
@@ -157,6 +159,7 @@ public final class ResponderGuards {
         /** A rule on the sender's name refuses them. Set from ResponderSettings.nameRuleBlocks. */
         public boolean nameRuleBlocked;
         public boolean allowlistOnly;
+        public boolean urgentOnly;
 
         public long cooldownMs;
         public long lastReplyToConversationMs;
@@ -272,6 +275,14 @@ public final class ResponderGuards {
         // An unknown number is as likely to be a courier or a spammer as a person, and answering
         // tells a stranger the phone is live and unattended.
         if (!message.savedContact && !policy.replyToUnsaved) return Verdict.UNSAVED_CONTACT;
+
+        // Urgent-Only mode: when active, non-urgent messages are silenced.
+        if (policy.urgentOnly
+                && message.category != MessageCategory.Kind.URGENT
+                && !policy.familyPriority
+                && !message.senderDeletion) {
+            return Verdict.NOT_URGENT;
+        }
 
         // ─── Does this category speak in this tone? ───
         // A fixed reply set by name is the owner overriding this specific question: he has said
@@ -516,6 +527,8 @@ public final class ResponderGuards {
                 return "I've already introduced myself to them once today. Twice is a "
                         + "conversation, and I'm not equipped for one.";
             case DAILY_CAP: return "I've had my replies for today.";
+            case NOT_URGENT:
+                return "Urgent-Only mode is active \u2014 message was not flagged as urgent or distressed.";
             default: return verdict.name();
         }
     }
