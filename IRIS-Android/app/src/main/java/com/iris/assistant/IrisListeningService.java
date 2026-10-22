@@ -426,6 +426,26 @@ public class IrisListeningService extends Service implements RecognitionListener
     private final VoicePipelineCoordinator voiceCoordinator =
             new VoicePipelineCoordinator(this, handler, this::onAudioRouteChanged);
     private final PlanRunner planRunner = new PlanRunner(this);
+    private OnnxSlmEngine slmEngine;
+    private LocalPlanner localPlanner;
+    private final java.util.ArrayDeque<String> recentActionHistory = new java.util.ArrayDeque<>();
+
+    private String recentActionContext() {
+        synchronized (recentActionHistory) {
+            if (recentActionHistory.isEmpty()) return "";
+            return LocalPlanner.contextFrom(new ArrayList<>(recentActionHistory));
+        }
+    }
+
+    private void recordActionContext(String action) {
+        if (action == null || action.trim().isEmpty()) return;
+        synchronized (recentActionHistory) {
+            recentActionHistory.addLast(action.trim());
+            while (recentActionHistory.size() > 5) {
+                recentActionHistory.removeFirst();
+            }
+        }
+    }
 
     private void onAudioRouteChanged(String label) {
         if (!isRunning) return;
@@ -547,6 +567,8 @@ public class IrisListeningService extends Service implements RecognitionListener
                 LogStore.append(IrisListeningService.this, "ONNX STT", "Speech model fallback: " + message);
             }
         });
+        slmEngine = new OnnxSlmEngine(this);
+        localPlanner = new LocalPlanner(slmEngine);
         voskEngine = new VoskEngine();
         // Schema 8 uses the bundled Vosk owner model plus recorded-phrase evidence.
         // Optional downloads never change the identity model midway through a session.
@@ -1478,23 +1500,30 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
-        // ── Phase 2: structured understanding, used ONLY to ask for a missing detail. ──
-        // Complete commands keep flowing through the proven keyword router below, unchanged.
-        Plan plan = IntentParser.parse(clean);
-        if (plan.isExecutable()) {
-            if (planRunner.execute(plan)) {
-                return;
-            }
+        // ── Phase 2 & 5: structured understanding and local SLM planner ──
+        Plan plan = localPlanner != null && localPlanner.available()
+                ? localPlanner.plan(clean, recentActionContext())
+                : Plan.unknown();
+        if (plan.isUnknown()) {
+            plan = IntentParser.parse(clean);
         }
-        if (!plan.isUnknown() && !plan.isComplete()) {
-            String question = IntentParser.clarifyQuestion(plan);
-            if (!question.isEmpty()) {
-                pendingPlan = plan;
-                LogStore.append(this, "CLARIFY", plan.intent() + " needs " + plan.firstMissing());
-                broadcastMessage(question);
-                nextOutputMinor = true;              // a question isn't an action result
-                speakThenRun(question, this::startCommandRecognition);
-                return;
+        if (!plan.isUnknown()) {
+            if (plan.isComplete() && plan.allStepsKnown()) {
+                LogStore.append(this, "PLAN EXEC", plan.intent() + " (" + plan.steps().size() + " steps)");
+                recordActionContext(plan.intent() + ": " + (plan.goal().isEmpty() ? clean : plan.goal()));
+                if (planRunner.execute(plan)) {
+                    return;
+                }
+            } else if (!plan.isComplete()) {
+                String question = IntentParser.clarifyQuestion(plan);
+                if (!question.isEmpty()) {
+                    pendingPlan = plan;
+                    LogStore.append(this, "CLARIFY", plan.intent() + " needs " + plan.firstMissing());
+                    broadcastMessage(question);
+                    nextOutputMinor = true;              // a question isn't an action result
+                    speakThenRun(question, this::startCommandRecognition);
+                    return;
+                }
             }
         }
 
@@ -2913,9 +2942,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
-    private void handleSendSms(String who,String message){
+    @Override
+    public void handleSendSms(String who, String message) {
         // A recognized message is a draft, never an immediate send. Resolve and read back.
-        beginSms(who,message);
+        beginSms(who, message);
     }
 
     /** Actually send an SMS to an already-resolved number. */
@@ -3230,6 +3260,69 @@ public class IrisListeningService extends Service implements RecognitionListener
                 : "Taking a screenshot.";
         broadcastMessage(m);
         speakThenRun(m, () -> launchScreenCapture("shot", 0));
+    }
+
+    @Override
+    public void handleStartScreenRecording(String duration) {
+        beginScreenRecording(parseDuration(duration, 60));
+    }
+
+    @Override
+    public void handleRecordCameraVideo(String camera, String duration) {
+        String cam = (camera == null || camera.trim().isEmpty()) ? "back" : camera.trim();
+        beginVideoRecording(parseDuration(duration, 60), cam);
+    }
+
+    @Override
+    public void handleRecordVoice(String duration) {
+        beginVoiceRecording(parseDuration(duration, 60), null);
+    }
+
+    @Override
+    public void handleStopRecording() {
+        stopVoiceRecording();
+    }
+
+    @Override
+    public void handleCallContact(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            broadcastMessage("Who would you like me to call?");
+            speakThenRun("Who would you like me to call?", this::startCommandRecognition);
+            LogStore.append(this, "CALL", "No name given");
+            return;
+        }
+        String requested = name.trim();
+        if (requested.matches("(?i)^(?:me|myself|my\\s*self|my\\s+phone|my\\s+number)$")) {
+            broadcastMessage("That's you — I can't call you. Tell me who to call.");
+            speakThenRun("That's you! Who would you like me to call?", this::rearmAfterAction);
+            LogStore.append(this, "CALL", "Refused self-call");
+            return;
+        }
+        String dialNumber = extractPhoneNumber(requested);
+        if (dialNumber != null) {
+            pendingCandidates = null;
+            requestCallConfirmation(dialNumber, dialNumber, "Call " + speakableNumber(dialNumber) + "?");
+            return;
+        }
+        if (requested.length() < 2) {
+            broadcastMessage("Who would you like me to call?");
+            speakThenRun("Who would you like me to call?", this::startCommandRecognition);
+            LogStore.append(this, "CALL", "No name given");
+            return;
+        }
+        List<ContactMatch> candidates = resolveContacts(requested);
+        if (candidates.isEmpty()) {
+            broadcastMessage(hasPermission(Manifest.permission.READ_CONTACTS)
+                    ? "I couldn't confidently match “" + requested + "”. Teach me once."
+                    : "Contacts permission is needed to find “" + requested + "”.");
+            LogStore.append(this, "NO MATCH", requested);
+            requestCorrection(requested);
+            rearmAfterAction();
+            return;
+        }
+        pendingCandidates = candidates;
+        pendingCandidateIndex = 0;
+        confirmCandidate(0);
     }
 
     /** Record the screen (with mic audio) for a set time via MediaProjection. */
@@ -6544,6 +6637,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (ecapaEngine != null) { ecapaEngine.close(); ecapaEngine = null; }
         if (vadEngine != null) { vadEngine.close(); vadEngine = null; }
         if (onnxRecognizer != null) { onnxRecognizer.close(); onnxRecognizer = null; }
+        if (slmEngine != null) { slmEngine.close(); slmEngine = null; }
         super.onDestroy();
     }
 

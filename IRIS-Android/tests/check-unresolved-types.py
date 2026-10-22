@@ -66,6 +66,7 @@ DEFAULT_TARGETS = [
     "PlanRunner.java",
     "AudioFocusSession.java",
     "OnnxSpeechRecognizer.java",
+    "OnnxSlmEngine.java",
 ]
 
 JAVA_LANG = {

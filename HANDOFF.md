@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.74.0` / `versionCode 470` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.75.0` / `versionCode 471` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -13,7 +13,8 @@
 - **Design spine:** Decision logic lives in **pure policy classes with zero Android imports**
   (`MessageCategory`, `ReplyTone`, `SmartReplies`, `ResponderGuards`, `Shorthand`, `GroupMention`,
   `Debounce`, `IntroTrim`, `OwnerAlias`, `TimeGreeting`, `AutoModePolicy`, `ReminderParser`,
-  `Emoji`, `Vernacular`, `ProfileShare`, `ArchiveSchema`, `DeletedMessageRules`, `SwipeDecision`, etc.). The Android framework layer is kept lean and decoupled.
+  `Emoji`, `Vernacular`, `ProfileShare`, `ArchiveSchema`, `DeletedMessageRules`, `SwipeDecision`,
+  `Plan`, `IntentParser`, `IrisIntent`, `ToolCall`, etc.). The Android framework layer is kept lean and decoupled.
 - **Standing Rules (Mandatory):**
   1. Every feature or fix bumps `app/build.gradle` (`versionName` / `versionCode`), prepends a new entry to the `FEATURES` array in `IRIS-FEATURES.html`, updates `BUILD_VERSION`, and **updates `HANDOFF.md` after each commit**.
   2. Pure policy classes must remain free of Android imports (`android.*`) so they are unit-testable offline.
@@ -43,7 +44,7 @@
 | **Decision Audit Log** | Working | Full audit trail displaying incoming text, app, verdict rationale, outgoing simulated/sent replies, one-tap teach-a-reply dialog, and decision details copy. |
 | **Operational States** | Working | Three states: `OFF`, `DRY RUN` (evaluates & logs without sending), and `LIVE` (sends responses via `NotificationReply`). |
 
-### C. Voice / Wake / Identity
+### C. Voice / Wake / Identity / Planning
 | Feature | Status | Description |
 |---|---|---|
 | **Wake Word Engine & Noise Adaptation** | Working | `WakeWordEngine.java`. 500ms (25-frame) rolling ambient RMS tracking dynamically scaling Silero VAD thresholds (0.35f in quiet <40 dB to 0.75f in noise >65 dB), trigger multipliers (2.8x-3.8x), and DTW distance gates. |
@@ -51,7 +52,7 @@
 | **Voice Activity Detection** | Working | `SileroVad.java`. On-device neural VAD via ONNX Runtime with dynamic ambient threshold scaling (`adaptThresholdFromRms`). |
 | **Audio Focus RAII Session** | Working | `AudioFocusSession.java`. AutoCloseable transient focus manager guaranteeing immediate audio focus release and background media play resumption across all command outcomes. |
 | **Speaker Verification** | Working | `EcapaEmbedding.java`. ECAPA-TDNN ONNX model verifying owner voiceprint. |
-| **Command Routing** | Working | Deterministic rule-based planner (`LocalPlanner.java`, `IntentParser.java`) + centralized `PlanRunner.java`. |
+| **Real Agent Planning & SLM Execution** | Working | `OnnxSlmEngine.java` running 4-bit ONNX small models (Qwen2.5-0.5B / SmolLM2-360M Q4 ~220MB) + compound multi-intent semantic decomposition ('and', 'then', 'also', 'plus', ';', ',') synthesizing validated `MULTI_ACTION` plans executed sequentially via `PlanRunner.java` across all 20 `ToolCall.KNOWN` tools, completely bypassing the 1,500-line procedural regex cascade. |
 
 ### D. Server Mode & External Integrations
 | Feature | Status | Description |
@@ -69,10 +70,16 @@ Run from `IRIS-Android/` before every commit:
 python tests/check-archive-schema.py     # 73/73 tests pass
 
 # 2. Check for unresolved type names and layout ID bindings
-python tests/check-unresolved-types.py    # 36 files checked, 280 layout IDs resolved
+python tests/check-unresolved-types.py    # 39 files checked, 280 layout IDs resolved
 
 # 3. Validate all 38 XML layout and drawable resources
 python tests/check-xml.py                # 38 resource files validated
+
+# 4. Check speech pipeline contracts, dynamic noise formulas, and VAD adaptation
+python tests/check-speech-pipeline.py    # 100% contract and math validation
+
+# 5. Check real agent planning pipeline, multi-intent decomposition, and tool execution
+python tests/check-planning-pipeline.py  # 100% dispatch, Host methods, and pure policy validation
 ```
 
 ---
@@ -109,6 +116,13 @@ python tests/check-xml.py                # 38 resource files validated
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v16.75.0 (Commit `3e712d7`)**:
+  * **Real Agent Planning & Direct PlanRunner Execution**: Connected structured understanding in `LocalPlanner` and `IntentParser` directly to `PlanRunner.execute(plan)`, eliminating the 1,500-line procedural regex cascade in `IrisListeningService`.
+  * **On-Device Small Language Model (SLM) Engine**: Implemented `OnnxSlmEngine.java` implementing `LocalPlanner.Engine` configured for 4-bit quantized small models (Qwen2.5-0.5B-Instruct / SmolLM2-360M Q4 ~220MB) running within the 512MB RAM heap limit via bundled `ai.onnxruntime.*`.
+  * **Free-Form Multi-Intent Semantic Decomposition**: Engineered conjunction decomposition ('and', 'then', 'also', 'plus', 'after that', ';', ',') handling compound commands (e.g. "Set an alarm for 7 AM and turn on the torch", "Turn on torch and take a screenshot", "Call Alice and set a timer for 10 minutes"), synthesizing validated `MULTI_ACTION` plans executed sequentially.
+  * **Full Tool Dispatch & Host Implementation**: Expanded `PlanRunner` to dispatch all 20 `ToolCall.KNOWN` tools, and implemented all 42 `PlanRunner.Host` methods in `IrisListeningService`. Deep step sensitivity validation enforces `needsConfirmation = true` across child tool steps.
+  * **Verification**: All 73 archive schema checks, 39 unresolved type checks across 280 layout IDs, 38 XML resource files, and dedicated planning pipeline tests (`check-planning-pipeline.py`) pass 100%.
 
 * **v16.74.0 (Commit `87af4e0`)**:
   * **ONNX Runtime High-Accuracy Offline STT**: Implemented `OnnxSpeechRecognizer.java` running quantized int8 Whisper-Tiny / Sherpa-ONNX models via bundled `onnxruntime-android:1.19.2`. Includes 80-channel log-mel spectrogram acoustic feature extraction (16kHz, 25ms window, 10ms hop, 80 mel filterbanks, 512-point Radix-2 FFT, Hann window), greedy CTC/token decoding, and streaming `AudioRecord` capture. Integrated into `IrisListeningService.startCommandRecognitionLocal()` with seamless fallback to `VoskEngine`.

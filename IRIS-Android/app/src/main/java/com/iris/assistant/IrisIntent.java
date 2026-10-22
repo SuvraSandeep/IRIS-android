@@ -27,6 +27,7 @@ public enum IrisIntent {
     WEB_SEARCH,
     PHONE_STATUS,
     READ_NOTIFICATIONS,
+    MULTI_ACTION,
     UNKNOWN;
 
     /** Parse a wire/JSON value without ever throwing. */

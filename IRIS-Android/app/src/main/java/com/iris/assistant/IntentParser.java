@@ -44,7 +44,25 @@ public final class IntentParser {
             "^(?:record|start|take|capture)?\\s*(?:a\\s+)?(?:voice|audio)(?:\\s+memo)?(?:\\s+recording)?\\b(.*)$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern TORCH = Pattern.compile(
-            "^torch\\s+(on|off)$", Pattern.CASE_INSENSITIVE);
+            "^(?:(?:turn\\s+)?(?:the\\s+)?(?:torch|flashlight)\\s+(on|off)|turn\\s+(on|off)\\s+(?:the\\s+)?(?:torch|flashlight)|torch\\s+(on|off))$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern STOP_RECORD = Pattern.compile(
+            "^(?:stop\\s+(?:the\\s+)?(?:voice\\s+|screen\\s+|video\\s+|audio\\s+)?recording|stop\\s+record(?:ing)?)$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern VOLUME = Pattern.compile(
+            "^(?:set\\s+)?volume\\s+(?:to\\s+)?(\\d{1,3}|full|max|maximum|half|zero|mute)\\s*(?:percent|%)?$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern OPEN_APP = Pattern.compile(
+            "^(?:open|launch)\\s+([a-zA-Z0-9\\s]+)$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern WEB_SEARCH = Pattern.compile(
+            "^(?:search\\s+(?:the\\s+web\\s+|google\\s+|online\\s+)?for|google)\\s+(.+)$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PHONE_STATUS = Pattern.compile(
+            "^(?:phone\\s+status|battery\\s+status|battery\\s+level|device\\s+status)$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern READ_NOTIF = Pattern.compile(
+            "^(?:read|check)\\s+(?:my\\s+|the\\s+)?notifications?$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern COMPOSE = Pattern.compile(
+            "^(?:send\\s+(?:an?\\s+)?(?:sms|text|message)\\s+to|text)\\s+([a-zA-Z0-9\\s]+?)(?:\\s+(?:saying|that|message)\\s+(.*))?$",
+            Pattern.CASE_INSENSITIVE);
 
     // ── entity extraction ──────────────────────────────────────────────
     private static final Pattern CLOCK_TIME = Pattern.compile(
@@ -90,7 +108,11 @@ public final class IntentParser {
         // ── torch ──
         Matcher torch = TORCH.matcher(low);
         if (torch.matches()) {
-            String state = torch.group(1).toLowerCase(Locale.ROOT);
+            String state = torch.group(1);
+            if (state == null) state = torch.group(2);
+            if (state == null) state = torch.group(3);
+            if (state == null) state = "on";
+            state = state.toLowerCase(Locale.ROOT);
             return Plan.of(IrisIntent.TORCH)
                     .goal("Turn the torch " + state)
                     .entity("state", state)
@@ -186,6 +208,83 @@ public final class IntentParser {
             Plan.Builder b = Plan.of(IrisIntent.RECORD_VOICE).goal("Record a voice memo");
             if (!duration.isEmpty()) b.entity("duration", duration);
             return b.step(ToolCall.of("record_voice", "duration", duration)).confidence(0.9f).build();
+        }
+
+        // ── stop recording ──
+        if (STOP_RECORD.matcher(low).matches()) {
+            return Plan.of(IrisIntent.RECORD_VOICE)
+                    .goal("Stop recording")
+                    .step(ToolCall.of("stop_recording"))
+                    .confidence(0.95f).build();
+        }
+
+        // ── volume ──
+        Matcher volume = VOLUME.matcher(low);
+        if (volume.matches()) {
+            String lvl = volume.group(1).toLowerCase(Locale.ROOT);
+            return Plan.of(IrisIntent.SET_VOLUME)
+                    .goal("Set volume to " + lvl)
+                    .entity("level", lvl)
+                    .step(ToolCall.of("set_volume", "level", lvl))
+                    .confidence(0.95f).build();
+        }
+
+        // ── open app ──
+        Matcher openApp = OPEN_APP.matcher(low);
+        if (openApp.matches()) {
+            String app = openApp.group(1).trim();
+            if (!app.isEmpty() && !app.equals("the torch") && !app.equals("torch")) {
+                return Plan.of(IrisIntent.OPEN_APP)
+                        .goal("Open " + app)
+                        .entity("app", app)
+                        .step(ToolCall.of("open_app", "app", app))
+                        .confidence(0.9f).build();
+            }
+        }
+
+        // ── web search ──
+        Matcher webSearch = WEB_SEARCH.matcher(low);
+        if (webSearch.matches()) {
+            String query = webSearch.group(1).trim();
+            if (!query.isEmpty()) {
+                return Plan.of(IrisIntent.WEB_SEARCH)
+                        .goal("Search the web for " + query)
+                        .entity("query", query)
+                        .step(ToolCall.of("search_web", "query", query))
+                        .confidence(0.9f).build();
+            }
+        }
+
+        // ── phone status ──
+        if (PHONE_STATUS.matcher(low).matches()) {
+            return Plan.of(IrisIntent.PHONE_STATUS)
+                    .goal("Check phone status")
+                    .step(ToolCall.of("phone_status"))
+                    .confidence(0.95f).build();
+        }
+
+        // ── read notifications ──
+        if (READ_NOTIF.matcher(low).matches()) {
+            return Plan.of(IrisIntent.READ_NOTIFICATIONS)
+                    .goal("Read notifications")
+                    .step(ToolCall.of("read_notifications"))
+                    .confidence(0.95f).build();
+        }
+
+        // ── compose message ──
+        Matcher compose = COMPOSE.matcher(low);
+        if (compose.matches()) {
+            String recipient = compose.group(1).trim();
+            String message = compose.group(2) == null ? "" : compose.group(2).trim();
+            Plan.Builder b = Plan.of(IrisIntent.COMPOSE_MESSAGE).goal("Compose message")
+                    .entity("recipient", recipient)
+                    .needsConfirmation(true);
+            if (message.isEmpty()) {
+                return b.missing("message").confidence(0.85f).build();
+            }
+            return b.entity("message", message)
+                    .step(ToolCall.of("compose_message", "name", recipient, "text", message))
+                    .confidence(0.9f).build();
         }
 
         return Plan.unknown();

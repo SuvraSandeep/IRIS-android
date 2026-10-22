@@ -1,5 +1,17 @@
 # Changelog
 
+## 16.75.0
+
+- Real Agent Planning: Bridging LocalPlanner and Execution (AGENT-ARCHITECTURE.md §3, §5, §7).
+- Implemented OnnxSlmEngine running 4-bit quantized small models (Qwen2.5-0.5B / SmolLM2-360M Q4 ~220MB) via bundled ai.onnxruntime within 512MB RAM heap limit.
+- Added compound semantic multi-intent decomposition supporting conjunctions (and, then, also, plus, after that, commas, semicolons) synthesizing validated MULTI_ACTION plans.
+- Connected LocalPlanner and IntentParser directly to PlanRunner.execute(plan), bypassing the 1,500-line procedural regex cascade in IrisListeningService.
+- Expanded PlanRunner to fully dispatch all 20 ToolCall.KNOWN tools to native execution handlers.
+- Implemented all 42 PlanRunner.Host methods in IrisListeningService including direct contact calling, SMS drafting, and multi-mode recordings.
+- Added deep step sensitivity scanning in Plan.Builder enforcing needsConfirmation=true across all compound child steps.
+- Maintained ring buffer of recent action context for planner prompts.
+- Passed 100% of test suites across schema, unresolved types, XML, speech pipeline, and planning pipeline.
+
 ## 0.2.2
 
 - Fixed dead-end state in voice confirmation when retries exceeded — now cancels and rearms.

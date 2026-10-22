@@ -51,6 +51,12 @@ public class PlanRunner {
         void handleModeQuery(String mode);
         void handleBatterySaverSet(String action, String onOff, String scope);
         void handleBatterySaverQuery();
+        void handleCallContact(String name);
+        void handleSendSms(String recipient, String message);
+        void handleStartScreenRecording(String duration);
+        void handleRecordCameraVideo(String camera, String duration);
+        void handleRecordVoice(String duration);
+        void handleStopRecording();
     }
 
     private final Host host;
@@ -88,6 +94,20 @@ public class PlanRunner {
         String tool = call.tool();
 
         switch (tool) {
+            case "call_contact": {
+                String name = call.arg("name");
+                if (name.isEmpty()) name = call.arg("recipient");
+                host.handleCallContact(name);
+                return true;
+            }
+            case "compose_message": {
+                String name = call.arg("name");
+                if (name.isEmpty()) name = call.arg("recipient");
+                String text = call.arg("text");
+                if (text.isEmpty()) text = call.arg("message");
+                host.handleSendSms(name, text);
+                return true;
+            }
             case "set_torch": {
                 String state = call.arg("state");
                 host.handleTorch(!"off".equalsIgnoreCase(state));
@@ -117,13 +137,46 @@ public class PlanRunner {
                 host.handleScreenshot();
                 return true;
             }
+            case "record_screen": {
+                host.handleStartScreenRecording(call.arg("duration"));
+                return true;
+            }
+            case "record_camera_video": {
+                host.handleRecordCameraVideo(call.arg("camera"), call.arg("duration"));
+                return true;
+            }
+            case "record_voice": {
+                host.handleRecordVoice(call.arg("duration"));
+                return true;
+            }
+            case "stop_recording": {
+                host.handleStopRecording();
+                return true;
+            }
             case "open_app": {
-                AppRequest appReq = new AppRequest(call.arg("app"), AppRequest.Action.OPEN);
+                String app = call.arg("app");
+                if (app.isEmpty()) app = call.arg("name");
+                AppRequest appReq = new AppRequest(app, AppRequest.Action.OPEN);
                 host.handleAppIntegration(appReq);
                 return true;
             }
             case "search_web": {
                 host.handleWebSearch(call.arg("query"));
+                return true;
+            }
+            case "search_app": {
+                AppRequest appReq = new AppRequest("search", call.arg("app"), call.arg("value"));
+                host.handleAppIntegration(appReq);
+                return true;
+            }
+            case "share_text_to_app": {
+                AppRequest appReq = new AppRequest("share_text", call.arg("app"), call.arg("value"));
+                host.handleAppIntegration(appReq);
+                return true;
+            }
+            case "share_recent_media": {
+                AppRequest appReq = new AppRequest("share_media", call.arg("app"), call.arg("value"));
+                host.handleAppIntegration(appReq);
                 return true;
             }
             case "phone_status": {
