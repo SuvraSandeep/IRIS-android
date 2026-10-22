@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.77.1` / `versionCode 474` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.78.0` / `versionCode 475` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -104,6 +104,9 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
   * `ArchiveExport.java`: Forensic HTML reports, self-contained ZIP media backups, and CSV generation.
   * `view_archive.xml`: Viewport layout, collapsible diagnostics header, and smooth-scrolling `ListView`.
 * **Auto-Responder & Comms Deck:**
+  * `ResponderViewController.java`: Dedicated UI controller managing auto-responder rules, dry-run/live toggles, tone settings, situational modes, test-send dispatch, and live decision log auditing with filter chips.
+  * `ContactsViewController.java`: Dedicated UI controller managing phonebook contact browsing, manual contact rule entry, relationship tagging, and custom tone selection.
+  * `FlaggedQueueController.java`: Dedicated UI controller managing pinned notes, urgent flags, scheduled reminders queue, filter chips (All/Pinned/Flagged/Reminders), and manual reminder entry.
   * `AutoResponder.java`: Top-level message intake, triage, and dispatch pipeline with `AutoModeDetector` signal resolution.
   * `AutoModeDetector.java`: On-device sensor and calendar event detector for vehicle Bluetooth connections and busy calendar events.
   * `AutoModePolicy.java`: Pure decision matrix resolving effective situational mode (Driving > Meeting > Sleeping > None).
@@ -118,6 +121,8 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
   * `WatchGattBridge.java`: Authenticated BLE GATT service (UUID `00001847-0000-1000-8000-00805f9b34fb`) with token verification, CCCD notifications, and command routing.
   * `IRIS-Watch/app-side/index.js`: Zepp OS companion app side-service with automatic WebSocket fallback when local HTTP is blocked.
 * **Voice & Execution Controllers:**
+  * `CallManager.java`: Dedicated telephony controller encapsulating fuzzy contact matching, soundex/token similarity, phone number extraction, call timing/night warnings, spoken verbal confirmations, disambiguation broadcasts, and direct dialer intents with lockscreen credential fallback.
+  * `HeadsetSensorCoordinator.java`: Hardware sensor coordinator managing shake-to-wake sensor listener (2.7g threshold, 3s cooldown), `MediaSession` media button listener with pass-through callback, and Bluetooth audio device connection/summary querying.
   * `VoicePipelineCoordinator.java`: Low-level audio routing, `AudioDeviceCallback` lifecycle, input device enumeration/selection, speech focus request/abandon, media key play/pause dispatch, and `openSpeechSession()` factory.
   * `AudioFocusSession.java`: AutoCloseable transient audio focus manager guaranteeing automatic abandon and media resumption with try-with-resources semantics.
   * `OnnxSpeechRecognizer.java`: Offline high-accuracy speech recognizer running quantized Whisper-Tiny / Sherpa-ONNX via bundled `onnxruntime-android:1.19.2`, with 80-bin log-mel extraction and greedy CTC/token decoding.
@@ -127,13 +132,28 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
   * `LocalPlanner.java` & `IntentParser.java`: Intent parsing and structured plan generation.
   * `OnnxSlmEngine.java`: On-device 4-bit small language model engine running Qwen2.5/SmolLM2 with semantic multi-intent conjunction decomposition.
 * **Glue & UI Orchestration:**
-  * `MainActivity.java`: Host UI activity & navigation tabs; delegates Notification Vault entirely to `ArchiveViewController`; provides Permission Dashboard and situational mode switches.
-  * `IrisListeningService.java`: Foreground lifecycle and hotword service; coordinates streaming TTS via `speakStreamSentence()` and `scheduleStreamRearm()`; delegates audio routing to `VoicePipelineCoordinator`, offline STT to `OnnxSpeechRecognizer` (with Vosk fallback), and plan execution to `PlanRunner`.
+  * `MainActivity.java`: Host UI activity & navigation tabs; delegates Comms Deck sections entirely to domain controllers (`ArchiveViewController`, `ResponderViewController`, `ContactsViewController`, `FlaggedQueueController`); provides Permission Dashboard and situational mode switches.
+  * `IrisListeningService.java`: Foreground lifecycle and hotword service; coordinates streaming TTS via `speakStreamSentence()` and `scheduleStreamRearm()`; delegates audio routing to `VoicePipelineCoordinator`, headset sensors to `HeadsetSensorCoordinator`, telephony to `CallManager`, offline STT to `OnnxSpeechRecognizer` (with Vosk fallback), and plan execution to `PlanRunner`.
   * `IrisNotificationListener.java`: System `NotificationListenerService` capturing active notifications, running the 2.5s sliding-window double-text buffer (`pendingBubbles`), enforcing the `lastWipeEpoch` barrier, and handling system notification shade dismissal.
 
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v16.78.0 (Commit `0279a50`)**:
+  * **God Classes Deconstruction (Modular UI & Service Controllers, §1)**: Extracted and decoupled monolithic architectures across UI and background service layers.
+  * **Service Layer Deconstruction (`IrisListeningService.java`)**:
+    * `CallManager.java`: Encapsulates `ContactMatch`, fuzzy contact resolver, `soundex`, `textSimilarity`, `extractPhoneNumber`, `speakableNumber`, call timing warnings, disambiguation broadcasts, call confirmation flow with timeout, and direct/dialer `startActivity` dispatch with lockscreen fallback.
+    * `HeadsetSensorCoordinator.java`: Manages shake-to-wake (`SensorEventListener`, 2.7g threshold, 3s cooldown), `MediaSession` media button listener with pass-through callback, and Bluetooth audio device connection/summary querying.
+    * `VoicePipelineCoordinator.java`: Low-level audio routing, device callbacks, and transient focus management.
+    * `PlanRunner.java` / `OnnxSlmEngine.java`: Centralized structured plan execution and on-device SLM command dispatch.
+  * **UI Layer Deconstruction (`MainActivity.java`)**:
+    * `ContactsViewController.java`: Encapsulates phonebook contacts browsing, search filtering, manual contact additions, contact rules, relationship tagging, and custom tone selection.
+    * `FlaggedQueueController.java`: Encapsulates pinned notes, urgent flags, scheduled reminders queue, filter chips (All/Pinned/Flagged/Reminders), and manual reminder entry dialogs.
+    * `ResponderViewController.java`: Encapsulates auto-responder rules, dry-run/live toggles, tone settings, situational modes, test-send dispatch, and live decision log auditing with filter chips.
+    * `ArchiveViewController.java`: Encapsulates notification vault browsing, media lightbox, video/audio playback, and forensic exports.
+  * **Codebase Slimming**: `MainActivity.java` reduced from 11,337 lines down to 5,522 lines (>51% reduction); `IrisListeningService.java` reduced by 673 lines.
+  * **Verification**: All 8 test suites pass 100% (`check-archive-schema.py`, `check-unresolved-types.py`, `check-xml.py`, `check-training-layout.py`, `check-speech-pipeline.py`, `check-planning-pipeline.py`, `check-comms-deck.py`, and `check-server-and-watch.py`).
 
 * **v16.77.1 (Commit `7300d4d` / `8a279d0`)**:
   * **CI Build Fix (ParseSources.java & onActivityResult Syntax)**: Fixed unclosed `else if (archiveViewController.handleActivityResult(...))` block in `MainActivity.java` `onActivityResult()`, eliminating the orphaned `try-catch` syntax error that failed `ParseSources.java` in GitHub Actions CI run `39818154538`.
