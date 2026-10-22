@@ -135,7 +135,7 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v16.77.0 (Commit `11cb0c9`)**:
+* **v16.77.0 (Commit `60cabce`)**:
   * **Server Mode SSE Streaming & Low-Latency TTS (§5, Handoff §1, §6)**: Added `POST /chat/stream` in `IRIS-Android/server/app.py` streaming token deltas over `text/event-stream`. Upgraded `ServerClient.java` with `StreamListener`, `chatStream()`, and `findSentenceSplit()` sentence boundary detection. Wired into `IrisListeningService.java`: Sentence 1 begins speaking immediately with `TextToSpeech.QUEUE_FLUSH`, dropping perceived latency from 8.0s down to ~800ms. Subsequent sentences queue with `QUEUE_ADD`. Action tags (`[CALL]`, `[TIME]`) are intercepted and dispatched to `handleLlmOutput()` without speaking raw bracket syntax. Added `scheduleStreamRearm()` with utterance tracking and watchdog timer.
   * **Multi-Transport Watch Companion Bridge (WebSocket + BLE GATT)**: Resolved loopback HTTP blocking on newer Zepp OS / OEM runtimes by adding RFC 6455 local WebSocket support (`ws://127.0.0.1:18473/ws`) to `WatchBridge.java` with SHA-1 handshake and binary frame handling. Implemented `WatchGattBridge.java` providing an authenticated BLE GATT server (UUID `00001847-0000-1000-8000-00805f9b34fb`) with token verification, CCCD notifications, and command routing. Upgraded `IRIS-Watch/app-side/index.js` to automatically fall back to WebSocket when HTTP fetch fails.
   * **Verification**: All 7 test suites pass 100% (`check-archive-schema.py`, `check-unresolved-types.py`, `check-xml.py`, `check-speech-pipeline.py`, `check-planning-pipeline.py`, `check-comms-deck.py`, and `check-server-and-watch.py`).
