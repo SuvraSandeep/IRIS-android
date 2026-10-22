@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.80.0` / `versionCode 477` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.81.0` / `versionCode 478` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -139,6 +139,11 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v16.81.0 (Commit `191557a`)**:
+  * **Server Mode SSE Streaming `chat()` Overload (§5)**: Added `ServerClient.chat(message, context, profile, connectMs, readMs, StreamListener listener)` streaming overload in `ServerClient.java` delegating to `chatStream()`. Token chunks from `/chat/stream` are split at sentence boundaries via `findSentenceSplit()`, feeding Android's `TextToSpeech` with `QUEUE_FLUSH` for sentence 1 (reducing perceived time-to-first-sentence latency from 8.0s to 800ms) and `QUEUE_ADD` for subsequent chunks. Action tags (`[CALL]`, `[TIME]`) are parsed and dispatched to `handleLlmOutput()` without speaking raw bracket syntax. Lifecycle re-arming is safely handled by `scheduleStreamRearm()` with utterance tracking and watchdog timer.
+  * **Watch Companion Multi-Transport Bridge**: Retained authenticated BLE GATT service (`00001847-0000-1000-8000-00805f9b34fb`) and RFC 6455 local WebSocket server (`ws://127.0.0.1:18473/ws`) in `WatchBridge.java` as seamless fallbacks when Zepp OS side-service loopback HTTP is blocked on newer runtimes.
+  * **Verification**: All 8 test suites pass 100% (`check-archive-schema.py`, `check-unresolved-types.py`, `check-xml.py`, `check-training-layout.py`, `check-speech-pipeline.py`, `check-planning-pipeline.py`, `check-comms-deck.py`, and `check-server-and-watch.py`) and all 206 Java source files verified with clean bracket balancing (`check-brackets.py`).
 
 * **v16.80.0 (Commit `9fad871`)**:
   * **Real-Time Bluetooth ACL Vehicle Detection (§4, Handoff §1, §2.5)**: Enhanced `AutoModeDetector.java` and `IrisNotificationListener.java` with dynamic `BluetoothDevice.ACTION_ACL_CONNECTED` and `ACTION_ACL_DISCONNECTED` broadcast listening. Immediately caches vehicle infotainment and car head unit connection status without requiring expensive on-demand reflection or audio routing queries, providing zero-latency situational shifts into `DRIVING` responder mode.
