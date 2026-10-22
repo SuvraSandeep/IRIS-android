@@ -10,6 +10,7 @@ package com.iris.assistant;
 public enum IrisIntent {
     CALL_CONTACT,
     SEND_MESSAGE,
+    COMPOSE_MESSAGE,
     SET_ALARM,
     SET_TIMER,
     SET_REMINDER,
@@ -46,6 +47,7 @@ public enum IrisIntent {
         switch (this) {
             case CALL_CONTACT:
             case SEND_MESSAGE:
+            case COMPOSE_MESSAGE:
             case APP_SHARE:
                 return true;
             default:

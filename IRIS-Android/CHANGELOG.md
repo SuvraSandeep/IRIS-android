@@ -4,6 +4,7 @@
 
 - Fix syntax error in `MainActivity.java` `onActivityResult()` caused by unclosed `else if (archiveViewController.handleActivityResult(...))` block.
 - Restored clean brace balancing and syntax parsing for CI `ParseSources.java` regression suite.
+- Added missing `COMPOSE_MESSAGE` enum constant and sensitivity mapping to `IrisIntent.java`, resolving `cannot find symbol` compilation error in `IntentParser.java`.
 
 ## 16.77.0
 
