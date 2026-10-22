@@ -42,6 +42,7 @@ public class PlanRunner {
         void handleEmail(String recipient, String body);
         void handleCalendar(String title, String when);
         void handleAppIntegration(AppRequest request);
+        void handleOpenApp(String name);
         void handlePhoneStatus();
         void handleConnectivity(String which);
         void handleRinger(int mode);
@@ -156,8 +157,7 @@ public class PlanRunner {
             case "open_app": {
                 String app = call.arg("app");
                 if (app.isEmpty()) app = call.arg("name");
-                AppRequest appReq = new AppRequest(app, AppRequest.Action.OPEN);
-                host.handleAppIntegration(appReq);
+                host.handleOpenApp(app);
                 return true;
             }
             case "search_web": {

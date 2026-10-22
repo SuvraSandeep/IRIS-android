@@ -5,6 +5,8 @@
 - Fix syntax error in `MainActivity.java` `onActivityResult()` caused by unclosed `else if (archiveViewController.handleActivityResult(...))` block.
 - Restored clean brace balancing and syntax parsing for CI `ParseSources.java` regression suite.
 - Added missing `COMPOSE_MESSAGE` enum constant and sensitivity mapping to `IrisIntent.java`, resolving `cannot find symbol` compilation error in `IntentParser.java`.
+- Fixed Android SDK compile errors in `ArchiveViewController.java`: added missing `Bitmap` and `GradientDrawable` imports, implemented `findViewById()`, `isFinishing()`, and `isDestroyed()` lifecycle helpers, corrected `rootView` export typo, and consolidated `openNotificationAccessSettings()` in `MainActivity.java`.
+- Updated `PlanRunner.java` and `IrisListeningService.java` with direct `handleOpenApp()` host method dispatch.
 
 ## 16.77.0
 

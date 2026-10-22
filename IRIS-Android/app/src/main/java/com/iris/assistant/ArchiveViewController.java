@@ -12,6 +12,8 @@ import android.graphics.Typeface;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Handler;
+import android.graphics.Bitmap;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Looper;
 import android.text.Editable;
 import android.text.TextUtils;
@@ -79,6 +81,22 @@ public class ArchiveViewController {
         this.activity = activity;
         this.rootView = root;
         bindArchiveSection(root);
+    }
+
+    private <T extends View> T findViewById(int id) {
+        if (rootView != null) {
+            T v = rootView.findViewById(id);
+            if (v != null) return v;
+        }
+        return activity != null ? activity.findViewById(id) : null;
+    }
+
+    private boolean isFinishing() {
+        return activity == null || activity.isFinishing();
+    }
+
+    private boolean isDestroyed() {
+        return activity == null || activity.isDestroyed();
     }
 
     public void flushDeletes() {
@@ -847,21 +865,6 @@ public class ArchiveViewController {
             return sdf.format(new Date(archiveCustomFromMs)) + " \u2013 " + sdf.format(new Date(archiveCustomToMs));
         }
         return "ALL TIME";
-    }
-
-    /**
-     * The only route to notification access: no runtime permission dialog exists for it, so a
-     * permission request here would silently do nothing. Shared by the permission dashboard and
-     * the archive screen's grant button.
-     */
-    private void openNotificationAccessSettings() {
-        try {
-            startActivity(new Intent(
-                    android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
-            toast("Find IRIS in that list and switch me on. I'll wait.");
-        } catch (Exception e) {
-            toast("Settings \u2192 Notifications \u2192 Notification access \u2192 allow IRIS.");
-        }
     }
 
     private TextView createCyberActionButton(String text) {
@@ -3319,7 +3322,7 @@ public class ArchiveViewController {
      * CSV spreadsheet, and plain text transcript, with selective filtering support.
      */
     private void exportArchive() {
-        exportArchive(rootView != null ? rootView.rootView != null ? rootView.findViewById(R.id.archiveView) : null : null);
+        exportArchive(rootView != null ? rootView.findViewById(R.id.archiveView) : null);
     }
 
     private void exportArchive(View archiveRoot) {

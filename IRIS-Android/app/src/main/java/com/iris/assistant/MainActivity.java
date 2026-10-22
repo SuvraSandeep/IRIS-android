@@ -8216,6 +8216,16 @@ public class MainActivity extends Activity {
         }
     }
 
+    void openNotificationAccessSettings() {
+        try {
+            startActivity(new Intent(
+                    android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+            toast("Find IRIS in that list and switch me on. I'll wait.");
+        } catch (Exception e) {
+            toast("Settings \u2192 Notifications \u2192 Notification access \u2192 allow IRIS.");
+        }
+    }
+
     /**
      * Build the "what IRIS can access" rows.
      *

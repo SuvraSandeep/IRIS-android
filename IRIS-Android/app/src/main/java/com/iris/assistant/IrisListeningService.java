@@ -3794,6 +3794,16 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
+    public void handleOpenApp(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            reply("Which app should I open?");
+            return;
+        }
+        if (!openApp(name.trim())) {
+            reply("I couldn't find an installed app called " + name + ".");
+        }
+    }
+
     /** Open the command window immediately (used by notification/tile/headset/shake/assist triggers). */
     private void triggerTalk(String source) {
         if (memoRecorder != null && memoRecorder.isRecording()) return;
