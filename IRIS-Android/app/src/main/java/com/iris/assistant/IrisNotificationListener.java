@@ -116,7 +116,7 @@ public class IrisNotificationListener extends NotificationListenerService {
                     if (lastWipe > 0) {
                         long pt = sbn.getPostTime();
                         long wt = (sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
-                        if ((pt > 0 && pt <= lastWipe) || (wt > 0 && wt <= lastWipe)) continue;
+                        if (pt <= lastWipe || wt <= lastWipe || (pt <= 0 && wt <= 0)) continue;
                     }
                     service.onNotificationPosted(sbn);
                     offered++;
@@ -214,11 +214,21 @@ public class IrisNotificationListener extends NotificationListenerService {
         // the archive genuinely did not see, which the owner can then judge for themselves rather
         // than being shown an apparently continuous record.
         archiveMark(ArchiveSchema.KIND_LISTENER_CONNECTED, "Notification capture started.");
-        // Seed with notifications already showing in the shade
+        // Seed with notifications already showing in the shade, excluding those predating an explicit wipe
         try {
             StatusBarNotification[] active = getActiveNotifications();
             if (active != null) {
-                for (StatusBarNotification sbn : active) onNotificationPosted(sbn);
+                AppSettings settings = new AppSettings(getApplicationContext());
+                long lastWipe = settings.lastArchiveWipeAt();
+                for (StatusBarNotification sbn : active) {
+                    if (sbn == null) continue;
+                    if (lastWipe > 0) {
+                        long pt = sbn.getPostTime();
+                        long wt = (sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
+                        if (pt <= lastWipe || wt <= lastWipe || (pt <= 0 && wt <= 0)) continue;
+                    }
+                    onNotificationPosted(sbn);
+                }
             }
         } catch (Exception ignored) { }
     }
@@ -406,7 +416,7 @@ public class IrisNotificationListener extends NotificationListenerService {
             if (lastWipe > 0) {
                 long pt = sbn.getPostTime();
                 long wt = (sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
-                if ((pt > 0 && pt <= lastWipe) || (wt > 0 && wt <= lastWipe)) return;
+                if (pt <= lastWipe || wt <= lastWipe || (pt <= 0 && wt <= 0)) return;
             }
             synchronized (tracked) {
                 Tracked state = tracked.get(key);
@@ -651,7 +661,7 @@ public class IrisNotificationListener extends NotificationListenerService {
                 if (when > 0 && when <= lastWipe) return 0;
                 long pt = sbn != null ? sbn.getPostTime() : 0L;
                 long wt = (sbn != null && sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
-                if ((pt > 0 && pt <= lastWipe) || (wt > 0 && wt <= lastWipe)) return 0;
+                if (pt <= lastWipe || wt <= lastWipe || (when <= 0 && pt <= 0 && wt <= 0)) return 0;
             }
         }
         NotificationArchive.Capture capture = new NotificationArchive.Capture();

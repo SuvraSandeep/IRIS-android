@@ -3433,7 +3433,18 @@ public class MainActivity extends Activity {
         IrisNotificationListener.ensureConnected(this);
         // Capture is event-driven, so a freshly ticked app shows nothing until its next
         // notification. Pulling in what is on screen now gives immediate evidence it is working.
-        IrisNotificationListener.captureVisibleNow();
+        View diagHeader = view.findViewById(R.id.archiveDiagHeader);
+        View diagBody = view.findViewById(R.id.archiveDiagBody);
+        TextView diagToggle = view.findViewById(R.id.archiveDiagToggle);
+        if (diagHeader != null && diagBody != null) {
+            diagHeader.setOnClickListener(v -> {
+                boolean showing = diagBody.getVisibility() == View.VISIBLE;
+                diagBody.setVisibility(showing ? View.GONE : View.VISIBLE);
+                if (diagToggle != null) {
+                    diagToggle.setText(showing ? "DIAG \u25BE" : "DIAG \u25B4");
+                }
+            });
+        }
 
         EditText search = view.findViewById(R.id.archiveSearch);
 
@@ -3600,6 +3611,8 @@ public class MainActivity extends Activity {
 
                         int removed = NotificationArchive.deleteEverything(this);
                         ConversationReadTracker.clearAll(this);
+                        NotificationStore.clearAll(this);
+                        FlaggedStore.get(this).clearAll();
                         archiveLastSignature = NotificationArchive.signature(this);
 
                         toast(removed + " entries gone. I remember nothing. Allegedly.");
@@ -4658,23 +4671,43 @@ public class MainActivity extends Activity {
                     return true;
 
                 case android.view.MotionEvent.ACTION_MOVE: {
+                    int touchSlop = android.view.ViewConfiguration.get(v.getContext()).getScaledTouchSlop();
                     float dx = event.getRawX() - start[0];
                     float dy = event.getRawY() - start[1];
-                    if (Math.abs(dx) > SwipeDecision.CLAIM_SLOP_PX || Math.abs(dy) > SwipeDecision.CLAIM_SLOP_PX) {
+                    float absDx = Math.abs(dx);
+                    float absDy = Math.abs(dy);
+
+                    if (absDx > touchSlop || absDy > touchSlop) {
                         if (longPressCallback[0] != null) {
                             handler.removeCallbacks(longPressCallback[0]);
                             longPressCallback[0] = null;
                         }
                     }
-                    if (!claimed[0] && SwipeDecision.claimsGesture(dx, dy)) {
+
+                    // Deliberate horizontal swipe intent:
+                    // Must exceed twice the touch slop AND be at least 2.5x greater than vertical movement
+                    if (!claimed[0] && absDx > (touchSlop * 2) && absDx > (absDy * 2.5f)) {
                         claimed[0] = true;
-                        // Stop the parent ListView stealing the gesture back mid-swipe.
-                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                        if (v.getParent() != null) {
+                            v.getParent().requestDisallowInterceptTouchEvent(true);
+                        }
                     }
+
                     if (claimed[0]) {
                         v.setTranslationX(dx);
                         v.setAlpha(SwipeDecision.dragAlpha(dx, v.getWidth()));
                         return true;
+                    }
+
+                    // Predominantly vertical drag: cancel card translation, release parent intercept, and yield to ListView
+                    if (absDy > touchSlop && absDy >= absDx) {
+                        if (v.getTranslationX() != 0) {
+                            v.setTranslationX(0);
+                            v.setAlpha(1f);
+                        }
+                        if (v.getParent() != null) {
+                            v.getParent().requestDisallowInterceptTouchEvent(false);
+                        }
                     }
                     return false;
                 }
@@ -4684,18 +4717,19 @@ public class MainActivity extends Activity {
                         handler.removeCallbacks(longPressCallback[0]);
                         longPressCallback[0] = null;
                     }
+                    if (v.getParent() != null) {
+                        v.getParent().requestDisallowInterceptTouchEvent(false);
+                    }
+                    int touchSlop = android.view.ViewConfiguration.get(v.getContext()).getScaledTouchSlop();
                     float dx = event.getRawX() - start[0];
                     float dy = event.getRawY() - start[1];
                     long elapsed = Math.max(1, System.currentTimeMillis() - startedAt[0]);
                     float velocity = dx / elapsed * 1000f;
 
                     if (!claimed[0]) {
-                        // Never became a swipe. A still finger is a tap, which opens the photo if
-                        // there is one; any real movement was the list scrolling.
                         v.setTranslationX(0);
                         v.setAlpha(1f);
-                        if (Math.abs(dx) < SwipeDecision.CLAIM_SLOP_PX
-                                && Math.abs(dy) < SwipeDecision.CLAIM_SLOP_PX) {
+                        if (Math.abs(dx) < touchSlop && Math.abs(dy) < touchSlop) {
                             if (row.hasImage() && !row.isAudio() && !row.isDocument()) {
                                 showArchiveImage(row);
                             } else if (archiveDensityMode == ARCHIVE_DENSITY_COMPACT) {
@@ -4721,6 +4755,9 @@ public class MainActivity extends Activity {
                     v.setTranslationX(0);
                     v.setAlpha(1f);
                     claimed[0] = false;
+                    if (v.getParent() != null) {
+                        v.getParent().requestDisallowInterceptTouchEvent(false);
+                    }
                     return false;
 
                 default:
@@ -5288,6 +5325,7 @@ public class MainActivity extends Activity {
         TextView btnShare;
         TextView btnPin;
         TextView btnFlag;
+        TextView btnDelete;
     }
 
     private class ArchiveAdapter extends BaseAdapter {
@@ -5710,11 +5748,13 @@ public class MainActivity extends Activity {
                 holder.btnShare = createCyberActionButton("\u2197 SHARE");
                 holder.btnPin = createCyberActionButton("\uD83D\uDCCC PIN");
                 holder.btnFlag = createCyberActionButton("\uD83D\uDEA9 FLAG");
+                holder.btnDelete = createCyberActionButton("\uD83D\uDDD1\uFE0F DEL");
 
                 holder.quickActionsBar.addView(holder.btnCopy);
                 holder.quickActionsBar.addView(holder.btnShare);
                 holder.quickActionsBar.addView(holder.btnPin);
                 holder.quickActionsBar.addView(holder.btnFlag);
+                holder.quickActionsBar.addView(holder.btnDelete);
                 card.addView(holder.quickActionsBar);
 
                 card.setTag(holder);
@@ -6047,6 +6087,22 @@ public class MainActivity extends Activity {
                 FlaggedStore.get(MainActivity.this).addFlagged(
                         row.body, pinSender, row.displayAccount(), "Archived message flagged", System.currentTimeMillis());
                 toast("Flagged as urgent");
+            });
+            holder.btnDelete.setOnClickListener(v -> {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Delete this entry?")
+                        .setMessage("Remove this archived message permanently?")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Delete", (d, w) -> {
+                            if (NotificationArchive.deleteRow(MainActivity.this, row.id)) {
+                                toast("Gone. I never saw it.");
+                                if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
+                                renderArchive(root);
+                            } else {
+                                toast("Could not delete that entry.");
+                            }
+                        })
+                        .show();
             });
         }
 
