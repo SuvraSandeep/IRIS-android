@@ -60,6 +60,13 @@ final class ServerClient {
         } finally { if (c != null) c.disconnect(); }
     }
 
+    /**
+     * Streams chunks from /chat/stream, feeding completed sentences directly via StreamListener.
+     */
+    void chat(String message, JSONArray context, JSONObject profile, int connectMs, int readMs, StreamListener listener) {
+        chatStream(message, context, profile, connectMs, readMs, listener);
+    }
+
     interface StreamListener {
         /** Called on each completed sentence extracted from the SSE stream. */
         void onSentence(String sentence, int index);

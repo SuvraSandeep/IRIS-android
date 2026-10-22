@@ -105,6 +105,7 @@ def main():
     assert "void onComplete(String fullReply)" in sc_code, "onComplete missing in StreamListener"
     assert "void onError(Throwable error)" in sc_code, "onError missing in StreamListener"
     assert "void chatStream(" in sc_code, "chatStream method missing in ServerClient"
+    assert "void chat(String message, JSONArray context, JSONObject profile, int connectMs, int readMs, StreamListener listener)" in sc_code, "chat streaming overload missing"
     assert "static int findSentenceSplit(String s)" in sc_code, "findSentenceSplit missing in ServerClient"
     assert 'Accept", "text/event-stream' in sc_code, "Accept text/event-stream header missing"
     assert "data:" in sc_code, "SSE data: prefix parsing missing"

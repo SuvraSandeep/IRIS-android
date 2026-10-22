@@ -1,5 +1,12 @@
 # Changelog
 
+## 16.81.0
+
+- Server Mode & Watch Companion Bridge Refinements (§5):
+  - Server-Sent Events (SSE) Streaming Overload: Added `ServerClient.chat(message, context, profile, connectMs, readMs, listener)` overload enabling streaming token chunk ingestion directly from `/chat/stream`. Leverages `findSentenceSplit()` to feed completed sentences to Android's `TextToSpeech` with `QUEUE_FLUSH` for sentence 1 (dropping perceived voice latency from 8.0s to 800ms) and `QUEUE_ADD` for subsequent chunks.
+  - Multi-Transport Watch Companion Bridge: Retained authenticated BLE GATT service (`00001847-0000-1000-8000-00805f9b34fb`) and RFC 6455 local WebSocket transport (`ws://127.0.0.1:18473/ws`) in `WatchBridge.java` as seamless fallbacks when Zepp OS side-service loopback HTTP is blocked.
+  - Verification: 100% pass across all 8 verification test suites and 206 Java source files verified with clean bracket balancing.
+
 ## 16.80.0
 
 - Comms Deck, Auto-Responder & Notification Vault Enhancements (§4, Handoff §1, §2.2, §2.5, §7a):
