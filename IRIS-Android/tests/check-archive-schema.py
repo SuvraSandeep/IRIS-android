@@ -324,6 +324,85 @@ def verify_query_semantics(connection):
         "SELECT COUNT(*) FROM notifications WHERE is_deleted = 1").fetchone()[0]
     check(survivors == 2, "flagged rows survive a range delete, since they are the point of the archive")
 
+    # ─── Quick-filter query semantics ───
+    q_photo = insert_row(connection, "q-photo", pkg="com.whatsapp", app_label="WhatsApp",
+                         image_path="shot_1.jpg", post_time=base + 10000)
+    q_video = insert_row(connection, "q-video", pkg="com.whatsapp", app_label="WhatsApp",
+                         image_path="clip_1.mp4", post_time=base + 11000)
+    q_audio = insert_row(connection, "q-audio", pkg="com.whatsapp", app_label="WhatsApp",
+                         image_path="voice_1.opus", post_time=base + 12000)
+    q_doc = insert_row(connection, "q-doc", pkg="com.whatsapp", app_label="WhatsApp",
+                       image_path="brief_1.pdf", post_time=base + 13000)
+    q_sms = insert_row(connection, "q-sms", pkg="com.google.android.apps.messaging",
+                       app_label="Messages", image_path="", post_time=base + 14000)
+
+    # PHOTOS
+    photo_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE image_path IS NOT NULL AND image_path != '' AND ("
+        "image_path LIKE '%.jpg' OR image_path LIKE '%.jpeg' OR image_path LIKE '%.png' "
+        "OR image_path LIKE '%.webp' OR image_path LIKE '%.gif')").fetchall()
+    check([r[0] for r in photo_rows] == [q_photo], "photos quick filter matches image files")
+
+    # VIDEOS
+    video_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE image_path IS NOT NULL AND image_path != '' AND ("
+        "image_path LIKE '%.mp4' OR image_path LIKE '%.3gp')").fetchall()
+    check([r[0] for r in video_rows] == [q_video], "videos quick filter matches video files")
+
+    # AUDIO
+    audio_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE image_path IS NOT NULL AND image_path != '' AND ("
+        "image_path LIKE '%.ogg' OR image_path LIKE '%.opus' OR image_path LIKE '%.m4a' "
+        "OR image_path LIKE '%.aac' OR image_path LIKE '%.amr' OR image_path LIKE '%.mp3')").fetchall()
+    check([r[0] for r in audio_rows] == [q_audio], "audio quick filter matches voice notes and audio")
+
+    # DOCS
+    doc_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE image_path IS NOT NULL AND image_path != '' AND ("
+        "image_path LIKE '%.pdf' OR image_path LIKE '%.docx' OR image_path LIKE '%.doc' "
+        "OR image_path LIKE '%.xlsx' OR image_path LIKE '%.xls' OR image_path LIKE '%.pptx' "
+        "OR image_path LIKE '%.ppt' OR image_path LIKE '%.txt' OR image_path LIKE '%.csv' "
+        "OR image_path LIKE '%.rtf' OR image_path LIKE '%.zip')").fetchall()
+    check([r[0] for r in doc_rows] == [q_doc], "docs quick filter matches documents")
+
+    # SMS
+    sms_rows = connection.execute(
+        "SELECT _id FROM notifications WHERE pkg LIKE '%.messaging%' OR pkg LIKE '%.mms%' "
+        "OR pkg LIKE '%.sms%' OR app_label LIKE '%message%' OR app_label LIKE '%sms%'").fetchall()
+    check([r[0] for r in sms_rows] == [q_sms], "sms quick filter matches messaging apps")
+
+    # ─── Conversation grouping query semantics ───
+    thread_expr = "(CASE WHEN group_name != '' THEN group_name ELSE (CASE WHEN sender != '' THEN sender ELSE raw_title END) END)"
+    sub_expr = "(CASE WHEN n2.group_name != '' THEN n2.group_name ELSE (CASE WHEN n2.sender != '' THEN n2.sender ELSE n2.raw_title END) END)"
+    conv_sql = f"""
+    SELECT 
+        notifications.pkg,
+        MAX(notifications.app_label) AS max_app,
+        MAX(notifications.group_name) AS max_grp,
+        {thread_expr} AS thread_title,
+        COUNT(*) AS total_count,
+        SUM(CASE WHEN notifications.is_deleted = 1 OR notifications.is_suspected = 1 THEN 1 ELSE 0 END) AS flagged_count,
+        SUM(CASE WHEN notifications.image_path LIKE '%.jpg' OR notifications.image_path LIKE '%.jpeg' OR notifications.image_path LIKE '%.png' OR notifications.image_path LIKE '%.webp' OR notifications.image_path LIKE '%.gif' THEN 1 ELSE 0 END) AS photo_count,
+        SUM(CASE WHEN notifications.image_path LIKE '%.mp4' OR notifications.image_path LIKE '%.3gp' THEN 1 ELSE 0 END) AS video_count,
+        SUM(CASE WHEN notifications.image_path LIKE '%.ogg' OR notifications.image_path LIKE '%.opus' OR notifications.image_path LIKE '%.m4a' OR notifications.image_path LIKE '%.aac' OR notifications.image_path LIKE '%.amr' OR notifications.image_path LIKE '%.mp3' THEN 1 ELSE 0 END) AS audio_count,
+        SUM(CASE WHEN notifications.image_path LIKE '%.pdf' OR notifications.image_path LIKE '%.docx' OR notifications.image_path LIKE '%.doc' OR notifications.image_path LIKE '%.xlsx' OR notifications.image_path LIKE '%.xls' OR notifications.image_path LIKE '%.pptx' OR notifications.image_path LIKE '%.ppt' OR notifications.image_path LIKE '%.txt' OR notifications.image_path LIKE '%.csv' OR notifications.image_path LIKE '%.rtf' OR notifications.image_path LIKE '%.zip' THEN 1 ELSE 0 END) AS doc_count,
+        MAX(notifications.post_time) AS last_time,
+        (SELECT body FROM notifications n2 WHERE n2.pkg = notifications.pkg AND {sub_expr} = {thread_expr} ORDER BY post_time DESC, _id DESC LIMIT 1) AS last_body,
+        (SELECT sender FROM notifications n2 WHERE n2.pkg = notifications.pkg AND {sub_expr} = {thread_expr} ORDER BY post_time DESC, _id DESC LIMIT 1) AS last_sender
+    FROM notifications
+    WHERE notifications.row_kind = 0
+    GROUP BY notifications.pkg, thread_title
+    ORDER BY last_time DESC
+    """
+    conv_rows = connection.execute(conv_sql).fetchall()
+    check(len(conv_rows) > 0, "conversation query aggregates threads")
+    # Verify thread filtering
+    thread_rows = connection.execute(
+        f"SELECT COUNT(*) FROM notifications WHERE row_kind = 0 AND pkg = ? AND {thread_expr} = ?",
+        (conv_rows[0][0], conv_rows[0][3])).fetchone()[0]
+    check(thread_rows == conv_rows[0][4], "thread message count matches aggregated total_count")
+
+
 
 def main():
     statements = extract_statements()

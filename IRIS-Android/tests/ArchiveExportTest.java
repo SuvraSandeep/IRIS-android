@@ -1,5 +1,7 @@
 package com.iris.assistant;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.TimeZone;
@@ -28,7 +30,7 @@ public class ArchiveExportTest {
         }
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         escapesCsvFields();
         csvHasAStableHeader();
         csvRowHoldsEveryColumn();
@@ -38,6 +40,10 @@ public class ArchiveExportTest {
         textExportIncludesCaptureGaps();
         remindsOnlyWhenThereIsSomethingToLose();
         namesFilesWithADate();
+        escapesHtmlEntities();
+        generatesSelfContainedHtmlReport();
+        writesSelfContainedZipWithMedia();
+        namesFilteredFilesWithDistinctPrefix();
         System.out.println("Passed " + checks + " archive export checks");
     }
 
@@ -166,6 +172,73 @@ public class ArchiveExportTest {
         check(!ArchiveExport.fileName("csv", 0L, UTC)
                 .equals(ArchiveExport.fileName("csv", 3600_000L, UTC)),
                 "a later export gets a different name");
+    }
+
+    private static void escapesHtmlEntities() {
+        equal(ArchiveExport.htmlEscape("plain"), "plain", "plain text unchanged");
+        equal(ArchiveExport.htmlEscape("<test>"), "&lt;test&gt;", "tags escaped");
+        equal(ArchiveExport.htmlEscape("a & b \"c\" 'd'"), "a &amp; b &quot;c&quot; &#39;d&#39;", "special characters escaped");
+        equal(ArchiveExport.htmlEscape(""), "", "empty string safe");
+        equal(ArchiveExport.htmlEscape(null), "", "null string safe");
+    }
+
+    private static void generatesSelfContainedHtmlReport() {
+        List<ArchiveRow> rows = new ArrayList<>();
+        ArchiveRow r1 = message("Alice", "Testing <b>bold</b> & quotes \"here\"");
+        ArchiveRow r2 = message("Bob", "Secret message");
+        r2.deleted = true;
+        r2.deletionTime = r2.postTime + 120_000L;
+        rows.add(r1);
+        rows.add(r2);
+
+        String html = ArchiveExport.toHtmlReport(rows, 1760000000000L, UTC, null);
+        check(html.startsWith("<!DOCTYPE html>"), "html doctype present");
+        check(html.contains("IRIS FORENSIC NOTIFICATION ARCHIVE"), "header title present");
+        check(html.contains("Testing &lt;b&gt;bold&lt;/b&gt; &amp; quotes &quot;here&quot;"), "body is safely html-escaped");
+        check(html.contains("UNSENT THIS MESSAGE"), "flagged status rendered in html");
+        check(html.contains("Existed for 2m"), "timeline lifespan rendered in html");
+        check(html.contains("id=\"searchBox\""), "client-side search bar present");
+        check(html.contains("chipFlagged"), "flag filter chip present");
+    }
+
+    private static void writesSelfContainedZipWithMedia() throws Exception {
+        List<ArchiveRow> rows = new ArrayList<>();
+        ArchiveRow r1 = message("Alice", "Hello there");
+        ArchiveRow r2 = message("Bob", "Look at this");
+        r2.imagePath = "photo123.jpg";
+        rows.add(r1);
+        rows.add(r2);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ArchiveExport.writeZip(out, rows, UTC, storedName -> {
+            if ("photo123.jpg".equals(storedName)) {
+                return new ByteArrayInputStream("fake-jpeg-data".getBytes("UTF-8"));
+            }
+            return null;
+        });
+
+        byte[] zipBytes = out.toByteArray();
+        check(zipBytes.length > 0, "zip output is not empty");
+
+        java.util.Set<String> entries = new java.util.HashSet<>();
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            java.util.zip.ZipEntry ze;
+            while ((ze = zis.getNextEntry()) != null) {
+                entries.add(ze.getName());
+                zis.closeEntry();
+            }
+        }
+        check(entries.contains("transcript.csv"), "zip contains transcript.csv");
+        check(entries.contains("transcript.txt"), "zip contains transcript.txt");
+        check(entries.contains("forensic_report.html"), "zip contains forensic_report.html");
+        check(entries.contains("media/photo123.jpg"), "zip contains media attachment");
+    }
+
+    private static void namesFilteredFilesWithDistinctPrefix() {
+        String allName = ArchiveExport.fileName("zip", false, 0L, UTC);
+        equal(allName, "iris-notification-archive-1970-01-01-0000.zip", "full backup filename");
+        String filteredName = ArchiveExport.fileName("zip", true, 0L, UTC);
+        equal(filteredName, "iris-archive-filtered-1970-01-01-0000.zip", "filtered backup filename");
     }
 
     private static ArchiveRow message(String sender, String body) {

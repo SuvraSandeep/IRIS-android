@@ -1,10 +1,13 @@
 package com.iris.assistant;
 
+import android.app.Notification;
 import android.content.Context;
+import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
 import java.util.Calendar;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.TimeZone;
 
@@ -31,6 +34,7 @@ public final class AutoResponder {
      */
     private static final Set<String> ANSWERED_KEYS = new LinkedHashSet<>();
     private static final int ANSWERED_MAX = 200;
+    private static final java.util.Map<String, Long> LAST_POST_TIME = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** Step back after this many consecutive banter replies to one conversation. */
     private static final int BANTER_SNOOZE_CAP = 10;
@@ -63,6 +67,10 @@ public final class AutoResponder {
      */
     public static void consider(Context context, Incoming incoming) {
         if (context == null || incoming == null || incoming.sbn == null) return;
+        if (incoming.sbn.getNotification() != null
+                && (incoming.sbn.getNotification().flags & android.app.Notification.FLAG_GROUP_SUMMARY) != 0) {
+            return;
+        }
 
         ResponderSettings settings = new ResponderSettings(context);
         ResponderGuards.State state = settings.state();
@@ -72,6 +80,11 @@ public final class AutoResponder {
         // The responder has its own app list, separate from the archive's. Ticking an app for
         // archiving must never silently authorise outgoing messages through it.
         if (!settings.allowsApp(incoming.pkg)) return;
+
+        // WhatsApp / Instagram Status or Story replies / reactions: ignore completely so IRIS
+        // does not spam contacts with auto-replies to status updates.
+        if (isStatusNotification(incoming.sbn)) return;
+        if (ReactionText.looksLikeReaction(incoming.body)) return;
 
         // Re-posted identical notification? WhatsApp re-adds the same notification while a message
         // stays unread, which used to clear the in-process answered set and draw a second reply.
@@ -91,6 +104,28 @@ public final class AutoResponder {
         // Shared builder, so the contacts screen and the responder can never disagree about
         // which key a rule was stored under.
         String conversationKey = ResponderSettings.conversationKey(incoming.pkg, resolvedSender);
+
+        // Discard stale lagged notifications that were queued behind newer ones for the same chat.
+        long postTime = incoming.sbn.getPostTime();
+        if (postTime > 0) {
+            Long last = LAST_POST_TIME.get(conversationKey);
+            if (last != null && postTime < last) {
+                return;
+            }
+            LAST_POST_TIME.put(conversationKey, postTime);
+        }
+
+        // Unsolicited Laugh Emoji / Status Reaction Filter:
+        // When a contact sends a bare laugh emoji (😂, 🤣, etc.) without IRIS having spoken in the
+        // last 90 seconds, it is guaranteed to be an unsolicited reaction to a WhatsApp Status,
+        // Instagram Story, or prior photo/media — never a reaction to IRIS. Stay completely silent.
+        if (Emoji.isLaughEmoji(incoming.body)) {
+            long lastReplyMs = settings.lastReplyTo(conversationKey);
+            boolean irisSpokeRecently = lastReplyMs > 0 && (now - lastReplyMs <= 90_000L);
+            if (!irisSpokeRecently) {
+                return;
+            }
+        }
 
         // Never process IRIS's own reply coming back as a notification. In a group, WhatsApp
         // re-surfaces the latest message -- which may be the line IRIS just sent -- and because
@@ -215,12 +250,18 @@ public final class AutoResponder {
         // Keep a short rolling history of this chat (customizable depth) for multi-bubble context.
         settings.recordIncomingHistory(conversationKey, normBody, now);
 
-        // In a group, an @-handle or phone-number mention of the owner counts as being named,
-        // even though it isn't his saved name. Checked on the raw body (not normalised, which
-        // would mangle an underscored handle), and it does not override a message already aimed
-        // at IRIS itself.
+        // In a group, an @-handle, phone-number or trigger word mention of the owner counts as
+        // naming him. If the message didn't classify into an explicit command/intent (like REMINDER,
+        // URGENT, TO_IRIS, GREETING, THANKS, etc.) and is a generic bucket, treat it as MENTION.
         if (incoming.group
                 && category.kind != MessageCategory.Kind.TO_IRIS
+                && category.kind != MessageCategory.Kind.REMINDER
+                && category.kind != MessageCategory.Kind.URGENT
+                && (category.kind == MessageCategory.Kind.NONE
+                    || category.kind == MessageCategory.Kind.SHORT
+                    || category.kind == MessageCategory.Kind.OTHER
+                    || category.kind == MessageCategory.Kind.QUESTION
+                    || category.kind == MessageCategory.Kind.CHECK_IN)
                 && (GroupMention.isMentioned(incoming.body, settings.mentionHandles(),
                         settings.mentionNumbers())
                     || GroupMention.hasTriggerWord(incoming.body, settings.mentionKeywords()))) {
@@ -300,6 +341,47 @@ public final class AutoResponder {
         boolean smartMatched = !smartReply.isEmpty()
                 && SmartReplies.handlesCategory(category.kind);
 
+        // ─── Hostile Emergency Interceptor (Anti-Bullying / Urgent Override Protection) ───
+        // Senders attempting to bully IRIS into VIP escalation or swearing while declaring an
+        // emergency have their VIP privileges revoked: emergency status is cancelled, pending
+        // offers are cleared, and IRIS roasts the sender with a refusal.
+        String metaReason = "";
+        boolean hasUrgentIntent = category.kind == MessageCategory.Kind.URGENT
+                || offerReply == ConversationContext.OfferReply.ACCEPT
+                || UrgencyScore.isUrgent(incoming.body, burst)
+                || (incoming.body != null && (incoming.body.toLowerCase(java.util.Locale.ROOT).contains("urgent")
+                        || incoming.body.toLowerCase(java.util.Locale.ROOT).contains("emergency")));
+        if (SmartReplies.hasProfanity(incoming.body)) {
+            if (hasUrgentIntent) {
+                offerReply = ConversationContext.OfferReply.NONE;
+                if (state == ResponderGuards.State.LIVE) settings.clearPendingOffer(conversationKey);
+                category = new MessageCategory.Result(MessageCategory.Kind.OTHER, "");
+                urgentFamily = false;
+                confirmsRing = false;
+                ringRequest = false;
+                smartReply = SmartReplies.hostileEmergencyReply(settings.nextRotation());
+                smartMatched = true;
+                metaReason = "Hostile Emergency Interceptor: VIP escalation revoked due to profanity";
+            } else {
+                category = new MessageCategory.Result(MessageCategory.Kind.OTHER, "");
+                smartReply = SmartReplies.matchMulti(aliasedBody, tone, settings.nextRotation());
+                smartMatched = !smartReply.isEmpty();
+                metaReason = "Profanity roaster: intercepted hostile message";
+            }
+        }
+
+        // ─── Explicit Flag Interceptor ───
+        // Senders requesting "flag this", "flag a message", "flag it", etc. directly trigger
+        // the flag confirmation reply and log it, bypassing generic fallback greetings.
+        if (FlagDetector.isExplicitFlagCommand(incoming.body) && !SmartReplies.hasProfanity(incoming.body)) {
+            if (!smartMatched || smartReply.isEmpty()) {
+                smartReply = SmartReplies.poolReply("flag", settings.nextRotation());
+                smartMatched = true;
+            }
+            category = new MessageCategory.Result(MessageCategory.Kind.OTHER, "");
+            metaReason = "Flag command: confirmed urgent flag for " + ReplyTemplates.OWNER;
+        }
+
         // Multi-bubble context: ONLY when the current message is a short fragment (a split-off
         // continuation like "tomorrow" or "6pm") that matched nothing on its own. A full,
         // standalone message must never be answered via the window, or IRIS re-answers a question
@@ -345,38 +427,39 @@ public final class AutoResponder {
                 && SmartReplies.handlesCategory(category.kind);
 
         // ─── Meta-Awareness Overrides (Length, Velocity, Hardware, Temporal Snark) ───
-        String metaReason = "";
-        int rawLen = incoming.body == null ? 0 : incoming.body.length();
-        if (rawLen > 400 && SmartReplies.handlesCategory(category.kind)) {
-            smartReply = SmartReplies.poolReply("wall_of_text", settings.nextRotation());
-            smartMatched = true;
-            metaReason = "Meta-awareness: Wall of Text detector (" + rawLen + " chars)";
-        } else if (burst > 4 && SmartReplies.handlesCategory(category.kind)
-                && category.kind != MessageCategory.Kind.URGENT
-                && !UrgencyScore.isUrgent(incoming.body, 0)) {
-            smartReply = SmartReplies.poolReply("spam_warning", settings.nextRotation());
-            smartMatched = true;
-            metaReason = "Meta-awareness: Velocity awareness (" + burst + " msgs in burst window)";
-        } else {
-            int battery = batteryLevel(context);
-            String lowBody = normBody.toLowerCase(java.util.Locale.ROOT);
-            if (battery >= 0 && battery < 15 && SmartReplies.handlesCategory(category.kind)
-                    && (lowBody.contains("how are you") || lowBody.contains("is he busy")
-                    || lowBody.contains("is he free") || lowBody.contains("status")
-                    || lowBody.contains("battery") || category.kind == MessageCategory.Kind.CHECK_IN)) {
-                smartReply = SmartReplies.poolReply("low_battery", settings.nextRotation())
-                        .replace("{battery}", String.valueOf(battery));
+        if (metaReason.isEmpty()) {
+            int rawLen = incoming.body == null ? 0 : incoming.body.length();
+            if (rawLen > 400 && SmartReplies.handlesCategory(category.kind)) {
+                smartReply = SmartReplies.poolReply("wall_of_text", settings.nextRotation());
                 smartMatched = true;
-                metaReason = "Meta-awareness: Hardware context (battery at " + battery + "%)";
-            } else if (smartMatched && (lowBody.contains("is he free") || lowBody.contains("is he busy")
-                    || lowBody.contains("what is he doing") || lowBody.contains("where is he")
-                    || category.kind == MessageCategory.Kind.CHECK_IN)) {
-                int hourOfDay = minuteOfDay / 60;
-                int dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK);
-                String snark = SmartReplies.temporalSnark(dayOfWeek, hourOfDay, settings.rotation());
-                if (!snark.isEmpty() && settings.rotation() % 2 == 1) {
-                    smartReply = snark;
-                    metaReason = "Meta-awareness: Temporal awareness (time-of-day snark)";
+                metaReason = "Meta-awareness: Wall of Text detector (" + rawLen + " chars)";
+            } else if (burst > 4 && SmartReplies.handlesCategory(category.kind)
+                    && category.kind != MessageCategory.Kind.URGENT
+                    && !UrgencyScore.isUrgent(incoming.body, 0)) {
+                smartReply = SmartReplies.poolReply("spam_warning", settings.nextRotation());
+                smartMatched = true;
+                metaReason = "Meta-awareness: Velocity awareness (" + burst + " msgs in burst window)";
+            } else {
+                int battery = batteryLevel(context);
+                String lowBody = normBody.toLowerCase(java.util.Locale.ROOT);
+                if (battery >= 0 && battery < 15 && SmartReplies.handlesCategory(category.kind)
+                        && (lowBody.contains("how are you") || lowBody.contains("is he busy")
+                        || lowBody.contains("is he free") || lowBody.contains("status")
+                        || lowBody.contains("battery") || category.kind == MessageCategory.Kind.CHECK_IN)) {
+                    smartReply = SmartReplies.poolReply("low_battery", settings.nextRotation())
+                            .replace("{battery}", String.valueOf(battery));
+                    smartMatched = true;
+                    metaReason = "Meta-awareness: Hardware context (battery at " + battery + "%)";
+                } else if (smartMatched && (lowBody.contains("is he free") || lowBody.contains("is he busy")
+                        || lowBody.contains("what is he doing") || lowBody.contains("where is he")
+                        || category.kind == MessageCategory.Kind.CHECK_IN)) {
+                    int hourOfDay = minuteOfDay / 60;
+                    int dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK);
+                    String snark = SmartReplies.temporalSnark(dayOfWeek, hourOfDay, settings.rotation());
+                    if (!snark.isEmpty() && settings.rotation() % 2 == 1) {
+                        smartReply = snark;
+                        metaReason = "Meta-awareness: Temporal awareness (time-of-day snark)";
+                    }
                 }
             }
         }
@@ -594,17 +677,15 @@ public final class AutoResponder {
                             }
                         }
                     }
+                    FlaggedStore.get(context).addFlagged(
+                            flagText, resolvedSender, incoming.appLabel, flagResult.reason, now);
                     if (state == ResponderGuards.State.LIVE) {
-                        FlaggedStore.get(context).addFlagged(
-                                flagText, resolvedSender, incoming.appLabel, flagResult.reason, now);
                         ArchiveAlerts.urgentFlag(context, incoming.appLabel, resolvedSender, now);
                     }
                     decisionReason += " \u00b7 FLAGGED: " + flagResult.reason;
                 } else if (flagResult.action == FlagDetector.Action.PIN) {
-                    if (state == ResponderGuards.State.LIVE) {
-                        FlaggedStore.get(context).addPinned(
-                                incoming.body, resolvedSender, incoming.appLabel, flagResult.reason, now);
-                    }
+                    FlaggedStore.get(context).addPinned(
+                            incoming.body, resolvedSender, incoming.appLabel, flagResult.reason, now);
                     decisionReason += " \u00b7 PINNED: " + flagResult.reason;
                 }
             }
@@ -1113,6 +1194,14 @@ public final class AutoResponder {
         for (int offset = 0; offset < STITCH_POOL.length; offset++) {
             String candidate = STITCH_POOL[Math.floorMod(rotation + offset, STITCH_POOL.length)]
                     .replace("{owner}", ReplyTemplates.OWNER);
+            if (!MessageCategory.normalise(candidate).equals(normLast)
+                    && !isRecentReplySent(context, pkg, resolvedSender, MessageCategory.normalise(candidate), 4)) {
+                return candidate;
+            }
+        }
+        for (int offset = 0; offset < STITCH_POOL.length; offset++) {
+            String candidate = STITCH_POOL[Math.floorMod(rotation + offset, STITCH_POOL.length)]
+                    .replace("{owner}", ReplyTemplates.OWNER);
             if (!MessageCategory.normalise(candidate).equals(normLast)) {
                 return candidate;
             }
@@ -1190,5 +1279,54 @@ public final class AutoResponder {
         } catch (Throwable ignored) {
             // Marking read is a convenience; never let it affect the reply decision or crash.
         }
+    }
+    /**
+     * Comprehensive notification inspection checking all metadata bundles, fields, and text
+     * for WhatsApp / Instagram status and story indicators across various Android devices.
+     */
+    public static boolean isStatusNotification(StatusBarNotification sbn) {
+        if (sbn == null) return false;
+        Notification n = sbn.getNotification();
+        if (n == null) return false;
+        CharSequence tickerSeq = n.tickerText;
+        String ticker = tickerSeq != null ? tickerSeq.toString().toLowerCase(Locale.ROOT) : "";
+        if (ticker.contains("status") && (ticker.contains("replied") || ticker.contains("reacted"))) {
+            return true;
+        }
+        Bundle extras = n.extras;
+        if (extras == null) return false;
+
+        CharSequence textSeq = extras.getCharSequence(Notification.EXTRA_TEXT);
+        CharSequence bigTextSeq = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+        CharSequence subTextSeq = extras.getCharSequence(Notification.EXTRA_SUB_TEXT);
+        CharSequence summarySeq = extras.getCharSequence("android.summaryText");
+        CharSequence infoSeq = extras.getCharSequence(Notification.EXTRA_INFO_TEXT);
+
+        String text = textSeq != null ? textSeq.toString() : "";
+        String bigText = bigTextSeq != null ? bigTextSeq.toString() : "";
+        String subText = subTextSeq != null ? subTextSeq.toString().toLowerCase(Locale.ROOT) : "";
+        String summary = summarySeq != null ? summarySeq.toString().toLowerCase(Locale.ROOT) : "";
+        String info = infoSeq != null ? infoSeq.toString().toLowerCase(Locale.ROOT) : "";
+
+        // Tagged as status in metadata fields (WhatsApp/Instagram puts "Status" or "Story" in subText, summary, or info)
+        if (subText.contains("status") || summary.contains("status") || info.contains("status")
+                || ticker.contains("status")) {
+            return true;
+        }
+
+        String lowerText = text.toLowerCase(Locale.ROOT);
+        String lowerBig = bigText.toLowerCase(Locale.ROOT);
+        if (lowerText.startsWith("replied to your status") || lowerText.startsWith("reacted to your status")
+                || lowerBig.startsWith("replied to your status") || lowerBig.startsWith("reacted to your status")
+                || lowerText.startsWith("replied to your story") || lowerText.startsWith("reacted to your story")
+                || lowerBig.startsWith("replied to your story") || lowerBig.startsWith("reacted to your story")) {
+            return true;
+        }
+
+        if (ReactionText.looksLikeReaction(text) || ReactionText.looksLikeReaction(bigText)) {
+            return true;
+        }
+
+        return false;
     }
 }

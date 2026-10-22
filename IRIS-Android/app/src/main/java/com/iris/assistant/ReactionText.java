@@ -21,18 +21,18 @@ public final class ReactionText {
 
     private ReactionText() { }
 
-    // Starts with "reacted <something> to" — the WhatsApp reaction shape.
+    // Starts with "reacted <something> to" or "replied <something> to" — the WhatsApp reaction / status reply shape.
     private static final Pattern REACTED_LEAD = Pattern.compile(
-            "^reacted\\b.*\\bto\\b", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+            "^(reacted|replied)\\b.*\\bto\\b", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     // Starts with one or more emoji/symbols then "to " — e.g. "😂 to \"your message\"".
     private static final Pattern EMOJI_TO_LEAD = Pattern.compile(
             "^[\\p{So}\\p{Sk}\\uFE0F\\u200D\\s]+to\\s+\\S", Pattern.CASE_INSENSITIVE);
 
-    // Instagram / iMessage style.
+    // Instagram / iMessage / WhatsApp Status style.
     private static final Pattern LIKED = Pattern.compile(
-            "\\b(liked|loved|laughed at|emphasi[sz]ed|reacted to)\\b.*\\b(your|the)\\b.*"
-            + "\\b(message|photo|post|story|reel)\\b", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+            "\\b(liked|loved|laughed at|emphasi[sz]ed|reacted to|replied to)\\b.*\\b(your|the)\\b.*"
+            + "\\b(message|photo|post|story|status|reel)\\b", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     public static boolean looksLikeReaction(String body) {
         if (body == null) return false;

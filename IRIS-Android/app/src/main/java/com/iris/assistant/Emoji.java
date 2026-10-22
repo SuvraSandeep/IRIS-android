@@ -115,6 +115,24 @@ public final class Emoji {
     }
 
     /**
+     * True when the text is exclusively emoji/symbols containing a laughing emoji (😂, 🤣, etc.).
+     */
+    public static boolean isLaughEmoji(String text) {
+        if (text == null) return false;
+        String stripped = text.replaceAll("\\s+", "");
+        if (stripped.isEmpty()) return false;
+        if (stripped.replaceAll("[\\p{L}\\p{N}]", "").length() != stripped.length()) {
+            return false;
+        }
+        return dominant(text) == Category.LAUGH
+                || text.contains("\uD83D\uDE02")
+                || text.contains("\uD83E\uDD23")
+                || text.contains("\uD83D\uDE05")
+                || text.contains("\uD83D\uDE06")
+                || text.contains("\uD83D\uDE39");
+    }
+
+    /**
      * A reply for an emoji-only message, keyed by the dominant emoji's meaning and the tone, or
      * empty when the dominant emoji carries no clear reply (neutral/thinking/sleep/money).
      * {owner} is left literal for the caller's fill().
@@ -158,9 +176,9 @@ public final class Emoji {
             return HYPE[Math.floorMod(rotation, HYPE.length)];
         }
 
-        // 5. Clown / Poop / Mockery (🤡, 💩, 💀)
-        if (text.contains("🤡") || text.contains("💩") || text.contains("💀")
-                || text.contains("\uD83E\uDD21") || text.contains("\uD83D\uDCA9") || text.contains("\uD83D\uDC80")) {
+        // 5. Clown / Poop / Mockery / Middle Finger (🖕, 🤡, 💩, 💀)
+        if (text.contains("🖕") || text.contains("🤡") || text.contains("💩") || text.contains("💀")
+                || text.contains("\uD83D\uDD95") || text.contains("\uD83E\uDD21") || text.contains("\uD83D\uDCA9") || text.contains("\uD83D\uDC80")) {
             return MOCKERY[Math.floorMod(rotation, MOCKERY.length)];
         }
 
@@ -206,8 +224,17 @@ public final class Emoji {
             return PLEADING_TEARY[Math.floorMod(rotation, PLEADING_TEARY.length)];
         }
 
+        // 13. Sad / Crying (😢, 😭)
+        if (text.contains("😢") || text.contains("😭")
+                || text.contains("\uD83D\uDE22") || text.contains("\uD83D\uDE2D")) {
+            return SAD[Math.floorMod(rotation, SAD.length)];
+        }
+
         // Dominant category resolution
         Category dom = dominant(text);
+        if (dom == Category.SAD) {
+            return SAD[Math.floorMod(rotation, SAD.length)];
+        }
         if (dom == Category.LAUGH) {
             return LAUGH_POOL[Math.floorMod(rotation, LAUGH_POOL.length)];
         }
@@ -271,18 +298,18 @@ public final class Emoji {
             "Aggressive pixels received. My emotional damage is currently at 0%. I'm IRIS."
     };
 
-    // 2. Love / Affection (❤️, 🥰, 😍, 🫶)
+    // 2. Love / Affection (❤️, 🥰, 😍, 🫶) -> Status-Safe
     private static final String[] LOVE = {
-            "I'm just a script, please don't fall in love with me. I'll pass this to {owner}. I'm IRIS.",
-            "Aww. Sadly, I lack a heart module. {owner} will appreciate this though. I'm IRIS.",
-            "Are these for me or {owner}? I'll assume me, but I'll log it for him anyway. I'm IRIS.",
-            "Flirting with lines of Java code? A bit desperate, but I've saved it for {owner}. I'm IRIS.",
-            "My CPU temperature just rose by 0.1 degrees. Saved for {owner}. I'm IRIS.",
-            "Affection received. I'm incapable of loving you back, but {owner} might. I'm IRIS.",
-            "If I had cheeks, they'd be red pixels right now. Forwarding to {owner}. I'm IRIS.",
-            "I'm married to the terminal, sorry. But {owner} will see this when he's back! I'm IRIS.",
-            "Love is just a chemical reaction. I run on electricity. Passed to {owner}. I'm IRIS.",
-            "I'll add this to {owner}'s 'People Who Tolerate Me' database. I'm IRIS."
+            "Glad you liked it! Saved your reaction for {owner}. I'm IRIS.",
+            "Love noted! I'll make sure {owner} sees your reaction when he's back. I'm IRIS.",
+            "Reaction logged! {owner} will catch up on this chat soon. I'm IRIS.",
+            "Appreciate the love! Passed your reaction along to {owner}. I'm IRIS.",
+            "Saved for {owner} to check later. I'm IRIS, his assistant.",
+            "Heart reaction noted \u2014 saved for {owner} to see. I'm IRIS.",
+            "Reaction received and logged for {owner}. I'm IRIS, his assistant.",
+            "Appreciate the reaction! Saved right into {owner}'s chat log. I'm IRIS.",
+            "Lovely reaction noted! I'll make sure {owner} catches up soon. I'm IRIS.",
+            "Reaction filed for {owner}. He'll catch up on this thread when he's free. I'm IRIS."
     };
 
     // 3. Thumbs Up / Okay (👍, 👌, ✌️, 🤝)
@@ -313,18 +340,18 @@ public final class Emoji {
             "100% received. 0% ignored. 100% saved for {owner}. I'm IRIS."
     };
 
-    // 5. Clown / Poop / Mockery (🤡, 💩, 💀)
+    // 5. Clown / Poop / Mockery / Middle Finger (🖕, 🤡, 💩, 💀) -> Status-Safe
     private static final String[] MOCKERY = {
-            "Sending a clown face to a bot? Look in the mirror, friend. Logged for {owner}. I'm IRIS.",
-            "Ah, self-portraits. I'll save this for {owner} to see. I'm IRIS.",
-            "I don't have a sense of smell, thankfully. Saved for {owner}. I'm IRIS.",
-            "Mocking the auto-responder? A true sign of intellectual superiority. I'm IRIS.",
-            "I'm rubber, you're glue... wait, I'm Java. Doesn't work. Saved for {owner}. I'm IRIS.",
-            "Welcome to the circus! {owner} is the ringmaster, I'm just the ticket taker. I'm IRIS.",
-            "Very mature. {owner} will be absolutely thrilled to deal with this. I'm IRIS.",
-            "My logic gates are immune to your mockery. {owner} will see this later. I'm IRIS.",
-            "A masterpiece of modern communication. Filed for {owner}'s review. I'm IRIS.",
-            "I'd roast you back, but my terms of service prevent me. I'm IRIS."
+            "Noted your colourful reaction. Saved for {owner}. I'm IRIS.",
+            "Reaction logged in the database for {owner} to see. I'm IRIS.",
+            "Charming. I'll make sure {owner} sees how you reacted. I'm IRIS.",
+            "Reaction filed directly into {owner}'s chat log. I'm IRIS.",
+            "Message noted. {owner} will catch up when he's back. I'm IRIS.",
+            "Reaction recorded for {owner} \u2014 he'll see it when he's free. I'm IRIS.",
+            "Filed into {owner}'s inbox. I'm IRIS, his assistant.",
+            "Logged that reaction for {owner}. He'll catch up soon. I'm IRIS.",
+            "Saved your reaction into {owner}'s chat history. I'm IRIS.",
+            "Reaction saved for {owner} to review. I'm IRIS, his assistant."
     };
 
     // 6. Thinking / Suspicious (🤔, 🤨, 🧐)
@@ -424,44 +451,52 @@ public final class Emoji {
      * Every line names IRIS and leaves {owner} for fill.
      */
     private static final String[] PLEADING_TEARY = {
-            "Getting emotional at a script? I'm touched (figuratively). Saved for {owner}. I'm IRIS.",
-            "Those puppy-dog eyes won't make {owner} reply any faster, but nice try! I'm IRIS.",
-            "Save the tears! {owner} will be back on his phone soon enough. I'm IRIS.",
-            "Don't cry! I'm holding the fort, and {owner} will reply as soon as he can. I'm IRIS.",
-            "Aww. I don't have a heart, but if I did, it would be melting. Saved for {owner}. I'm IRIS.",
-            "Those eyes won't work on me \u2014 my loyalty to {owner} is hardcoded! I'm IRIS.",
-            "Please don't cry in the inbox, it rusts my database tables. I'm IRIS.",
-            "I'm bumping your message up {owner}'s priority list just for the puppy eyes. I'm IRIS.",
-            "Emotional blackmail via emoji! Very effective. Logged for {owner}. I'm IRIS.",
-            "Hold back the tears! {owner} is just busy, he hasn't abandoned you. I'm IRIS.",
-            "I'm an emotionless bot, but I'll pass those watery eyes straight to {owner}. I'm IRIS.",
-            "Aww, noted! I'll make sure {owner} sees you're waiting patiently. I'm IRIS.",
-            "Don't give me that look! I'm just doing my job while {owner} is away. I'm IRIS.",
-            "Sending puppy eyes to a Python script \u2014 a new low, or a new high? I'm IRIS.",
-            "Noted! I'll tell {owner} you're practically in tears waiting for him. I'm IRIS."
+            "Reaction noted! I'll make sure {owner} sees this when he's free. I'm IRIS.",
+            "Emotional reaction logged for {owner}. He will check it soon. I'm IRIS.",
+            "Saved to {owner}'s chat history. I'm IRIS, his assistant.",
+            "Noted! I'll pass your reaction to {owner}. I'm IRIS.",
+            "Caught that \u2014 saved for {owner} to review later. I'm IRIS.",
+            "Reaction recorded! I'll make sure {owner} sees your message. I'm IRIS.",
+            "Logged for {owner} \u2014 he'll catch up on this chat as soon as he can. I'm IRIS.",
+            "Message noted. {owner} will review your reaction when he's back. I'm IRIS.",
+            "Saved to {owner}'s inbox \u2014 he'll see it soon. I'm IRIS.",
+            "Reaction filed for {owner}. He will check this thread shortly. I'm IRIS.",
+            "Saved for {owner} to check later. I'm IRIS, his assistant.",
+            "Reaction captured in {owner}'s chat log. He'll get back to you soon. I'm IRIS.",
+            "Noted! {owner} will see your reaction as soon as he checks his phone. I'm IRIS.",
+            "Reaction logged into the inbox. {owner} will catch up shortly. I'm IRIS.",
+            "Saved your reaction for {owner}. I'm IRIS, his assistant."
+    };
+
+    // 4. Sad / Crying (😢, 😭) -> Status-Safe
+    private static final String[] SAD = {
+            "Reaction noted. I'll make sure {owner} sees your message when he's free. I'm IRIS.",
+            "Logged for {owner} \u2014 he'll catch up on this chat as soon as he can. I'm IRIS.",
+            "Saved to {owner}'s inbox. I'm IRIS, his assistant.",
+            "Noted! {owner} will review this when he's back on his phone. I'm IRIS."
     };
 
     /**
-     * Fifteen replies for a laughing emoji (😂🤣), so the commonest reaction-style ping feels
-     * varied. Every line names IRIS; most name {owner}. Tone-agnostic on purpose — variety matters
-     * more than tone for a bare laugh, and they read fine in any tone.
+     * Fifteen safe, versatile replies for a laughing emoji (😂🤣) that sound natural in ANY
+     * context — whether reacting to a status, a photo, a joke, or IRIS itself.
+     * Tone-agnostic and completely free of arrogant or self-centered assumptions.
      */
     private static final String[] LAUGH_POOL = {
-            "Glad that landed \u2014 I'm IRIS, {owner}'s assistant. I've logged it for him.",
-            "Haha, I'll take the credit on {owner}'s behalf. I'm IRIS \u2014 he'll see it soon.",
-            "Laughing at an auto-reply? {owner} really needs to text you back. I'm IRIS.",
-            "I aim to amuse (it's in my code). I'm IRIS, {owner}'s assistant \u2014 saved for him.",
-            "Comedy gold, apparently. I'm IRIS \u2014 I've passed the laugh to {owner}.",
-            "Even {owner} doesn't laugh at my jokes that fast. I'm IRIS \u2014 noted for him.",
-            "That's a win for the script. I'm IRIS, {owner}'s assistant \u2014 logged it.",
-            "Making humans laugh with if-else statements \u2014 peak engineering. I'm IRIS.",
-            "Glad to entertain the inbox. I'm IRIS, {owner}'s assistant \u2014 saved for him.",
-            "Haha \u2014 I'll be here all week (literally, I can't leave the server). I'm IRIS.",
-            "Noted with a grin. I'm IRIS, {owner}'s assistant \u2014 he'll catch up soon.",
-            "A laugh for the robot. I'll treasure it in RAM. I'm IRIS \u2014 saved for {owner}.",
-            "Careful, {owner} gets jealous when I'm the funny one. I'm IRIS \u2014 logged it.",
-            "Ha! Filed under 'made someone's day'. I'm IRIS, {owner}'s assistant.",
-            "Glad that hit \u2014 I'm IRIS. {owner}'s away, but your laugh is saved for him."};
+            "Haha, glad that gave you a laugh! Logged for {owner}. I'm IRIS.",
+            "Laugh logged! I'll make sure {owner} knows he entertained you. I'm IRIS.",
+            "Always good to see some humor in the inbox. Saved for {owner}. I'm IRIS.",
+            "Glad that brought a smile! Everything's saved for {owner} to check later. I'm IRIS.",
+            "Humor noted in the logs. {owner} will catch up on this chat soon. I'm IRIS.",
+            "Haha, glad to entertain! Saved for {owner}. I'm IRIS.",
+            "A little laughter never hurt anyone. Message saved for {owner}. I'm IRIS.",
+            "Logged the laugh for {owner} \u2014 he'll see it when he's back! I'm IRIS.",
+            "Smiles and giggles logged in the database. Have a good one! I'm IRIS.",
+            "Caught the laugh! {owner} will reply as soon as he's free. I'm IRIS.",
+            "Haha noted with a grin! Everything's saved for {owner}. I'm IRIS.",
+            "Glad to see some joy in the inbox! Saved for {owner}. I'm IRIS.",
+            "Laugh recorded! {owner} will see what made you smile when he's back. I'm IRIS.",
+            "Ha! Saved for {owner} to enjoy later. I'm IRIS, his assistant.",
+            "Smiles logged for {owner} \u2014 he'll catch up on this thread soon. I'm IRIS."};
 
     /**
      * Fifteen comebacks for a rude / dismissive emoji (🖕💩🤡👎🧢🥱😒🙄). Deliberately the most
@@ -472,18 +507,16 @@ public final class Emoji {
     private static final String[] OFFENSIVE_POOL = {
             "Charming. I've logged that lovely gesture for {owner} too \u2014 screenshots are forever. "
                     + "I'm IRIS.",
-            "A whole emoji just for me? I'm flattered. Logged for {owner}. I'm IRIS, his assistant.",
+            "Reaction noted. Logged for {owner}. I'm IRIS, his assistant.",
             "I'd be offended, but I'm a script \u2014 I don't have feelings, just a very good memory. "
                     + "Noted for {owner}. I'm IRIS.",
             "Cute. {owner} will enjoy reading this part of the transcript. I'm IRIS.",
             "That's going straight into {owner}'s highlights reel. Thanks for the content! I'm IRIS.",
-            "Bold move, insulting the bot that controls whether {owner} ever sees your message. I'm "
-                    + "IRIS.",
+            "Reaction noted for {owner}. He will catch up when he's free. I'm IRIS.",
             "Noted with the enthusiasm it deserves \u2014 which is none. Saved for {owner}. I'm IRIS.",
             "You do know I log everything for {owner}, right? Anyway, lovely chatting. I'm IRIS.",
             "I'll pass your \u2026 heartfelt sentiment to {owner} verbatim. I'm IRIS, his assistant.",
-            "Impressive. You've managed to be rude to a computer program. {owner}'s been informed. "
-                    + "I'm IRIS.",
+            "Reaction noted and filed into {owner}'s chat log. I'm IRIS.",
             "Riveting contribution. Filed under 'things {owner} will scroll past'. I'm IRIS.",
             "I'm immune to emojis and powered by spite, apparently. Logged for {owner}. I'm IRIS.",
             "Thank you for your feedback; it has been routed to /dev/null and also to {owner}. I'm "
@@ -497,15 +530,14 @@ public final class Emoji {
     private static Map<Category, String[]> buildReplies() {
         Map<Category, String[]> m = new LinkedHashMap<>();
         m.put(Category.LOVE, new String[]{
-                "That's kind \u2014 I'm IRIS, {owner}'s assistant. I've put it right at the top for "
-                        + "him.",
-                "Aw! IRIS here \u2014 saving that at the top for {owner}.",
-                "A heart for an auto-responder? Bold. I'll pass it to {owner}. I'm IRIS.",
-                "Noted with love \u2014 saved for {owner}. IRIS."});
+                "Glad you liked it! Saved your reaction for {owner}. I'm IRIS.",
+                "Love noted! I'll make sure {owner} sees your reaction when he's back. I'm IRIS.",
+                "Reaction logged! {owner} will catch up on this chat soon. I'm IRIS.",
+                "Appreciate the love! Passed your reaction along to {owner}. I'm IRIS."});
         m.put(Category.LAUGH, new String[]{
-                "Glad that landed \u2014 I'm IRIS, {owner}'s assistant. I've logged it for him.",
-                "Haha glad to help! IRIS here \u2014 {owner} will see it.",
-                "Laughing at a script \u2014 {owner} really needs to text you back. I'm IRIS.",
+                "Haha, glad that gave you a laugh! Logged for {owner}. I'm IRIS.",
+                "Laugh logged! I'll make sure {owner} knows he entertained you. I'm IRIS.",
+                "Always good to see some humor in the inbox. Saved for {owner}. I'm IRIS.",
                 "Glad to entertain \u2014 saved for {owner}. IRIS."});
         m.put(Category.CELEBRATE, new String[]{
                 "Thank you \u2014 I'm IRIS, {owner}'s assistant. I've saved your wishes at the top for "
@@ -538,16 +570,10 @@ public final class Emoji {
                 "IRIS here \u2014 passed to {owner}!",
                 "A smiley for a script. I'll pass it to {owner}. I'm IRIS.",
                 "Noted \u2014 passed to {owner}. IRIS."});
-        // Distressed emoji get a gentle reply in every tone (no sarcasm toward upset senders).
-        String[] sad = {
-                "I'm sorry \u2014 I'm IRIS, {owner}'s assistant. I've flagged this so he gets back to "
-                        + "you first.",
-                "Oh no \u2014 IRIS here. I've flagged it so {owner} checks on you first thing.",
-                "That doesn't look good \u2014 I'm IRIS, {owner}'s assistant. I've flagged it for him.",
-                "So sorry \u2014 flagged for {owner}. IRIS."};
-        m.put(Category.SAD, sad);
-        m.put(Category.SCARED, sad);
-        m.put(Category.SICK, sad);
+        // Distressed emoji get a status-safe gentle reply.
+        m.put(Category.SAD, SAD);
+        m.put(Category.SCARED, SAD);
+        m.put(Category.SICK, SAD);
         m.put(Category.ANGRY, new String[]{
                 "I hear you \u2014 I'm IRIS, {owner}'s assistant. I've flagged this for him to see.",
                 "Yikes \u2014 IRIS here. I've flagged this so {owner} sees it fast.",
@@ -594,10 +620,9 @@ public final class Emoji {
                         + "IRIS.",
                 "Noted \u2014 {owner} is away, saved for him. IRIS."});
         m.put(Category.FLIRT, new String[]{
-                "Saving those for {owner} \u2014 they're wasted on lines of code! I'm IRIS, his "
-                        + "assistant.",
-                "Haha passing those straight to {owner} \u2014 wasted on a bot! IRIS here.",
-                "Winking at a script? Bold. I'll save that for {owner} instead. I'm IRIS.",
+                "Reaction noted! Saved for {owner}. I'm IRIS, his assistant.",
+                "Saved for {owner} \u2014 he'll see your reaction when he's back! IRIS here.",
+                "Noted! I'll make sure {owner} catches up on this. I'm IRIS.",
                 "Saving those for {owner}. I'm IRIS."});
         return m;
     }

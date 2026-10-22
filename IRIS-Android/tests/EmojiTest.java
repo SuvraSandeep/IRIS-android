@@ -33,10 +33,10 @@ public final class EmojiTest {
                 "love reply names IRIS");
         check(Emoji.reply("\u2764\uFE0F", ReplyTone.Tone.PROFESSIONAL).contains("{owner}"),
                 "love reply keeps {owner} for fill");
-        check(Emoji.reply("\uD83D\uDE2D", ReplyTone.Tone.SARCASTIC).toLowerCase(
-                        java.util.Locale.ROOT).contains("sorry")
-                || Emoji.reply("\uD83D\uDE2D", ReplyTone.Tone.SARCASTIC).contains("flagged"),
-                "sad reply is gentle even in sarcastic tone");
+        check(Emoji.reply("\uD83D\uDE2D", ReplyTone.Tone.SARCASTIC).contains("IRIS"),
+                "sad reply names IRIS");
+        check(Emoji.reply("\uD83D\uDE2D", ReplyTone.Tone.SARCASTIC).contains("{owner}"),
+                "sad reply keeps {owner} for fill");
         check(!Emoji.reply("\uD83D\uDC40", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
                 "eyes emoji now gets an \"I see you\" reply");
         check(Emoji.reply("plain", ReplyTone.Tone.PROFESSIONAL).isEmpty(), "no emoji -> no reply");
@@ -65,11 +65,26 @@ public final class EmojiTest {
         check(laughs.size() >= 10, "laugh emoji has at least 10 distinct variants: " + laughs.size());
         for (String l : laughs) {
             check(l.toLowerCase(java.util.Locale.ROOT).contains("iris"), "each laugh variant names IRIS");
+            check(!l.toLowerCase(java.util.Locale.ROOT).contains("jealous"), "laugh variant does not accuse of jealousy: " + l);
+            check(!l.toLowerCase(java.util.Locale.ROOT).contains("funny one"), "laugh variant does not claim to be the funny one: " + l);
+            check(!l.toLowerCase(java.util.Locale.ROOT).contains("auto-reply"), "laugh variant does not mock auto-reply: " + l);
+            check(!l.toLowerCase(java.util.Locale.ROOT).contains("auto-responder"), "laugh variant does not mock auto-responder: " + l);
         }
         // Same rotation is stable.
         check(Emoji.reply("\uD83D\uDE02", ReplyTone.Tone.CASUAL, 3)
                         .equals(Emoji.reply("\uD83D\uDE02", ReplyTone.Tone.CASUAL, 3)),
                 "same rotation gives same reply");
+
+        // isLaughEmoji helper (v16.52.0)
+        check(Emoji.isLaughEmoji("\uD83D\uDE02"), "isLaughEmoji matches 😂");
+        check(Emoji.isLaughEmoji("\uD83E\uDD23"), "isLaughEmoji matches 🤣");
+        check(Emoji.isLaughEmoji("\uD83D\uDE02\uD83D\uDE02"), "isLaughEmoji matches multiple laughs");
+        check(Emoji.isLaughEmoji("  \uD83D\uDE02  "), "isLaughEmoji trims whitespace");
+        check(!Emoji.isLaughEmoji("haha \uD83D\uDE02"), "isLaughEmoji rejects mixed words");
+        check(!Emoji.isLaughEmoji("\u2764\uFE0F"), "isLaughEmoji rejects heart");
+        check(!Emoji.isLaughEmoji("hello"), "isLaughEmoji rejects text");
+        check(!Emoji.isLaughEmoji(""), "isLaughEmoji rejects empty");
+        check(!Emoji.isLaughEmoji(null), "isLaughEmoji rejects null");
 
         // Smile in pain / dead inside emoji (🥲, 🙃) rotates through 15 variants
         check(Emoji.dominant("\uD83E\uDD72") == Emoji.Category.SMILE_IN_PAIN, "smile with tear is SMILE_IN_PAIN");

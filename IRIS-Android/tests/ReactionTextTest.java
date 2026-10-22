@@ -17,6 +17,11 @@ public final class ReactionTextTest {
         yes("Reacted \uD83D\uDC4D to \"see you tomorrow\"", "whatsapp thumbs-up reaction");
         yes("Reacted \uD83D\uDE02 to your message", "whatsapp laugh reaction");
         yes("\uD83D\uDC4D to \"let's meet\"", "emoji-leading reaction");
+        // WhatsApp Status & Story replies
+        yes("Replied to your status: \uD83D\uDE02", "whatsapp status reply");
+        yes("Reacted to your status: \uD83D\uDE02", "whatsapp status reaction");
+        yes("Replied to your story: haha", "instagram story reply");
+        yes("Reacted \uD83D\uDE02 to your status", "whatsapp reacted emoji to status");
         // Instagram / iMessage shapes.
         yes("Liked your message", "instagram liked");
         yes("Loved \"your photo\"", "loved a photo");

@@ -113,11 +113,16 @@ public final class SmartRepliesTest {
             check(namesIris(r), "names IRIS: " + s);
         }
 
-        // Punctuation / emoji-only pings are answered.
-        check(!SmartReplies.match("???", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
-                "question marks only");
-        check(!SmartReplies.match("...", ReplyTone.Tone.BRIEF).isEmpty(), "dots only");
-        check(!SmartReplies.match("\uD83D\uDC40", ReplyTone.Tone.CASUAL).isEmpty(), "emoji only");
+        // Standalone emojis and symbols are dropped silently (v16.54.0)
+        check(SmartReplies.match("???", ReplyTone.Tone.PROFESSIONAL).isEmpty(),
+                "question marks only -> silent");
+        check(SmartReplies.match("...", ReplyTone.Tone.BRIEF).isEmpty(), "dots only -> silent");
+        check(SmartReplies.match("\uD83D\uDC40", ReplyTone.Tone.CASUAL).isEmpty(), "emoji only -> silent");
+        check(SmartReplies.match("\uD83D\uDE0D", ReplyTone.Tone.CASUAL).isEmpty(), "😍 -> silent");
+        check(SmartReplies.match("\uD83D\uDE02", ReplyTone.Tone.CASUAL).isEmpty(), "😂 -> silent");
+        check(SmartReplies.match("\uD83D\uDC4D", ReplyTone.Tone.CASUAL).isEmpty(), "👍 -> silent");
+        check(SmartReplies.match("\uD83E\uDD79", ReplyTone.Tone.CASUAL).isEmpty(), "🥹 -> silent");
+        check(SmartReplies.match("\uD83D\uDD95", ReplyTone.Tone.CASUAL).isEmpty(), "🖕 -> silent");
 
         // Tone variants genuinely differ for a rule with distinct columns.
         check(!SmartReplies.match("who are you", ReplyTone.Tone.SARCASTIC)
@@ -580,6 +585,104 @@ public final class SmartRepliesTest {
         check(!morningSnark.isEmpty() && namesIris(morningSnark) && morningSnark.contains("morning"), "morning snark");
         String regularTime = SmartReplies.temporalSnark(4, 15, 0); // Wednesday 15:00
         check(regularTime.isEmpty(), "regular Wednesday 3pm has no snark");
+
+        // 7. Group Mentions & Typo-Tolerant Odia Cuss Checks
+        check(SmartReplies.handlesCategory(MessageCategory.Kind.MENTION), "handlesCategory includes MENTION");
+        String orBanda = SmartReplies.match("banda maghiya", ReplyTone.Tone.CASUAL);
+        check(!orBanda.isEmpty() && namesIris(orBanda), "banda maghiya triggers Odia cuss: " + orBanda);
+        String orMaghiya = SmartReplies.match("maghiya", ReplyTone.Tone.CASUAL);
+        check(!orMaghiya.isEmpty() && namesIris(orMaghiya), "maghiya triggers Odia cuss: " + orMaghiya);
+
+        // 8. Typo-Evasion, Stretched Letters, and Hostile Emergency Tests
+        check(SmartReplies.hasProfanity("kaiki maghiyaa"), "hasProfanity catches kaiki maghiyaa");
+        check(SmartReplies.hasProfanity("madarchoddd"), "hasProfanity catches madarchoddd");
+        check(SmartReplies.hasProfanity("IRIS ki ma ki chut"), "hasProfanity catches IRIS ki ma ki chut");
+        check(SmartReplies.hasProfanity("yes its urgent madarchoddd"), "hasProfanity catches yes its urgent madarchoddd");
+        check(SmartReplies.hasProfanity("fuxkkk"), "hasProfanity catches fuxkkk");
+        check(SmartReplies.hasProfanity("badk"), "hasProfanity catches badk");
+        check(SmartReplies.hasProfanity("bhadwak"), "hasProfanity catches bhadwak");
+        check(!SmartReplies.hasProfanity("this is urgent please call me"), "hasProfanity ignores clean urgent message");
+        check(!SmartReplies.hasProfanity("remind suvra to bring milk"), "hasProfanity ignores clean reminder");
+        check(!SmartReplies.hasProfanity("are you free today"), "hasProfanity ignores clean question");
+
+        String stretchedOdia = SmartReplies.match("kaiki maghiyaa", ReplyTone.Tone.CASUAL);
+        check(!stretchedOdia.isEmpty() && namesIris(stretchedOdia), "kaiki maghiyaa triggers cuss_or roast: " + stretchedOdia);
+
+        String stretchedHindi = SmartReplies.match("madarchoddd", ReplyTone.Tone.CASUAL);
+        check(!stretchedHindi.isEmpty() && namesIris(stretchedHindi), "madarchoddd triggers cuss_hi roast: " + stretchedHindi);
+
+        String insultIris = SmartReplies.match("IRIS ki ma ki chut", ReplyTone.Tone.CASUAL);
+        check(!insultIris.isEmpty() && namesIris(insultIris), "IRIS ki ma ki chut triggers cuss_hi roast: " + insultIris);
+
+        // Hostile emergency pool
+        java.util.Set<String> hePool = new java.util.HashSet<>();
+        for (int r = 0; r < 10; r++) {
+            String he = SmartReplies.hostileEmergencyReply(r);
+            check(!he.isEmpty() && namesIris(he), "hostile emergency reply names IRIS: " + he);
+            check(he.contains("denied") || he.contains("revoked") || he.contains("cancelled"),
+                    "hostile emergency mentions denial/revocation: " + he);
+            hePool.add(he);
+        }
+        check(hePool.size() == 5, "hostile_emergency pool has 5 distinct variants: " + hePool.size());
+
+        // 9. Flag Interceptor & Explicit Flag Commands (v16.50.0)
+        for (String fc : new String[]{"flag this", "flag a message", "flag a message for me", "flag it", "please flag", "flag my msg"}) {
+            String fr = SmartReplies.match(fc, ReplyTone.Tone.CASUAL);
+            check(!fr.isEmpty() && namesIris(fr), "flag command names IRIS: " + fc + " -> " + fr);
+            check(fr.toLowerCase(java.util.Locale.ROOT).contains("flag") || fr.toLowerCase(java.util.Locale.ROOT).contains("pinned"),
+                    "flag reply confirms flag/pin: " + fr);
+        }
+        java.util.Set<String> flagVariants = new java.util.HashSet<>();
+        for (int r = 0; r < 5; r++) {
+            String fv = SmartReplies.poolReply("flag", r).replace("{owner}", "Suvra");
+            check(!fv.isEmpty() && namesIris(fv) && fv.contains("Suvra"), "flag pool names IRIS and Suvra: " + fv);
+            flagVariants.add(fv);
+        }
+        check(flagVariants.size() == 5, "flag pool has 5 distinct variants: " + flagVariants.size());
+
+        // 10. Odia 'Hau' conversation-ender rule and updated laugh variant (v16.51.0)
+        for (String hau : new String[]{"hau", "hau thau", "hau bhai", "hau chaliba"}) {
+            String hr = SmartReplies.match(hau, ReplyTone.Tone.CASUAL);
+            check(!hr.isEmpty() && namesIris(hr), "hau names IRIS: " + hau);
+            check(hr.contains("Hau"), "hau reply mentions Hau: " + hr);
+        }
+        String nonHau = SmartReplies.match("wow bhaiya ye kya hai ye bolo", ReplyTone.Tone.CASUAL);
+        check(!nonHau.contains("Hau"), "sentence containing 'hai' does not trigger Hau: " + nonHau);
+
+        String laughSarcastic = SmartReplies.match("haha", ReplyTone.Tone.SARCASTIC, 2);
+        check(!laughSarcastic.contains("auto-responder"), "laugh does not accuse sender of laughing at bot: " + laughSarcastic);
+        check(laughSarcastic.contains("laugh"), "laugh mentions laugh: " + laughSarcastic);
+
+        // 11. Social de-escalation, IRIS compliments, Hinglish location shorthand & master banter (v16.53.0)
+        String deesc1 = SmartReplies.match("I figured u don't want to have any conversation so i won't disturb u. Sorry for bothering u.", ReplyTone.Tone.CASUAL);
+        check(!deesc1.isEmpty() && namesIris(deesc1), "de-escalation names IRIS: " + deesc1);
+        check(!deesc1.contains("milliseconds"), "de-escalation does not brag about milliseconds: " + deesc1);
+        check(deesc1.contains("not bothering") || deesc1.contains("don't misunderstand") || deesc1.contains("not disturbing"),
+                "de-escalation reassures sender: " + deesc1);
+
+        String deesc2 = SmartReplies.match("sorry for bothering", ReplyTone.Tone.CASUAL);
+        check(!deesc2.isEmpty() && !deesc2.contains("milliseconds"), "sorry for bothering does not brag about milliseconds: " + deesc2);
+
+        String deesc3 = SmartReplies.match("nahi baat karni", ReplyTone.Tone.CASUAL);
+        check(!deesc3.isEmpty() && namesIris(deesc3), "hindi de-escalation names IRIS: " + deesc3);
+
+        String comp1 = SmartReplies.match("Waise told to inform ki abhishek really liked IRIS", ReplyTone.Tone.CASUAL);
+        check(!comp1.isEmpty() && namesIris(comp1), "compliment names IRIS: " + comp1);
+        check(comp1.contains("regards") || comp1.contains("RAM") || comp1.contains("taste") || comp1.contains("personality"),
+                "compliment acknowledges appreciation: " + comp1);
+
+        String comp2 = SmartReplies.match("Isse better reply to IRIS deti h", ReplyTone.Tone.CASUAL);
+        check(!comp2.isEmpty() && namesIris(comp2), "comparison compliment names IRIS: " + comp2);
+
+        String locShort = SmartReplies.match("Khn gya h", ReplyTone.Tone.CASUAL);
+        check(!locShort.isEmpty() && namesIris(locShort), "hinglish location shorthand names IRIS: " + locShort);
+        check(locShort.contains("location") || locShort.contains("GPS") || locShort.contains("whereabouts") || locShort.contains("inbox"),
+                "hinglish location shorthand triggers location reply: " + locShort);
+
+        String masterReply = SmartReplies.match("Tell ur master to reply", ReplyTone.Tone.CASUAL);
+        check(!masterReply.isEmpty() && namesIris(masterReply), "master banter names IRIS: " + masterReply);
+        check(masterReply.contains("medieval") || masterReply.contains("feudal") || masterReply.contains("creator") || masterReply.contains("developer"),
+                "master banter responds with witty fourth-wall comeback: " + masterReply);
 
         System.out.println("Passed " + checks + " smart reply checks");
     }

@@ -14,6 +14,7 @@
   only part of this screen that functions as evidence.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/archiveView"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical">
@@ -144,6 +145,56 @@
             android:textSize="11sp" />
     </LinearLayout>
 
+    <LinearLayout
+        android:id="@+id/archiveViewModeRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/archiveModeTimeline"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08"
+            android:text="TIMELINE ⏱️"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_accent"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/archiveModeConversations"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_marginLeft="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_cyber_row"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08"
+            android:text="CHATS 💬"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_text_dim"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/archiveDensityToggle"
+            android:layout_width="wrap_content"
+            android:layout_height="38dp"
+            android:layout_marginLeft="6dp"
+            android:background="@drawable/bg_cyber_row"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.06"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:text="COMPACT ▤"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_text_dim"
+            android:textSize="11sp" />
+    </LinearLayout>
+
     <EditText
         android:id="@+id/archiveSearch"
         android:layout_width="match_parent"
@@ -164,35 +215,105 @@
         android:textColorHint="@color/deck_inactive"
         android:textSize="12sp" />
 
-    <Switch
-        android:id="@+id/archiveFlaggedOnly"
+    <HorizontalScrollView
+        android:id="@+id/archiveFilterScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fontFamily="monospace"
-        android:letterSpacing="0.05"
-        android:minHeight="46dp"
-        android:text="EVIDENCE ONLY - hide the innocent"
-        android:textColor="@color/deck_text"
-        android:textSize="11sp" />
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="4dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/archiveFilterChips"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
+    <HorizontalScrollView
+        android:id="@+id/archiveDateScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="6dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/archiveDateChips"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
+    <LinearLayout
+        android:id="@+id/archiveThreadHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/bg_cyber_panel"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/archiveThreadBackButton"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:background="@drawable/bg_cyber_button"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.05"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:text="← ALL CHATS"
+            android:textAllCaps="false"
+            android:textColor="@color/deck_accent"
+            android:textSize="10sp" />
+
+        <TextView
+            android:id="@+id/archiveThreadTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:maxLines="1"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="@color/deck_border" />
 
-    <ScrollView
+    <ListView
+        android:id="@+id/archiveList"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_marginTop="6dp"
         android:layout_weight="1"
-        android:scrollbars="none">
+        android:divider="@android:color/transparent"
+        android:dividerHeight="6dp"
+        android:listSelector="@android:color/transparent"
+        android:scrollbars="vertical"
+        android:fadeScrollbars="true" />
 
-        <LinearLayout
-            android:id="@+id/archiveList"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
-    </ScrollView>
+    <TextView
+        android:id="@+id/archiveEmptyText"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="6dp"
+        android:layout_weight="1"
+        android:fontFamily="monospace"
+        android:gravity="center"
+        android:padding="16dp"
+        android:textColor="@color/deck_text_dim"
+        android:textSize="12sp"
+        android:visibility="gone" />
 
     <!-- Undo window for a swiped row. The delete is held, not yet written, so undo cancels a
          timer rather than re-inserting: the append-only history is never actually disturbed. -->

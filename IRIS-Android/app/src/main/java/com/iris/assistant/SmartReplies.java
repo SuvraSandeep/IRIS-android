@@ -51,7 +51,8 @@ public final class SmartReplies {
                 || kind == MessageCategory.Kind.QUESTION
                 || kind == MessageCategory.Kind.OTHER
                 || kind == MessageCategory.Kind.SHORT
-                || kind == MessageCategory.Kind.NONE;
+                || kind == MessageCategory.Kind.NONE
+                || kind == MessageCategory.Kind.MENTION;
     }
 
     // A link in the message, detected on the raw text before normalisation strips the slashes.
@@ -121,6 +122,51 @@ public final class SmartReplies {
     static boolean isFinancialTransactionStatement(String text) {
         if (text == null) return false;
         return FINANCIAL_STATEMENT.matcher(text).find() && !ACTIVE_MONEY_ASK.matcher(text).find();
+    }
+
+    // ─── Profanity / Cuss Word Patterns (Typo-evasion & stretched letter resistant) ───
+    public static final Pattern HINDI_PROFANITY = Pattern.compile(
+            "(?i)\\b("
+            + "madarchod\\w*|maadarchod\\w*|mdrchd\\w*|bhenchod\\w*|behenchod\\w*|bahinchod\\w*|bhnchd\\w*|bchd\\w*|"
+            + "bsdk\\w*|bhsdk\\w*|bhosdk\\w*|bsdke\\w*|bhosdike\\w*|bhosadike\\w*|bhosdi\\w*|bkl\\w*|badk\\w*|bhadwak\\w*|bhadwe\\w*|bhadwa\\w*|"
+            + "chutiya\\w*|chutiye\\w*|chutiyapa\\w*|chtiya\\w*|chtya\\w*|chutya\\w*|chtiye\\w*|"
+            + "gandu\\w*|gaandu\\w*|gand\\b|gaand\\b|gndu\\w*|"
+            + "lund\\w*|lauda\\w*|lawda\\w*|laude\\w*|lawde\\w*|lavda\\w*|lavde\\w*|lodu\\w*|lode\\w*|lwda\\w*|lwde\\w*|"
+            + "harami\\w*|haraami\\w*|haramkhor\\w*|haramzada\\w*|haramzade\\w*|"
+            + "maa?\\s*ki\\s*(chut|chud)\\w*|teri\\s*maa?\\s*ki\\w*|teri\\s*behen\\s*ki\\w*|tmkc\\w*|tmkb\\w*|kmkb\\w*|pkmkb\\w*|mkc\\w*|"
+            + "jhant\\w*|jhaant\\w*|jhatu\\w*|jhaatu\\w*"
+            + ")\\b");
+
+    public static final Pattern ODIA_PROFANITY = Pattern.compile(
+            "(?i)\\b("
+            + "maghia\\w*|maghiya\\w*|maghya\\w*|magiha\\w*|magia\\w*|maaghia\\w*|mafhiya\\w*|mafghia\\w*|maghiiya\\w*|"
+            + "mgh\\w*|mgya\\w*|mghya\\w*|mghi\\w*|mggg\\w*|mgpua\\w*|mghpua\\w*|bndpua\\w*|"
+            + "bandapua\\w*|banda\\s+pua\\w*|banda\\s+maghiya\\w*|bandamaghiya\\w*|banda\\s+maghia\\w*|bandamaghia\\w*|banda\\b|bandaa\\w*|"
+            + "gandi\\s*mara\\w*|gandimara\\w*|gandimora\\w*|chodi\\w*|chodiba\\w*|biapua\\w*|bia\\s+pua\\w*|gehi\\w*|geha\\w*|gehiba\\w*|"
+            + "bokachoda\\w*|boka\\s+choda\\w*|bkchoda\\w*|bkchd\\w*|khankimagi\\w*|khnkimagi\\w*|salapua\\w*|slpua\\w*|"
+            + "kaiki\\s+maghi\\w*"
+            + ")\\b");
+
+    public static final Pattern ENGLISH_PROFANITY = Pattern.compile(
+            "(?i)\\b("
+            + "fuck\\w*|fuk\\w*|fvck\\w*|fuxk\\w*|fxck\\w*|fck\\w*|fkn\\w*|fking\\w*|fcking\\w*|fkng\\w*|fckr\\w*|fcker\\w*|mfer\\w*|mthrfckr\\w*|"
+            + "shit\\w*|bullshit\\w*|shitty\\w*|dipshit\\w*|"
+            + "bitch\\w*|btch\\w*|"
+            + "asshole\\w*|arsehole\\w*|ashole\\w*|asshle\\w*|dumbass\\w*|jackass\\w*|"
+            + "dick\\w*|dickhead\\w*|dckhead\\w*|dikhead\\w*|bastard\\w*|bstrd\\w*|"
+            + "stfu\\b|gtfo\\b|wtaf\\b"
+            + ")\\b");
+
+    /** True when text contains English, Hindi/Hinglish, or Odia profanity / cuss words. */
+    public static boolean hasProfanity(String text) {
+        if (text == null || text.trim().isEmpty()) return false;
+        return HINDI_PROFANITY.matcher(text).find()
+                || ODIA_PROFANITY.matcher(text).find()
+                || ENGLISH_PROFANITY.matcher(text).find();
+    }
+
+    public static String hostileEmergencyReply(int rotation) {
+        return poolReply("hostile_emergency", rotation);
     }
 
     private static boolean isShoppingRule(Rule r) {
@@ -328,11 +374,13 @@ public final class SmartReplies {
         // to the item above -- acknowledge the reference instead of re-firing the whole handler
         // (which is how "Aita" re-sent the full link intro).
         if (isDeicticPointer(text)) return DEICTIC[Math.floorMod(rotation, DEICTIC.length)];
+        // ─── STANDALONE EMOJI & SYMBOL HANDLING ───
         String stripped = text.replaceAll("\\s+", "");
         if (!stripped.isEmpty()
                 && stripped.replaceAll("[\\p{L}\\p{N}]", "").length() == stripped.length()) {
-            String emojiReply = Emoji.reply(text, tone, rotation);
-            return emojiReply.isEmpty() ? pick(PUNCT, tone) : emojiReply;
+            // DROP COMPLETELY: Do not auto-reply to lone emojis or reactions.
+            // This permanently eliminates status-reaction spam and avoids awkward misinterpretations.
+            return "";
         }
         return null;
     }
@@ -410,6 +458,7 @@ public final class SmartReplies {
         boolean isFinancialStmt = isFinancialTransactionStatement(flat);
         for (Rule r : RULES) {
             if (isFinancialStmt && isShoppingRule(r)) continue;
+            if (negated && r.tag != null && r.tag.equals("flag")) continue;
             boolean exact = matches(r, flat);
             boolean loose = !exact && !negated && looselyMatches(r, canon);
             if (!exact && !loose) continue;
@@ -434,6 +483,9 @@ public final class SmartReplies {
 
     private static boolean matches(Rule r, String paddedFlat) {
         String trimmed = paddedFlat == null ? "" : paddedFlat.trim();
+        if ("cuss_hi".equals(r.tag) && HINDI_PROFANITY.matcher(trimmed).find()) return true;
+        if ("cuss_or".equals(r.tag) && ODIA_PROFANITY.matcher(trimmed).find()) return true;
+        if ("cuss_en".equals(r.tag) && ENGLISH_PROFANITY.matcher(trimmed).find()) return true;
         for (String phrase : r.any) {
             if (phrase.startsWith("^") || phrase.contains("+") || phrase.contains("[") || phrase.endsWith("$")) {
                 try {
@@ -843,6 +895,13 @@ public final class SmartReplies {
                 "Pinned in spirit and in {owner}'s priority queue \u2014 no WhatsApp icon required! I'm "
                         + "IRIS."});
 
+        m.put("flag", new String[]{
+                "Done \u2014 I've flagged this as high-priority for {owner}. I'm IRIS, his assistant.",
+                "Flagged! It's marked at the top of {owner}'s priority queue in his Comms Deck. I'm IRIS.",
+                "Done. I've pinned this to {owner}'s flagged dashboard. He will review it when he checks his Comms Deck. I'm IRIS.",
+                "I've flagged your message for {owner} and raised an urgent alert for him. I'm IRIS.",
+                "Flagged for {owner} \u2014 it's right at the top of his assistant queue. I'm IRIS."});
+
         m.put("screenshot", new String[]{
                 "I'm a text-only backend \u2014 I'm IRIS, {owner}'s assistant \u2014 no screen, so I can't "
                         + "take or send screenshots.",
@@ -944,7 +1003,7 @@ public final class SmartReplies {
         m.put("laugh", new String[]{
                 "Glad I could entertain \u2014 I'm IRIS, {owner}'s assistant! Everything's saved for him.",
                 "Haha glad to help! It's all saved for {owner} to laugh at too. I'm IRIS.",
-                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
+                "Haha, glad that gave you a laugh! Everything's saved for {owner}. I'm IRIS.",
                 "Comedy gold, apparently! I'm IRIS \u2014 I've passed the laugh on to {owner}.",
                 "That's a win for the script! I'm IRIS, {owner}'s assistant \u2014 logged it.",
                 "Who said bots don't have a sense of humour? {owner} will love this thread. I'm "
@@ -1229,6 +1288,18 @@ public final class SmartReplies {
                 "Early hours! {owner} hasn't had his morning caffeine yet. I've queued your message. I'm IRIS.",
                 "Sun is barely up. Let {owner} wake up properly before demanding replies. I'm IRIS, holding the fort."});
 
+        m.put("hostile_emergency", new String[]{
+                "You can't declare an emergency and swear at the dispatcher at the same time. "
+                        + "Urgent escalation denied. I'm IRIS, {owner}'s assistant.",
+                "Profanity revokes your VIP privileges. If this is a real emergency, try again "
+                        + "without the hostility. Escalation denied \u2014 I'm IRIS, {owner}'s assistant.",
+                "I don't escalate abusive messages to {owner}, no matter how urgent you claim they are. "
+                        + "Urgent alert cancelled. I'm IRIS.",
+                "Swearing at the automated assistant won't get you past the firewall. Emergency "
+                        + "escalation denied \u2014 I'm IRIS, {owner}'s assistant.",
+                "Emergency status revoked due to language. {owner} will see your message when he "
+                        + "reviews his inbox normally. I'm IRIS."});
+
         return m;
     }
 
@@ -1455,6 +1526,15 @@ public final class SmartReplies {
                         + "notice the time passing. {owner} is still away.",
                 "No worries at all! {owner} is still away too. I'm IRIS."));
 
+        // ─── The "Flag It" & "Flag A Message" Priority Commands (priority 82) ───
+        x.add(rt("flag", 82, "flag this|flag it|flag my message|flag my msg|flag a message|"
+                        + "flag a message for me|flag urgent|flag as urgent|please flag|urgent flag|"
+                        + "flag this for me|can you flag this|please flag this|flag message",
+                "Done \u2014 I've flagged this as high-priority for {owner}. I'm IRIS, his assistant.",
+                "Flagged! It's marked at the top of {owner}'s priority queue in his Comms Deck. I'm IRIS.",
+                "Done. I've pinned this to {owner}'s flagged dashboard. He will review it when he checks his Comms Deck. I'm IRIS.",
+                "I've flagged your message for {owner} and raised an urgent alert for him. I'm IRIS."));
+
         // ─── The "Pin It" & "Send Screenshot" Proof Traps (priority 82) ───
         // Scenario 13: "Ok pin it" / "Pin my msg" / "Pin to chat"
         x.add(rt("pin", 82, "pin it|pin my msg|pin my message|pin to chat|pin this|pinned it|did you pin it|"
@@ -1532,9 +1612,9 @@ public final class SmartReplies {
                 "0% blushing, 100% processing speed. Nice try though \u2014 saved for {owner}. I'm "
                         + "IRIS.",
                 "No blushing hardware here \u2014 noted for {owner}. I'm IRIS."));
-        // ─── Conversational Refusals After Bot Offers (priority 80) ───
+        // ─── Conversational Refusals After Bot Offers (priority 85) ───
         // Scenario 20: "No no don't" / "Don't flag it"
-        x.add(rt("no_flag", 80, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
+        x.add(rt("no_flag", 85, "no no don't|no no dont|no don't|no dont|don't flag|dont flag|no need to flag|"
                         + "not urgent|don't bother him|dont bother him|don't disturb him|dont disturb him|"
                         + "don't disturb|dont disturb|no no don t|no don t|don t flag|don t disturb",
                 "Understood. I will not escalate this as urgent; your message will remain in {owner}'s "
@@ -1690,6 +1770,27 @@ public final class SmartReplies {
                 "Doing his KYC, are we? I don't have {owner}'s ID numbers \u2014 wait for him. I'm "
                         + "IRIS.",
                 "No access to IDs \u2014 logged for {owner}. I'm IRIS."));
+
+        // ─── Social De-escalation & Reassurance (Priority 91) ───
+        // Triggers when contacts feel ignored, dismissed, or apologize for bothering Suvra
+        x.add(r(91, "wont disturb|won't disturb|sorry for bothering|sorry to bother|"
+                        + "wont bother|won't bother|not disturb you|wont disturb you|"
+                        + "sorry to disturb|sorry for disturbing|wont disturb u|won't disturb u|"
+                        + "not disturb u|wont bother u|won't bother u|"
+                        + "dont want to have any conversation|don't want to have any conversation|"
+                        + "nahi baat karni|ignore kar rahe ho|gussa ho kya|dont want to talk|"
+                        + "don't want to talk|disturb nahi karungi|disturb nahi karunga|"
+                        + "disturb nahi karunga ab|disturb nahi karungi ab|baat nahi karni",
+                "Wait, don't misunderstand! {owner} is genuinely away from his phone and hasn't "
+                        + "seen this yet. You're definitely not bothering him \u2014 I'll make sure he "
+                        + "reaches out the second he's back! I'm IRIS.",
+                "Hey, no! {owner} isn't avoiding you at all \u2014 he literally doesn't have the phone "
+                        + "in hand right now. You're not disturbing anyone! I'll ping him to reply ASAP. I'm IRIS.",
+                "Please don't feel that way! {owner} really hasn't seen his notifications yet. I'm "
+                        + "just his auto-responder holding down the fort. He will text you as soon as "
+                        + "he's free!",
+                "You're not bothering him at all! {owner} is just caught up with something and away from the screen. "
+                        + "I've flagged this so he replies to you first thing. I'm IRIS."));
         x.add(r(91, "current location|live location|exact location|tell his location|"
                         + "share his location|his gps|track him|where exactly is he|pin his location",
                 "Even if I had {owner}'s live GPS, I'm not allowed to hand it out \u2014 I'm IRIS, his "
@@ -1898,6 +1999,19 @@ public final class SmartReplies {
                 "Careful \u2014 if you say I'm better than {owner}, he might unplug my power cord out "
                         + "of jealousy. I'm IRIS.",
                 "Flattery noted \u2014 CPU blushing. I'm IRIS."));
+
+        // ─── IRIS Compliments & Fan Club (Priority 65) ───
+        x.add(r(65, "liked iris|likes iris|iris is better|better reply to iris|better than suvra|"
+                        + "iris op|iris acchi hai|iris sahi hai|love iris|fan of iris|abhishek liked iris|"
+                        + "really liked iris|better than him|better than you",
+                "Tell them IRIS sends her regards! Glad someone appreciates good software. I've "
+                        + "saved your message for {owner}.",
+                "Flattered! It takes a lot of RAM to be this charming. I'll make sure {owner} knows "
+                        + "I have fans now. I'm IRIS.",
+                "Finally, humans with exquisite taste! Logged for {owner} so he knows I'm outshining "
+                        + "him. I'm IRIS.",
+                "Appreciate the love! {owner} wrote the code, but I bring the personality. Message "
+                        + "saved for him. I'm IRIS."));
         x.add(r(60, "talking to someone else|who is he with|with a girl|with someone|is he cheating|"
                         + "another girl|seeing someone else|who else is he texting",
                 "I only see incoming messages here \u2014 I'm IRIS, {owner}'s assistant, with zero clue "
@@ -2199,8 +2313,15 @@ public final class SmartReplies {
         x.add(rt("laugh", 30, "lol|haha|hahaha|lmao|rofl|hehe|lmfao",
                 "Glad I could help \u2014 I'm IRIS, {owner}'s assistant. Everything's saved for him.",
                 "Haha glad to help! It's all saved for {owner}. I'm IRIS.",
-                "Laughing at an auto-responder? {owner} really needs to text you back. I'm IRIS.",
+                "Haha, glad that gave you a laugh! Everything's saved for {owner}. I'm IRIS.",
                 "Glad to entertain \u2014 saved for {owner}. I'm IRIS."));
+
+        // ─── Odia 'Hau' conversation-ender rule (Priority 60: Safe & Unambiguous) ───
+        x.add(r(60, "hau|hao|hau thau|hau thau thau|hau gale|hau rakhuchi|hau bhai|hau chaliba",
+                "'Hau' \u2014 the word that ends every conversation. Logged for {owner}. I'm IRIS.",
+                "Haha 'Hau' \u2014 classic conversation closer! Saved for {owner}. I'm IRIS.",
+                "'Hau' \u2014 the ultimate Odia conversation ender. Logged for {owner}. I'm IRIS.",
+                "'Hau' noted \u2014 saved for {owner}. I'm IRIS."));
         // Contact-name probing. HIGH priority so "what is my contact name" beats the bot-name rule
         // (which was hijacking it and firing a clipped reply).
         x.add(rt("contactname", 73, "contact name|my contact name|what is my contact|whats my contact|"
@@ -2255,7 +2376,9 @@ public final class SmartReplies {
         x.add(rt("loc", 55, "where is he|where is suvra|wya|whereabouts|which place is he|where has he gone|"
                         + "where are you|where are u|where r u|where r you|where ru|"
                         + "where are you now|where you at|where u at|where are you going|"
-                        + "where did you reach|where have you reached|location kaha",
+                        + "where did you reach|where have you reached|location kaha|"
+                        + "kahan ho|kidhar ho|kaha ho|khn ho|khn h|khn gya|khn gaya|kaha gya|kahan gaya|"
+                        + "kidhar gya|kidhar gaya|kouthi achu|kouthi achha",
                 "I'm IRIS, {owner}'s assistant \u2014 I manage his messages, not his location. He's "
                         + "away right now, but I'll let him know you asked.",
                 "I only live in his inbox, no GPS attached! I'm IRIS \u2014 I'll tell {owner} you're "
@@ -2334,6 +2457,15 @@ public final class SmartReplies {
                 "I can take a message, set a reminder, or flag an emergency for {owner}. I cannot "
                         + "make coffee or make him text faster. I'm IRIS.",
                 "I'm IRIS \u2014 I can message {owner}, flag it urgent, or set a reminder."));
+
+        // ─── Bot "Master / Boss" Banter (Priority 60) ───
+        x.add(r(60, "your master|ur master|your boss|ur boss|your creator|who created you",
+                "'Master' sounds a bit medieval, don't you think? {owner} is just the guy who wrote my "
+                        + "regex. I've told him to reply. I'm IRIS.",
+                "He's my developer, not a feudal lord. But yes, I've passed your summons to {owner}. "
+                        + "I'm IRIS.",
+                "{owner} prefers 'creator', but I'll pass the message to him regardless. I'm IRIS.",
+                "Summoning {owner} right now. Stand by. I'm IRIS."));
         x.add(r(45, "who made you|who created you|who built you|who programmed you|"
                         + "who is your developer",
                 "I was built and configured by {owner} to be his assistant. I'm IRIS.",
@@ -3168,8 +3300,9 @@ public final class SmartReplies {
                 + "chdpua|bkchoda|bkchd|slpua|kkrpua|ghsrpua|khnkimagi|"
                 // Long forms & transliterated spellings
                 + "maghia|maghiaa|maghiaaa|maghya|magiha|magia|maaghia|maghia pua|maghiapua|magya|"
-                + "mafhiya|mafghia|maghiiya|"
-                + "bandapua|banda pua|banda katha|bandakatha|mora banda|tora banda|"
+                + "maghiya|maghiyaa|maghiyaaa|mafhiya|mafghia|maghiiya|"
+                + "kaiki maghia|kaiki maghiaa|kaiki maghiya|kaiki maghiyaa|kaiki maghiyaaa|"
+                + "bandapua|banda pua|banda maghiya|bandamaghiya|banda|bandaa|banda katha|bandakatha|mora banda|tora banda|"
                 + "gandi mara|gandimara|gandi maruchu|gandimora|"
                 + "chodi|chodipua|chodi pua|chodiba|biapua|bia pua|gehi|geha|gehiba|"
                 + "ghanta|bala|baala|bala na|balunga|bala katha|balakatha|tora bala|mora bala|harami|"
@@ -3189,9 +3322,10 @@ public final class SmartReplies {
                 + "mdrchd|mdrcd|madarchd|chtiya|chtya|chutya|chtia|chtiye|gndu|lwda|lwde|lodu|"
                 + "lode|jhatu|jhaatu|hrmkhor|hrmzada|"
                 + "chtiya|chtya|chutya|lwda|lwd|klpd|kmkb|pkmkb|bhnchd|mdrchd|"
+                + "badk|bhadwak|bhadwe|bhadwa|"
                 // Long forms & transliterated spellings
                 + "bhenchod|behenchod|bahinchod|bhen chod|behen chod|bhen ke lode|behen ke lode|"
-                + "madarchod|maadarchod|madar chod|bhosdike|bhosadike|bhosdi ke|bhosdiwale|bhosda|bhosdi|"
+                + "madarchod|madarchodd|madarchoddd|madarchodddd|maadarchod|madar chod|bhosdike|bhosadike|bhosdi ke|bhosdiwale|bhosda|bhosdi|"
                 + "chutiya|chutiye|chutiyapa|chutiyaap|chomu|"
                 + "gandu|gaandu|gaand|gand|gand mara|gaand mara|gandagi|"
                 + "lund|lauda|lawda|laude|lawde|lavda|lavde|lodu|lode|lawde lag gaye|"
@@ -3199,7 +3333,7 @@ public final class SmartReplies {
                 + "kamina|kamine|kaminey|kutta|kutte|kutiya|kuttey|"
                 + "saala|saali|nalayak|bewakoof|bevkoof|ullu ke patthe|"
                 + "gadha|gadhe|jhant|jhaant|jhatu|jhaatu|bakwas|bakwaas|"
-                + "chup kar|bhak|teri maa ki|teri behen ki|aisi ki taisi",
+                + "chup kar|bhak|teri maa ki|teri maa ki chut|ma ki chut|maa ki chut|iris ki ma ki chut|iris ki maa ki chut|teri behen ki|aisi ki taisi",
                 "Language noted. I'm IRIS, {owner}'s assistant \u2014 your message has been logged.",
                 "Wah, kya sanskari bhasha hai! I'm IRIS \u2014 saved for {owner}.",
                 "Ek script ko Hindi mein gaali deke sigma ban gaye? I'm IRIS, {owner}'s assistant.",
@@ -3209,7 +3343,7 @@ public final class SmartReplies {
         x.add(rt("cuss_en", 87,
                 // Short forms & strict acronyms
                 "wtf|wth|wtaf|stfu|gtfo|omfg|fck|fuk|fvck|fkn|fking|fcking|fkng|fckr|fcker|mfer|mthrfckr|"
-                + "fuxk|fxck|fux|fckk|"
+                + "fuxk|fxck|fux|fckk|fuxkk|fuxkkk|fckkk|fuckk|fuckkk|"
                 + "btch|ashole|asshle|dckhead|dikhead|bstrd|bullsht|bllsht|shitty|"
                 // Long forms & variations
                 + "fuck|fucking|fucked|fucker|fuck off|fuck you|fuck u|motherfucker|motherfucking|"

@@ -38,6 +38,7 @@ public class ArchiveImagePolicyTest {
         sampleSizeIsAlwaysAUsablePowerOfTwo();
         fileNamesAreSafeAndUnique();
         onlyRealStillImagesAreStored();
+        videoAndMediaTypesAreHandledCorrectly();
         System.out.println("Passed " + checks + " archive image policy checks");
     }
 
@@ -147,5 +148,131 @@ public class ArchiveImagePolicyTest {
         check(!ArchiveImagePolicy.isStorableImage("text/plain"), "text is not an image");
         check(!ArchiveImagePolicy.isStorableImage(null), "null is not an image");
         check(!ArchiveImagePolicy.isStorableImage(""), "empty is not an image");
+    }
+
+    private static void videoAndMediaTypesAreHandledCorrectly() {
+        check(ArchiveImagePolicy.isStorableVideo("video/mp4"), "mp4 is a storable video");
+        check(ArchiveImagePolicy.isStorableVideo("video/3gpp"), "3gpp is a storable video");
+        check(ArchiveImagePolicy.isStorableVideo("video/3gp"), "3gp is a storable video");
+        check(ArchiveImagePolicy.isStorableVideo("VIDEO/MP4"), "video case is ignored");
+        check(!ArchiveImagePolicy.isStorableVideo("video/webm"), "webm is not currently stored");
+        check(!ArchiveImagePolicy.isStorableVideo("image/jpeg"), "image is not a video");
+        check(!ArchiveImagePolicy.isStorableVideo("audio/mp4"), "audio is not a video");
+        check(!ArchiveImagePolicy.isStorableVideo(null), "null is not a video");
+
+        check(ArchiveImagePolicy.isStorableMedia("image/jpeg"), "jpeg is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("image/png"), "png is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("video/mp4"), "mp4 is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("video/3gpp"), "3gpp is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("audio/ogg"), "audio/ogg is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("audio/opus"), "audio/opus is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("audio/mp4"), "audio/mp4 is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("application/pdf"), "pdf is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("application/vnd.openxmlformats-officedocument.wordprocessingml.document"), "docx is storable media");
+        check(ArchiveImagePolicy.isStorableMedia("text/plain"), "text/plain is storable media");
+        check(!ArchiveImagePolicy.isStorableMedia("application/x-shockwave-flash"), "flash is not storable media");
+        check(!ArchiveImagePolicy.isStorableMedia(null), "null is not storable media");
+
+        check(ArchiveImagePolicy.isStorableAudio("audio/ogg"), "audio/ogg is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/opus"), "audio/opus is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/mp4"), "audio/mp4 is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/m4a"), "audio/m4a is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/aac"), "audio/aac is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/amr"), "audio/amr is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("audio/mpeg"), "audio/mpeg is storable audio");
+        check(ArchiveImagePolicy.isStorableAudio("AUDIO/OGG; codecs=opus"),
+                "audio parameters are stripped and case is ignored");
+        check(!ArchiveImagePolicy.isStorableAudio("audio/wav"), "wav is not a stored voice note format");
+        check(!ArchiveImagePolicy.isStorableAudio("image/jpeg"), "image is not audio");
+        check(!ArchiveImagePolicy.isStorableAudio("video/mp4"), "video is not audio");
+        check(!ArchiveImagePolicy.isStorableAudio(null), "null is not audio");
+
+        check(ArchiveImagePolicy.isStorableDocument("application/pdf"), "pdf is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("APPLICATION/PDF; charset=binary"), "pdf with parameters is storable");
+        check(ArchiveImagePolicy.isStorableDocument("application/x-pdf"), "x-pdf is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                "docx is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("application/docx"), "application/docx is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("application/msword"), "doc is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                "xlsx is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("application/vnd.ms-excel"), "xls is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+                "pptx is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("application/vnd.ms-powerpoint"), "ppt is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("text/plain"), "txt is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("text/csv"), "csv is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("application/rtf"), "rtf is storable document");
+        check(ArchiveImagePolicy.isStorableDocument("application/zip"), "zip is storable document");
+        check(!ArchiveImagePolicy.isStorableDocument("image/jpeg"), "image is not document");
+        check(!ArchiveImagePolicy.isStorableDocument("video/mp4"), "video is not document");
+        check(!ArchiveImagePolicy.isStorableDocument("audio/ogg"), "audio is not document");
+        check(!ArchiveImagePolicy.isStorableDocument(null), "null is not document");
+
+        String fp = "3f2a9c1b4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
+        equal(ArchiveImagePolicy.fileName(fp, "video/mp4"), fp.substring(0, 32) + ".mp4",
+                "video/mp4 produces .mp4 extension");
+        equal(ArchiveImagePolicy.fileName(fp, "video/3gpp"), fp.substring(0, 32) + ".3gp",
+                "video/3gpp produces .3gp extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/ogg"), fp.substring(0, 32) + ".ogg",
+                "audio/ogg produces .ogg extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/opus"), fp.substring(0, 32) + ".ogg",
+                "audio/opus produces .ogg extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/mp4"), fp.substring(0, 32) + ".m4a",
+                "audio/mp4 produces .m4a extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/aac"), fp.substring(0, 32) + ".aac",
+                "audio/aac produces .aac extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/amr"), fp.substring(0, 32) + ".amr",
+                "audio/amr produces .amr extension");
+        equal(ArchiveImagePolicy.fileName(fp, "audio/mpeg"), fp.substring(0, 32) + ".mp3",
+                "audio/mpeg produces .mp3 extension");
+        equal(ArchiveImagePolicy.fileName(fp, "application/pdf"), fp.substring(0, 32) + ".pdf",
+                "application/pdf produces .pdf extension");
+        equal(ArchiveImagePolicy.fileName(fp, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                fp.substring(0, 32) + ".docx", "docx produces .docx extension");
+        equal(ArchiveImagePolicy.fileName(fp, "application/msword"), fp.substring(0, 32) + ".doc",
+                "application/msword produces .doc extension");
+        equal(ArchiveImagePolicy.fileName(fp, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                fp.substring(0, 32) + ".xlsx", "xlsx produces .xlsx extension");
+        equal(ArchiveImagePolicy.fileName(fp, "application/vnd.ms-excel"), fp.substring(0, 32) + ".xls",
+                "xls produces .xls extension");
+        equal(ArchiveImagePolicy.fileName(fp, "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+                fp.substring(0, 32) + ".pptx", "pptx produces .pptx extension");
+        equal(ArchiveImagePolicy.fileName(fp, "application/vnd.ms-powerpoint"), fp.substring(0, 32) + ".ppt",
+                "ppt produces .ppt extension");
+        equal(ArchiveImagePolicy.fileName(fp, "text/plain"), fp.substring(0, 32) + ".txt",
+                "text/plain produces .txt extension");
+        equal(ArchiveImagePolicy.fileName(fp, "text/csv"), fp.substring(0, 32) + ".csv",
+                "text/csv produces .csv extension");
+        equal(ArchiveImagePolicy.fileName(fp, "application/rtf"), fp.substring(0, 32) + ".rtf",
+                "application/rtf produces .rtf extension");
+        equal(ArchiveImagePolicy.fileName(fp, "application/zip"), fp.substring(0, 32) + ".zip",
+                "application/zip produces .zip extension");
+        equal(ArchiveImagePolicy.fileName(fp, "image/jpeg"), fp.substring(0, 32) + ".jpg",
+                "image/jpeg produces .jpg extension");
+        equal(ArchiveImagePolicy.fileName(fp), fp.substring(0, 32) + ".jpg",
+                "default fileName produces .jpg extension");
+
+        equal(ArchiveImagePolicy.mimeTypeFor("file.pdf"), "application/pdf", "mimeTypeFor pdf");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.docx"),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "mimeTypeFor docx");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.doc"), "application/msword", "mimeTypeFor doc");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.xlsx"),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "mimeTypeFor xlsx");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.xls"), "application/vnd.ms-excel", "mimeTypeFor xls");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.pptx"),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation", "mimeTypeFor pptx");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.ppt"), "application/vnd.ms-powerpoint", "mimeTypeFor ppt");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.txt"), "text/plain", "mimeTypeFor txt");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.csv"), "text/csv", "mimeTypeFor csv");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.rtf"), "application/rtf", "mimeTypeFor rtf");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.zip"), "application/zip", "mimeTypeFor zip");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.mp4"), "video/mp4", "mimeTypeFor mp4");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.3gp"), "video/3gpp", "mimeTypeFor 3gp");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.ogg"), "audio/ogg", "mimeTypeFor ogg");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.mp3"), "audio/mpeg", "mimeTypeFor mp3");
+        equal(ArchiveImagePolicy.mimeTypeFor("file.jpg"), "image/jpeg", "mimeTypeFor jpg");
+        equal(ArchiveImagePolicy.mimeTypeFor("unknown.bin"), "application/octet-stream", "mimeTypeFor unknown");
+        equal(ArchiveImagePolicy.mimeTypeFor(null), "application/octet-stream", "mimeTypeFor null");
     }
 }

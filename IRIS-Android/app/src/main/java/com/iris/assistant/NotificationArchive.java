@@ -92,18 +92,36 @@ public final class NotificationArchive {
 
     /** Search criteria. Any field left null or zero is simply not applied. */
     public static final class Filter {
+        public static final int QUICK_ALL = 0;
+        public static final int QUICK_FLAGGED = 1;
+        public static final int QUICK_PHOTOS = 2;
+        public static final int QUICK_VIDEOS = 3;
+        public static final int QUICK_AUDIO = 4;
+        public static final int QUICK_DOCS = 5;
+        public static final int QUICK_WHATSAPP = 6;
+        public static final int QUICK_SMS = 7;
+
+        public int quickFilter = QUICK_ALL;
+
         /** Matched against package and app label. */
         public String app;
         /** Matched against sender and raw title. */
         public String sender;
         /** Free text, matched against the message body. */
         public String text;
+        /** Unified search matched against sender, raw title, or message body. */
+        public String search;
         public long fromMs;
         public long toMs;
         public boolean flaggedOnly;
         /** Include listener-gap and capture-paused markers alongside messages. */
         public boolean includeMarkers;
+        /** If set, restricts results to a specific conversation package (e.g. "com.whatsapp"). */
+        public String conversationPkg;
+        /** If set, restricts results to a specific conversation thread (sender or group name). */
+        public String conversationThread;
         public int limit = 200;
+        public int offset = 0;
     }
 
     // ─── Writing ───
@@ -341,9 +359,54 @@ public final class NotificationArchive {
                 where.append(" AND ").append(ArchiveSchema.COL_ROW_KIND).append(" = ")
                         .append(ArchiveSchema.KIND_MESSAGE);
             }
-            if (f.flaggedOnly) {
+            if (f.flaggedOnly || f.quickFilter == Filter.QUICK_FLAGGED) {
                 where.append(" AND (").append(ArchiveSchema.COL_IS_DELETED).append(" = 1 OR ")
                         .append(ArchiveSchema.COL_IS_SUSPECTED).append(" = 1)");
+            } else if (f.quickFilter == Filter.QUICK_PHOTOS) {
+                where.append(" AND ").append(ArchiveSchema.COL_IMAGE_PATH).append(" IS NOT NULL AND ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" != '' AND (")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.jpg' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.jpeg' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.png' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.webp' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.gif')");
+            } else if (f.quickFilter == Filter.QUICK_VIDEOS) {
+                where.append(" AND ").append(ArchiveSchema.COL_IMAGE_PATH).append(" IS NOT NULL AND ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" != '' AND (")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.mp4' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.3gp')");
+            } else if (f.quickFilter == Filter.QUICK_AUDIO) {
+                where.append(" AND ").append(ArchiveSchema.COL_IMAGE_PATH).append(" IS NOT NULL AND ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" != '' AND (")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.ogg' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.opus' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.m4a' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.aac' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.amr' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.mp3')");
+            } else if (f.quickFilter == Filter.QUICK_DOCS) {
+                where.append(" AND ").append(ArchiveSchema.COL_IMAGE_PATH).append(" IS NOT NULL AND ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" != '' AND (")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.pdf' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.docx' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.doc' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.xlsx' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.xls' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.pptx' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.ppt' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.txt' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.csv' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.rtf' OR ")
+                        .append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.zip')");
+            } else if (f.quickFilter == Filter.QUICK_WHATSAPP) {
+                where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE '%whatsapp%' OR ")
+                        .append(ArchiveSchema.COL_APP_LABEL).append(" LIKE '%whatsapp%')");
+            } else if (f.quickFilter == Filter.QUICK_SMS) {
+                where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE '%.messaging%' OR ")
+                        .append(ArchiveSchema.COL_PKG).append(" LIKE '%.mms%' OR ")
+                        .append(ArchiveSchema.COL_PKG).append(" LIKE '%.sms%' OR ")
+                        .append(ArchiveSchema.COL_APP_LABEL).append(" LIKE '%message%' OR ")
+                        .append(ArchiveSchema.COL_APP_LABEL).append(" LIKE '%sms%')");
             }
             if (f.app != null && !f.app.trim().isEmpty()) {
                 where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE ? ESCAPE '\\'")
@@ -363,6 +426,15 @@ public final class NotificationArchive {
                 where.append(" AND ").append(ArchiveSchema.COL_BODY).append(" LIKE ? ESCAPE '\\'");
                 args.add(contains(f.text));
             }
+            if (f.search != null && !f.search.trim().isEmpty()) {
+                where.append(" AND (").append(ArchiveSchema.COL_SENDER).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_RAW_TITLE).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_BODY).append(" LIKE ? ESCAPE '\\')");
+                String like = contains(f.search);
+                args.add(like);
+                args.add(like);
+                args.add(like);
+            }
             if (f.fromMs > 0) {
                 where.append(" AND ").append(ArchiveSchema.COL_POST_TIME).append(" >= ?");
                 args.add(String.valueOf(f.fromMs));
@@ -371,12 +443,26 @@ public final class NotificationArchive {
                 where.append(" AND ").append(ArchiveSchema.COL_POST_TIME).append(" <= ?");
                 args.add(String.valueOf(f.toMs));
             }
+            if (f.conversationPkg != null && !f.conversationPkg.trim().isEmpty()) {
+                where.append(" AND ").append(ArchiveSchema.COL_PKG).append(" = ?");
+                args.add(f.conversationPkg.trim());
+            }
+            if (f.conversationThread != null && !f.conversationThread.trim().isEmpty()) {
+                String threadExpr = "(CASE WHEN " + ArchiveSchema.COL_GROUP + " != '' THEN "
+                        + ArchiveSchema.COL_GROUP + " ELSE (CASE WHEN "
+                        + ArchiveSchema.COL_SENDER + " != '' THEN "
+                        + ArchiveSchema.COL_SENDER + " ELSE "
+                        + ArchiveSchema.COL_RAW_TITLE + " END) END)";
+                where.append(" AND ").append(threadExpr).append(" = ?");
+                args.add(f.conversationThread.trim());
+            }
 
             int limit = f.limit <= 0 ? 200 : f.limit;
+            String limitClause = f.offset > 0 ? (limit + " OFFSET " + f.offset) : String.valueOf(limit);
             Cursor cursor = db.query(ArchiveSchema.TABLE, null, where.toString(),
                     args.toArray(new String[0]), null, null,
                     ArchiveSchema.COL_POST_TIME + " DESC, " + ArchiveSchema.COL_ID + " DESC",
-                    String.valueOf(limit));
+                    limitClause);
             try {
                 while (cursor != null && cursor.moveToNext()) out.add(readRow(cursor));
             } finally {
@@ -384,6 +470,195 @@ public final class NotificationArchive {
             }
         } catch (Throwable ignored) { }
         return out;
+    }
+
+    /** Query conversation threads aggregated by participant/group, ordered newest first. */
+    public static List<ConversationGroup> queryConversations(Context context, Filter filter) {
+        List<ConversationGroup> out = new ArrayList<>();
+        if (context == null) return out;
+        Filter f = filter == null ? new Filter() : filter;
+        try {
+            SQLiteDatabase db = database(context);
+            if (db == null) return out;
+
+            List<String> args = new ArrayList<>();
+            StringBuilder where = new StringBuilder(ArchiveSchema.COL_ROW_KIND + " = " + ArchiveSchema.KIND_MESSAGE);
+
+            if (f.quickFilter == Filter.QUICK_WHATSAPP) {
+                where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE '%whatsapp%' OR ")
+                        .append(ArchiveSchema.COL_APP_LABEL).append(" LIKE '%whatsapp%')");
+            } else if (f.quickFilter == Filter.QUICK_SMS) {
+                where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE '%.messaging%' OR ")
+                        .append(ArchiveSchema.COL_PKG).append(" LIKE '%.mms%' OR ")
+                        .append(ArchiveSchema.COL_PKG).append(" LIKE '%.sms%' OR ")
+                        .append(ArchiveSchema.COL_APP_LABEL).append(" LIKE '%message%' OR ")
+                        .append(ArchiveSchema.COL_APP_LABEL).append(" LIKE '%sms%')");
+            }
+
+            if (f.app != null && !f.app.trim().isEmpty()) {
+                where.append(" AND (").append(ArchiveSchema.COL_PKG).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_APP_LABEL).append(" LIKE ? ESCAPE '\\')");
+                String like = contains(f.app);
+                args.add(like);
+                args.add(like);
+            }
+
+            if (f.search != null && !f.search.trim().isEmpty()) {
+                where.append(" AND (").append(ArchiveSchema.COL_SENDER).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_RAW_TITLE).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_GROUP).append(" LIKE ? ESCAPE '\\'")
+                        .append(" OR ").append(ArchiveSchema.COL_BODY).append(" LIKE ? ESCAPE '\\')");
+                String like = contains(f.search);
+                args.add(like);
+                args.add(like);
+                args.add(like);
+                args.add(like);
+            }
+
+            if (f.fromMs > 0) {
+                where.append(" AND ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_POST_TIME).append(" >= ?");
+                args.add(String.valueOf(f.fromMs));
+            }
+            if (f.toMs > 0) {
+                where.append(" AND ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_POST_TIME).append(" <= ?");
+                args.add(String.valueOf(f.toMs));
+            }
+
+            StringBuilder having = new StringBuilder();
+            if (f.flaggedOnly || f.quickFilter == Filter.QUICK_FLAGGED) {
+                having.append("flagged_count > 0");
+            } else if (f.quickFilter == Filter.QUICK_PHOTOS) {
+                having.append("photo_count > 0");
+            } else if (f.quickFilter == Filter.QUICK_VIDEOS) {
+                having.append("video_count > 0");
+            } else if (f.quickFilter == Filter.QUICK_AUDIO) {
+                having.append("audio_count > 0");
+            } else if (f.quickFilter == Filter.QUICK_DOCS) {
+                having.append("doc_count > 0");
+            }
+
+            String threadExpr = "(CASE WHEN " + ArchiveSchema.TABLE + "." + ArchiveSchema.COL_GROUP + " != '' THEN "
+                    + ArchiveSchema.TABLE + "." + ArchiveSchema.COL_GROUP + " ELSE (CASE WHEN "
+                    + ArchiveSchema.TABLE + "." + ArchiveSchema.COL_SENDER + " != '' THEN "
+                    + ArchiveSchema.TABLE + "." + ArchiveSchema.COL_SENDER + " ELSE "
+                    + ArchiveSchema.TABLE + "." + ArchiveSchema.COL_RAW_TITLE + " END) END)";
+
+            String subExpr = "(CASE WHEN n2." + ArchiveSchema.COL_GROUP + " != '' THEN "
+                    + "n2." + ArchiveSchema.COL_GROUP + " ELSE (CASE WHEN "
+                    + "n2." + ArchiveSchema.COL_SENDER + " != '' THEN "
+                    + "n2." + ArchiveSchema.COL_SENDER + " ELSE "
+                    + "n2." + ArchiveSchema.COL_RAW_TITLE + " END) END)";
+
+            StringBuilder sql = new StringBuilder();
+            sql.append("SELECT ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_PKG).append(", ")
+               .append("MAX(").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_APP_LABEL).append(") AS max_app, ")
+               .append("MAX(").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_GROUP).append(") AS max_grp, ")
+               .append(threadExpr).append(" AS thread_title, ")
+               .append("COUNT(*) AS total_count, ")
+               .append("SUM(CASE WHEN ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IS_DELETED).append(" = 1 OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IS_SUSPECTED).append(" = 1 THEN 1 ELSE 0 END) AS flagged_count, ")
+               .append("SUM(CASE WHEN ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.jpg' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.jpeg' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.png' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.webp' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.gif' THEN 1 ELSE 0 END) AS photo_count, ")
+               .append("SUM(CASE WHEN ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.mp4' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.3gp' THEN 1 ELSE 0 END) AS video_count, ")
+               .append("SUM(CASE WHEN ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.ogg' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.opus' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.m4a' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.aac' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.amr' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.mp3' THEN 1 ELSE 0 END) AS audio_count, ")
+               .append("SUM(CASE WHEN ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.pdf' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.docx' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.doc' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.xlsx' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.xls' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.pptx' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.ppt' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.txt' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.csv' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.rtf' OR ")
+               .append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_IMAGE_PATH).append(" LIKE '%.zip' THEN 1 ELSE 0 END) AS doc_count, ")
+               .append("MAX(").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_POST_TIME).append(") AS last_time, ")
+               .append("(SELECT body FROM ").append(ArchiveSchema.TABLE).append(" n2 WHERE n2.").append(ArchiveSchema.COL_PKG)
+               .append(" = ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_PKG)
+               .append(" AND ").append(subExpr).append(" = ").append(threadExpr)
+               .append(" ORDER BY ").append(ArchiveSchema.COL_POST_TIME).append(" DESC, ")
+               .append(ArchiveSchema.COL_ID).append(" DESC LIMIT 1) AS last_body, ")
+               .append("(SELECT sender FROM ").append(ArchiveSchema.TABLE).append(" n2 WHERE n2.").append(ArchiveSchema.COL_PKG)
+               .append(" = ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_PKG)
+               .append(" AND ").append(subExpr).append(" = ").append(threadExpr)
+               .append(" ORDER BY ").append(ArchiveSchema.COL_POST_TIME).append(" DESC, ")
+               .append(ArchiveSchema.COL_ID).append(" DESC LIMIT 1) AS last_sender ")
+               .append("FROM ").append(ArchiveSchema.TABLE).append(" ")
+               .append("WHERE ").append(where).append(" ")
+               .append("GROUP BY ").append(ArchiveSchema.TABLE).append(".").append(ArchiveSchema.COL_PKG).append(", thread_title ");
+
+            if (having.length() > 0) {
+                sql.append("HAVING ").append(having).append(" ");
+            }
+
+            sql.append("ORDER BY last_time DESC");
+
+            Cursor cursor = db.rawQuery(sql.toString(), args.toArray(new String[0]));
+            try {
+                while (cursor != null && cursor.moveToNext()) {
+                    String pkg = cursor.getString(0);
+                    String appLabel = cursor.getString(1);
+                    String grpName = cursor.getString(2);
+                    String title = cursor.getString(3);
+                    int total = cursor.getInt(4);
+                    int flagged = cursor.getInt(5);
+                    int photos = cursor.getInt(6);
+                    int videos = cursor.getInt(7);
+                    int audio = cursor.getInt(8);
+                    int docs = cursor.getInt(9);
+                    long lastTime = cursor.getLong(10);
+                    String lastBody = cursor.getString(11);
+                    String lastSender = cursor.getString(12);
+
+                    long lastRead = ConversationReadTracker.getLastRead(context, pkg, title);
+                    int unread = 0;
+                    if (lastRead > 0 && lastTime > lastRead) {
+                        unread = countUnreadMessages(db, pkg, title, lastRead);
+                    }
+
+                    out.add(new ConversationGroup(
+                            pkg, appLabel, grpName, title,
+                            total, flagged, unread, photos, videos, audio, docs,
+                            lastTime, lastBody, lastSender));
+                }
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+        } catch (Throwable ignored) { }
+        return out;
+    }
+
+    private static int countUnreadMessages(SQLiteDatabase db, String pkg, String threadTitle, long sinceMs) {
+        if (db == null || sinceMs <= 0) return 0;
+        try {
+            String threadExpr = "(CASE WHEN " + ArchiveSchema.COL_GROUP + " != '' THEN "
+                    + ArchiveSchema.COL_GROUP + " ELSE (CASE WHEN "
+                    + ArchiveSchema.COL_SENDER + " != '' THEN "
+                    + ArchiveSchema.COL_SENDER + " ELSE "
+                    + ArchiveSchema.COL_RAW_TITLE + " END) END)";
+            String sql = "SELECT COUNT(*) FROM " + ArchiveSchema.TABLE
+                    + " WHERE " + ArchiveSchema.COL_ROW_KIND + " = " + ArchiveSchema.KIND_MESSAGE
+                    + " AND " + ArchiveSchema.COL_PKG + " = ?"
+                    + " AND " + threadExpr + " = ?"
+                    + " AND " + ArchiveSchema.COL_POST_TIME + " > ?";
+            Cursor c = db.rawQuery(sql, new String[]{pkg, threadTitle, String.valueOf(sinceMs)});
+            try {
+                if (c != null && c.moveToFirst()) return c.getInt(0);
+            } finally {
+                if (c != null) c.close();
+            }
+        } catch (Throwable ignored) { }
+        return 0;
     }
 
     /** Flagged messages discovered since a point in time, newest first. */
@@ -416,6 +691,31 @@ public final class NotificationArchive {
     public static int totalFlagged(Context context) {
         return countWhere(context, ArchiveSchema.COL_IS_DELETED + " = 1 OR "
                 + ArchiveSchema.COL_IS_SUSPECTED + " = 1");
+    }
+
+    /**
+     * Cheap fingerprint to see whether the archive has changed since the last paint.
+     *
+     * Used by the archive auto-watch poller to refresh the screen only when rows are added,
+     * flagged, or removed, without re-querying or rebuilding the whole view unnecessarily.
+     */
+    public static String signature(Context context) {
+        if (context == null) return "";
+        try {
+            SQLiteDatabase db = database(context);
+            if (db == null) return "";
+            Cursor cursor = db.rawQuery("SELECT COUNT(*), MAX(" + ArchiveSchema.COL_POST_TIME
+                    + "), SUM(" + ArchiveSchema.COL_IS_DELETED + " + " + ArchiveSchema.COL_IS_SUSPECTED
+                    + ") FROM " + ArchiveSchema.TABLE, null);
+            try {
+                if (cursor != null && cursor.moveToFirst()) {
+                    return cursor.getInt(0) + ":" + cursor.getLong(1) + ":" + cursor.getInt(2);
+                }
+            } finally {
+                if (cursor != null) cursor.close();
+            }
+        } catch (Throwable ignored) { }
+        return "";
     }
 
     private static int countWhere(Context context, String where) {

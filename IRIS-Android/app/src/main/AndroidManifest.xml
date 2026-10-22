@@ -145,6 +145,12 @@
             </intent-filter>
         </service>
 
+        <provider
+            android:name=".IrisFileProvider"
+            android:authorities="com.iris.assistant.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <receiver android:name=".ReminderReceiver" android:exported="false" />
 
         <activity

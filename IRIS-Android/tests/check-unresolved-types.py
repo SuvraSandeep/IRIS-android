@@ -60,6 +60,7 @@ DEFAULT_TARGETS = [
     "ArchiveSchema.java",
     "DeletedMessageRules.java",
     "DeletedQuery.java",
+    "IrisFileProvider.java",
 ]
 
 JAVA_LANG = {

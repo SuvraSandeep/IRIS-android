@@ -431,6 +431,7 @@ public class IrisNotificationListener extends NotificationListenerService {
         String groupName = MessageRollup.groupFromTitle(title);
         String newestSender = "";
         String newestBody = "";
+        long maxTime = -1L;
         // Distinct people who sent something in this one notification. Two or more can only be a
         // group, and it is the strongest signal available from an app that does not set
         // EXTRA_IS_GROUP_CONVERSATION.
@@ -464,9 +465,12 @@ public class IrisNotificationListener extends NotificationListenerService {
             // rather than the link being stored for later.
             if (rowId > 0) captureImage(context, msg, rowId);
 
-            // Remember the newest message, for the responder below.
-            newestSender = sender;
-            newestBody = body;
+            // Remember the newest message by timestamp, for the responder below.
+            if (when >= maxTime) {
+                maxTime = when;
+                newestSender = sender;
+                newestBody = body;
+            }
             if (!sender.trim().isEmpty()) sendersSeen.add(sender.trim().toLowerCase());
         }
 
@@ -495,6 +499,9 @@ public class IrisNotificationListener extends NotificationListenerService {
                                   final String sender, final String body, final boolean group,
                                   final int messageCount) {
         try {
+            // WhatsApp / Instagram Status or Story replies / reactions: ignore completely so IRIS
+            // does not spam contacts with auto-replies to status updates.
+            if (AutoResponder.isStatusNotification(sbn)) return;
             // An emoji reaction (tapback) to a sent message is not a message — never reply to it.
             if (ReactionText.looksLikeReaction(body)) return;
             // An edited-message re-notification is a re-trigger of an already-seen message — skip.
@@ -549,7 +556,7 @@ public class IrisNotificationListener extends NotificationListenerService {
         final Object uriValue = msg.get("uri");
         if (!(uriValue instanceof android.net.Uri)) return;
         final String mime = msg.getString("type");
-        if (!ArchiveImagePolicy.isStorableImage(mime)) return;
+        if (!ArchiveImagePolicy.isStorableMedia(mime)) return;
 
         final String fingerprint = NotificationArchive.fingerprintOf(context, rowId);
         if (fingerprint.isEmpty()) return;

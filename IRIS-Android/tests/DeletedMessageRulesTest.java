@@ -50,6 +50,8 @@ public class DeletedMessageRulesTest {
         labelsDistinguishConfirmedFromSuspected();
         caveatsExplainTheLimitation();
         formatsTimeDeterministically();
+        detectsMultilingualPlaceholders();
+        formatsDurationAndTimelineCorrectly();
         System.out.println("Passed " + checks + " deleted-message rule checks");
     }
 
@@ -280,5 +282,61 @@ public class DeletedMessageRulesTest {
         equal(ist, "1 Jan 1970, 05:30", "rendered in the supplied zone");
         check(DeletedMessageRules.formatTime(0L, null).equals("1 Jan 1970, 00:00"),
                 "a null zone falls back to UTC rather than throwing");
+    }
+
+    private static void detectsMultilingualPlaceholders() {
+        // Hindi
+        check(DeletedMessageRules.isSenderDeletion("यह संदेश हटा दिया गया था"), "Hindi sender deletion tha");
+        check(DeletedMessageRules.isSenderDeletion("यह संदेश हटा दिया गया है"), "Hindi sender deletion hai");
+        check(DeletedMessageRules.isSenderDeletion("संदेश हटा दिया गया"), "Hindi short sender deletion");
+        check(DeletedMessageRules.isSenderDeletion("यह संदेश मिटा दिया गया था"), "Hindi mita diya gaya");
+        check(!DeletedMessageRules.isSenderDeletion("आपने यह संदेश हटा दिया था"), "Hindi own deletion not sender");
+        check(DeletedMessageRules.isOwnDeletion("आपने यह संदेश हटा दिया था"), "Hindi own deletion recognised");
+
+        // Odia
+        check(DeletedMessageRules.isSenderDeletion("ଏହି ବାର୍ତ୍ତାଟି ଡିଲିଟ୍ କରାଯାଇଛି"), "Odia sender deletion");
+        check(DeletedMessageRules.isSenderDeletion("ଏହି ମେସେଜ୍ ଡିଲିଟ୍ କରାଯାଇଛି"), "Odia message deletion");
+        check(!DeletedMessageRules.isSenderDeletion("ଆପଣ ଏହି ବାର୍ତ୍ତାଟି ଡିଲିଟ୍ କରିଛନ୍ତି"), "Odia own deletion not sender");
+        check(DeletedMessageRules.isOwnDeletion("ଆପଣ ଏହି ବାର୍ତ୍ତାଟି ଡିଲିଟ୍ କରିଛନ୍ତି"), "Odia own deletion recognised");
+
+        // Spanish
+        check(DeletedMessageRules.isSenderDeletion("Este mensaje fue eliminado"), "Spanish fue eliminado");
+        check(DeletedMessageRules.isSenderDeletion("Se eliminó este mensaje"), "Spanish se elimino");
+        check(DeletedMessageRules.isSenderDeletion("Mensaje eliminado"), "Spanish short form");
+        check(!DeletedMessageRules.isSenderDeletion("Eliminaste este mensaje"), "Spanish own deletion not sender");
+        check(DeletedMessageRules.isOwnDeletion("Eliminaste este mensaje"), "Spanish own deletion recognised");
+
+        // French
+        check(DeletedMessageRules.isSenderDeletion("Ce message a été supprimé"), "French a ete supprime");
+        check(DeletedMessageRules.isSenderDeletion("Message supprimé"), "French short form");
+        check(!DeletedMessageRules.isSenderDeletion("Vous avez supprimé ce message"), "French own deletion not sender");
+        check(DeletedMessageRules.isOwnDeletion("Vous avez supprimé ce message"), "French own deletion recognised");
+    }
+
+    private static void formatsDurationAndTimelineCorrectly() {
+        equal(DeletedMessageRules.formatDuration(0L), "< 1s", "0ms duration");
+        equal(DeletedMessageRules.formatDuration(500L), "< 1s", "500ms duration");
+        equal(DeletedMessageRules.formatDuration(45000L), "45s", "45s duration");
+        equal(DeletedMessageRules.formatDuration((5L * 60L + 12L) * 1000L), "5m 12s", "5m 12s duration");
+        equal(DeletedMessageRules.formatDuration((1L * 3600L + 14L * 60L + 30L) * 1000L), "1h 14m 30s", "1h 14m 30s duration");
+        equal(DeletedMessageRules.formatDuration((2L * 86400L + 3L * 3600L + 10L * 60L) * 1000L), "2d 3h 10m", "2d 3h 10m duration");
+
+        long postTime = 1760000000000L;
+        long deletionTime = postTime + (5L * 60L + 12L) * 1000L;
+        String confirmedTimeline = DeletedMessageRules.deletionTimeline(
+                DeletedMessageRules.Confidence.CONFIRMED, postTime, deletionTime, UTC);
+        check(confirmedTimeline.contains("Sent at "), "confirmed timeline has Sent at");
+        check(confirmedTimeline.contains("Deleted at "), "confirmed timeline has Deleted at");
+        check(confirmedTimeline.contains("(Existed for 5m 12s)"), "confirmed timeline has lifespan");
+
+        String suspectedTimeline = DeletedMessageRules.deletionTimeline(
+                DeletedMessageRules.Confidence.SUSPECTED, postTime, deletionTime, UTC);
+        check(suspectedTimeline.contains("Withdrawn at "), "suspected timeline has Withdrawn at");
+        check(suspectedTimeline.contains("(Existed for 5m 12s)"), "suspected timeline has lifespan");
+
+        String fullStatus = DeletedMessageRules.statusLabel(
+                DeletedMessageRules.Confidence.CONFIRMED, postTime, deletionTime, UTC);
+        check(fullStatus.contains("[STATUS: SENDER UNSENT THIS MESSAGE AT "), "full status contains header");
+        check(fullStatus.contains("(Existed for 5m 12s)"), "full status contains timeline");
     }
 }

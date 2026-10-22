@@ -433,6 +433,11 @@ public class MessageCategoryTest {
         if (MessageCategory.classify("suvra", null).kind == MessageCategory.Kind.MENTION) {
             throw new AssertionError("FAILED: no keywords configured means no mentions");
         }
+        checks++;
+        if (MessageCategory.classify("remind suvra to bring milk", keys).kind
+                != MessageCategory.Kind.REMINDER) {
+            throw new AssertionError("FAILED: explicit reminder for Suvra is classified as REMINDER");
+        }
     }
 
     private static void shortMessagesAreTheLoosestCategory() {
