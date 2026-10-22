@@ -1,5 +1,13 @@
 # Changelog
 
+## 16.81.1
+
+- CI Build & Modular Symbol Resolution Fixes:
+  - Pure Android SDK Enforcement: Replaced unbundled `androidx.core.content.ContextCompat` in `HeadsetSensorCoordinator.java` with native `Context.checkSelfPermission()` (API 23+, minSdk 26). Added `check_forbidden_imports()` to `check-unresolved-types.py` to prevent any unbundled library imports from slipping into CI.
+  - Controller Symbol Resolution: Qualified bare `Context` service constants (`Context.ALARM_SERVICE`, `Context.NOTIFICATION_SERVICE`, `Context.CLIPBOARD_SERVICE`) in `ResponderViewController.java`, eliminated duplicate field definitions (`responderLogSignature`, `responderLogFilter`), added `isFinishing()` and `isDestroyed()` lifecycle helpers, and properly delegated contact editing to `activity.getContactsViewController().editPhoneContact()`.
+  - Offline Guard: Added `check_bare_services()` to `check-unresolved-types.py` to guarantee non-Context controller classes never reference bare service constants.
+  - Verification: 100% pass across all 9 test suites and clean bracket balancing across all 206 Java files.
+
 ## 16.81.0
 
 - Server Mode & Watch Companion Bridge Refinements (§5):

@@ -14,7 +14,6 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
-import androidx.core.content.ContextCompat;
 
 import java.util.Set;
 
@@ -181,7 +180,7 @@ public class HeadsetSensorCoordinator {
     public String connectedBluetoothDeviceName(android.bluetooth.BluetoothAdapter ba) {
         if (ba == null) return null;
         try {
-            if (Build.VERSION.SDK_INT >= 31 && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            if (Build.VERSION.SDK_INT >= 31 && context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 return null;
             }
             int a2dp = ba.getProfileConnectionState(android.bluetooth.BluetoothProfile.A2DP);

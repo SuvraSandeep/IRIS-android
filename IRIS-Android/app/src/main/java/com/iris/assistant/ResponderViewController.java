@@ -58,6 +58,14 @@ public class ResponderViewController {
         if (activity != null) activity.toast(message);
     }
 
+    private boolean isFinishing() {
+        return activity == null || activity.isFinishing();
+    }
+
+    private boolean isDestroyed() {
+        return activity == null || activity.isDestroyed();
+    }
+
     private int getColor(int resId) {
         if (activity == null) return 0;
         return activity.getColor(resId);
@@ -1203,7 +1211,7 @@ public class ResponderViewController {
         boolean exactOk = true;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             android.app.AlarmManager am =
-                    (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+                    (android.app.AlarmManager) getSystemService(Context.ALARM_SERVICE);
             exactOk = am != null && am.canScheduleExactAlarms();
         }
         host.addView(responderRow("Exact alarms (for reminders)",
@@ -1225,7 +1233,7 @@ public class ResponderViewController {
         boolean dndOk = false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             android.app.NotificationManager nm =
-                    (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                    (android.app.NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             dndOk = nm != null && nm.isNotificationPolicyAccessGranted();
         }
         host.addView(responderRow("Override Do Not Disturb (for the ring)",
@@ -1296,10 +1304,6 @@ public class ResponderViewController {
         }
     }
 
-    /** Signature of the decision log as last drawn, so polling can detect a real change. */
-    private String responderLogSignature = "";
-    /** Active filter for decision log: 0=ALL, 1=SPOKE, 2=SILENT, 3=DRY RUN, 4=FAILED */
-    private int responderLogFilter = 0;
 
     /**
      * Attempt one real reply now and report exactly what came back.
@@ -1991,7 +1995,9 @@ public class ResponderViewController {
                         } else if (choice.startsWith("Teach a reply")) {
                             teachReplyDialog(entry, root);
                         } else {
-                            editPhoneContact(new ResponderSettings(activity), who2, root, null);
+                            if (activity != null && activity.getContactsViewController() != null) {
+                                activity.getContactsViewController().editPhoneContact(new ResponderSettings(activity), who2, root, null);
+                            }
                         }
                     }).show();
             return true;
@@ -2034,7 +2040,7 @@ public class ResponderViewController {
                 .setPositiveButton("Close", null)
                 .setNeutralButton("Copy", (d, w) -> {
                     android.content.ClipboardManager cm =
-                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                            (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     if (cm != null) {
                         cm.setPrimaryClip(android.content.ClipData.newPlainText("Decision Details", copyText));
                         toast("Copied decision details");

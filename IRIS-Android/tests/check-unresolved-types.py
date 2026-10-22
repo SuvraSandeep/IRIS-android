@@ -157,6 +157,43 @@ def check_layout_ids():
     return len(defined), missing
 
 
+def check_forbidden_imports():
+    """Verify no sources import unbundled androidx libraries (not in build.gradle)."""
+    forbidden = []
+    for source in SOURCE_ROOT.glob("*.java"):
+        text = source.read_text(encoding="utf-8")
+        for match in re.finditer(r"^\s*import\s+(androidx\.[^;]+);", text, re.M):
+            line_no = text[:match.start()].count("\n") + 1
+            forbidden.append((source.name, line_no, match.group(1)))
+    return forbidden
+
+
+def check_bare_services():
+    """Verify non-Context classes do not use bare Context.*_SERVICE constants."""
+    services = [
+        'ALARM_SERVICE', 'NOTIFICATION_SERVICE', 'CLIPBOARD_SERVICE', 'AUDIO_SERVICE',
+        'POWER_SERVICE', 'CONNECTIVITY_SERVICE', 'BLUETOOTH_SERVICE', 'SENSOR_SERVICE',
+        'TELEPHONY_SERVICE', 'VIBRATOR_SERVICE', 'KEYGUARD_SERVICE'
+    ]
+    non_context_files = [
+        'ResponderViewController.java', 'ContactsViewController.java',
+        'FlaggedQueueController.java', 'ArchiveViewController.java',
+        'CallManager.java', 'HeadsetSensorCoordinator.java',
+        'VoicePipelineCoordinator.java'
+    ]
+    bare = []
+    for fname in non_context_files:
+        path = SOURCE_ROOT / fname
+        if not path.exists():
+            continue
+        text = strip_noise(path.read_text(encoding="utf-8"))
+        for s in services:
+            for match in re.finditer(r'(?<!Context\.)(?<!android\.content\.Context\.)\b' + s + r'\b', text):
+                line_no = text[:match.start()].count("\n") + 1
+                bare.append((fname, line_no, s))
+    return bare
+
+
 def main():
     if not SOURCE_ROOT.exists():
         print(f"FAILED: {SOURCE_ROOT} not found (run from the IRIS-Android directory)")
@@ -203,6 +240,24 @@ def main():
         failed = True
     else:
         print("No unresolvable type names found.")
+
+    forbidden = check_forbidden_imports()
+    if forbidden:
+        print(f"\n{len(forbidden)} forbidden unbundled import(s) found:")
+        for file_name, line_no, imp in forbidden:
+            print(f"  {file_name}:{line_no}  import {imp}")
+        failed = True
+    else:
+        print("No forbidden unbundled imports found.")
+
+    bare = check_bare_services()
+    if bare:
+        print(f"\n{len(bare)} bare Context constant(s) in non-Context classes:")
+        for file_name, line_no, s in bare:
+            print(f"  {file_name}:{line_no}  bare {s} (prefix with Context.)")
+        failed = True
+    else:
+        print("No bare Context constants found in controller classes.")
 
     defined, missing = check_layout_ids()
     if missing:
