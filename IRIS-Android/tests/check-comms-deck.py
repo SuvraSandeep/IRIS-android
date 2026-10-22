@@ -125,12 +125,13 @@ def test_auto_modes():
     check("AutoModeDetector.evaluateSignals(context, settings, minuteOfDay)" in ar_content,
           "AutoResponder.compose evaluates signals with AutoModeDetector")
 
-    # 4. MainActivity UI switches
+    # 4. MainActivity / Responder UI switches
     ma_path = APP_SRC / "MainActivity.java"
-    ma_content = ma_path.read_text(encoding="utf-8")
-    check('responderSwitch("Auto-driving when connected to car Bluetooth"' in ma_content,
+    rvc_path = APP_SRC / "ResponderViewController.java"
+    ui_content = ma_path.read_text(encoding="utf-8") + (rvc_path.read_text(encoding="utf-8") if rvc_path.exists() else "")
+    check('responderSwitch("Auto-driving when connected to car Bluetooth"' in ui_content,
           "MainActivity renders Auto-driving switch toggle")
-    check('responderSwitch("Auto-meeting during busy calendar events"' in ma_content,
+    check('responderSwitch("Auto-meeting during busy calendar events"' in ui_content,
           "MainActivity renders Auto-meeting switch toggle")
 
 

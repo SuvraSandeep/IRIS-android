@@ -502,6 +502,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     // within the press window, so a multi-press trigger doesn't also forward each individual
     // press as a normal media event once the count is satisfied.
     private Runnable headsetHookPassThrough;
+    private CallManager callManager;
+    private HeadsetSensorCoordinator headsetCoordinator;
 
     @Override
     public void onCreate() {
@@ -569,6 +571,64 @@ public class IrisListeningService extends Service implements RecognitionListener
         });
         slmEngine = new OnnxSlmEngine(this);
         localPlanner = new LocalPlanner(slmEngine);
+
+        callManager = new CallManager(this, handler, settings, new CallManager.Host() {
+            @Override public void speak(String text) { IrisListeningService.this.speak(text); }
+            @Override public void speakThenRun(String text, Runnable after) { IrisListeningService.this.speakThenRun(text, after); }
+            @Override public void broadcastMessage(String text) { IrisListeningService.this.broadcastMessage(text); }
+            @Override public void broadcastMessageEphemeral(String text) { IrisListeningService.this.broadcastMessageEphemeral(text); }
+            @Override public void startConfirmationRecognition() { IrisListeningService.this.startConfirmationRecognition(); }
+            @Override public void startCommandRecognition() { IrisListeningService.this.startCommandRecognition(); }
+            @Override public void rearmAfterAction() { IrisListeningService.this.rearmAfterAction(); }
+            @Override public void destroyRecognizer() { IrisListeningService.this.destroyRecognizer(); }
+            @Override public boolean hasPermission(String permission) { return IrisListeningService.this.hasPermission(permission); }
+            @Override public String personalityLine(String key, String arg) { return IrisListeningService.this.personalityLine(key, arg); }
+            @Override public ActionLedger ledger() { return IrisListeningService.this.ledger(); }
+            @Override public boolean isRunning() { return IrisListeningService.this.isRunning; }
+            @Override public String getPhase() { return IrisListeningService.this.phase; }
+            @Override public void beginSms(String name, String body) { IrisListeningService.this.beginSms(name, body); }
+            @Override public void onCallPlacedSuccessfully() {
+                isRunning = false;
+                replyCompletion.cancel();
+                serviceStartedAt = 0;
+                wakeReadiness = "Service stopped";
+                phoneQuestionGeneration++;
+                broadcastState(false, "off");
+                destroyRecognizer();
+                stopWakeEngine();
+                stopForeground(STOP_FOREGROUND_REMOVE);
+                stopSelf();
+            }
+            @Override public void onCallFailed(Throwable error) {
+                stopIris("Call launch failed");
+            }
+            @Override public void speakConfirmationPrompt(String confirmText, Runnable onDone) {
+                if (settings.voiceReplies() && ttsReady && confirmText != null) {
+                    textToSpeech.speak(confirmText, TextToSpeech.QUEUE_FLUSH, null, "iris_confirm");
+                    textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                        @Override public void onStart(String utteranceId) { }
+                        @Override public void onDone(String utteranceId) {
+                            if ("iris_confirm".equals(utteranceId)) {
+                                textToSpeech.setOnUtteranceProgressListener(null);
+                                handler.post(onDone);
+                            }
+                        }
+                        @Override public void onError(String utteranceId) {
+                            textToSpeech.setOnUtteranceProgressListener(null);
+                            handler.post(onDone);
+                        }
+                    });
+                } else {
+                    onDone.run();
+                }
+            }
+        });
+
+        headsetCoordinator = new HeadsetSensorCoordinator(this, handler, settings, new HeadsetSensorCoordinator.TriggerCallback() {
+            @Override public void onTrigger(String source) { triggerTalk(source); }
+            @Override public boolean canTriggerShake() { return PHASE_WAKE.equals(phase); }
+        });
+
         voskEngine = new VoskEngine();
         // Schema 8 uses the bundled Vosk owner model plus recorded-phrase evidence.
         // Optional downloads never change the identity model midway through a session.
@@ -598,115 +658,27 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Register optional shake-to-wake and headset-button triggers (both off by default). */
     private void setupTriggers() {
-        try {
-            if (settings.shakeToWake()) {
-                sensorManager = (android.hardware.SensorManager) getSystemService(SENSOR_SERVICE);
-                android.hardware.Sensor accel = sensorManager == null ? null
-                        : sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER);
-                if (accel != null) {
-                    shakeListener = new android.hardware.SensorEventListener() {
-                        @Override public void onSensorChanged(android.hardware.SensorEvent e) {
-                            float x = e.values[0] / 9.81f, y = e.values[1] / 9.81f, z = e.values[2] / 9.81f;
-                            double g = Math.sqrt(x * x + y * y + z * z);
-                            if (g > 2.7) {
-                                long now = System.currentTimeMillis();
-                                if (now - lastShakeAt > 3000 && PHASE_WAKE.equals(phase)) {
-                                    lastShakeAt = now;
-                                    handler.post(() -> triggerTalk("shake"));
-                                }
-                            }
-                        }
-                        @Override public void onAccuracyChanged(android.hardware.Sensor s, int a) { }
-                    };
-                    sensorManager.registerListener(shakeListener, accel,
-                            android.hardware.SensorManager.SENSOR_DELAY_UI);
-                    IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.ACCELEROMETER,
-                            "Shake trigger");
-                }
-            }
-        } catch (Throwable ignored) { }
-        try {
-            if (settings.headsetTrigger()) {
-                final int wantKeyCode = triggerKeyCodeFor(settings.triggerButton());
-                final int wantPresses = settings.triggerPressCount();
-                mediaSession = new android.media.session.MediaSession(this, "IRIS");
-                mediaSession.setCallback(new android.media.session.MediaSession.Callback() {
-                    @Override public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
-                        android.view.KeyEvent ke = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
-                        if (ke != null && ke.getAction() == android.view.KeyEvent.ACTION_UP
-                                && ke.getKeyCode() == wantKeyCode) {
-                            long now = System.currentTimeMillis();
-                            if (now - lastTriggerPressAt < 700) {
-                                triggerPressRunCount++;
-                            } else {
-                                triggerPressRunCount = 1;
-                            }
-                            lastTriggerPressAt = now;
-                            handler.removeCallbacks(headsetHookPassThrough);
-                            if (triggerPressRunCount >= wantPresses) {
-                                triggerPressRunCount = 0;
-                                handler.post(() -> triggerTalk("headset"));
-                            } else {
-                                // Was: every single press was fully consumed (return true) while
-                                // waiting to see if enough presses arrived — the OS/media app
-                                // never saw a lone click, so normal play/pause/skip never worked
-                                // while this (opt-in) trigger was on. Wait out the press window,
-                                // then pass the event through if the count wasn't met in time.
-                                final long pressTime = now;
-                                headsetHookPassThrough = () -> {
-                                    if (lastTriggerPressAt == pressTime) {
-                                        triggerPressRunCount = 0;
-                                        super.onMediaButtonEvent(mediaButtonIntent);
-                                    }
-                                };
-                                handler.postDelayed(headsetHookPassThrough, 700);
-                            }
-                            return true;
-                        }
-                        return super.onMediaButtonEvent(mediaButtonIntent);
-                    }
-                });
-                reassertMediaSessionPriority();
-            }
-        } catch (Throwable ignored) { }
+        if (headsetCoordinator != null) {
+            headsetCoordinator.setupTriggers();
+        }
     }
 
     /** Maps the user's chosen trigger button (Settings) to the KeyEvent code to listen for. */
     private static int triggerKeyCodeFor(String triggerButton) {
-        if ("next".equals(triggerButton)) return android.view.KeyEvent.KEYCODE_MEDIA_NEXT;
-        if ("previous".equals(triggerButton)) return android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS;
-        return android.view.KeyEvent.KEYCODE_HEADSETHOOK; // covers KEYCODE_MEDIA_PLAY_PAUSE too on most devices
+        return HeadsetSensorCoordinator.triggerKeyCodeFor(triggerButton);
     }
 
-    /** Re-publish IRIS's MediaSession as active with a fresh PlaybackState. Android routes
-     *  Bluetooth/wired media-button events to whichever session it currently considers
-     *  "preferred" — normally whatever app most recently started active playback. Calling
-     *  setActive(true) only once at service startup loses that priority the moment another
-     *  app starts playing, which is exactly when this trigger is most needed. Re-asserting on
-     *  every wake-phase entry gives IRIS a real (though not 100% guaranteed — Android's exact
-     *  priority algorithm is undocumented and OEM-dependent) chance of receiving the event
-     *  while music is actively playing. */
     private void reassertMediaSessionPriority() {
-        if (mediaSession == null) return;
-        try {
-            android.media.session.PlaybackState ps = new android.media.session.PlaybackState.Builder()
-                    .setActions(android.media.session.PlaybackState.ACTION_PLAY_PAUSE
-                            | android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT
-                            | android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS)
-                    .setState(android.media.session.PlaybackState.STATE_PAUSED, 0, 0f).build();
-            mediaSession.setPlaybackState(ps);
-            mediaSession.setActive(true);
-        } catch (Throwable ignored) { }
+        if (headsetCoordinator != null) {
+            headsetCoordinator.reassertMediaSessionPriority();
+        }
     }
 
     private void teardownTriggers() {
-        try { if (sensorManager != null && shakeListener != null) sensorManager.unregisterListener(shakeListener); } catch (Throwable ignored) { }
-        IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.ACCELEROMETER);
+        if (headsetCoordinator != null) {
+            headsetCoordinator.teardownTriggers();
+        }
         IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.MICROPHONE);
-        try { if (mediaSession != null) { mediaSession.setActive(false); mediaSession.release(); mediaSession = null; } } catch (Throwable ignored) { }
-        handler.removeCallbacks(headsetHookPassThrough);
-        triggerPressRunCount = 0;
-        lastTriggerPressAt = 0;
     }
 
     @Override
@@ -1873,59 +1845,14 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
-        // Guard: "call me / myself / my phone" — can't call the owner
-        if (requested.matches("(?i)^(?:me|myself|my\\s*self|my\\s+phone|my\\s+number)$")) {
-            broadcastMessage("That's you — I can't call you. Tell me who to call.");
-            speakThenRun("That's you! Who would you like me to call?", this::rearmAfterAction);
-            LogStore.append(this, "CALL", "Refused self-call");
-            return;
-        }
-        // Direct dial: "call nine eight seven…" or "call 9876543210"
-        String dialNumber = extractPhoneNumber(requested);
-        if (dialNumber != null) {
-            pendingCandidates = null;
-            requestCallConfirmation(dialNumber, dialNumber, "Call " + speakableNumber(dialNumber) + "?");
-            return;
-        }
-        // Guard: empty or too-short name — ask who instead of matching randomly
-        if (requested.length() < 2) {
-            broadcastMessage("Who would you like me to call?");
-            speakThenRun("Who would you like me to call?", this::startCommandRecognition);
-            LogStore.append(this, "CALL", "No name given");
-            return;
-        }
-
-        List<ContactMatch> candidates = resolveContacts(requested);
-        if (candidates.isEmpty()) {
-            broadcastMessage(hasPermission(Manifest.permission.READ_CONTACTS)
-                    ? "I couldn't confidently match “" + requested + "”. Teach me once."
-                    : "Contacts permission is needed to find “" + requested + "”.");
-            LogStore.append(this, "NO MATCH", requested);
-            requestCorrection(clean);
-            rearmAfterAction();
-            return;
-        }
-        ContactMatch first = candidates.get(0);
-        // Verbally confirm the best match; "no" walks to the next candidate.
-        pendingCandidates = candidates;
-        pendingCandidateIndex = 0;
-        confirmCandidate(0);
+        handleCallContact(requested);
     }
 
     /** Verbally confirm a contact candidate by index; "no" advances to the next. */
     private void confirmCandidate(int index) {
-        if (pendingCandidates == null || index >= pendingCandidates.size()) {
-            cancelCallNotification();
-            broadcastMessage("Okay, I won't call anyone.");
-            speakThenRun("Okay, I won't call anyone.", this::rearmAfterAction);
-            pendingCandidates = null;
-            return;
+        if (callManager != null) {
+            callManager.confirmCandidate(index);
         }
-        pendingCandidateIndex = index;
-        ContactMatch c = pendingCandidates.get(index);
-        boolean multiple = pendingCandidates.size() > 1;
-        String prompt = multiple ? "Did you mean " + c.name + "?" : "Call " + c.name + "?";
-        requestCallConfirmation(c.name, c.number, prompt);
     }
 
     /**
@@ -3338,44 +3265,9 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     @Override
     public void handleCallContact(String name) {
-        if (name == null || name.trim().isEmpty()) {
-            broadcastMessage("Who would you like me to call?");
-            speakThenRun("Who would you like me to call?", this::startCommandRecognition);
-            LogStore.append(this, "CALL", "No name given");
-            return;
+        if (callManager != null) {
+            callManager.handleCallContact(name);
         }
-        String requested = name.trim();
-        if (requested.matches("(?i)^(?:me|myself|my\\s*self|my\\s+phone|my\\s+number)$")) {
-            broadcastMessage("That's you — I can't call you. Tell me who to call.");
-            speakThenRun("That's you! Who would you like me to call?", this::rearmAfterAction);
-            LogStore.append(this, "CALL", "Refused self-call");
-            return;
-        }
-        String dialNumber = extractPhoneNumber(requested);
-        if (dialNumber != null) {
-            pendingCandidates = null;
-            requestCallConfirmation(dialNumber, dialNumber, "Call " + speakableNumber(dialNumber) + "?");
-            return;
-        }
-        if (requested.length() < 2) {
-            broadcastMessage("Who would you like me to call?");
-            speakThenRun("Who would you like me to call?", this::startCommandRecognition);
-            LogStore.append(this, "CALL", "No name given");
-            return;
-        }
-        List<ContactMatch> candidates = resolveContacts(requested);
-        if (candidates.isEmpty()) {
-            broadcastMessage(hasPermission(Manifest.permission.READ_CONTACTS)
-                    ? "I couldn't confidently match “" + requested + "”. Teach me once."
-                    : "Contacts permission is needed to find “" + requested + "”.");
-            LogStore.append(this, "NO MATCH", requested);
-            requestCorrection(requested);
-            rearmAfterAction();
-            return;
-        }
-        pendingCandidates = candidates;
-        pendingCandidateIndex = 0;
-        confirmCandidate(0);
     }
 
     /** Record the screen (with mic audio) for a set time via MediaProjection. */
@@ -4082,42 +3974,11 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private String bluetoothSummary() {
-        try {
-            android.bluetooth.BluetoothManager bm =
-                    (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
-            android.bluetooth.BluetoothAdapter ba = bm != null ? bm.getAdapter()
-                    : android.bluetooth.BluetoothAdapter.getDefaultAdapter();
-            if (ba == null) return "";
-            if (!ba.isEnabled()) return "Bluetooth is off. ";
-            String name = connectedBluetoothDeviceName(ba);
-            return name != null ? "Connected to " + name + " over Bluetooth. " : "Bluetooth is on, nothing connected. ";
-        } catch (Exception e) { return ""; }
+        return headsetCoordinator != null ? headsetCoordinator.bluetoothSummary() : "";
     }
 
-    /** The name of the currently-connected Bluetooth audio device, or null if none. */
     private String connectedBluetoothDeviceName(android.bluetooth.BluetoothAdapter ba) {
-        try {
-            if (Build.VERSION.SDK_INT >= 31 && !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) return null;
-            int a2dp = ba.getProfileConnectionState(android.bluetooth.BluetoothProfile.A2DP);
-            int headset = ba.getProfileConnectionState(android.bluetooth.BluetoothProfile.HEADSET);
-            if (a2dp != android.bluetooth.BluetoothProfile.STATE_CONNECTED
-                    && headset != android.bluetooth.BluetoothProfile.STATE_CONNECTED) return null;
-            // A connected profile confirms *something* is connected; identify it via the bonded
-            // set (public API — no async profile-proxy round trip needed for a name lookup).
-            java.util.Set<android.bluetooth.BluetoothDevice> bonded = ba.getBondedDevices();
-            if (bonded == null) return null;
-            for (android.bluetooth.BluetoothDevice d : bonded) {
-                try {
-                    java.lang.reflect.Method m = d.getClass().getMethod("isConnected");
-                    Object connected = m.invoke(d);
-                    if (Boolean.TRUE.equals(connected)) return d.getName();
-                } catch (Throwable ignored) { }
-            }
-            // Reflection unavailable/blocked — fall back to the most recently bonded device name
-            // rather than reporting nothing when we already know a profile IS connected.
-            for (android.bluetooth.BluetoothDevice d : bonded) return d.getName();
-            return null;
-        } catch (Throwable t) { return null; }
+        return headsetCoordinator != null ? headsetCoordinator.connectedBluetoothDeviceName(ba) : null;
     }
 
     private String batterySummary() {
@@ -5400,235 +5261,57 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void handleHistory(String normalized, ProfileStore store) {
-        if (normalized.matches(".*\\bwho\\s+did\\s+i\\s+call\\s+last\\b.*")) {
-            ProfileStore.Entry last = store.lastCalled();
-            if (last != null) {
-                String text = "Your last call was to " + last.contactName;
-                speak(text);
-                broadcastMessage(text);
-            } else {
-                broadcastMessage("I don\u2019t have any call history yet.");
-            }
-        } else if (normalized.matches(".*\\bwho\\s+did\\s+i\\s+call\\s+today\\b.*") || normalized.matches(".*\\bmy\\s+calls\\b.*") || normalized.matches(".*\\bcall\\s+history\\b.*")) {
-            List<ProfileStore.Entry> today = store.calledToday();
-            if (today.isEmpty()) {
-                broadcastMessage("No calls yet today.");
-            } else {
-                List<String> names = new ArrayList<>();
-                for (ProfileStore.Entry e : today) names.add(e.contactName);
-                String text = "Today you called: " + String.join(", ", names);
-                speak(text);
-                broadcastMessage(text);
-            }
-        } else if (normalized.matches(".*\\bhow\\s+many\\s+times\\b.*")) {
-            String who = normalized.replaceAll(".*how\\s+many\\s+times\\s+did\\s+i\\s+call\\s+", "").trim();
-            List<ContactMatch> matches = resolveContacts(who);
-            if (!matches.isEmpty()) {
-                ContactMatch best = matches.get(0);
-                ProfileStore.Entry entry = null;
-                for (ProfileStore.Entry e : store.getEntries()) {
-                    if (e.contactName.equalsIgnoreCase(best.name)) { entry = e; break; }
-                }
-                if (entry != null && entry.callCount > 0) {
-                    String text = "You\u2019ve called " + entry.contactName + " " + entry.callCount + " time" + (entry.callCount != 1 ? "s" : "") + " total.";
-                    speak(text);
-                    broadcastMessage(text);
-                } else {
-                    broadcastMessage("I don\u2019t have call records for " + who + ".");
-                }
-            } else {
-                broadcastMessage("I couldn\u2019t find a contact matching \u201C" + who + "\u201D.");
-            }
-        } else if (normalized.matches(".*\\bwhen\\s+did\\s+i\\b.*")) {
-            String who = normalized.replaceAll(".*when\\s+did\\s+i\\s+(?:last\\s+)?call\\s+", "").trim();
-            List<ContactMatch> matches = resolveContacts(who);
-            if (!matches.isEmpty()) {
-                ContactMatch best = matches.get(0);
-                ProfileStore.Entry entry = null;
-                for (ProfileStore.Entry e : store.getEntries()) {
-                    if (e.contactName.equalsIgnoreCase(best.name)) { entry = e; break; }
-                }
-                if (entry != null && entry.lastCalled > 0) {
-                    String timeAgo = relativeTime(entry.lastCalled);
-                    String text = "You last called " + entry.contactName + " " + timeAgo + ".";
-                    speak(text);
-                    broadcastMessage(text);
-                } else {
-                    broadcastMessage("I don\u2019t have a record of calling " + who + ".");
-                }
-            } else {
-                broadcastMessage("I couldn\u2019t find a contact matching \u201C" + who + "\u201D.");
-            }
-        } else {
-            broadcastMessage("I didn\u2019t understand the history question.");
+        if (callManager != null) {
+            callManager.handleHistory(normalized, store);
         }
-        LogStore.append(this, "HISTORY", normalized);
-        rearmAfterAction();
     }
 
     private String relativeTime(long timestamp) {
-        long diff = System.currentTimeMillis() - timestamp;
-        long minutes = diff / 60_000;
-        if (minutes < 1) return "just now";
-        if (minutes < 60) return minutes + " minute" + (minutes != 1 ? "s" : "") + " ago";
-        long hours = minutes / 60;
-        if (hours < 24) return hours + " hour" + (hours != 1 ? "s" : "") + " ago";
-        long days = hours / 24;
-        if (days == 1) return "yesterday";
-        return days + " days ago";
+        return CallManager.relativeTime(timestamp);
     }
 
     private void handleConfirmation(String heard) {
-        String answer = ProfileStore.normalize(heard);
-        LogStore.append(this, "CONFIRM VOICE", answer);
-        // "no" first so "no" never gets misread as yes. "call" is NOT a yes —
-        // it's ambiguous with a fresh command and caused wrong-contact calls.
-        if (answer.matches("^(?:no|nope|nah|nahi|cancel|wrong|not\\s+\\w+|stop|kill|abort|forget\\s*it|leave\\s*it|hang\\s*up|don'?t|end\\s*it|nvm|never\\s*mind|ruk|bas|chhod)\\b.*")) {
-            if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
-            cancelCallNotification();
-            // If there are more candidates, ask about the next one
-            if (pendingCandidates != null && pendingCandidateIndex + 1 < pendingCandidates.size()) {
-                int next = pendingCandidateIndex + 1;
-                LogStore.append(this, "CONFIRM", "Declined, trying next: "
-                        + pendingCandidates.get(next).name);
-                handler.postDelayed(() -> confirmCandidate(next), 300);
-            } else {
-                pendingCandidates = null;
-                broadcastMessage("Call cancelled.");
-                speakThenRun("Okay, cancelled.", this::rearmAfterAction);
-            }
-        } else if (answer.matches("^(?:yes|yeah|yep|yup|confirm|correct|right|sure|okay|ok|do\\s+it|go\\s+ahead|haan|ha)\\b.*")
-                // "call" on its own (or with a pronoun) means "yes, place it". A name after
-                // "call" is deliberately NOT treated as confirmation, because that used to
-                // place a call to the wrong contact.
-                || answer.matches("^(?:call|dial|ring)(?:\\s+(?:him|her|them|it|now|please|karo))?$")) {
-            if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
-            pendingCandidates = null;
-            placeCall(pendingName, pendingNumber);
-        } else if (confirmationRetries++ < 1) {
-            broadcastMessage("Say “yes” to call or “no” to cancel.");
-            speakThenRun("Say yes to call, or no to cancel.", this::startConfirmationRecognition);
-        } else {
-            cancelCallNotification();
-            broadcastMessage("I couldn't understand. Call cancelled.");
-            LogStore.append(IrisListeningService.this, "CANCELLED", "Unrecognized confirmation for " + (pendingName == null ? "contact" : pendingName));
-            rearmAfterAction();
+        if (callManager != null) {
+            callManager.handleConfirmation(heard);
         }
     }
 
     private List<ContactMatch> resolveContacts(String requested) {
-        String target = ProfileStore.normalize(requested);
-        if (target.matches("[0-9 ]{3,}")) {
-            return Collections.singletonList(new ContactMatch(requested, requested.replace(" ", ""), 1.0));
+        if (callManager == null) return Collections.emptyList();
+        List<CallManager.ContactMatch> matches = callManager.resolveContacts(requested);
+        List<ContactMatch> result = new ArrayList<>();
+        for (CallManager.ContactMatch m : matches) {
+            result.add(new ContactMatch(m.name, m.number, m.score));
         }
-        List<ContactMatch> matches = new ArrayList<>();
-        if (!hasPermission(Manifest.permission.READ_CONTACTS)) return matches;
-        String[] projection = {ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                ContactsContract.CommonDataKinds.Phone.NUMBER};
-        try (Cursor cursor = getContentResolver().query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                projection, null, null, null)) {
-            if (cursor == null) return matches;
-            while (cursor.moveToNext()) {
-                String name = cursor.getString(0);
-                String number = cursor.getString(1);
-                double score = nameScore(target, ProfileStore.normalize(name));
-                if (score >= .72) matches.add(new ContactMatch(name, number, score));
-            }
-        } catch (Exception error) {
-            LogStore.append(this, "ERROR", "Contact lookup failed: " + error.getMessage());
-        }
-        matches.sort((a, b) -> Double.compare(b.score, a.score));
-        return matches;
+        return result;
     }
 
     private double nameScore(String target, String candidate) {
-        if (target.equals(candidate)) return 1;
-        if (candidate.startsWith(target) || target.startsWith(candidate)) return .90;
-        if (candidate.contains(target) || target.contains(candidate)) return .82;
-        for (String a : target.split(" ")) for (String b : candidate.split(" "))
-            if (a.length() > 2 && a.equals(b)) return .76;
-        if (soundex(target).equals(soundex(candidate)) && !soundex(target).isEmpty()) return .74;
-        return textSimilarity(target, candidate);
+        return callManager != null ? callManager.nameScore(target, candidate) : 0;
     }
 
     private String soundex(String value) {
-        String latin = value.replaceAll("[^a-z]", "");
-        if (latin.isEmpty()) return "";
-        String map = "01230120022455012623010202";
-        StringBuilder result = new StringBuilder().append(latin.charAt(0));
-        char previous = map.charAt(latin.charAt(0) - 'a');
-        for (int i = 1; i < latin.length() && result.length() < 4; i++) {
-            char code = map.charAt(latin.charAt(i) - 'a');
-            if (code != '0' && code != previous) result.append(code);
-            previous = code;
-        }
-        while (result.length() < 4) result.append('0');
-        return result.toString();
+        return CallManager.soundex(value);
     }
 
     private double textSimilarity(String a, String b) {
-        if (a.isEmpty() || b.isEmpty()) return 0;
-        int[] previous = new int[b.length() + 1];
-        int[] current = new int[b.length() + 1];
-        for (int j = 0; j <= b.length(); j++) previous[j] = j;
-        for (int i = 1; i <= a.length(); i++) {
-            current[0] = i;
-            for (int j = 1; j <= b.length(); j++) {
-                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
-                current[j] = Math.min(Math.min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + cost);
-            }
-            int[] swap = previous; previous = current; current = swap;
-        }
-        return 1.0 - ((double) previous[b.length()] / Math.max(a.length(), b.length()));
+        return CallManager.textSimilarity(a, b);
     }
 
     private void requestDisambiguation(List<ContactMatch> candidates) {
-        destroyRecognizer();
-        ArrayList<String> names = new ArrayList<>();
-        ArrayList<String> numbers = new ArrayList<>();
-        for (ContactMatch candidate : candidates) {
-            names.add(candidate.name);
-            numbers.add(candidate.number);
-        }
-        sendBroadcast(new Intent(EVENT_DISAMBIGUATE).setPackage(getPackageName())
-                .putStringArrayListExtra(EXTRA_NAMES, names)
-                .putStringArrayListExtra(EXTRA_NUMBERS, numbers));
-        Intent open = new Intent(this, MainActivity.class)
-                .putStringArrayListExtra(EXTRA_NAMES, names)
-                .putStringArrayListExtra(EXTRA_NUMBERS, numbers);
-        PendingIntent content = PendingIntent.getActivity(this, 14, open,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification notification = new Notification.Builder(this, CALL_CHANNEL)
-                .setSmallIcon(R.drawable.ic_iris)
-                .setContentTitle("Which contact did you mean?")
-                .setContentText(String.join(" • ", names))
-                .setContentIntent(content)
-                .setAutoCancel(true)
-                .build();
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(CALL_NOTIFICATION, notification);
-        handler.postDelayed(() -> {
-            if (isRunning && pendingName == null && PHASE_COMMAND.equals(phase)) {
-                broadcastMessage("No selection made. Going back to sleep.");
-                LogStore.append(this, "TIMEOUT", "Disambiguation expired");
-                cancelCallNotification();
-                rearmAfterAction();
+        if (callManager != null) {
+            List<CallManager.ContactMatch> list = new ArrayList<>();
+            if (candidates != null) {
+                for (ContactMatch c : candidates) list.add(new CallManager.ContactMatch(c.name, c.number, c.score));
             }
-        }, 30_000);
+            callManager.requestDisambiguation(list);
+        }
     }
 
     private void requestCorrection(String heard) {
-        sendBroadcast(new Intent(EVENT_TEACH).setPackage(getPackageName())
-                .putExtra(EXTRA_TEXT, heard));
-        Intent open = new Intent(this, MainActivity.class)
-                .putExtra(EXTRA_TEACH, true).putExtra(EXTRA_TEXT, heard);
-        Notification notification = new Notification.Builder(this, CALL_CHANNEL)
-                .setSmallIcon(R.drawable.ic_iris)
-                .setContentTitle("Teach IRIS what you meant?")
-                .setContentText("“" + heard + "”")
-                .setContentIntent(PendingIntent.getActivity(this, 34, open,
-                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
-                .setAutoCancel(true).build();
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(TEACH_NOTIFICATION, notification);
+        if (callManager != null) {
+            callManager.requestCorrection(heard);
+        }
     }
 
     private void requestCallConfirmation(String name, String number) {
@@ -5636,150 +5319,27 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void requestCallConfirmation(String name, String number, String customPrompt) {
-        if (name == null || number == null) {
-            rearmAfterAction();
-            return;
-        }
-        // Smart call timing checks
-        String warning = callTimingWarning(name, number);
-        if (warning != null) {
-            broadcastMessage(warning);
-            speak(warning);
-        }
-        pendingName = name;
-        pendingNumber = number;
-        confirmationRetries = 0;
-        destroyRecognizer();
-        LogStore.append(this, "CONFIRM", "Waiting to call " + name);
-        broadcastCallPrompt(name, number);
-        showCallNotification(name, number);
-        String confirmText = customPrompt != null ? customPrompt : personalityLine("confirm", name);
-        if (settings.voiceReplies() && ttsReady && confirmText != null) {
-            textToSpeech.speak(confirmText, TextToSpeech.QUEUE_FLUSH, null, "iris_confirm");
-            textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
-                @Override public void onStart(String utteranceId) { }
-                @Override public void onDone(String utteranceId) {
-                    if ("iris_confirm".equals(utteranceId)) {
-                        textToSpeech.setOnUtteranceProgressListener(null);
-                        handler.post(() -> startConfirmationRecognition());
-                    }
-                }
-                @Override public void onError(String utteranceId) {
-                    textToSpeech.setOnUtteranceProgressListener(null);
-                    handler.post(() -> startConfirmationRecognition());
-                }
-            });
-        } else {
-            startConfirmationRecognition();
+        if (callManager != null) {
+            callManager.requestCallConfirmation(name, number, customPrompt);
         }
     }
 
     private void placeCall(String name, String number) {
-        if (number == null || number.trim().isEmpty()) {
-            broadcastMessage("That contact has no callable number.");
-            rearmAfterAction();
-            return;
+        if (callManager != null) {
+            callManager.placeCall(name, number);
         }
-        KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-        if (settings.requireUnlock() && keyguard != null && keyguard.isDeviceLocked()) {
-            cancelCallNotification();
-            requestUnlockForCall(name, number);
-            return;
-        }
-        pendingName = name;
-        pendingNumber = number;
-        speak(personalityLine("calling", name));
-        broadcastMessage("Calling " + name + "…");
-        handler.postDelayed(() -> performCall(name, number), settings.voiceReplies() ? 500 : 80);
     }
 
     private void performCall(String name, String number) {
-        String digits = number.replaceAll("[^0-9+]", "");
-        boolean sensitive = digits.replace("+", "").length() <= 3 || digits.startsWith("1900");
-        boolean direct = hasPermission(Manifest.permission.CALL_PHONE) && !sensitive;
-        Intent call = new Intent(direct ? Intent.ACTION_CALL : Intent.ACTION_DIAL,
-                Uri.parse("tel:" + Uri.encode(digits))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            new ProfileStore(this).recordCall(name, number);
-            BehaviorAnalyzer.onCallPlaced(this, name, number);
-            try { ledger().record("call", ActionLedger.OK,
-                    "Called " + (name == null ? number : name), "", "", false); } catch (Throwable ignored) { }
-            LogStore.append(this, direct ? "CALLING" : "DIALER", name == null ? number : name);
-
-            // Launch FIRST, while we are still a foreground service. Tearing down foreground
-            // state before startActivity loses the background-activity-start exemption on
-            // Android 10+, which silently swallowed the call.
-            boolean launched = false;
-            try { startActivity(call); launched = true; }
-            catch (Throwable t) { LogStore.append(this, "CALL", "direct start blocked: " + t); }
-
-            if (!launched) {
-                // Reliable fallback: a full-screen intent can bring the dialer up from the
-                // background and over the lock screen.
-                try {
-                    PendingIntent pi = PendingIntent.getActivity(this, 51, call,
-                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-                    Notification n = new Notification.Builder(this, CALL_CHANNEL)
-                            .setSmallIcon(R.drawable.ic_iris)
-                            .setContentTitle("Calling " + (name == null ? number : name))
-                            .setContentText("Tap if the call doesn't start")
-                            .setCategory(Notification.CATEGORY_CALL)
-                            .setFullScreenIntent(pi, true)
-                            .setAutoCancel(true).build();
-                    ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(0xCA11, n);
-                    launched = true;
-                } catch (Throwable t) {
-                    LogStore.append(this, "CALL", "full-screen fallback failed: " + t);
-                }
-            }
-            if (!launched) {
-                // After-failed-call follow-up (INTELLIGENCE-ROADMAP §4.2). A dead-end apology
-                // leaves the owner with nothing to do, so offer the text fallback and hand
-                // straight to the EXISTING guided compose flow, which already asks what to say
-                // and can be cancelled. Done this way deliberately rather than by adding a
-                // second yes/no state machine to the call-confirmation path above, which is
-                // delicate and already handles candidates, retries and timeouts.
-                broadcastMessage("This device blocked the call. Tap the notification to dial.");
-                final String who = (name != null && !name.trim().isEmpty()) ? name.trim()
-                        : (number != null && !number.trim().isEmpty() ? number.trim() : null);
-                if (who != null) {
-                    speakThenRun("I couldn't start the call. I'll text " + who
-                            + " instead \u2014 say cancel if you'd rather not.",
-                            () -> beginSms(who, null));
-                } else {
-                    speakThenRun("I couldn't start the call.", this::rearmAfterAction);
-                }
-                return;
-            }
-            // Now it is safe to stand down.
-            isRunning = false;
-        replyCompletion.cancel();
-        serviceStartedAt = 0; wakeReadiness = "Service stopped"; phoneQuestionGeneration++;
-            broadcastState(false, "off");
-            destroyRecognizer();
-            stopWakeEngine();
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
-        } catch (Exception error) {
-            LogStore.append(this, "ERROR", "Call failed: " + error.getMessage());
-            broadcastMessage("This device could not place the call.");
-            stopIris("Call launch failed");
+        if (callManager != null) {
+            callManager.performCall(name, number);
         }
     }
 
     private void requestUnlockForCall(String name, String number) {
-        Intent open = new Intent(this, MainActivity.class)
-                .putExtra(EXTRA_NAME, name).putExtra(EXTRA_NUMBER, number)
-                .putExtra(EXTRA_AUTH_REQUIRED, true);
-        PendingIntent content = PendingIntent.getActivity(this, 24, open,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification notification = new Notification.Builder(this, CALL_CHANNEL)
-                .setSmallIcon(R.drawable.ic_iris)
-                .setContentTitle("Unlock to call " + name)
-                .setContentText("IRIS protects calls while your phone is locked.")
-                .setContentIntent(content).setAutoCancel(true).build();
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(CALL_NOTIFICATION, notification);
-        LogStore.append(this, "LOCKED", "Authentication required for " + name);
+        if (callManager != null) {
+            callManager.requestUnlockForCall(name, number);
+        }
     }
 
     /** True (and tells the user) if an action must wait for unlock while the phone is locked. */
@@ -6757,17 +6317,16 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (vadEngine != null) { vadEngine.close(); vadEngine = null; }
         if (onnxRecognizer != null) { onnxRecognizer.close(); onnxRecognizer = null; }
         if (slmEngine != null) { slmEngine.close(); slmEngine = null; }
+        if (headsetCoordinator != null) { headsetCoordinator.teardownTriggers(); }
+        if (callManager != null) { callManager.clearPending(); }
         super.onDestroy();
     }
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
-    private static class ContactMatch {
-        final String name;
-        final String number;
-        final double score;
-        ContactMatch(String name, String number, double score) {
-            this.name = name; this.number = number; this.score = score;
+    public static class ContactMatch extends CallManager.ContactMatch {
+        public ContactMatch(String name, String number, double score) {
+            super(name, number, score);
         }
     }
 }

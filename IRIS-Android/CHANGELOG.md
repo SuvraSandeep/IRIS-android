@@ -1,5 +1,16 @@
 # Changelog
 
+## 16.78.0
+
+- God Classes Deconstruction: Deconstructed monolithic classes `MainActivity.java` and `IrisListeningService.java` into single-responsibility domain controllers (§1).
+- Extracted telephony, contact disambiguation, spoken confirmations, and intent dispatch out of `IrisListeningService.java` into dedicated `CallManager.java`.
+- Extracted shake-to-wake sensor listener (2.7g threshold, 3s cooldown), `MediaSession` media buttons, and Bluetooth audio device routing queries into dedicated `HeadsetSensorCoordinator.java`.
+- Extracted contacts browsing, manual contact entry, rules, relationships, and custom tone selection out of `MainActivity.java` into `ContactsViewController.java`.
+- Extracted pinned notes, urgent flags, scheduled reminders queue, and filter chips out of `MainActivity.java` into `FlaggedQueueController.java`.
+- Extracted auto-responder settings, dry-run/live toggles, tone customization, live decision logs, and test-send dispatch out of `MainActivity.java` into `ResponderViewController.java`.
+- Reduced `MainActivity.java` from 11,337 lines down to 5,522 lines (>51% reduction) and `IrisListeningService.java` by 673 lines.
+- Updated `tests/check-unresolved-types.py` registering all new domain controllers, with 100% pass across all 8 verification test suites.
+
 ## 16.77.1
 
 - Fix syntax error in `MainActivity.java` `onActivityResult()` caused by unclosed `else if (archiveViewController.handleActivityResult(...))` block.

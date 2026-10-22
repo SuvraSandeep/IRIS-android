@@ -71,6 +71,11 @@ DEFAULT_TARGETS = [
     "ServerClient.java",
     "WatchBridge.java",
     "WatchGattBridge.java",
+    "HeadsetSensorCoordinator.java",
+    "CallManager.java",
+    "ResponderViewController.java",
+    "ContactsViewController.java",
+    "FlaggedQueueController.java",
 ]
 
 JAVA_LANG = {
