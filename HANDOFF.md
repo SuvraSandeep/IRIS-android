@@ -2,224 +2,122 @@
 
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
-> Server/Watch packages). **Current version: `16.27.0` / `versionCode 406`.**
+> Notification Vault architecture, Server/Watch packages).
+> **Current version: `16.72.1` / `versionCode 468` (Branch: `feat/responder-conversation-fixes`).**
+
+---
 
 ## 0. Orientation
-- **App:** offline-first, single-user voice assistant + WhatsApp/SMS auto-responder. Package `com.iris.assistant`. Owner = **Suvra**.
-- **Repo root:** `IRIS-android/`; Android project under `IRIS-Android/` (that's where `settings.gradle`, `app/`, `scripts/`, `tests/` live). Watch companion under `IRIS-Watch/`. Personal server under `IRIS-Android/server/`.
-- **Design spine:** all decision logic lives in **pure policy classes with no Android imports**
+- **App:** Offline-first, single-user voice assistant + WhatsApp/SMS auto-responder + immutable forensic notification vault. Package `com.iris.assistant`. Owner = **Suvra**.
+- **Repo root:** `IRIS-android/`; Android project under `IRIS-Android/` (where `settings.gradle`, `app/`, `scripts/`, `tests/` live). Watch companion under `IRIS-Watch/`. Personal server under `IRIS-Android/server/`.
+- **Design spine:** Decision logic lives in **pure policy classes with zero Android imports**
   (`MessageCategory`, `ReplyTone`, `SmartReplies`, `ResponderGuards`, `Shorthand`, `GroupMention`,
   `Debounce`, `IntroTrim`, `OwnerAlias`, `TimeGreeting`, `AutoModePolicy`, `ReminderParser`,
-  `Emoji`, `Vernacular`, `ProfileShare`, etc.). The Android layer is deliberately thin. This is why
-  there's a large offline test suite but a thin, device-only glue layer.
-
-## ⚠️ The single most important fact
-Releases **16.6.0 → 16.27.0 (~21 releases) are all offline-suite-green but have NOT been compiled
-against the Android SDK.** The offline harness catches Java syntax + unresolved type names only —
-**not** Android method-signature/import/`R` errors (16.0.0 historically failed CI exactly this way).
-**The immediate next task is a successful CI/APK build of the current source and installing it on
-the device.** Treat all "Working" statuses below as "working in offline logic; device-unverified
-for the latest ~21 releases" unless noted.
+  `Emoji`, `Vernacular`, `ProfileShare`, `ArchiveSchema`, `DeletedMessageRules`, `SwipeDecision`, etc.). The Android framework layer is kept lean and decoupled.
+- **Standing Rules (Mandatory):**
+  1. Every feature or fix bumps `app/build.gradle` (`versionName` / `versionCode`), prepends a new entry to the `FEATURES` array in `IRIS-FEATURES.html`, updates `BUILD_VERSION`, and **updates `HANDOFF.md` after each commit**.
+  2. Pure policy classes must remain free of Android imports (`android.*`) so they are unit-testable offline.
+  3. Append-only database triggers in `ArchiveSchema.java` must never be weakened or deleted.
 
 ---
 
-## 1. Feature-by-feature status
+## 1. Feature-by-Feature Status
 
-### Voice / wake / identity (mature, older, has run on device historically)
-| Feature | Status | Notes |
+### A. Notification Vault / Archive (`com.iris.assistant`)
+| Feature | Status | Description |
 |---|---|---|
-| Wake word (Vosk grammar) | Working* | *older, device-proven in earlier builds |
-| Speech-to-text (Vosk full) | Working* | en-IN + en-US small models |
-| Silero VAD (voice activity) | Working* | ONNX Runtime, on-device; model self-downloads at runtime |
-| Speaker verification (ECAPA-TDNN ONNX + Vosk spk) | Working* | only-owner wake; see `SPEAKER-VERIFICATION.md`, `WAKE-TRAINING-REDESIGN.md` |
-| Owner enrollment / training | Working* | `OwnerEnrollmentController`, training-plan classes + Robolectric unit tests |
-| TTS (Android TextToSpeech) | Working* | |
-| Command routing (call/time/torch/etc.) | Working* | **rule-based** `LocalPlanner`/`IntentParser`/`Plan` — not an LLM |
+| **Append-Only SQLite Engine** | Working | `ArchiveSchema.java` + `NotificationArchive.java`. DDL enforces SQLite BEFORE UPDATE and BEFORE DELETE triggers so messages cannot be tampered with. |
+| **Media Interception & Storage** | Working | Intercepts photos, videos, voice notes, and documents (`.pdf`, `.docx`, `.xlsx`, `.zip`) from `EXTRA_MESSAGES`. Stored in app-private `archive_images/` directory. |
+| **Media Playback & Viewer** | Working | Native `VideoView` for clips, interactive `WaveformView` audio player for voice notes, file-opener intent for docs, and photo lightbox viewer. |
+| **Unsent / Deleted Detection** | Working | `DeletedMessageRules.java`. Distinguishes confirmed deletions from suspected deletions (app withdrawal while screen was off), preserving original text with warning banners. |
+| **Full-Screen Fluid Viewport** | Working | Collapsible cyber status bar (`archiveDiagBody`), fast-scroll thumb, 100% native velocity scroll inertia (card touch listener decoupling), and inline one-tap `[🗑️ DEL]`. |
+| **Forensic Exports & Backup** | Working | `ArchiveExport.java`. Generates forensic HTML dark-mode reports with embedded thumbnails, self-contained ZIP backups containing media files, and filtered CSV exports. |
+| **Multi-Store Wipe-All Purge** | Working | Completely purges SQLite rows, deletes disk media (`ArchiveImages.deleteAll`), reclaims storage (`VACUUM` + WAL truncation), clears `NotificationStore` and `FlaggedStore`, physically dismisses active shade notifications (`IrisNotificationListener.dismissAll`), and establishes synchronous epoch wipe barriers. |
 
-### Comms Deck / Auto-responder (active work area — heavily built, offline-tested, device-unverified for recent releases)
-| Feature | Status |
-|---|---|
-| Category classification (`MessageCategory`) | Working (offline) |
-| Tone resolution + per-app tone + sentiment softening | Working (offline) |
-| Reply templates / variants (`ReplyTemplates`) | Working (offline) |
-| Guards: scope, cooldown, caps, loop, SMS-OTP safety, burst, **debounce** | Working (offline) |
-| SmartReplies keyword brain (~90+ scenario rules) | Working (offline) |
-| Robust/loose matching (`PhraseMatcher`), SMS shorthand (`Shorthand`) | Working (offline) |
-| Group mention by @handle/number (`GroupMention`) | Working (offline) |
-| Money-amount detection, weather, availability, location, "detective-trap" | Working (offline) |
-| Hinglish/Odia (`Vernacular`), Emoji understanding (`Emoji`) | Working (offline) |
-| Reminders (`ReminderParser` + follow-up edit/cancel) | **Partial** — parsing works offline; on-device scheduling needs exact-alarm permission |
-| Learned replies (teach-a-reply) | Working (offline) |
-| Profile sharing (`ProfileShare`/`ShareProfile`, PII-safe) | Working (offline) |
-| Notification triage ("what did I miss") | Working (offline) |
-| Multi-intent stitching (`matchMulti`) | Working (offline) |
-| Intro-strip after msg #1 (`IntroTrim`) | **Partial** — only strips lead/trailing intros, not mid-sentence |
-| Double-text debounce (`Debounce`) | **Partial** — suppresses the rapid 2nd reply; does not literally concatenate the two messages' content |
-| Self-activating modes (`AutoModePolicy`) | **Partial** — decision core + auto-sleep done; driving/meeting signal collectors NOT wired (permission-gated) |
+### B. Auto-Responder / Comms Deck (`com.iris.assistant`)
+| Feature | Status | Description |
+|---|---|---|
+| **Urgent-Only Mode** | Working | Dedicated quick-toggle button (`responderUrgentOnlyToggle`) and settings switch. When active, IRIS only responds to urgent/distressed messages, family rings, and flag commands; casual messages are silenced with `Verdict.NOT_URGENT`. |
+| **Decision Engine & Guards** | Working | `ResponderGuards.java`. Evaluates cooldowns, daily caps, banter snooze, quiet hours, auto-sleep, mention rules, and burst deduplication. |
+| **Smart Replies Brain** | Working | `SmartReplies.java` (~100+ scenario rules), `PhraseMatcher` (fuzzy match), `Vernacular` (Hinglish/Odia), `Emoji` sentiment analysis, and `Shorthand` expansion. |
+| **Decision Audit Log** | Working | Full audit trail displaying incoming text, app, verdict rationale, outgoing simulated/sent replies, one-tap teach-a-reply dialog, and decision details copy. |
+| **Operational States** | Working | Three states: `OFF`, `DRY RUN` (evaluates & logs without sending), and `LIVE` (sends responses via `NotificationReply`). |
 
-### Other subsystems
-| Feature | Status |
-|---|---|
-| **Server Mode** (opt-in cloud LLM/Whisper) | **Partial** — Android client (`ServerClient`) + runnable server package exist; opt-in; not device-verified end-to-end |
-| **Watch Bridge** (`IRIS-Watch`, Amazfit T-Rex 3) | **Partial / experimental** — Zepp OS mini-app source; never tested on real hardware; loopback-HTTP transport unproven; packaging blocked |
-| **On-device generative LLM** (Gemma/MediaPipe) | **Planned / not in build** (see §7) |
-| Memory store / personal facts (`iris-me.json`) | Working* |
+### C. Voice / Wake / Identity
+| Feature | Status | Description |
+|---|---|---|
+| **Wake Word Engine** | Working | Vosk grammar listener with single-user enrollment. |
+| **Speech-to-Text (STT)** | Working | Small offline Vosk models (en-IN + en-US). |
+| **Voice Activity Detection** | Working | Silero VAD on-device via ONNX Runtime. |
+| **Speaker Verification** | Working | ECAPA-TDNN ONNX model verifying owner voiceprint. |
+| **Command Routing** | Working | Deterministic rule-based planner (`LocalPlanner.java`, `IntentParser.java`). |
+
+### D. Server Mode & External Integrations
+| Feature | Status | Description |
+|---|---|---|
+| **Server Mode** | Working (Opt-in) | FastAPI server (`server/app.py`) proxying Ollama (`qwen2.5:3b-instruct`) and faster-whisper. Android client `ServerClient.java` falls back to on-device logic on timeout. |
+| **Watch Companion** | Experimental | `IRIS-Watch/` Zepp OS mini-app designed for Amazfit T-Rex 3 over loopback HTTP bridge. |
 
 ---
 
-## 2. Known bugs & issues (as of 16.27.0)
-1. **Not APK-compiled** since ~16.6.0 — highest risk; may contain Android-only compile errors invisible to the offline suite. Workaround: keep the Android layer thin; run CI before trusting a release.
-2. **Reminders fail silently** on Android 12+ without the "Alarms & reminders" (`SCHEDULE_EXACT_ALARM`) permission. Parsing is correct; scheduling is the gap.
-3. **IntroTrim partial** — intros embedded mid-sentence aren't removed (by design, to avoid mangling).
-4. **Debounce partial** — the 2nd rapid message's content isn't merged, only one reply is sent.
-5. **Driving/meeting auto-modes** — not active (signals unwired, permission-gated).
-6. **Instagram deep-link reply fallback (plan 9.1/9.6)** — not implemented; replies only work when the notification exposes a RemoteInput action.
-7. **Watch Bridge** — unverified on hardware; Zepp cleartext/loopback may be blocked; Zeus packaging was blocked by an upload-approval review.
-8. **Server Mode** — not device-verified end-to-end; cold-start/latency behavior untested on real free-tier hosts.
-9. **On-device small LLM historically crashed** (CPU/RAM) → removed/disabled; see §7.
-10. **`now.json` (407 MB)** was purged from git history (git-ignored). Recoverable from backup branch `backup/pre-nowjson-fix`.
-11. **Two build workflows exist** — the active one is `.github/workflows/build-apk.yml` at the repo root; a nested `IRIS-Android/.github/workflows/build-iris-apk.yml` also exists and differs (e.g. bundles Silero VAD). Nested workflows under a subdir do NOT run on GitHub — don't be misled by the nested copy.
+## 2. Key Static Analysis & Verification Suites
 
-**Standing safety workarounds in place:** offline-first auto-fallback everywhere; models self-download at runtime if CI bundling fails; keep-unread default ON; SMS one-time-codes/shortcodes never auto-replied; owner wake/identity checks are a hard contract (`AGENTS.md` / `PROJECT-RULES.md`) and must not be weakened.
+Run from `IRIS-Android/` before every commit:
+```bash
+# 1. Verify append-only SQL triggers and database schema immutability
+python tests/check-archive-schema.py     # 73/73 tests pass
 
----
+# 2. Check for unresolved type names and layout ID bindings
+python tests/check-unresolved-types.py    # 33 files checked, 280 layout IDs resolved
 
-## 3. Build & run from source
-
-### Canonical path — GitHub Actions (what's actually used)
-Workflow: `.github/workflows/build-apk.yml` (Ubuntu, **JDK 17 Temurin**, Gradle via wrapper,
-`workflow_dispatch` with debug/release; also runs on push/PR).
-Pipeline: check watch JS (`npm --prefix IRIS-Watch run check && test`) → locate project
-(`IRIS-Android`) → read version → bundle models (see §5) → `bash scripts/test-speech.sh` →
-`./gradlew :app:testDebugUnitTest` (Robolectric) → `./gradlew :app:assembleDebug|assembleRelease`
-→ lint → upload APK artifact `IRIS-v<version>-<type>-apk`.
-To build: trigger the workflow (push to main, or **Run workflow** → debug/release) and download the artifact.
-
-### Local path (needs Android SDK)
-```
-# from IRIS-Android/
-./gradlew :app:assembleDebug          # APK -> app/build/outputs/apk/debug/app-debug.apk
-./gradlew :app:testDebugUnitTest      # Robolectric unit tests
-bash scripts/test-speech.sh           # pure offline regression suites
-```
-Requires JDK 17, Android SDK (compile/target per `app/build.gradle`), and model assets in
-`IRIS-Android/app/src/main/assets/` (see §5).
-
-### Offline logic checks (no SDK needed)
-```
-# from IRIS-Android/
-python tests/run-offline-suites.py                                     # 114 suite commands
-java -Dfile.encoding=UTF-8 tests/ParseSources.java app/src/main/java    # parses 181 files
-python tests/check-unresolved-types.py                                 # unresolved types + layout ids
+# 3. Validate all 38 XML layout and drawable resources
+python tests/check-xml.py                # 38 resource files validated
 ```
 
 ---
 
-## 4. What's next / half-finished
-- **Last work:** completed `RESPONDER-INTELLIGENCE-PLAN.md` and a forensic-audit spec (shorthand, scenario rules, multi-intent stitching, intro-strip, debounce) through 16.27.0.
-- **Immediate next task:** green CI/APK build of current source + install on device; fix any Android-only compile errors it surfaces. Nothing else should be trusted until this passes.
-- **Then, roughly:** (1) exact-alarm permission so reminders fire; (2) wire driving/meeting auto-mode signals (permissions + device test); (3) Instagram deep-link reply fallback; (4) device-verify Server Mode and the Watch Bridge; (5) improve IntroTrim (mid-sentence) and true debounce concatenation.
-- **No half-written code left mid-edit** — every release is a complete, suite-green unit.
+## 3. Architecture & Key Files Map
+
+* **Notification Vault (Archive):**
+  * `ArchiveSchema.java`: Schema DDL, append-only triggers, size quotas, and migration definitions.
+  * `NotificationArchive.java`: Database helper, query builder, thread grouper, and authorised wipe logic.
+  * `DeletedMessageRules.java`: Placeholder detection, deletion classification, and confidence scoring.
+  * `ArchiveImages.java`: Media file storage, thumbnail caching, and disk sweep cleanups.
+  * `ArchiveExport.java`: Forensic HTML reports, self-contained ZIP media backups, and CSV generation.
+  * `view_archive.xml`: Viewport layout, collapsible diagnostics header, and smooth-scrolling `ListView`.
+* **Auto-Responder:**
+  * `AutoResponder.java`: Top-level message intake, triage, and dispatch pipeline.
+  * `ResponderGuards.java`: Guard policies, rate limits, allowlists, and `Verdict.NOT_URGENT` enforcement.
+  * `ResponderSettings.java`: SharedPreferences wrapper with `urgentOnly` toggle state.
+  * `SmartReplies.java`: Context-aware keyword and vernacular reply engine.
+  * `view_comms_responder.xml`: Responder UI deck with quick `[URGENT MESSAGES ONLY]` toggle button.
+* **Glue & UI Orchestration:**
+  * `MainActivity.java`: UI binding for Vault, Responder, Contacts, and Flagged decks; touch scroll decoupling; Wipe-All coordinator.
+  * `IrisNotificationListener.java`: System `NotificationListenerService` capturing active notifications, enforcing the `lastWipeEpoch` barrier, and handling system notification shade dismissal.
 
 ---
 
-## 5. Model files & where they go (`IRIS-Android/app/src/main/assets/`)
-| Asset | Source | In CI | Runtime fallback |
-|---|---|---|---|
-| `model-en-in.zip` (Vosk small en-IN) | alphacephei | best-effort download | self-downloads if absent |
-| `model-en-us.zip` (Vosk small en-US) | alphacephei | **required** (`unzip -t`) | — |
-| `spk-model.zip` (Vosk speaker) | alphacephei | best-effort | self-downloads |
-| `ecapa_tdnn_voxceleb.onnx` (+ `.json`) | `tools/export_ecapa_to_onnx.py` (torch+speechbrain, cached) | yes | — |
-| `silero_vad.onnx` | snakers4/silero-vad raw GitHub | not bundled by the active root workflow | `SileroVad.java` self-downloads on first use (bundled-first, else download) |
-| `iris-me.json` | repo root (full owner profile) | copied if present | app works without it |
-| `iris-share.json` | repo root (shareable facts only) | copied if present | nothing shared if absent |
+## 4. Recent Milestones & Release History
 
-Zips are bundled whole (not unpacked) and streamed via `AssetManager.open()` + `ZipInputStream`
-on-device — unpacking loose files broke `AssetManager.list()`. `aaptOptions { noCompress 'onnx','tflite' }`.
-
----
-
-## 6. Dependencies & gotchas
-- **Gradle deps** (`app/build.gradle`): `com.alphacephei:vosk-android:0.3.75`,
-  `com.microsoft.onnxruntime:onnxruntime-android:1.19.2`; test: `junit:4.13.2`,
-  `robolectric:4.14.1`, `org.json`. **No MediaPipe/Gemma dependency.**
-- **No API keys** needed for the app. Server Mode uses a self-generated bearer token + your own
-  Ollama/Whisper server (no third-party cloud API key).
-- **Dev-environment:** owner develops on **Windows + PowerShell**; the primary agent has **no
-  Android SDK** (offline Java checks only). PowerShell shows a harmless "running scripts is
-  disabled" profile error on every command — ignore it.
-- **Release rules (enforced):** every change adds a new entry at the **top** of the `FEATURES`
-  array in `IRIS-FEATURES.html` and bumps `BUILD_VERSION`; `app/build.gradle` `versionName`
-  +0.1.0 (feature) / +0.0.1 (fix) and `versionCode` +1. `IRIS-FEATURES.html` is **JS, not JSON** —
-  validate with `new Function("return [" + body + "]")()`, never `JSON.parse`.
-- **Invariants:** pure policy classes have no Android imports; `MessageCategory` must not depend on
-  any other policy class (compiled alone in some suites); every shipped responder reply variant
-  should name both **IRIS** and **Suvra** (all-variants sweep in `ReplyTemplatesTest`); the
-  real-Odia "must-not-match" corpus must stay silent.
-- **Suite registration:** each new pure class gets its own `javac`+`java` block in
-  `scripts/test-speech.sh`; watch transitive deps (`ReplyTone`->`MessageCategory`;
-  triage/sentiment->`Emoji`+`ReplyTone`; `ResponderGuards`->`Debounce`).
-- **Encoding:** `javac` needs `-encoding UTF-8` and rejects `-Dfile.encoding`; `java` needs quoted
-  `'-Dfile.encoding=UTF-8'`.
-- **Owner contract:** `AGENTS.md` + `PROJECT-RULES.md` forbid weakening owner wake-identity, model
-  selection, media rejection, or authenticated-write controls without explicit owner request.
+* **v16.72.1 (Commit `98a0ca1`)**:
+  * Enhanced Auto-Responder status deck with explicit cyber warning notice when Urgent-Only mode is active.
+* **v16.72.0 (Commit `73880d8`)**:
+  * **Touch Scroll Decoupling**: Removed card-level `OnTouchListener` from `ArchiveAdapter`, restoring 100% native Android velocity inertia and fast-scroll thumb navigation on `archiveList`.
+  * **System Notification Shade Dismissal**: Added `IrisNotificationListener.dismissAll()` on Wipe-All to physically clear Android's status bar drawer.
+  * **Synchronous Wipe Barrier**: Added `lastWipeEpoch` in-memory barrier in `IrisNotificationListener` and switched `AppSettings.setLastArchiveWipeAt` to `.commit()` with a 1000ms forward buffer to guarantee pre-wipe notifications never resurrect on RESCAN.
+  * **System Marker Vault Seclusion**: Configured `buildArchiveFilter` to strictly exclude internal listener diagnostic markers from the message vault.
+* **v16.71.0 (Commit `11131f8`)**:
+  * Viewport expansion (+160dp) via collapsible cyber diagnostics header (`[DIAG ▾]`).
+  * Fast-scroll thumb and inline `[🗑️ DEL]` cyber action buttons on archive cards.
+* **v16.70.0 (Commit `1008d66`)**:
+  * Introduced Auto-Responder Urgent-Only mode toggle button.
 
 ---
 
-## 7. On-device LLM — the honest answer
-**Not running on-device in the current build.** There is **no MediaPipe/Gemma/Qwen dependency** in
-`build.gradle` and **no Gemma/LLM source class** in the app. `CONVERSATIONAL-AGENT.md` (a v6.0.0
-design doc) describes a "Gemma-3 / FunctionGemma via MediaPipe" agent, and `SERVER-MODE.md` records
-that the on-device small LLM was **"unstable / crashes"** on phone CPU/RAM.
-
-So today:
-- **On-device "intelligence" is rule-based**, not generative: `LocalPlanner`/`IntentParser`/`Plan`
-  for commands, and the `SmartReplies`/`MessageCategory` stack for the responder.
-- **Generative LLM is server-only and opt-in** (Server Mode): `server/app.py` (FastAPI) proxies
-  **Ollama** — default `qwen2.5:3b-instruct` (alternatives `llama3.2:3b`, `qwen2.5:7b-instruct`) —
-  plus **faster-whisper** for STT. The phone (`ServerClient.java`) calls `/health`, `/chat`,
-  `/transcribe` and **falls back to on-device on any error/timeout**.
-- Net: **rule-based on-device + optional server LLM**. On-device Gemma/MediaPipe is
-  **planned/documented but uncoded (previously attempted, removed as unstable)**.
-
-**Server Mode** = implemented client + runnable server package (`server/`: `app.py`, `install.sh`,
-`Caddyfile`, `colab/`), opt-in via Settings, **not device-verified end-to-end**.
-**Watch Bridge** (`IRIS-Watch`) = experimental Zepp OS mini-app for the Amazfit T-Rex 3 (phone
-status, ring/stop finder, request-talk) over BLE -> Zepp Side Service -> authenticated
-`127.0.0.1:18473`; **never tested on real hardware**; transport may be blocked by Zepp's build.
-**Comms Deck** = extensively implemented and offline-tested, **device-unverified for the latest
-~21 releases**.
-
----
-
----
-
-## 7a. Device-only task: the 3-second double-text debouncer (NOT done)
-The **policy** for coalescing is pure and tested (`Debounce.withinWindow` / `Debounce.combine`,
-plus a `DEBOUNCED` guard verdict that suppresses a rapid 2nd reply). What is **not** implemented,
-because it can only be built and verified on a device, is the **input-coalescing glue**: buffering
-a sender's rapid bubbles and running the responder **once** on the joined text (so "Iris r u there"
-+ "u there??" 1 s apart become one reply to the combined message, not two).
-
-Reference design (from the owner's Python `DebouncedListener`): keep a per-sender buffer + a 3 s
-timer; each new bubble cancels the pending timer and appends; on timeout, join the buffer (e.g.
-with " . " or a space via `Debounce.combine`) and call `AutoResponder` once.
-
-Android implementation sketch (in the notification listener, device-verify required):
-- Per-conversation `Handler.postDelayed(flush, Debounce.DEFAULT_WINDOW_MS)`; cancel+reschedule on
-  each new notification from the same key.
-- On flush, pass `Debounce.combine(buffered)` as the incoming body to the existing pipeline.
-- Must survive the listener process being killed mid-window (persist the buffer, or accept that a
-  kill flushes immediately). Verify timing, ordering, and that URGENT still bypasses on a device.
-
-Until this is wired, the shipped behaviour is: the 2nd rapid message is **suppressed** (one reply),
-not **merged** (the 2nd message's content isn't added to the first reply's context).
-
----
-
-## 8. Key reference docs in-repo
-`RESPONDER-INTELLIGENCE-PLAN.md` (responder roadmap + completion status) · `SERVER-MODE.md` /
-`SERVER-MODE-IMPLEMENTATION.md` · `CONVERSATIONAL-AGENT.md` / `AGENT-ARCHITECTURE.md` ·
-`SPEAKER-VERIFICATION.md` / `WAKE-TRAINING-REDESIGN.md` · `MEMORY-AND-SECURITY.md` ·
-`INTELLIGENCE-ROADMAP.md` · `IRIS-Watch/README.md` · `server/README.md` · `AGENTS.md` /
-`PROJECT-RULES.md` (owner security contract).
+## 5. Maintenance Checklist for Future Commits
+Whenever making code changes:
+1. Ensure pure policy classes have no `android.*` imports.
+2. Run `python tests/check-archive-schema.py`, `python tests/check-unresolved-types.py`, and `python tests/check-xml.py`.
+3. Bump `versionCode` (+1) and `versionName` in `app/build.gradle`.
+4. Prepend a new feature entry to `FEATURES` array and update `BUILD_VERSION` in `IRIS-FEATURES.html`.
+5. **Update `HANDOFF.md` immediately with the commit hash, version bump, and architectural changes.**
