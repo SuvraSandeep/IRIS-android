@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.81.0` / `versionCode 478` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.81.1` / `versionCode 479` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -139,6 +139,13 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v16.81.1 (Commit `ec027f1`)**:
+  * **CI Build & Modular Symbol Resolution Fixes**:
+    * **Pure Android SDK Enforcement**: Replaced unbundled `androidx.core.content.ContextCompat` in `HeadsetSensorCoordinator.java` with native `Context.checkSelfPermission()` (API 23+, minSdk 26). Added `check_forbidden_imports()` to `check-unresolved-types.py` to prevent any unbundled library imports from slipping into CI.
+    * **Controller Symbol Resolution**: Qualified bare `Context` service constants (`Context.ALARM_SERVICE`, `Context.NOTIFICATION_SERVICE`, `Context.CLIPBOARD_SERVICE`) in `ResponderViewController.java`, eliminated duplicate field definitions (`responderLogSignature`, `responderLogFilter`), added `isFinishing()` and `isDestroyed()` lifecycle helpers, and properly delegated contact editing to `activity.getContactsViewController().editPhoneContact()`.
+    * **Offline Guard**: Added `check_bare_services()` to `check-unresolved-types.py` to guarantee non-Context controller classes never reference bare service constants.
+    * **Verification**: All 9 test suites pass 100% (`check-archive-schema.py`, `check-unresolved-types.py`, `check-xml.py`, `check-training-layout.py`, `check-speech-pipeline.py`, `check-planning-pipeline.py`, `check-comms-deck.py`, `check-server-and-watch.py`, and `check-brackets.py`).
 
 * **v16.81.0 (Commit `191557a`)**:
   * **Server Mode SSE Streaming `chat()` Overload (§5)**: Added `ServerClient.chat(message, context, profile, connectMs, readMs, StreamListener listener)` streaming overload in `ServerClient.java` delegating to `chatStream()`. Token chunks from `/chat/stream` are split at sentence boundaries via `findSentenceSplit()`, feeding Android's `TextToSpeech` with `QUEUE_FLUSH` for sentence 1 (reducing perceived time-to-first-sentence latency from 8.0s to 800ms) and `QUEUE_ADD` for subsequent chunks. Action tags (`[CALL]`, `[TIME]`) are parsed and dispatched to `handleLlmOutput()` without speaking raw bracket syntax. Lifecycle re-arming is safely handled by `scheduleStreamRearm()` with utterance tracking and watchdog timer.
