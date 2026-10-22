@@ -105,7 +105,7 @@ python tests/check-xml.py                # 38 resource files validated
 
 ## 4. Recent Milestones & Release History
 
-* **v16.73.0 (God Classes Modularization)**:
+* **v16.73.0 (Commit `9df4d97`)**:
   * **`ArchiveViewController` Extraction**: Moved 3,194 lines out of `MainActivity.java` into a dedicated domain controller for vault list rendering, pagination, filter chips, lightbox, media players, swipe-to-delete queue with undo bar, and forensic exports (ZIP, HTML report, CSV, text). Reduced `MainActivity.java` by ~28%.
   * **`VoicePipelineCoordinator` Extraction**: Extracted low-level audio hardware loops, `AudioDeviceCallback` lifecycle, audio routing enumeration, speech focus request/abandon, and media key play/pause dispatch out of `IrisListeningService.java`.
   * **`PlanRunner` Execution Centralization**: Implemented `PlanRunner.java` adhering to Agent Architecture Phase 2/5 specification, centralizing tool call and structured plan dispatching through a clean `Host` interface.
