@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.75.0` / `versionCode 471` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.76.0` / `versionCode 472` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -39,6 +39,9 @@
 | Feature | Status | Description |
 |---|---|---|
 | **Urgent-Only Mode** | Working | Dedicated quick-toggle button (`responderUrgentOnlyToggle`) and settings switch. When active, IRIS only responds to urgent/distressed messages, family rings, and flag commands; casual messages are silenced with `Verdict.NOT_URGENT`. |
+| **Double-Text Buffer** | Working | `IrisNotificationListener.java`. 2.5s sliding window (`pendingBubbles`, `pendingFlushes`) buffers rapid-fire message bubbles from the same contact/conversation and coalesces them with `Debounce.combine()` into a single unified context for `AutoResponder.consider()`, respecting `replyToEveryMessage()` when enabled. |
+| **Situational Auto-Modes** | Working | `AutoModeDetector.java` + `AutoModePolicy.java`. Detects vehicle Bluetooth connections (`isDrivingActive`) and busy calendar events (`isMeetingActive`), dynamically shifting IRIS into Driving or Meeting mode when auto-switches are enabled. |
+| **Exact Alarms & Reminders** | Working | Android 12+ (API 31+) compliant exact alarm scheduling with deep links to `Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM`, `SecurityException` try/catch wrapping, and graceful `setWindow()` (60s/120s) fallbacks in `ReminderStore` and `IrisListeningService`. |
 | **Decision Engine & Guards** | Working | `ResponderGuards.java`. Evaluates cooldowns, daily caps, banter snooze, quiet hours, auto-sleep, mention rules, and burst deduplication. |
 | **Smart Replies Brain** | Working | `SmartReplies.java` (~100+ scenario rules), `PhraseMatcher` (fuzzy match), `Vernacular` (Hinglish/Odia), `Emoji` sentiment analysis, and `Shorthand` expansion. |
 | **Decision Audit Log** | Working | Full audit trail displaying incoming text, app, verdict rationale, outgoing simulated/sent replies, one-tap teach-a-reply dialog, and decision details copy. |
@@ -70,7 +73,7 @@ Run from `IRIS-Android/` before every commit:
 python tests/check-archive-schema.py     # 73/73 tests pass
 
 # 2. Check for unresolved type names and layout ID bindings
-python tests/check-unresolved-types.py    # 39 files checked, 280 layout IDs resolved
+python tests/check-unresolved-types.py    # 40 files checked, 280 layout IDs resolved
 
 # 3. Validate all 38 XML layout and drawable resources
 python tests/check-xml.py                # 38 resource files validated
@@ -80,6 +83,9 @@ python tests/check-speech-pipeline.py    # 100% contract and math validation
 
 # 5. Check real agent planning pipeline, multi-intent decomposition, and tool execution
 python tests/check-planning-pipeline.py  # 100% dispatch, Host methods, and pure policy validation
+
+# 6. Check Comms Deck, double-text buffering, exact alarms, and auto-modes
+python tests/check-comms-deck.py         # 100% pass across all comms deck & vault checks
 ```
 
 ---
@@ -94,10 +100,12 @@ python tests/check-planning-pipeline.py  # 100% dispatch, Host methods, and pure
   * `ArchiveImages.java`: Media file storage, thumbnail caching, and disk sweep cleanups.
   * `ArchiveExport.java`: Forensic HTML reports, self-contained ZIP media backups, and CSV generation.
   * `view_archive.xml`: Viewport layout, collapsible diagnostics header, and smooth-scrolling `ListView`.
-* **Auto-Responder:**
-  * `AutoResponder.java`: Top-level message intake, triage, and dispatch pipeline.
+* **Auto-Responder & Comms Deck:**
+  * `AutoResponder.java`: Top-level message intake, triage, and dispatch pipeline with `AutoModeDetector` signal resolution.
+  * `AutoModeDetector.java`: On-device sensor and calendar event detector for vehicle Bluetooth connections and busy calendar events.
+  * `AutoModePolicy.java`: Pure decision matrix resolving effective situational mode (Driving > Meeting > Sleeping > None).
   * `ResponderGuards.java`: Guard policies, rate limits, allowlists, and `Verdict.NOT_URGENT` enforcement.
-  * `ResponderSettings.java`: SharedPreferences wrapper with `urgentOnly` toggle state.
+  * `ResponderSettings.java`: SharedPreferences wrapper for arming, scopes, `urgentOnly`, `autoDriving`, and `autoMeeting` toggles.
   * `SmartReplies.java`: Context-aware keyword and vernacular reply engine.
   * `view_comms_responder.xml`: Responder UI deck with quick `[URGENT MESSAGES ONLY]` toggle button.
 * **Voice & Execution Controllers:**
@@ -108,14 +116,21 @@ python tests/check-planning-pipeline.py  # 100% dispatch, Host methods, and pure
   * `WakeWordEngine.java`: Wake-phrase detection with 500ms (25-frame) rolling ambient RMS tracking, adaptive trigger multipliers (2.8x–3.8x), dynamic DTW scaling, and Silero VAD trimming.
   * `PlanRunner.java`: Phase 2/5 Android tool executor centralizing execution of structured plans and tool calls against device hardware and intents.
   * `LocalPlanner.java` & `IntentParser.java`: Intent parsing and structured plan generation.
+  * `OnnxSlmEngine.java`: On-device 4-bit small language model engine running Qwen2.5/SmolLM2 with semantic multi-intent conjunction decomposition.
 * **Glue & UI Orchestration:**
-  * `MainActivity.java`: Host UI activity & navigation tabs; delegates Notification Vault entirely to `ArchiveViewController`.
+  * `MainActivity.java`: Host UI activity & navigation tabs; delegates Notification Vault entirely to `ArchiveViewController`; provides Permission Dashboard and situational mode switches.
   * `IrisListeningService.java`: Foreground lifecycle and hotword service; delegates audio routing to `VoicePipelineCoordinator`, offline STT to `OnnxSpeechRecognizer` (with Vosk fallback), and plan execution to `PlanRunner`.
-  * `IrisNotificationListener.java`: System `NotificationListenerService` capturing active notifications, enforcing the `lastWipeEpoch` barrier, and handling system notification shade dismissal.
+  * `IrisNotificationListener.java`: System `NotificationListenerService` capturing active notifications, running the 2.5s sliding-window double-text buffer (`pendingBubbles`), enforcing the `lastWipeEpoch` barrier, and handling system notification shade dismissal.
 
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v16.76.0 (In Progress)**:
+  * **Double-Text Concatenation Buffer (Handoff §7a)**: In `IrisNotificationListener.java`, rapid-fire message bubbles from the same contact or conversation are buffered in a 2.5-second sliding window (`pendingBubbles`, `pendingFlushes`) rather than firing immediate disjoint replies. If a follow-up arrives within 2.5s, the timer resets and the new text is appended; on timeout, `Debounce.combine()` coalesces the burst into a unified context for `AutoResponder.consider()`, respecting `replyToEveryMessage()` when enabled. Cleanly unregisters in `onDestroy`.
+  * **Exact Alarm & Reminder Scheduling on Android 12+ (Handoff §2.2)**: Added `Capability.EXACT_ALARMS` (Kind.SPECIAL) and `Capability.CALENDAR` (Kind.RUNTIME) to `PermissionCatalog` and `MainActivity` with deep link redirect to `Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM`. Wrapped `AlarmManager.setExactAndAllowWhileIdle()` in `ReminderStore.java` and `IrisListeningService.java` with `SecurityException` try/catch blocks and graceful fallbacks to `AlarmManager.setWindow()` (60s/120s windows) and `setAndAllowWhileIdle()`. Declared `READ_CALENDAR` in `AndroidManifest.xml`.
+  * **Driving & Meeting Situational Auto-Modes (Handoff §1, §2.5)**: Implemented `AutoModeDetector.java` wiring on-device sensors: `isDrivingActive` detects vehicle Bluetooth head unit connections (`AUDIO_VIDEO_CAR_AUDIO`, `AUDIO_VIDEO_HANDSFREE`, and automotive device names); `isMeetingActive` queries `CalendarContract.Instances` for events marked `BUSY` (availability 0) overlapping current time. Connected `AutoModeDetector.evaluateSignals()` into `AutoResponder.compose()` to resolve situational modes dynamically via `AutoModePolicy`. Added `autoDriving` and `autoMeeting` switches in `ResponderSettings` and the Comms Deck UI.
+  * **Verification**: All 6 test suites pass 100% (`check-archive-schema.py`, `check-unresolved-types.py`, `check-xml.py`, `check-speech-pipeline.py`, `check-planning-pipeline.py`, and `check-comms-deck.py`).
 
 * **v16.75.0 (Commit `45a1754`)**:
   * **Real Agent Planning & Direct PlanRunner Execution**: Connected structured understanding in `LocalPlanner` and `IntentParser` directly to `PlanRunner.execute(plan)`, eliminating the 1,500-line procedural regex cascade in `IrisListeningService`.

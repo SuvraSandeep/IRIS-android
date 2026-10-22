@@ -1946,6 +1946,12 @@ public class MainActivity extends Activity {
             host.addView(responderSwitch("Auto-sleep during quiet hours",
                     settings.autoSleepInQuietHours(),
                     on -> settings.setAutoSleepInQuietHours(on), view));
+            host.addView(responderSwitch("Auto-driving when connected to car Bluetooth",
+                    settings.autoDriving(),
+                    on -> settings.setAutoDriving(on), view));
+            host.addView(responderSwitch("Auto-meeting during busy calendar events",
+                    settings.autoMeeting(),
+                    on -> settings.setAutoMeeting(on), view));
             host.addView(responderRow("Context memory",
                     contextDepthLabel(settings.contextDepth()),
                     () -> editContextDepth(settings, view)));
@@ -8128,6 +8134,8 @@ public class MainActivity extends Activity {
             case LOCATION: return Manifest.permission.ACCESS_COARSE_LOCATION;
             case SHOW_NOTIFICATIONS:
                 return Build.VERSION.SDK_INT >= 33 ? Manifest.permission.POST_NOTIFICATIONS : "";
+            case CALENDAR:
+                return Manifest.permission.READ_CALENDAR;
             default:
                 return "";
         }
@@ -8135,6 +8143,18 @@ public class MainActivity extends Activity {
 
     /** Whether IRIS can actually use a capability right now. */
     private boolean capabilityGranted(PermissionCatalog.Entry entry) {
+        if (entry.capability == PermissionCatalog.Capability.EXACT_ALARMS) {
+            if (Build.VERSION.SDK_INT >= 31) {
+                try {
+                    android.app.AlarmManager am =
+                            (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+                    return am != null && am.canScheduleExactAlarms();
+                } catch (Exception e) {
+                    return false;
+                }
+            }
+            return true;
+        }
         if (entry.capability == PermissionCatalog.Capability.NOTIFICATION_ACCESS) {
             return notificationAccessGranted();
         }
@@ -8157,6 +8177,18 @@ public class MainActivity extends Activity {
 
     /** What happens when the owner taps a capability that is not allowed yet. */
     private void requestCapability(PermissionCatalog.Entry entry) {
+        if (entry.capability == PermissionCatalog.Capability.EXACT_ALARMS) {
+            if (Build.VERSION.SDK_INT >= 31) {
+                try {
+                    Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                    intent.setData(android.net.Uri.fromParts("package", getPackageName(), null));
+                    startActivity(intent);
+                } catch (Exception e) {
+                    openAppSettingsPage(entry.label);
+                }
+            }
+            return;
+        }
         if (entry.kind == PermissionCatalog.Kind.SPECIAL) {
             // No runtime dialog exists for notification access, so the dedicated Settings screen
             // is the only route. Showing a permission dialog here would silently do nothing.

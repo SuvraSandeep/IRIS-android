@@ -3119,9 +3119,17 @@ public class IrisListeningService extends Service implements RecognitionListener
                     (int) (triggerAt & 0x7fffffff), i, flags);
             boolean exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms();
             if (exact) {
-                am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                try {
+                    am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                } catch (SecurityException se) {
+                    am.setWindow(android.app.AlarmManager.RTC_WAKEUP, triggerAt, 60_000L, pi);
+                }
             } else {
-                am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                try {
+                    am.setWindow(android.app.AlarmManager.RTC_WAKEUP, triggerAt, 120_000L, pi);
+                } catch (Throwable t) {
+                    am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                }
             }
             String msg = "Okay, I'll remind you to " + task + " " + whenSpoken + ".";
             try {

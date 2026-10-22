@@ -49,7 +49,9 @@ public final class PermissionCatalog {
         NOTIFICATION_ACCESS,
         SHOW_NOTIFICATIONS,
         CAMERA,
-        LOCATION
+        LOCATION,
+        EXACT_ALARMS,
+        CALENDAR
     }
 
     /** One dashboard row: what it is, what it buys, and the honest cost of leaving it off. */
@@ -121,6 +123,14 @@ public final class PermissionCatalog {
         entries.add(new Entry(Capability.LOCATION, Kind.RUNTIME, "Approximate location",
                 "Answer weather and where-am-I questions.",
                 "IRIS asks you to name the place instead.", false));
+
+        entries.add(new Entry(Capability.EXACT_ALARMS, Kind.SPECIAL, "Exact alarms & reminders",
+                "Fire voice alarms and spoken reminders at the precise second requested.",
+                "Reminders may be delayed by the system battery saver up to several minutes.", false));
+
+        entries.add(new Entry(Capability.CALENDAR, Kind.RUNTIME, "Calendar access",
+                "Detect busy calendar meetings to enable Auto-Meeting responder mode.",
+                "Auto-meeting mode cannot detect your active schedule.", false));
 
         return entries;
     }

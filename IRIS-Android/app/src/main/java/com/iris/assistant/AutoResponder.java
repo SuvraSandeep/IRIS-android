@@ -645,7 +645,7 @@ public final class AutoResponder {
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
                     decisionReason = "Media acknowledgement: per-type reply for media attachment";
                 } else {
-                    reply = compose(settings, category, tone, resolvedSender, now, minuteOfDay);
+                    reply = compose(context, settings, category, tone, resolvedSender, now, minuteOfDay);
                     decisionReason = "Category composer: template generated for " + category.kind.name()
                             + " (tone: " + tone.name() + ")";
                 }
@@ -822,7 +822,7 @@ public final class AutoResponder {
      * said, not whether anything is said. The single exception is urgency, which selects a
      * different quiet-hours variant rather than escaping quiet hours.
      */
-    private static String compose(ResponderSettings settings, MessageCategory.Result category,
+    private static String compose(Context context, ResponderSettings settings, MessageCategory.Result category,
                                   ReplyTone.Tone tone, String senderName, long nowMs,
                                   int minuteOfDay) {
         // A greeting that doesn't match the clock -- "good morning" sent at night -- gets an aware
@@ -841,13 +841,9 @@ public final class AutoResponder {
         // placeholder still needs filling for it.
         ResponderMode mode = settings.mode();
         // Self-activating modes: when the owner hasn't set one by hand, let the enabled signals
-        // decide. Only auto-sleep (quiet hours) needs no extra permission and is wired here;
-        // driving/meeting signals require device permissions and are added separately.
+        // decide (driving via car Bluetooth, meeting via busy calendar event, sleeping via quiet hours).
         if (mode == ResponderMode.NONE) {
-            AutoModePolicy.Signals sig = new AutoModePolicy.Signals();
-            sig.autoSleep = settings.autoSleepInQuietHours();
-            sig.quietHours = ResponderWindow.isQuiet(
-                    settings.quietStart(), settings.quietEnd(), minuteOfDay);
+            AutoModePolicy.Signals sig = AutoModeDetector.evaluateSignals(context, settings, minuteOfDay);
             mode = AutoModePolicy.resolve(ResponderMode.NONE, AutoModePolicy.Source.NONE, sig).mode;
         }
         boolean quiet;

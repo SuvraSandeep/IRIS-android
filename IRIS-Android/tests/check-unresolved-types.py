@@ -67,6 +67,7 @@ DEFAULT_TARGETS = [
     "AudioFocusSession.java",
     "OnnxSpeechRecognizer.java",
     "OnnxSlmEngine.java",
+    "AutoModeDetector.java",
 ]
 
 JAVA_LANG = {

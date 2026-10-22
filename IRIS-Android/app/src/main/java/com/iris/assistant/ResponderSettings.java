@@ -272,6 +272,26 @@ public final class ResponderSettings {
     private static final String K_AUTO_SLEEP = "auto_sleep_quiet";
 
     /**
+     * Auto-activate DRIVING mode when connected to vehicle Bluetooth head unit or car kit.
+     * Off by default.
+     */
+    public boolean autoDriving() { return prefs.getBoolean(K_AUTO_DRIVING, false); }
+    public void setAutoDriving(boolean v) {
+        prefs.edit().putBoolean(K_AUTO_DRIVING, v).apply();
+    }
+    private static final String K_AUTO_DRIVING = "auto_driving_bt";
+
+    /**
+     * Auto-activate MEETING mode when the owner has a calendar event marked BUSY in progress.
+     * Off by default.
+     */
+    public boolean autoMeeting() { return prefs.getBoolean(K_AUTO_MEETING, false); }
+    public void setAutoMeeting(boolean v) {
+        prefs.edit().putBoolean(K_AUTO_MEETING, v).apply();
+    }
+    private static final String K_AUTO_MEETING = "auto_meeting_calendar";
+
+    /**
      * The situational mode the owner has switched on, or NONE.
      *
      * A mode overrides the category content and the time windows while it is active. Stored by

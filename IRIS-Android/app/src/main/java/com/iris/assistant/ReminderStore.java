@@ -141,11 +141,19 @@ public final class ReminderStore {
             boolean exact = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S
                     || am.canScheduleExactAlarms();
             if (exact) {
-                am.setExactAndAllowWhileIdle(
-                        android.app.AlarmManager.RTC_WAKEUP, triggerAtMs, pi);
+                try {
+                    am.setExactAndAllowWhileIdle(
+                            android.app.AlarmManager.RTC_WAKEUP, triggerAtMs, pi);
+                } catch (SecurityException se) {
+                    am.setWindow(android.app.AlarmManager.RTC_WAKEUP, triggerAtMs, 60_000L, pi);
+                }
             } else {
-                am.setAndAllowWhileIdle(
-                        android.app.AlarmManager.RTC_WAKEUP, triggerAtMs, pi);
+                try {
+                    am.setWindow(android.app.AlarmManager.RTC_WAKEUP, triggerAtMs, 120_000L, pi);
+                } catch (Throwable t) {
+                    am.setAndAllowWhileIdle(
+                            android.app.AlarmManager.RTC_WAKEUP, triggerAtMs, pi);
+                }
             }
         } catch (Throwable ignored) {
             // A failure to schedule leaves the reminder stored and visible in the list, so it is

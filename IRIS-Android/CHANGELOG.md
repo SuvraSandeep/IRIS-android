@@ -1,5 +1,17 @@
 # Changelog
 
+## 16.76.0
+
+- Comms Deck, Auto-Responder & Notification Vault Enhancements (§4, Handoff §1, §2.2, §2.5, §7a).
+- Implemented double-text concatenation buffer in `IrisNotificationListener.java` with a 2.5-second sliding window (`pendingBubbles`, `pendingFlushes`) coalescing rapid-fire messages with `Debounce.combine()` into a unified context for `AutoResponder.consider()`, respecting `replyToEveryMessage()` when enabled.
+- Upgraded exact alarm and reminder scheduling for Android 12+ (API 31+): added `Capability.EXACT_ALARMS` (Kind.SPECIAL) and `Capability.CALENDAR` (Kind.RUNTIME) to `PermissionCatalog` and `MainActivity` with deep link redirect to `Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM`.
+- Wrapped `AlarmManager.setExactAndAllowWhileIdle()` in `ReminderStore.java` and `IrisListeningService.java` with `SecurityException` try/catch blocks and graceful fallback to `setWindow()` (60s/120s windows) and `setAndAllowWhileIdle()`.
+- Implemented `AutoModeDetector.java` providing on-device situational sensing: `isDrivingActive` detecting vehicle Bluetooth head unit/handsfree connections, and `isMeetingActive` querying `CalendarContract.Instances` for events marked `BUSY` during current time.
+- Wired `AutoModeDetector.evaluateSignals()` into `AutoResponder.compose()` resolving situational mode with `AutoModePolicy`.
+- Added `autoDriving` and `autoMeeting` preferences in `ResponderSettings.java` and interactive cyber switches under the MODE section in the Comms Deck UI (`MainActivity.java`).
+- Declared `READ_CALENDAR` permission in `AndroidManifest.xml`.
+- Added comprehensive verification suite `tests/check-comms-deck.py`, with 100% pass across all 6 test suites.
+
 ## 16.75.0
 
 - Real Agent Planning: Bridging LocalPlanner and Execution (AGENT-ARCHITECTURE.md §3, §5, §7).

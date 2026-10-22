@@ -10,7 +10,10 @@ import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -285,6 +288,14 @@ public class IrisNotificationListener extends NotificationListenerService {
 
     @Override public void onDestroy() {
         stopScreenWatch();
+        synchronized (bubbleLock) {
+            for (Runnable r : pendingFlushes.values()) {
+                bubbleHandler.removeCallbacks(r);
+            }
+            pendingFlushes.clear();
+            pendingBubbles.clear();
+            pendingIncomings.clear();
+        }
         if (responderWorker != null) {
             try { responderWorker.shutdownNow(); } catch (Throwable ignored) { }
             responderWorker = null;
@@ -567,15 +578,72 @@ public class IrisNotificationListener extends NotificationListenerService {
             // Remember that this app can be replied to, so the picker can show it.
             if (IrisNotificationListener.replyAction(sbn) != null) noteReplyCapable(pkg);
 
-            responderWorker().execute(new Runnable() {
-                @Override public void run() {
-                    try {
-                        AutoResponder.consider(context, incoming);
-                    } catch (Throwable ignored) { }
+            ResponderSettings settings = new ResponderSettings(context);
+            if (settings.replyToEveryMessage()) {
+                responderWorker().execute(new Runnable() {
+                    @Override public void run() {
+                        try {
+                            AutoResponder.consider(context, incoming);
+                        } catch (Throwable ignored) { }
+                    }
+                });
+                return;
+            }
+
+            final String convKey = pkg + ":" + incoming.sender;
+            synchronized (bubbleLock) {
+                Runnable existing = pendingFlushes.remove(convKey);
+                if (existing != null) {
+                    bubbleHandler.removeCallbacks(existing);
                 }
-            });
+
+                List<String> bubbles = pendingBubbles.get(convKey);
+                if (bubbles == null) {
+                    bubbles = new ArrayList<>();
+                    pendingBubbles.put(convKey, bubbles);
+                }
+                String trimmed = incoming.body.trim();
+                if (!trimmed.isEmpty()) {
+                    if (bubbles.isEmpty() || !bubbles.get(bubbles.size() - 1).equals(trimmed)) {
+                        bubbles.add(trimmed);
+                    }
+                }
+                pendingIncomings.put(convKey, incoming);
+
+                Runnable flushTask = new Runnable() {
+                    @Override public void run() {
+                        final AutoResponder.Incoming toProcess;
+                        final List<String> toCombine;
+                        synchronized (bubbleLock) {
+                            pendingFlushes.remove(convKey);
+                            toProcess = pendingIncomings.remove(convKey);
+                            toCombine = pendingBubbles.remove(convKey);
+                        }
+                        if (toProcess != null) {
+                            if (toCombine != null && !toCombine.isEmpty()) {
+                                toProcess.body = Debounce.combine(toCombine);
+                            }
+                            responderWorker().execute(new Runnable() {
+                                @Override public void run() {
+                                    try {
+                                        AutoResponder.consider(context, toProcess);
+                                    } catch (Throwable ignored) { }
+                                }
+                            });
+                        }
+                    }
+                };
+                pendingFlushes.put(convKey, flushTask);
+                bubbleHandler.postDelayed(flushTask, 2500L);
+            }
         } catch (Throwable ignored) { }
     }
+
+    private final android.os.Handler bubbleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Object bubbleLock = new Object();
+    private final Map<String, List<String>> pendingBubbles = new HashMap<>();
+    private final Map<String, Runnable> pendingFlushes = new HashMap<>();
+    private final Map<String, AutoResponder.Incoming> pendingIncomings = new HashMap<>();
 
     /**
      * Worker for responder decisions.
