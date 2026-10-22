@@ -117,7 +117,7 @@ python tests/check-planning-pipeline.py  # 100% dispatch, Host methods, and pure
 
 ## 4. Recent Milestones & Release History
 
-* **v16.75.0 (Commit `3e712d7`)**:
+* **v16.75.0 (Commit `45a1754`)**:
   * **Real Agent Planning & Direct PlanRunner Execution**: Connected structured understanding in `LocalPlanner` and `IntentParser` directly to `PlanRunner.execute(plan)`, eliminating the 1,500-line procedural regex cascade in `IrisListeningService`.
   * **On-Device Small Language Model (SLM) Engine**: Implemented `OnnxSlmEngine.java` implementing `LocalPlanner.Engine` configured for 4-bit quantized small models (Qwen2.5-0.5B-Instruct / SmolLM2-360M Q4 ~220MB) running within the 512MB RAM heap limit via bundled `ai.onnxruntime.*`.
   * **Free-Form Multi-Intent Semantic Decomposition**: Engineered conjunction decomposition ('and', 'then', 'also', 'plus', 'after that', ';', ',') handling compound commands (e.g. "Set an alarm for 7 AM and turn on the torch", "Turn on torch and take a screenshot", "Call Alice and set a timer for 10 minutes"), synthesizing validated `MULTI_ACTION` plans executed sequentially.
