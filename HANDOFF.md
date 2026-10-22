@@ -110,7 +110,7 @@ python tests/check-xml.py                # 38 resource files validated
 
 ## 4. Recent Milestones & Release History
 
-* **v16.74.0 (Speech & Voice Pipeline Improvements)**:
+* **v16.74.0 (Commit `87af4e0`)**:
   * **ONNX Runtime High-Accuracy Offline STT**: Implemented `OnnxSpeechRecognizer.java` running quantized int8 Whisper-Tiny / Sherpa-ONNX models via bundled `onnxruntime-android:1.19.2`. Includes 80-channel log-mel spectrogram acoustic feature extraction (16kHz, 25ms window, 10ms hop, 80 mel filterbanks, 512-point Radix-2 FFT, Hann window), greedy CTC/token decoding, and streaming `AudioRecord` capture. Integrated into `IrisListeningService.startCommandRecognitionLocal()` with seamless fallback to `VoskEngine`.
   * **Dynamic Noise Floor Adaptation**: Added 500ms (25-frame) rolling ambient RMS calculation in `WakeWordEngine.audioLoop()` before voice triggers (`!speaking`). Dynamically scales `SileroVad` speech threshold (0.35f in quiet rooms <40 dB SPL to 0.75f in noisy cars/streets >65 dB SPL), dynamically adjusts trigger multipliers (2.8x to 3.8x, min 450 to 900), adapts DTW distance gates, and trims utterances with Silero VAD before Goertzel feature extraction.
   * **Robust Audio Focus RAII**: Implemented `AudioFocusSession.java` (`implements AutoCloseable`) with try-with-resources wrapping in `IrisListeningService.handleCommand()` and `VoicePipelineCoordinator.openSpeechSession()`, preventing media pause deadlocks on parser crashes or unhandled command errors.
