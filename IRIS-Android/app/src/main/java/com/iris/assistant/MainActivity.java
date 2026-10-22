@@ -2319,6 +2319,9 @@ public class MainActivity extends Activity {
             out.append("\nMode: ").append(settings.mode().label())
                     .append(" \u2014 everyone gets the same reply until you turn it off.");
         }
+        if (settings.urgentOnly()) {
+            out.append("\n\u26A0\uFE0F URGENT-ONLY: Silencing casual messages. Answering only urgent or distressed messages.");
+        }
         return out.toString();
     }
 
