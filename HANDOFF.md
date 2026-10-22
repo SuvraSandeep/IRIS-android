@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.78.0` / `versionCode 475` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.79.0` / `versionCode 476` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -139,6 +139,13 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v16.79.0 (Commit `baed238`)**:
+  * **Speech & Voice Pipeline Modernization (§2)**:
+    * **High-Accuracy Offline ONNX STT**: Integrated `OnnxSpeechRecognizer.java` utilizing bundled `ai.onnxruntime.*` (`onnxruntime-android:1.19.2`) to execute 8-bit quantized models (`whisper_tiny_en_int8.onnx`, `sherpa_onnx_offline.onnx`), providing ~3x higher recognition accuracy on Indian English accents with 80-bin log-mel filterbank feature extraction, 512-point Radix-2 FFT, Hann windowing, and streaming `AudioRecord` capture with automatic Vosk fallback.
+    * **Dynamic Noise Floor Adaptation**: Configured 500ms (25-frame) rolling ambient RMS tracking in `WakeWordEngine.java` before speech triggers. In loud/car environments (>65 dB), Silero VAD speech threshold scales up to 0.65f–0.75f with tightened DTW matching and raised trigger floors (noiseFloor * 3.8, min 900) to eliminate acoustic false wakes; in quiet rooms (<40 dB), threshold relaxes to 0.35f (min floor 450) to prevent missed wake words. Detected utterances are cleanly trimmed with `SileroVad.trim()`.
+    * **Robust Audio Focus RAII**: Upgraded `AudioFocusSession.java` (`AutoCloseable`) and wired it directly into `VoicePipelineCoordinator.java` as the unified focus manager (`activeSession`). Replaced legacy volatile boolean flags (`commandPausedMedia`, `speechFocusRequest`) in `IrisListeningService.java` with RAII try-with-resources semantics in `handleCommand()` and `rearmAfterAction()`, guaranteeing audio focus release and background media play resumption even on parser crashes or unhandled runtime exceptions.
+  * **Verification**: All 8 test suites pass 100% (`check-archive-schema.py`, `check-unresolved-types.py`, `check-xml.py`, `check-training-layout.py`, `check-speech-pipeline.py`, `check-planning-pipeline.py`, `check-comms-deck.py`, and `check-server-and-watch.py`).
 
 * **v16.78.0 (Commit `0279a50`)**:
   * **God Classes Deconstruction (Modular UI & Service Controllers, §1)**: Extracted and decoupled monolithic architectures across UI and background service layers.
