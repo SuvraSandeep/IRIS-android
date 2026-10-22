@@ -200,7 +200,7 @@ public final class AppSettings {
     /** Timestamp when the owner last wiped the archive, so stale notifications predating the wipe
      *  are not re-captured from the notification shade. */
     public long lastArchiveWipeAt() { return prefs.getLong("notif_archive_wipe_at", 0L); }
-    public void setLastArchiveWipeAt(long t) { prefs.edit().putLong("notif_archive_wipe_at", t).apply(); }
+    public void setLastArchiveWipeAt(long t) { prefs.edit().putLong("notif_archive_wipe_at", t).commit(); }
 
     /**
      * Packages whose notifications are archived. Stored newline-delimited rather than as a

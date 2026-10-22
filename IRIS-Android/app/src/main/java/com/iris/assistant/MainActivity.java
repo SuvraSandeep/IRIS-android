@@ -3525,9 +3525,13 @@ public class MainActivity extends Activity {
             refresh.setOnClickListener(v -> {
                 if (archiveSearchRunnable != null) handler.removeCallbacks(archiveSearchRunnable);
                 IrisNotificationListener.ensureConnected(this);
-                IrisNotificationListener.captureVisibleNow();
+                int offered = IrisNotificationListener.captureVisibleNow();
                 renderArchive(view);
-                toast("Rescanned. Everything you see, I saw first.");
+                if (offered > 0) {
+                    toast("Rescanned. " + offered + " active notification(s) evaluated.");
+                } else {
+                    toast("Rescanned. No new notifications to capture.");
+                }
             });
         }
 
@@ -3604,9 +3608,14 @@ public class MainActivity extends Activity {
                             if (convAdapter != null) convAdapter.setItems(java.util.Collections.emptyList());
                         }
 
-                        // Set wipe barrier to ignore shade notifications that arrived before this wipe
-                        settings.setLastArchiveWipeAt(System.currentTimeMillis());
+                        // Immediately dismiss all clearable notifications from the Android notification shade
+                        IrisNotificationListener.dismissAll();
+
+                        // Set wipe barrier to ignore shade notifications that arrived before or during this wipe
+                        long wipeEpoch = System.currentTimeMillis() + 1000L;
+                        settings.setLastArchiveWipeAt(wipeEpoch);
                         settings.setArchiveRowsSinceExport(0);
+                        IrisNotificationListener.setLastWipeEpoch(wipeEpoch);
                         IrisNotificationListener.clearTracked();
 
                         int removed = NotificationArchive.deleteEverything(this);
@@ -4950,12 +4959,8 @@ public class MainActivity extends Activity {
         filter.toMs = dateRange[1];
         filter.conversationPkg = archiveCurrentThreadPkg;
         filter.conversationThread = archiveCurrentThreadTitle;
-        // Markers are shown only in the unfiltered timeline view, where the gaps they mark are meaningful.
-        filter.includeMarkers = (archiveViewMode == ARCHIVE_VIEW_TIMELINE
-                && archiveCurrentThreadTitle == null
-                && archiveQuickFilter == NotificationArchive.Filter.QUICK_ALL
-                && archiveDatePreset == DATE_PRESET_ALL
-                && (filter.search == null || filter.search.isEmpty()));
+        // Markers are internal system diagnostics and should never clutter the communication vault
+        filter.includeMarkers = false;
         return filter;
     }
 
@@ -6109,10 +6114,23 @@ public class MainActivity extends Activity {
         holder.card.setContentDescription((confidence == DeletedMessageRules.Confidence.CONFIRMED
                 ? "Unsent message from " : "Message from ") + who + ": " + row.body);
 
-        // Swipe sideways to delete, which replaced long-press-and-confirm at the owner's request.
-        // Long-press is kept as a secondary route with its confirmation intact, so there is still
-        // a deliberate, unmistakable way to remove an entry that cannot be triggered by accident.
-        attachSwipeToDelete(holder.card, row, root);
+        // Do not attach OnTouchListener to child cards: an OnTouchListener on row cards hijacks
+        // the initial ACTION_DOWN touch stream and prevents the parent ListView from scrolling fluidly.
+        // We use a clean OnClickListener for preview/expansion, OnLongClickListener for full actions,
+        // and the dedicated [🗑️ DEL] quick-action button on every card for instant permanent deletion.
+        holder.card.setOnClickListener(v -> {
+            if (row.hasImage() && !row.isAudio() && !row.isDocument()) {
+                showArchiveImage(row);
+            } else if (archiveDensityMode == ARCHIVE_DENSITY_COMPACT) {
+                if (archiveExpandedRowIds.contains(row.id)) {
+                    archiveExpandedRowIds.remove(row.id);
+                } else {
+                    archiveExpandedRowIds.add(row.id);
+                }
+                ArchiveAdapter adapter = getArchiveAdapter(root.findViewById(R.id.archiveList));
+                if (adapter != null) adapter.notifyDataSetChanged();
+            }
+        });
 
         final String archiveSender = who;
         holder.card.setOnLongClickListener(v -> {

@@ -326,6 +326,9 @@
         android:fadeScrollbars="false"
         android:scrollbarSize="4dp"
         android:fastScrollEnabled="true"
+        android:smoothScrollbar="true"
+        android:scrollingCache="false"
+        android:animationCache="false"
         android:nestedScrollingEnabled="true"
         android:overScrollMode="always"
         android:descendantFocusability="afterDescendants" />

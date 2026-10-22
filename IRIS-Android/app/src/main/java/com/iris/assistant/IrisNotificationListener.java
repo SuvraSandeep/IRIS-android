@@ -35,6 +35,18 @@ import java.util.Set;
 public class IrisNotificationListener extends NotificationListenerService {
 
     private static volatile IrisNotificationListener instance;
+    private static volatile long lastWipeEpoch = 0L;
+
+    /** Set an explicit in-memory wipe barrier epoch to guard against shade resurrection. */
+    public static void setLastWipeEpoch(long t) {
+        lastWipeEpoch = t;
+    }
+
+    /** Returns the greatest wipe epoch between memory and persistent settings. */
+    private static long getEffectiveLastWipe(AppSettings settings) {
+        long prefWipe = settings != null ? settings.lastArchiveWipeAt() : 0L;
+        return Math.max(lastWipeEpoch, prefWipe);
+    }
 
     /**
      * Per-notification state needed to judge a later removal.
@@ -109,7 +121,7 @@ public class IrisNotificationListener extends NotificationListenerService {
             StatusBarNotification[] active = service.getActiveNotifications();
             if (active != null) {
                 AppSettings settings = new AppSettings(service.getApplicationContext());
-                long lastWipe = settings.lastArchiveWipeAt();
+                long lastWipe = getEffectiveLastWipe(settings);
                 for (StatusBarNotification sbn : active) {
                     if (sbn == null) continue;
                     // Do not re-capture notifications that predate an explicit owner wipe
@@ -219,7 +231,7 @@ public class IrisNotificationListener extends NotificationListenerService {
             StatusBarNotification[] active = getActiveNotifications();
             if (active != null) {
                 AppSettings settings = new AppSettings(getApplicationContext());
-                long lastWipe = settings.lastArchiveWipeAt();
+                long lastWipe = getEffectiveLastWipe(settings);
                 for (StatusBarNotification sbn : active) {
                     if (sbn == null) continue;
                     if (lastWipe > 0) {
@@ -412,7 +424,7 @@ public class IrisNotificationListener extends NotificationListenerService {
 
         // A deletion placeholder flags an existing row instead of becoming one.
         if (DeletedMessageRules.isAnyDeletionPlaceholder(text)) {
-            long lastWipe = settings.lastArchiveWipeAt();
+            long lastWipe = getEffectiveLastWipe(settings);
             if (lastWipe > 0) {
                 long pt = sbn.getPostTime();
                 long wt = (sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
@@ -656,7 +668,7 @@ public class IrisNotificationListener extends NotificationListenerService {
                            String pkg, String appLabel, String key, Bundle extras,
                            String rawTitle, String sender, String group, String body, long when) {
         if (settings != null) {
-            long lastWipe = settings.lastArchiveWipeAt();
+            long lastWipe = getEffectiveLastWipe(settings);
             if (lastWipe > 0) {
                 if (when > 0 && when <= lastWipe) return 0;
                 long pt = sbn != null ? sbn.getPostTime() : 0L;
