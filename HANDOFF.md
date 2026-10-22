@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.81.1` / `versionCode 479` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.81.2` / `versionCode 480` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -139,6 +139,10 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v16.81.2 (Commit `89a072f`)**:
+  * **CallManager Symbol Resolution**: Fixed symbol error in `CallManager.java` `handleRedial()` by calling `store.frequentContacts(1)` instead of non-existent `store.recentCalls()`, matching `IrisListeningService.java`.
+  * **Verification**: All 9 test suites pass 100% and all 206 Java files verified with clean bracket balancing.
 
 * **v16.81.1 (Commit `ec027f1`)**:
   * **CI Build & Modular Symbol Resolution Fixes**:
