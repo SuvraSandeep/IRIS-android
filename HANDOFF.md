@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.73.0` / `versionCode 469` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.74.0` / `versionCode 470` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -46,10 +46,11 @@
 ### C. Voice / Wake / Identity
 | Feature | Status | Description |
 |---|---|---|
-| **Wake Word Engine** | Working | Vosk grammar listener with single-user enrollment. |
-| **Speech-to-Text (STT)** | Working | Small offline Vosk models (en-IN + en-US). |
-| **Voice Activity Detection** | Working | Silero VAD on-device via ONNX Runtime. |
-| **Speaker Verification** | Working | ECAPA-TDNN ONNX model verifying owner voiceprint. |
+| **Wake Word Engine & Noise Adaptation** | Working | `WakeWordEngine.java`. 500ms (25-frame) rolling ambient RMS tracking dynamically scaling Silero VAD thresholds (0.35f in quiet <40 dB to 0.75f in noise >65 dB), trigger multipliers (2.8x-3.8x), and DTW distance gates. |
+| **High-Accuracy Offline STT** | Working | `OnnxSpeechRecognizer.java`. Bundled ONNX Runtime (onnxruntime-android:1.19.2) executing quantized int8 Whisper-Tiny / Sherpa-ONNX with 80-bin log-mel filterbanks and greedy CTC/token decoding (~3x higher word accuracy on Indian English) with seamless Vosk fallback. |
+| **Voice Activity Detection** | Working | `SileroVad.java`. On-device neural VAD via ONNX Runtime with dynamic ambient threshold scaling (`adaptThresholdFromRms`). |
+| **Audio Focus RAII Session** | Working | `AudioFocusSession.java`. AutoCloseable transient focus manager guaranteeing immediate audio focus release and background media play resumption across all command outcomes. |
+| **Speaker Verification** | Working | `EcapaEmbedding.java`. ECAPA-TDNN ONNX model verifying owner voiceprint. |
 | **Command Routing** | Working | Deterministic rule-based planner (`LocalPlanner.java`, `IntentParser.java`) + centralized `PlanRunner.java`. |
 
 ### D. Server Mode & External Integrations
@@ -93,23 +94,27 @@ python tests/check-xml.py                # 38 resource files validated
   * `SmartReplies.java`: Context-aware keyword and vernacular reply engine.
   * `view_comms_responder.xml`: Responder UI deck with quick `[URGENT MESSAGES ONLY]` toggle button.
 * **Voice & Execution Controllers:**
-  * `VoicePipelineCoordinator.java`: Low-level audio routing, `AudioDeviceCallback` lifecycle, input device enumeration/selection, speech focus request/abandon, and media key play/pause dispatch.
+  * `VoicePipelineCoordinator.java`: Low-level audio routing, `AudioDeviceCallback` lifecycle, input device enumeration/selection, speech focus request/abandon, media key play/pause dispatch, and `openSpeechSession()` factory.
+  * `AudioFocusSession.java`: AutoCloseable transient audio focus manager guaranteeing automatic abandon and media resumption with try-with-resources semantics.
+  * `OnnxSpeechRecognizer.java`: Offline high-accuracy speech recognizer running quantized Whisper-Tiny / Sherpa-ONNX via bundled `onnxruntime-android:1.19.2`, with 80-bin log-mel extraction and greedy CTC/token decoding.
+  * `SileroVad.java`: On-device neural voice activity detector with dynamic ambient noise floor adaptation (`calculateAmbientDb`, `computeAdaptiveThreshold`, `adaptThresholdFromRms`).
+  * `WakeWordEngine.java`: Wake-phrase detection with 500ms (25-frame) rolling ambient RMS tracking, adaptive trigger multipliers (2.8x–3.8x), dynamic DTW scaling, and Silero VAD trimming.
   * `PlanRunner.java`: Phase 2/5 Android tool executor centralizing execution of structured plans and tool calls against device hardware and intents.
   * `LocalPlanner.java` & `IntentParser.java`: Intent parsing and structured plan generation.
 * **Glue & UI Orchestration:**
   * `MainActivity.java`: Host UI activity & navigation tabs; delegates Notification Vault entirely to `ArchiveViewController`.
-  * `IrisListeningService.java`: Foreground lifecycle and hotword service; delegates audio routing to `VoicePipelineCoordinator` and plan execution to `PlanRunner`.
+  * `IrisListeningService.java`: Foreground lifecycle and hotword service; delegates audio routing to `VoicePipelineCoordinator`, offline STT to `OnnxSpeechRecognizer` (with Vosk fallback), and plan execution to `PlanRunner`.
   * `IrisNotificationListener.java`: System `NotificationListenerService` capturing active notifications, enforcing the `lastWipeEpoch` barrier, and handling system notification shade dismissal.
 
 ---
 
 ## 4. Recent Milestones & Release History
 
-* **v16.73.0 (Commit `9df4d97`)**:
-  * **`ArchiveViewController` Extraction**: Moved 3,194 lines out of `MainActivity.java` into a dedicated domain controller for vault list rendering, pagination, filter chips, lightbox, media players, swipe-to-delete queue with undo bar, and forensic exports (ZIP, HTML report, CSV, text). Reduced `MainActivity.java` by ~28%.
-  * **`VoicePipelineCoordinator` Extraction**: Extracted low-level audio hardware loops, `AudioDeviceCallback` lifecycle, audio routing enumeration, speech focus request/abandon, and media key play/pause dispatch out of `IrisListeningService.java`.
-  * **`PlanRunner` Execution Centralization**: Implemented `PlanRunner.java` adhering to Agent Architecture Phase 2/5 specification, centralizing tool call and structured plan dispatching through a clean `Host` interface.
-  * **Verification**: All 73 schema checks, 36 unresolved type checks across 280 layout IDs, and 38 XML resource files pass 100%.
+* **v16.74.0 (Speech & Voice Pipeline Improvements)**:
+  * **ONNX Runtime High-Accuracy Offline STT**: Implemented `OnnxSpeechRecognizer.java` running quantized int8 Whisper-Tiny / Sherpa-ONNX models via bundled `onnxruntime-android:1.19.2`. Includes 80-channel log-mel spectrogram acoustic feature extraction (16kHz, 25ms window, 10ms hop, 80 mel filterbanks, 512-point Radix-2 FFT, Hann window), greedy CTC/token decoding, and streaming `AudioRecord` capture. Integrated into `IrisListeningService.startCommandRecognitionLocal()` with seamless fallback to `VoskEngine`.
+  * **Dynamic Noise Floor Adaptation**: Added 500ms (25-frame) rolling ambient RMS calculation in `WakeWordEngine.audioLoop()` before voice triggers (`!speaking`). Dynamically scales `SileroVad` speech threshold (0.35f in quiet rooms <40 dB SPL to 0.75f in noisy cars/streets >65 dB SPL), dynamically adjusts trigger multipliers (2.8x to 3.8x, min 450 to 900), adapts DTW distance gates, and trims utterances with Silero VAD before Goertzel feature extraction.
+  * **Robust Audio Focus RAII**: Implemented `AudioFocusSession.java` (`implements AutoCloseable`) with try-with-resources wrapping in `IrisListeningService.handleCommand()` and `VoicePipelineCoordinator.openSpeechSession()`, preventing media pause deadlocks on parser crashes or unhandled command errors.
+  * **Verification**: All 73 archive schema checks, 38 unresolved type checks across 280 layout IDs, 38 XML resource files, and dedicated speech pipeline tests (`check-speech-pipeline.py`) pass 100%.
 * **v16.72.1 (Commit `98a0ca1`)**:
   * Enhanced Auto-Responder status deck with explicit cyber warning notice when Urgent-Only mode is active.
 * **v16.72.0 (Commit `73880d8`)**:

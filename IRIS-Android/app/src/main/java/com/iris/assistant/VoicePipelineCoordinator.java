@@ -174,6 +174,14 @@ public class VoicePipelineCoordinator {
         }
     }
 
+    /**
+     * Opens an AutoCloseable speech focus session that guarantees focus release
+     * and media resumption on close().
+     */
+    public AudioFocusSession openSpeechSession(boolean pauseActiveMedia) {
+        return new AudioFocusSession(context, pauseActiveMedia);
+    }
+
     public void requestSpeechFocus() {
         try {
             if (audioManager == null) {

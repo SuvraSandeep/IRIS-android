@@ -46,11 +46,57 @@ final class SileroVad {
     private static final int WINDOW_SAMPLES = 512;
     // A window's speech probability at/above this is treated as voiced. 0.5 is Silero's own
     // documented default operating point.
-    private static final float SPEECH_THRESHOLD = 0.5f;
+    public static final float DEFAULT_SPEECH_THRESHOLD = 0.5f;
+    private volatile float speechThreshold = DEFAULT_SPEECH_THRESHOLD;
     // Pad this many samples of context on each side of the detected speech span so a clipped
     // consonant/vowel at the boundary isn't cut off — mirrors the old energy-gate's "first*320-320
     // .. (last+2)*320" padding behavior, just against the new model's boundaries instead.
     private static final int PAD_SAMPLES = 1600; // 100ms
+
+    public void setSpeechThreshold(float threshold) {
+        this.speechThreshold = Math.max(0.20f, Math.min(0.90f, threshold));
+    }
+
+    public float getSpeechThreshold() {
+        return speechThreshold;
+    }
+
+    /**
+     * Converts a raw 16-bit PCM RMS value to an estimated ambient decibel level (dB SPL).
+     * Calibration: RMS of 10-20 corresponds to ~35-41 dB SPL (quiet room);
+     * RMS of 50-100 corresponds to ~49-55 dB SPL (normal conversation);
+     * RMS of 320+ corresponds to >65 dB SPL (car/busy street noise).
+     */
+    public static double calculateAmbientDb(double rms) {
+        if (rms <= 0.0) return 0.0;
+        return 20.0 * Math.log10(Math.max(1.0, rms)) + 15.0;
+    }
+
+    /**
+     * Computes the adaptive Silero VAD speech threshold based on ambient noise:
+     * - In a quiet room (< 40 dB SPL): relaxed down to 0.35f to avoid missed wake phrases.
+     * - In a car / noisy street (> 65 dB SPL): raised to >= 0.65f (up to 0.75f for >80 dB) to prevent acoustic false triggers.
+     * - Between 40 dB and 65 dB SPL: smooth linear interpolation between 0.35f and 0.65f.
+     */
+    public static float computeAdaptiveThreshold(double ambientDb) {
+        if (ambientDb <= 40.0) {
+            return 0.35f;
+        } else if (ambientDb >= 65.0) {
+            double excess = Math.min(15.0, ambientDb - 65.0);
+            return (float) (0.65f + (excess / 15.0) * 0.10f); // 0.65f to 0.75f
+        } else {
+            double ratio = (ambientDb - 40.0) / (65.0 - 40.0);
+            return (float) (0.35f + ratio * (0.65f - 0.35f));
+        }
+    }
+
+    /**
+     * Adapts this VAD engine's operating threshold from the measured ambient RMS.
+     */
+    public void adaptThresholdFromRms(double ambientRms) {
+        double ambientDb = calculateAmbientDb(ambientRms);
+        setSpeechThreshold(computeAdaptiveThreshold(ambientDb));
+    }
 
     private OrtEnvironment env;
     private OrtSession session;
@@ -115,6 +161,10 @@ final class SileroVad {
      * rather than corrupting the clip" requirement.
      */
     short[] trim(short[] pcm) {
+        return trim(pcm, speechThreshold);
+    }
+
+    short[] trim(short[] pcm, float threshold) {
         if (pcm == null || pcm.length < WINDOW_SAMPLES) return pcm;
         if (!isReady()) return pcm;
         try {
@@ -129,7 +179,7 @@ final class SileroVad {
                     int base = w * WINDOW_SAMPLES;
                     for (int i = 0; i < WINDOW_SAMPLES; i++) frame[i] = pcm[base + i] / 32768f;
                     float prob = runWindow(frame, state);
-                    if (prob >= SPEECH_THRESHOLD) {
+                    if (prob >= threshold) {
                         if (firstVoiced < 0) firstVoiced = base;
                         lastVoiced = base + WINDOW_SAMPLES;
                     }

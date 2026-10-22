@@ -64,6 +64,8 @@ DEFAULT_TARGETS = [
     "ArchiveViewController.java",
     "VoicePipelineCoordinator.java",
     "PlanRunner.java",
+    "AudioFocusSession.java",
+    "OnnxSpeechRecognizer.java",
 ]
 
 JAVA_LANG = {

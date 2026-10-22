@@ -456,6 +456,7 @@ public class IrisListeningService extends Service implements RecognitionListener
      *  voskEngine via attachEnsembleModels() as soon as either finishes loading. */
     private EcapaEmbedding ecapaEngine;
     private SileroVad vadEngine;
+    private OnnxSpeechRecognizer onnxRecognizer;
     private MediaMemoRecorder memoRecorder;
     private boolean voskReady;
     private volatile boolean androidWakeActive;
@@ -517,6 +518,35 @@ public class IrisListeningService extends Service implements RecognitionListener
 
         // Prewarm only the selected offline provider. Readiness cannot select a provider.
         if(!settings.googleSttForCommands())prepareOfflineCommandModel();
+        vadEngine = new SileroVad();
+        vadEngine.load(this, new SileroVad.InitListener() {
+            @Override public void onReady() {
+                if (voskEngine != null) voskEngine.attachEnsembleModels(ecapaEngine, vadEngine);
+                if (wakeEngine != null) wakeEngine.setSileroVad(vadEngine);
+            }
+            @Override public void onError(String message) {
+                LogStore.append(IrisListeningService.this, "VAD", "Silero VAD not loaded: " + message);
+            }
+        });
+        ecapaEngine = new EcapaEmbedding();
+        ecapaEngine.load(this, new EcapaEmbedding.InitListener() {
+            @Override public void onReady() {
+                if (voskEngine != null) voskEngine.attachEnsembleModels(ecapaEngine, vadEngine);
+            }
+            @Override public void onError(String message) {
+                LogStore.append(IrisListeningService.this, "ECAPA", "ECAPA model not loaded: " + message);
+            }
+        });
+        onnxRecognizer = new OnnxSpeechRecognizer();
+        onnxRecognizer.setSileroVad(vadEngine);
+        onnxRecognizer.load(this, new OnnxSpeechRecognizer.InitListener() {
+            @Override public void onReady() {
+                LogStore.append(IrisListeningService.this, "ONNX STT", "High-accuracy offline speech recognizer ready");
+            }
+            @Override public void onError(String message) {
+                LogStore.append(IrisListeningService.this, "ONNX STT", "Speech model fallback: " + message);
+            }
+        });
         voskEngine = new VoskEngine();
         // Schema 8 uses the bundled Vosk owner model plus recorded-phrase evidence.
         // Optional downloads never change the identity model midway through a session.
@@ -1048,12 +1078,74 @@ public class IrisListeningService extends Service implements RecognitionListener
         updateListeningNotification("Listening\u2026");
         // The ready cue belongs to onReadyForSpeech, not before recognizer startup.
 
-        // Prefer Google STT for accuracy; Vosk is the offline fallback.
+        // Prefer Google STT for accuracy; ONNX high-accuracy is the preferred offline engine; Vosk is fallback.
         if (settings.googleSttForCommands() && SpeechRecognizer.isRecognitionAvailable(this)) {
             startAndroidCommandRecognition();
             return;
         }
+        if (onnxRecognizer != null && onnxRecognizer.isReady()) {
+            startOnnxCommandRecognition();
+            return;
+        }
         startVoskCommandRecognition();
+    }
+
+    /** High-accuracy offline STT using bundled ONNX Runtime */
+    private void startOnnxCommandRecognition() {
+        destroyRecognizer();
+        googleCommandActive = false;
+        if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
+        final long epoch = ++commandEpoch;
+        recognitionLabel = "Offline High-Accuracy (ONNX)";
+        broadcastState(true, phase);
+        final boolean[] handled = {false};
+        commandTimeout = () -> {
+            if (isRunning && PHASE_COMMAND.equals(phase) && epoch == commandEpoch && !handled[0]) {
+                if (onnxRecognizer != null) onnxRecognizer.stop();
+                broadcastMessage("No command heard. Going back to sleep.");
+                LogStore.append(this, "TIMEOUT", "Command window expired");
+                rearmAfterAction();
+            }
+        };
+        handler.postDelayed(commandTimeout, 15_000);
+        handler.postDelayed(() -> {
+            if (!isRunning || !PHASE_COMMAND.equals(phase) || epoch != commandEpoch) return;
+            if (onnxRecognizer == null || !onnxRecognizer.isReady()) {
+                startVoskCommandRecognition();
+                return;
+            }
+            onnxRecognizer.startListening(new OnnxSpeechRecognizer.Listener() {
+                @Override public void onReady() {
+                    if (epoch == commandEpoch && isRunning && !handled[0] && commandTimeout != null && PHASE_COMMAND.equals(phase)) {
+                        VoiceEndurance.event("ONNX_CMD_READY");
+                        LogStore.append(IrisListeningService.this, "LISTEN", "Microphone ready (ONNX STT)");
+                        handler.removeCallbacks(commandTimeout);
+                        handler.postDelayed(commandTimeout, 15_000);
+                        playListeningEarcon();
+                    }
+                }
+                @Override public void onPartial(String text) {
+                    if (epoch == commandEpoch && !text.isEmpty()) broadcastTranscript(text);
+                }
+                @Override public void onFinal(String text) {
+                    if (epoch != commandEpoch || handled[0] || text.isEmpty()) return;
+                    handled[0] = true;
+                    if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                    if (onnxRecognizer != null) onnxRecognizer.stop();
+                    LogStore.append(IrisListeningService.this, "HEARD CMD", text + " (ONNX)");
+                    recordTranscript(text);
+                    handleCommand(text);
+                }
+                @Override public void onError(String message) {
+                    if (epoch != commandEpoch || handled[0]) return;
+                    handled[0] = true;
+                    if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                    LogStore.append(IrisListeningService.this, "ONNX STT ERROR", message);
+                    // Fall back to Vosk if ONNX encounters unexpected runtime error
+                    startVoskCommandRecognition();
+                }
+            });
+        }, 150);
     }
 
     private void prepareOfflineCommandModel() {
@@ -1266,31 +1358,33 @@ public class IrisListeningService extends Service implements RecognitionListener
                 lastUserCommand = heard.trim();   // remember only real, repeatable commands
             }
         }
-        if (spellingCall) {
-            try { handleSpellInput(heard); }
-            catch (Throwable t) { spellingCall = false; LogStore.append(this, "SPELL", "error: " + t); rearmAfterAction(); }
-            return;
-        }
-        if (pendingPlan != null) {
-            try { handleClarificationAnswer(heard); }
-            catch (Throwable t) { pendingPlan = null; LogStore.append(this, "CLARIFY", "error: " + t); rearmAfterAction(); }
-            return;
-        }
-        if (smsCompose != null) {
-            try { handleSmsComposeInput(heard); }
-            catch (Throwable t) { smsCompose = null; LogStore.append(this, "SMS", "compose error: " + t); rearmAfterAction(); }
-            return;
-        }
-        try {
-            handleCommandInner(heard);
-        } catch (Throwable t) {
-            LogStore.append(this, "COMMAND ERROR",
-                    "Crash handling command: " + t + " | heard: " + heard);
+        try (AudioFocusSession session = voiceCoordinator.openSpeechSession(false)) {
+            if (spellingCall) {
+                try { handleSpellInput(heard); }
+                catch (Throwable t) { spellingCall = false; LogStore.append(this, "SPELL", "error: " + t); rearmAfterAction(); }
+                return;
+            }
+            if (pendingPlan != null) {
+                try { handleClarificationAnswer(heard); }
+                catch (Throwable t) { pendingPlan = null; LogStore.append(this, "CLARIFY", "error: " + t); rearmAfterAction(); }
+                return;
+            }
+            if (smsCompose != null) {
+                try { handleSmsComposeInput(heard); }
+                catch (Throwable t) { smsCompose = null; LogStore.append(this, "SMS", "compose error: " + t); rearmAfterAction(); }
+                return;
+            }
             try {
-                broadcastMessage("Sorry, something went wrong.");
-                speakThenRun("Sorry, something went wrong.", this::rearmAfterAction);
-            } catch (Throwable ignored) {
-                rearmAfterAction();
+                handleCommandInner(heard);
+            } catch (Throwable t) {
+                LogStore.append(this, "COMMAND ERROR",
+                        "Crash handling command: " + t + " | heard: " + heard);
+                try {
+                    broadcastMessage("Sorry, something went wrong.");
+                    speakThenRun("Sorry, something went wrong.", this::rearmAfterAction);
+                } catch (Throwable ignored) {
+                    rearmAfterAction();
+                }
             }
         }
     }
@@ -5815,7 +5909,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }, 400);
     }
 
-    private void stopCommandCapture(){commandLoadGate.cancel();commandEpoch++;if(voiceSession!=null)voiceSession.pause();if(commandEngine!=null)commandEngine.stop();}
+    private void stopCommandCapture(){commandLoadGate.cancel();commandEpoch++;if(voiceSession!=null)voiceSession.pause();if(commandEngine!=null)commandEngine.stop();if(onnxRecognizer!=null)onnxRecognizer.stop();}
     private void stopWakeEngine() {
         captureActionGeneration++;if(!isRunning&&voiceSession!=null){voiceSession.close();voiceSession=null;}
         stopCommandCapture();
@@ -5825,6 +5919,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void destroyRecognizer() {
         recognizerGeneration++;
+        if (onnxRecognizer != null) onnxRecognizer.stop();
         if (recognizer != null) {
             try { recognizer.cancel(); } catch (Exception ignored) { }
             recognizer.destroy();
@@ -6448,6 +6543,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if(commandEngine!=null){commandEngine.close();commandEngine=null;}
         if (ecapaEngine != null) { ecapaEngine.close(); ecapaEngine = null; }
         if (vadEngine != null) { vadEngine.close(); vadEngine = null; }
+        if (onnxRecognizer != null) { onnxRecognizer.close(); onnxRecognizer = null; }
         super.onDestroy();
     }
 
