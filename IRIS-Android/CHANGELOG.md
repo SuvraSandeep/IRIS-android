@@ -1,5 +1,16 @@
 # Changelog
 
+## 16.82.0
+
+- Auto-Responder Etiquette & Sensitivity Improvements:
+  - Silent Deletion Recording: Disabled public replies to message deletions by default (`replyToDeleted = false`). Revocations and edits continue to be archived quietly in the SQLite Notification Vault for forensic tracking, but IRIS never auto-replies or lectures contacts about deleted typos or retracted messages.
+  - Multilingual Recipient Opt-Out: Added pure policy `OptOutDetector.java` recognizing silence and opt-out commands across English (`stop`, `shut up`, `dont reply`, `mute`, `quiet`, `leave me alone`), Hindi/Hinglish (`chup`, `chup kar`, `reply mat karo`, `band karo`, `shant raho`), Odia (`chup ruha`, `katha huani`, `reply karani`, `band kara`, `shanta ruha`), and Bengali (`chup thak`, `thamo`, `ar reply diyo na`, `kotha bolo na`, `bondho koro`). On match, IRIS mutes the conversation for 24 hours, sends a single polite confirmation, and silences all further messages with `RECIPIENT_MUTED`.
+  - Muted Conversation Management: Added `muteConversation()`, `isConversationMuted()`, `unmuteConversation()`, and a Comms Deck UI row with an 'Unmute All' dialog.
+  - Strict Category Guards: Decoupled casual keyword matches (`smartMatched`, `vernMatched`, `profileMatched`) from `forceReply` when `strictGuards` is enabled (default true), ensuring casual greetings and banter never bypass owner-configured category silences, banter caps, or same-text guards.
+  - Signature De-Duplication: Enhanced `IntroTrim.java` to strip repetitive `"I'm IRIS, Suvra's assistant"` signatures from leading, trailing, and middle dash/parenthetical clauses on follow-up replies within the same conversation session.
+  - Customizable Typing Delay: Upgraded sliding buffer window in `IrisNotificationListener.java` to support customizable anticipation delays (`1s`, `2.5s`, `5s`, `8s`, `12s`) via a dedicated dialog in `ResponderViewController.java` (default 5s Natural).
+  - Verification: 100% pass across all 9 offline test suites, 207 Java files checked with clean bracket balancing, and zero `android.*` imports in pure policy files.
+
 ## 16.81.3
 
 - Comprehensive Codebase Audit Fixes:

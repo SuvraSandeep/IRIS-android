@@ -76,6 +76,7 @@ DEFAULT_TARGETS = [
     "ResponderViewController.java",
     "ContactsViewController.java",
     "FlaggedQueueController.java",
+    "OptOutDetector.java",
 ]
 
 JAVA_LANG = {

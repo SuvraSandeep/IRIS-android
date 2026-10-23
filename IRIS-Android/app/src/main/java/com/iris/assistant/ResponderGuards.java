@@ -102,7 +102,9 @@ public final class ResponderGuards {
         /** The responder has had its allowance for the day. */
         DAILY_CAP,
         /** Urgent-Only mode is enabled and this message is not urgent. */
-        NOT_URGENT
+        NOT_URGENT,
+        /** The recipient asked to stop replying ("stop", "shut up", "chup", "thamo"). */
+        RECIPIENT_MUTED
     }
 
     /** Facts about the message being considered. */
@@ -201,6 +203,8 @@ public final class ResponderGuards {
          * still ignored, and the phone being in use still defers.
          */
         public boolean familyPriority;
+        /** Conversation is currently muted because the recipient requested silence ("stop", "chup"). */
+        public boolean recipientMuted;
     }
 
     private ResponderGuards() { }
@@ -247,10 +251,11 @@ public final class ResponderGuards {
         // Placed early, as a hard safety that no scope or setting can override.
         if (message.smsSensitive) return Verdict.SMS_SENSITIVE;
 
-        // ─── Has the owner excluded this contact? ───
+        // ─── Has the owner excluded this contact, or did recipient request silence? ───
         // NEVER outranks everything that follows, including mentions and urgency. If the owner has
         // said no, no amount of urgency in the message overrides it.
         if (policy.contactRule == ContactRule.NEVER) return Verdict.CONTACT_BLOCKED;
+        if (policy.recipientMuted) return Verdict.RECIPIENT_MUTED;
         // A name rule refuses too, but only where the contact list has said nothing. An explicit
         // ALLOW on this conversation is a decision about this person and outranks a pattern that
         // happens to match their name -- otherwise an "eric" rule would permanently silence a
@@ -529,6 +534,8 @@ public final class ResponderGuards {
             case DAILY_CAP: return "I've had my replies for today.";
             case NOT_URGENT:
                 return "Urgent-Only mode is active \u2014 message was not flagged as urgent or distressed.";
+            case RECIPIENT_MUTED:
+                return "The recipient asked to stop replying ('stop', 'shut up', 'chup'), so I am keeping quiet.";
             default: return verdict.name();
         }
     }

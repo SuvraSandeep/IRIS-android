@@ -672,7 +672,10 @@ public class IrisNotificationListener extends NotificationListenerService {
                     }
                 };
                 pendingFlushes.put(convKey, flushTask);
-                bubbleHandler.postDelayed(flushTask, 2500L);
+                long delayMs = settings.typingDelayMs();
+                if (delayMs <= 0) delayMs = 2500L;
+                // Sliding window buffer: bubbleHandler.postDelayed(flushTask, 2500L)
+                bubbleHandler.postDelayed(flushTask, delayMs);
             }
         } catch (Throwable ignored) { }
     }

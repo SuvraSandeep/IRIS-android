@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.81.3` / `versionCode 481` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.82.0` / `versionCode 482` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -12,7 +12,7 @@
 - **Repo root:** `IRIS-android/`; Android project under `IRIS-Android/` (where `settings.gradle`, `app/`, `scripts/`, `tests/` live). Watch companion under `IRIS-Watch/`. Personal server under `IRIS-Android/server/`.
 - **Design spine:** Decision logic lives in **pure policy classes with zero Android imports**
   (`MessageCategory`, `ReplyTone`, `SmartReplies`, `ResponderGuards`, `Shorthand`, `GroupMention`,
-  `Debounce`, `IntroTrim`, `OwnerAlias`, `TimeGreeting`, `AutoModePolicy`, `ReminderParser`,
+  `Debounce`, `IntroTrim`, `OptOutDetector`, `OwnerAlias`, `TimeGreeting`, `AutoModePolicy`, `ReminderParser`,
   `Emoji`, `Vernacular`, `ProfileShare`, `ArchiveSchema`, `DeletedMessageRules`, `SwipeDecision`,
   `Plan`, `IntentParser`, `IrisIntent`, `ToolCall`, etc.). The Android framework layer is kept lean and decoupled.
 - **Standing Rules (Mandatory):**
@@ -38,11 +38,19 @@
 ### B. Auto-Responder / Comms Deck (`com.iris.assistant`)
 | Feature | Status | Description |
 |---|---|---|
+| **Silent Deletion Vaulting** | Working | Deletions are quietly archived in the SQLite Vault for owner forensics (`replyToDeleted = false` by default). Senders are never publicly messaged or called out for deleting typos or retracted texts. |
+| **Multilingual Recipient Opt-Out** | Working | Pure policy `OptOutDetector.java` recognizes silence requests across English (`stop`, `shut up`, `mute`), Hindi (`chup`, `reply mat karo`), Odia (`chup ruha`, `reply karani`), and Bengali (`chup thak`, `ar reply diyo na`, `bondho koro`). Mutes conversation for 24h, sends 1 polite confirmation, and suppresses replies with `RECIPIENT_MUTED`. Includes 'Unmute All' dialog. |
+| **Strict Category Guards** | Working | Decouples casual keyword matches from `forceReply` when `strictGuards` is enabled (default true), ensuring casual greetings and banter never bypass owner-configured category silences, banter caps, or same-text guards. |
+| **Signature De-Duplication** | Working | Enhanced `IntroTrim.java` strips repetitive `"I'm IRIS, Suvra's assistant"` signatures from leading, trailing, and middle clauses on follow-up replies within the same conversation session. |
+| **Customizable Typing Delay** | Working | Upgraded sliding buffer window in `IrisNotificationListener.java` to support customizable anticipation delays (`1s`, `2.5s`, `5s`, `8s`, `12s`) via a dedicated dialog in `ResponderViewController.java` (default 5s Natural). |
 | **Urgent-Only Mode** | Working | Dedicated quick-toggle button (`responderUrgentOnlyToggle`) and settings switch. When active, IRIS only responds to urgent/distressed messages, family rings, and flag commands; casual messages are silenced with `Verdict.NOT_URGENT`. |
-| **Double-Text Buffer** | Working | `IrisNotificationListener.java`. 2.5s sliding window (`pendingBubbles`, `pendingFlushes`) buffers rapid-fire message bubbles from the same contact/conversation and coalesces them with `Debounce.combine()` into a single unified context for `AutoResponder.consider()`, respecting `replyToEveryMessage()` when enabled. |
+| **Double-Text Buffer** | Working | `IrisNotificationListener.java`. Sliding window (`pendingBubbles`, `pendingFlushes`) buffers rapid-fire message bubbles from the same contact/conversation and coalesces them with `Debounce.combine()` into a single unified context for `AutoResponder.consider()`, respecting `replyToEveryMessage()` when enabled. |
 | **Situational Auto-Modes** | Working | `AutoModeDetector.java` + `AutoModePolicy.java`. Detects vehicle Bluetooth connections (`isDrivingActive`) and busy calendar events (`isMeetingActive`), dynamically shifting IRIS into Driving or Meeting mode when auto-switches are enabled. |
 | **Exact Alarms & Reminders** | Working | Android 12+ (API 31+) compliant exact alarm scheduling with deep links to `Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM`, `SecurityException` try/catch wrapping, and graceful `setWindow()` (60s/120s) fallbacks in `ReminderStore` and `IrisListeningService`. |
-| **Decision Engine & Guards** | Working | `ResponderGuards.java`. Evaluates cooldowns, daily caps, banter snooze, quiet hours, auto-sleep, mention rules, and burst deduplication. |
+| **Decision Engine & Guards** | Working | `ResponderGuards.java`. Evaluates cooldowns, daily caps, banter snooze, quiet hours, auto-sleep, mention rules, recipient muting, and burst deduplication. |
+| **Smart Replies Brain** | Working | `SmartReplies.java` (~100+ scenario rules), `PhraseMatcher` (fuzzy match), `Vernacular` (Hinglish/Odia), `Emoji` sentiment analysis, and `Shorthand` expansion. |
+| **Decision Audit Log** | Working | Full audit trail displaying incoming text, app, verdict rationale, outgoing simulated/sent replies, one-tap teach-a-reply dialog, and decision details copy. |
+| **Operational States** | Working | Three states: `OFF`, `DRY RUN` (evaluates & logs without sending), and `LIVE` (sends responses via `NotificationReply`). |
 | **Smart Replies Brain** | Working | `SmartReplies.java` (~100+ scenario rules), `PhraseMatcher` (fuzzy match), `Vernacular` (Hinglish/Odia), `Emoji` sentiment analysis, and `Shorthand` expansion. |
 | **Decision Audit Log** | Working | Full audit trail displaying incoming text, app, verdict rationale, outgoing simulated/sent replies, one-tap teach-a-reply dialog, and decision details copy. |
 | **Operational States** | Working | Three states: `OFF`, `DRY RUN` (evaluates & logs without sending), and `LIVE` (sends responses via `NotificationReply`). |

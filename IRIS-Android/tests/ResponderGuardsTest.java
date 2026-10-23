@@ -138,6 +138,7 @@ public class ResponderGuardsTest {
         neverOutranksEverything();
         nameRuleCanRefuse();
         fixedReplyBypassesOnlyCategorySilence();
+        recipientMutedIsRefused();
         allowlistModeExcludesByDefault();
         scopeRules();
         groupMentionsRule();
@@ -313,6 +314,13 @@ public class ResponderGuardsTest {
         groupsOn.replyToGroups = true;
         verdict(mention, groupsOn, ResponderGuards.Verdict.CONTACT_BLOCKED,
                 "NEVER refuses a group mention too");
+    }
+
+    private static void recipientMutedIsRefused() {
+        ResponderGuards.Policy muted = sendablePolicy();
+        muted.recipientMuted = true;
+        verdict(sendableMessage(), muted, ResponderGuards.Verdict.RECIPIENT_MUTED,
+                "a recipient who asked to stop replying is muted");
     }
 
     /**

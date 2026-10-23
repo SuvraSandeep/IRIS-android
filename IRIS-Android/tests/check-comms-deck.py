@@ -40,7 +40,7 @@ def check(condition, msg):
 
 
 def test_pure_policy_classes():
-    pure_files = ["Debounce.java", "AutoModePolicy.java", "PermissionCatalog.java"]
+    pure_files = ["Debounce.java", "AutoModePolicy.java", "PermissionCatalog.java", "OptOutDetector.java"]
     for fname in pure_files:
         path = APP_SRC / fname
         check(path.exists(), f"{fname} exists")
@@ -144,12 +144,55 @@ def test_auto_modes():
           "MainActivity renders Auto-meeting switch toggle")
 
 
+def test_etiquette_and_annoyance_fixes():
+    # 1. OptOutDetector multilingual keywords
+    ood_path = APP_SRC / "OptOutDetector.java"
+    ood_content = ood_path.read_text(encoding="utf-8")
+    check("STANDALONE_STOP" in ood_content, "STANDALONE_STOP pattern in OptOutDetector")
+    check("ENGLISH_OPT_OUT" in ood_content, "ENGLISH_OPT_OUT pattern in OptOutDetector")
+    check("HINDI_OPT_OUT" in ood_content, "HINDI_OPT_OUT pattern in OptOutDetector")
+    check("ODIA_OPT_OUT" in ood_content, "ODIA_OPT_OUT pattern in OptOutDetector")
+    check("BENGALI_OPT_OUT" in ood_content, "BENGALI_OPT_OUT pattern in OptOutDetector")
+    check("public static boolean isOptOut(String text)" in ood_content, "isOptOut method declared")
+
+    # 2. ResponderSettings preferences
+    rs_path = APP_SRC / "ResponderSettings.java"
+    rs_content = rs_path.read_text(encoding="utf-8")
+    check("replyToDeleted" in rs_content, "replyToDeleted preference in ResponderSettings")
+    check("recipientOptOutEnabled" in rs_content, "recipientOptOutEnabled preference in ResponderSettings")
+    check("muteConversation" in rs_content, "muteConversation in ResponderSettings")
+    check("isConversationMuted" in rs_content, "isConversationMuted in ResponderSettings")
+    check("strictGuards" in rs_content, "strictGuards preference in ResponderSettings")
+    check("dedupSignature" in rs_content, "dedupSignature preference in ResponderSettings")
+    check("typingDelayMs" in rs_content, "typingDelayMs preference in ResponderSettings")
+
+    # 3. AutoResponder interception and guard enforcement
+    ar_path = APP_SRC / "AutoResponder.java"
+    ar_content = ar_path.read_text(encoding="utf-8")
+    check("if (!settings.replyToDeleted())" in ar_content, "Deletion replies disabled by default in AutoResponder")
+    check("settings.isConversationMuted(conversationKey, now)" in ar_content, "Conversation mute check in AutoResponder")
+    check("OptOutDetector.isOptOut(rawBody)" in ar_content, "OptOutDetector call in AutoResponder")
+    check("settings.strictGuards()" in ar_content, "strictGuards decoupling in AutoResponder")
+    check("settings.dedupSignature()" in ar_content, "dedupSignature trimming in AutoResponder")
+
+    # 4. ResponderViewController UI toggles and rows
+    rvc_path = APP_SRC / "ResponderViewController.java"
+    rvc_content = rvc_path.read_text(encoding="utf-8")
+    check('responderSwitch("Reply to deleted messages"' in rvc_content, "UI switch for Reply to deleted messages")
+    check('responderSwitch("Recipient opt-out (\'stop\' / \'chup\' muting)"' in rvc_content, "UI switch for Recipient opt-out")
+    check('responderRow("Muted chats (opt-out)"' in rvc_content, "UI row for Muted chats")
+    check('responderSwitch("Strict category guards (casual chatter never bypasses limits)"' in rvc_content, "UI switch for Strict category guards")
+    check('responderSwitch("De-duplicate signature on follow-ups"' in rvc_content, "UI switch for De-duplicate signature")
+    check('responderRow("Typing anticipation delay"' in rvc_content, "UI row for Typing anticipation delay")
+
+
 def main():
     print("Running Comms Deck, Auto-Responder & Notification Vault verification suite...")
     test_pure_policy_classes()
     test_double_text_buffering()
     test_exact_alarms_and_reminders()
     test_auto_modes()
+    test_etiquette_and_annoyance_fixes()
     print("ALL COMMS DECK CHECKS PASSED (100%)")
     return 0
 

@@ -46,6 +46,18 @@ public final class IntroTrimTest {
                 "cold opener removed");
         t(cold.toLowerCase(Locale.ROOT).contains("message noted"), "cold opener content kept");
 
+        // Middle clause tests
+        String mid1 = IntroTrim.trim(
+                "I can't move money (no UPI access here!) \u2014 I'm IRIS, Suvra's assistant. "
+                        + "I've flagged it for Suvra.", true, "Suvra");
+        t(!mid1.toLowerCase(Locale.ROOT).contains("iris"), "middle dash-period intro removed");
+        t(mid1.toLowerCase(Locale.ROOT).contains("flagged it for suvra"), "middle clause keeps content");
+
+        String mid2 = IntroTrim.trim(
+                "No UPI here \u2014 I'm IRIS, Suvra's assistant \u2014 so I've flagged it for Suvra.",
+                true, "Suvra");
+        t(!mid2.toLowerCase(Locale.ROOT).contains("iris"), "middle dash-dash intro removed");
+
         System.out.println("Passed " + checks + " intro trim checks");
     }
 }

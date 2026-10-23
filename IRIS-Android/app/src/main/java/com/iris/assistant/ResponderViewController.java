@@ -175,6 +175,48 @@ public class ResponderViewController {
                 }).show();
     }
 
+    private void editTypingDelay(final ResponderSettings settings, final View root) {
+        String[] options = {
+                "1 second (Fast / instant)",
+                "2.5 seconds (Short burst window)",
+                "5 seconds (Natural anticipation \u2014 Recommended)",
+                "8 seconds (Patient / relaxed)",
+                "12 seconds (Deliberate pacing)"
+        };
+        final long[] values = {1000L, 2500L, 5000L, 8000L, 12000L};
+        choiceDialog("Typing anticipation delay",
+                "Wait this long after an incoming notification so multi-bubble thoughts "
+                        + "are absorbed into one message before IRIS decides and replies.",
+                options, which -> {
+                    settings.setTypingDelayMs(values[which]);
+                    renderResponder(root);
+                });
+    }
+
+    private void showMutedChatsDialog(final ResponderSettings settings, final View root) {
+        long now = System.currentTimeMillis();
+        int count = settings.mutedConversationCount(now);
+        String msg = count == 0
+                ? "No chats are currently muted.\n\nWhen a contact texts 'stop', 'shut up', 'chup', or 'thamo', "
+                        + "IRIS automatically silences replies to that conversation for 24 hours."
+                : count + " chat(s) currently muted via recipient opt-out ('stop' / 'chup').\n\n"
+                        + "Would you like to clear the mutes and allow IRIS to reply again?";
+
+        AlertDialog.Builder b = new AlertDialog.Builder(activity)
+                .setTitle("Muted Conversations")
+                .setMessage(msg)
+                .setNegativeButton("Close", null);
+
+        if (count > 0) {
+            b.setPositiveButton("Unmute All", (d, w) -> {
+                settings.clearAllMutedConversations();
+                toast("All conversations unmuted");
+                renderResponder(root);
+            });
+        }
+        b.show();
+    }
+
     /**
      * What tone is actually in force right now, when it differs from the stored default.
      *
@@ -1127,6 +1169,24 @@ public class ResponderViewController {
                     settings.keepUnread(),
                     on -> settings.setKeepUnread(on), view));
 
+            host.addView(sectionLabel("ETIQUETTE & SENSITIVITY"));
+            host.addView(sectionNote("Keep IRIS polite, discreet, and respectful of recipients."));
+            host.addView(responderSwitch("Reply to deleted messages",
+                    settings.replyToDeleted(),
+                    on -> settings.setReplyToDeleted(on), view));
+            host.addView(responderSwitch("Recipient opt-out ('stop' / 'chup' muting)",
+                    settings.recipientOptOutEnabled(),
+                    on -> settings.setRecipientOptOutEnabled(on), view));
+            host.addView(responderRow("Muted chats (opt-out)",
+                    settings.mutedConversationCount(System.currentTimeMillis()) + " muted",
+                    () -> showMutedChatsDialog(settings, view)));
+            host.addView(responderSwitch("Strict category guards (casual chatter never bypasses limits)",
+                    settings.strictGuards(),
+                    on -> settings.setStrictGuards(on), view));
+            host.addView(responderSwitch("De-duplicate signature on follow-ups",
+                    settings.dedupSignature(),
+                    on -> settings.setDedupSignature(on), view));
+
             host.addView(sectionLabel("TIMING"));
             host.addView(responderRow("Quiet hours",
                     ResponderWindow.formatMinute(settings.quietStart()) + " \u2192 "
@@ -1137,6 +1197,9 @@ public class ResponderViewController {
                     () -> editNumber("Cooldown in minutes",
                             settings.cooldownMs() / 60000,
                             value -> settings.setCooldownMs(value * 60000L), view)));
+            host.addView(responderRow("Typing anticipation delay",
+                    (settings.typingDelayMs() / 1000) + "s",
+                    () -> editTypingDelay(settings, view)));
             host.addView(responderRow("Stand down after",
                     settings.armedIndefinitely() ? "never \u2014 until you stop me"
                             : (settings.disarmAfterMs() / 3600000) + " h",
