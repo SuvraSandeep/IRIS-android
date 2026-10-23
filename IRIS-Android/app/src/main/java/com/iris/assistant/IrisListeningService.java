@@ -5971,7 +5971,6 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (isFirst) {
             requestSpeechFocus();
             startStopWordListener();
-            setListeningState(ListeningState.SPEAKING);
             try {
                 textToSpeech.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, "stream_part_" + index);
             } catch (Exception ignored) { }

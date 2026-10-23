@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.82.0` / `versionCode 482` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.82.1` / `versionCode 483` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -147,6 +147,20 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v16.82.1 (Commit `063becd`)**:
+  * **Streaming TTS Symbol Resolution**: Removed non-existent `setListeningState(ListeningState.SPEAKING)` in `IrisListeningService.java` `speakStreamSentence()` that triggered `cannot find symbol` compilation failure during Gradle `:app:testDebugUnitTest`. Streamed sentence TTS relies on established `requestSpeechFocus()` and `startStopWordListener()` with `UtteranceProgressListener` callback tracking.
+  * **Regression Test Harness Integration**: Wired `OptOutDetectorTest.java` and `check-comms-deck.py` directly into `scripts/test-speech.sh`, guaranteeing multilingual opt-out detection (English, Hindi, Odia, Bengali) and Comms Deck contracts are verified automatically on every CI run.
+  * **Verification**: All offline test suites and contract checks pass 100%.
+
+* **v16.82.0 (Commit `c487492`)**:
+  * **Auto-Responder Etiquette & Sensitivity Improvements**:
+    * **Silent Deletion Recording**: Disabled public replies to message revocations by default (`replyToDeleted = false`). Revocations and edits continue to be archived quietly in the SQLite Notification Vault for forensic tracking, but IRIS never auto-replies or calls out contacts for deleting typos or retracted texts.
+    * **Multilingual Recipient Opt-Out**: Added pure policy `OptOutDetector.java` recognizing silence and opt-out commands across English (`stop`, `shut up`, `dont reply`, `mute`, `quiet`, `leave me alone`), Hindi/Hinglish (`chup`, `chup kar`, `reply mat karo`, `band karo`, `shant raho`), Odia (`chup ruha`, `katha huani`, `reply karani`, `band kara`, `shanta ruha`), and Bengali (`chup thak`, `thamo`, `ar reply diyo na`, `kotha bolo na`, `bondho koro`). On match, IRIS mutes the conversation for 24 hours, sends a single polite confirmation, and silences all further messages with `RECIPIENT_MUTED`. Added muted conversation manager and 'Unmute All' dialog.
+    * **Strict Category Guards**: Decoupled casual keyword matches (`smartMatched`, `vernMatched`, `profileMatched`) from `forceReply` when `strictGuards` is enabled (default true), ensuring casual greetings and banter never bypass owner-configured category silences, banter caps, or same-text guards.
+    * **Signature De-Duplication**: Enhanced `IntroTrim.java` to strip repetitive `"I'm IRIS, Suvra's assistant"` signatures from leading, trailing, and middle dash/parenthetical clauses on follow-up replies within the same conversation session.
+    * **Customizable Typing Delay**: Upgraded sliding buffer window in `IrisNotificationListener.java` to support customizable anticipation delays (`1s`, `2.5s`, `5s`, `8s`, `12s`) via a dedicated dialog in `ResponderViewController.java` (default 5s Natural).
+    * **Verification**: 100% pass across all 9 offline test suites, 207 Java files checked with clean bracket balancing, and zero `android.*` imports in pure policy files.
 
 * **v16.81.3 (Commit `fa64222`)**:
   * **Comprehensive Codebase Audit Fixes**:

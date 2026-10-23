@@ -1,5 +1,12 @@
 # Changelog
 
+## 16.82.1
+
+- CI Build Stabilization & TTS Symbol Resolution:
+  - Streaming TTS Symbol Resolution: Removed undefined `setListeningState(ListeningState.SPEAKING)` in `IrisListeningService.java` `speakStreamSentence()`. Streamed speech uses existing `requestSpeechFocus()` and `startStopWordListener()` with TTS utterance progress tracking.
+  - Regression Test Harness: Wired `OptOutDetectorTest.java` and `check-comms-deck.py` into `scripts/test-speech.sh` so multilingual opt-out detection and comms deck contract assertions are verified in every CI run.
+  - Version bump to 16.82.1 (code 483).
+
 ## 16.82.0
 
 - Auto-Responder Etiquette & Sensitivity Improvements:

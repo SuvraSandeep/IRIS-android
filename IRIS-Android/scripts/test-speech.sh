@@ -530,7 +530,21 @@ java -cp "$test_dir/responder" com.iris.assistant.ReplyTemplatesTest
 # executed: edits to captured content and unauthorised deletes must both be refused by the engine.
 python3 tests/check-archive-schema.py
 
+# Opt-out detector across English, Hindi, Odia, and Bengali.
+mkdir -p "$test_dir/responder"
+javac -encoding UTF-8 -d "$test_dir/responder" \
+  app/src/main/java/com/iris/assistant/MessageCategory.java \
+  app/src/main/java/com/iris/assistant/ReplyTone.java \
+  app/src/main/java/com/iris/assistant/ReplyTemplates.java \
+  app/src/main/java/com/iris/assistant/OptOutDetector.java \
+  tests/OptOutDetectorTest.java
+java -cp "$test_dir/responder" com.iris.assistant.OptOutDetectorTest
+
+# Comms Deck, Auto-Responder & Notification Vault contract checks.
+python3 tests/check-comms-deck.py
+
 # Catch the errors that only the real Android compile would otherwise find: a type used without an
 # import (which parses fine and then fails compilation), and an R.id reference with no matching
 # layout id. Both have cost CI round-trips, and neither is visible to ParseSources.
 python3 tests/check-unresolved-types.py
+
