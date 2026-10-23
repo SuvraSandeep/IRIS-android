@@ -140,7 +140,7 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v16.81.3 (Commit `f278f3a`)**:
+* **v16.81.3 (Commit `fa64222`)**:
   * **Comprehensive Codebase Audit Fixes**:
     * **AutoMode Security Fix**: Wrapped Bluetooth device name extraction in `safeDeviceName()` inside `AutoModeDetector.java` `onBluetoothAclEvent()`, eliminating unhandled `SecurityException` crashes on Android 12+ (API 31+) when vehicle devices connect/disconnect.
     * **Server Startup Fix**: Added missing `from pydantic import BaseModel` import in `server/app.py`.
