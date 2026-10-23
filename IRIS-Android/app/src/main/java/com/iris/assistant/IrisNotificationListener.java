@@ -255,6 +255,14 @@ public class IrisNotificationListener extends NotificationListenerService {
                 "Notification capture stopped. Messages arriving now are not being saved.");
         stopScreenWatch();
         stopBluetoothWatch();
+        synchronized (bubbleLock) {
+            for (Runnable r : pendingFlushes.values()) {
+                bubbleHandler.removeCallbacks(r);
+            }
+            pendingFlushes.clear();
+            pendingBubbles.clear();
+            pendingIncomings.clear();
+        }
         if (instance == this) instance = null;
         // Stamped only on the first disconnect of a run, so repeated failed rebinds report the
         // true total outage rather than resetting the clock each attempt.

@@ -5971,6 +5971,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (isFirst) {
             requestSpeechFocus();
             startStopWordListener();
+            setListeningState(ListeningState.SPEAKING);
             try {
                 textToSpeech.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, "stream_part_" + index);
             } catch (Exception ignored) { }
@@ -5996,6 +5997,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         };
 
         if (textToSpeech != null && ttsReady) {
+            if (!textToSpeech.isSpeaking()) {
+                handler.postDelayed(complete, 300);
+                return;
+            }
             textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
                 @Override
                 public void onStart(String id) {

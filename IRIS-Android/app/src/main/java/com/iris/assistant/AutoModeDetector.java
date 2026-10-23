@@ -39,7 +39,7 @@ public final class AutoModeDetector {
             if (device != null && isCarDevice(device)) {
                 cachedCarBluetoothConnected = true;
                 lastBluetoothCheckMs = System.currentTimeMillis();
-                Log.i(TAG, "Car Bluetooth connected: " + device.getName());
+                Log.i(TAG, "Car Bluetooth connected: " + safeDeviceName(device));
             }
         } else if (android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
             android.bluetooth.BluetoothDevice device =
@@ -47,8 +47,18 @@ public final class AutoModeDetector {
             if (device != null && isCarDevice(device)) {
                 cachedCarBluetoothConnected = false;
                 lastBluetoothCheckMs = System.currentTimeMillis();
-                Log.i(TAG, "Car Bluetooth disconnected: " + device.getName());
+                Log.i(TAG, "Car Bluetooth disconnected: " + safeDeviceName(device));
             }
+        }
+    }
+
+    private static String safeDeviceName(android.bluetooth.BluetoothDevice device) {
+        if (device == null) return "unknown";
+        try {
+            String name = device.getName();
+            return name != null ? name : "unnamed";
+        } catch (Throwable ignored) {
+            return "unnamed";
         }
     }
 

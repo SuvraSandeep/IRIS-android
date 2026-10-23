@@ -85,14 +85,21 @@ final class WatchBridge implements AutoCloseable {
                 if (closed) { s.close(); return; }
                 state = "Listening on this phone only";
                 while (!closed) {
-                    try (Socket socket = s.accept()) {
+                    try {
+                        final Socket socket = s.accept();
                         client = socket;
-                        socket.setSoTimeout(2500);
-                        serve(socket);
+                        new Thread(() -> {
+                            try (socket) {
+                                socket.setSoTimeout(2500);
+                                serve(socket);
+                            } catch (Exception e) {
+                                if (!closed) VoiceHealth.event("WATCH_REQUEST", "Rejected or disconnected");
+                            } finally {
+                                if (client == socket) client = null;
+                            }
+                        }, "IRIS-WatchConn").start();
                     } catch (Exception e) {
-                        if (!closed) VoiceHealth.event("WATCH_REQUEST", "Rejected or disconnected");
-                    } finally {
-                        client = null;
+                        if (!closed) VoiceHealth.event("WATCH_REQUEST", "Accept error");
                     }
                 }
             } catch (Exception e) {

@@ -14,6 +14,7 @@ Env:
 """
 import os, tempfile, subprocess, requests, json
 from fastapi import FastAPI, Header, HTTPException, Request, Response
+from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 TOKEN   = os.environ["IRIS_TOKEN"]

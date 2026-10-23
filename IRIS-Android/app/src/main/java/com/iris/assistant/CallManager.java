@@ -202,14 +202,13 @@ public class CallManager {
 
     public void handleRedial() {
         ProfileStore store = new ProfileStore(context);
-        List<ProfileStore.Entry> recent = store.frequentContacts(1);
-        if (recent.isEmpty() || recent.get(0).lastCalled == 0) {
+        ProfileStore.Entry last = store.lastCalled();
+        if (last == null || last.phoneNumber == null || last.phoneNumber.trim().isEmpty() || last.lastCalled == 0) {
             host.broadcastMessage("I don’t have anyone to call back yet.");
             LogStore.append(context, "REDIAL", "No recent calls");
             host.rearmAfterAction();
             return;
         }
-        ProfileStore.Entry last = recent.get(0);
         LogStore.append(context, "REDIAL", last.contactName);
         requestCallConfirmation(last.contactName, last.phoneNumber);
     }

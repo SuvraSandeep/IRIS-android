@@ -1,5 +1,20 @@
 # Changelog
 
+## 16.81.3
+
+- Comprehensive Codebase Audit Fixes:
+  - AutoMode Security: Replaced unchecked `device.getName()` in `AutoModeDetector.java` `onBluetoothAclEvent()` with `safeDeviceName()` wrapped in try-catch, preventing `SecurityException` crashes on Android 12+ (API 31+).
+  - Python Server Startup: Added missing `from pydantic import BaseModel` import in `server/app.py`.
+  - Watch WebSocket Concurrency: Replaced synchronous single-thread accept loop in `WatchBridge.java` with worker thread dispatch, preventing accept deadlocks during active WebSocket sessions.
+  - Vault & Notification Disconnect Cleanup: Cleaned up pending bubble flushes, handlers, and runnables in `IrisNotificationListener.java` `onListenerDisconnected()` to eliminate memory leaks and orphan reply tasks.
+  - Watch BLE GATT MTU Chunking: Chunked BLE GATT notifications exceeding the standard 20-byte ATT MTU payload in `WatchGattBridge.java` to prevent JSON response truncation on smartwatches.
+  - Telephony Redial Accuracy: Replaced `store.frequentContacts(1)` in `CallManager.java` `handleRedial()` with `store.lastCalled()` for true temporal recency.
+  - Streaming TTS Progress Race Recovery: Added `setListeningState(ListeningState.SPEAKING)` and fast-path 300ms completion when TTS finishes speaking before SSE stream end in `IrisListeningService.java`.
+  - Vault Dialog Lifecycle Management: Retained fullscreen `activeLightbox` in `ArchiveViewController.java`, dismissed it in `onDestroy()`, and added `!isFinishing() && !isDestroyed()` guards to eliminate `WindowLeaked` crashes.
+  - Offline STT AudioRecord Protection: Wrapped `streamAudioLoop` in `OnnxSpeechRecognizer.java` in try-finally to guarantee native `AudioRecord` release on unhandled errors.
+  - Agent Planner Robustness: Guarded tool execution steps in `PlanRunner.java` `execute(Plan)` with try-catch so individual tool exceptions do not terminate plans or crash the foreground service.
+  - Verification: 100% pass across all 9 offline test suites and clean bracket balancing across all 206 Java files.
+
 ## 16.81.2
 
 - CallManager Symbol Resolution:

@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.81.2` / `versionCode 480` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.81.3` / `versionCode 481` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -139,6 +139,20 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v16.81.3 (Commit `f278f3a`)**:
+  * **Comprehensive Codebase Audit Fixes**:
+    * **AutoMode Security Fix**: Wrapped Bluetooth device name extraction in `safeDeviceName()` inside `AutoModeDetector.java` `onBluetoothAclEvent()`, eliminating unhandled `SecurityException` crashes on Android 12+ (API 31+) when vehicle devices connect/disconnect.
+    * **Server Startup Fix**: Added missing `from pydantic import BaseModel` import in `server/app.py`.
+    * **Watch WebSocket Concurrency**: Switched single-thread accept loop in `WatchBridge.java` to worker thread handoff (`IRIS-WatchConn`), unblocking `s.accept()` and preventing accept deadlocks during long-lived WebSocket sessions.
+    * **Notification Disconnect Flush Cleanup**: Canceled pending delayed bubble flushes and runnables inside `IrisNotificationListener.java` `onListenerDisconnected()` to prevent memory leaks and orphan reply dispatches on unbind.
+    * **Watch BLE GATT MTU Chunking**: Handled notifications exceeding standard 20-byte ATT MTU in `WatchGattBridge.java` via 20-byte payload slicing, preventing packet truncation on smartwatches while keeping the full characteristic value accessible for GATT reads.
+    * **Telephony Redial Accuracy**: Updated `CallManager.java` `handleRedial()` to query `store.lastCalled()` instead of `frequentContacts(1)`, ensuring redial connects to the most recently called contact by timestamp.
+    * **Streaming TTS Race Recovery**: Synchronized `ListeningState.SPEAKING` state and added fast-path 300ms completion when TTS finishes speaking before SSE stream end in `IrisListeningService.java`.
+    * **Vault Dialog Lifecycle Protection**: Retained fullscreen `activeLightbox` in `ArchiveViewController.java`, dismissed it in `onDestroy()`, and added `!isFinishing() && !isDestroyed()` checks before showing alert dialogs to prevent `WindowLeaked` / `BadTokenException` crashes.
+    * **Offline STT AudioRecord Protection**: Wrapped `streamAudioLoop` in `OnnxSpeechRecognizer.java` in try-finally to guarantee native `AudioRecord` release on unhandled errors.
+    * **Agent Planner Step Protection**: Guarded tool execution steps in `PlanRunner.java` `execute(Plan)` with try-catch so individual tool exceptions do not terminate plans or crash the foreground service.
+    * **Verification**: All 9 test suites pass 100% and all 206 Java files verified with clean bracket balancing.
 
 * **v16.81.2 (Commit `89a072f`)**:
   * **CallManager Symbol Resolution**: Fixed symbol error in `CallManager.java` `handleRedial()` by calling `store.frequentContacts(1)` instead of non-existent `store.recentCalls()`, matching `IrisListeningService.java`.

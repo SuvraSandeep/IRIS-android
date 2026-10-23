@@ -80,8 +80,12 @@ public class PlanRunner {
 
         boolean anySuccess = false;
         for (ToolCall step : steps) {
-            if (executeStep(step)) {
-                anySuccess = true;
+            try {
+                if (executeStep(step)) {
+                    anySuccess = true;
+                }
+            } catch (Throwable t) {
+                // Individual tool step failures must fail gracefully without aborting remaining steps
             }
         }
         return anySuccess;

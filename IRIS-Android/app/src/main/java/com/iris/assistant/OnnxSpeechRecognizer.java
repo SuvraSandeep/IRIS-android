@@ -225,60 +225,65 @@ public final class OnnxSpeechRecognizer {
 
     private void streamAudioLoop(AudioRecord activeRecord, int generation, Listener listener) {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
-        short[] frame = new short[FRAME_SIZE];
-        List<short[]> collectedFrames = new ArrayList<>();
-        int totalSamples = 0;
-        int quietFrames = 0;
-        int speechFrames = 0;
-        boolean speaking = false;
+        try {
+            short[] frame = new short[FRAME_SIZE];
+            List<short[]> collectedFrames = new ArrayList<>();
+            int totalSamples = 0;
+            int quietFrames = 0;
+            int speechFrames = 0;
+            boolean speaking = false;
 
-        while (listening && currentGeneration == generation) {
-            int read = activeRecord.read(frame, 0, frame.length);
-            if (read <= 0) continue;
+            while (listening && currentGeneration == generation) {
+                int read = activeRecord.read(frame, 0, frame.length);
+                if (read <= 0) continue;
 
-            short[] copy = Arrays.copyOf(frame, read);
-            collectedFrames.add(copy);
-            totalSamples += read;
+                short[] copy = Arrays.copyOf(frame, read);
+                collectedFrames.add(copy);
+                totalSamples += read;
 
-            double rms = calculateRms(frame, read);
-            boolean voiced = rms > 380; // Basic speech threshold; Silero trim refines final buffer
+                double rms = calculateRms(frame, read);
+                boolean voiced = rms > 380; // Basic speech threshold; Silero trim refines final buffer
 
-            if (voiced) {
-                speechFrames++;
-                quietFrames = 0;
-                if (!speaking && speechFrames >= 3) {
-                    speaking = true;
-                }
-            } else {
-                if (speaking) {
-                    quietFrames++;
-                    // 15 frames * 20ms = 300ms pause after speech signals end of utterance
-                    if (quietFrames >= 15 || totalSamples >= MAX_COMMAND_SAMPLES) {
-                        break;
+                if (voiced) {
+                    speechFrames++;
+                    quietFrames = 0;
+                    if (!speaking && speechFrames >= 3) {
+                        speaking = true;
+                    }
+                } else {
+                    if (speaking) {
+                        quietFrames++;
+                        // 15 frames * 20ms = 300ms pause after speech signals end of utterance
+                        if (quietFrames >= 15 || totalSamples >= MAX_COMMAND_SAMPLES) {
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        if (totalSamples > SAMPLE_RATE / 4 && currentGeneration == generation) {
-            short[] combined = new short[totalSamples];
-            int offset = 0;
-            for (short[] chunk : collectedFrames) {
-                System.arraycopy(chunk, 0, combined, offset, chunk.length);
-                offset += chunk.length;
+            if (totalSamples > SAMPLE_RATE / 4 && currentGeneration == generation) {
+                short[] combined = new short[totalSamples];
+                int offset = 0;
+                for (short[] chunk : collectedFrames) {
+                    System.arraycopy(chunk, 0, combined, offset, chunk.length);
+                    offset += chunk.length;
+                }
+
+                String transcript = recognize(combined);
+                if (!transcript.isEmpty()) {
+                    main.post(() -> listener.onFinal(transcript));
+                } else {
+                    main.post(() -> listener.onError("Could not recognize command speech"));
+                }
             }
-
-            String transcript = recognize(combined);
-            if (!transcript.isEmpty()) {
-                main.post(() -> listener.onFinal(transcript));
-            } else {
-                main.post(() -> listener.onError("Could not recognize command speech"));
-            }
-        }
-
-        synchronized (lock) {
-            if (recorder == activeRecord) {
-                releaseRecorder();
+        } catch (Throwable t) {
+            Log.w(TAG, "Audio stream loop error: " + t.getMessage());
+            main.post(() -> listener.onError("Audio stream error: " + t.getMessage()));
+        } finally {
+            synchronized (lock) {
+                if (recorder == activeRecord) {
+                    releaseRecorder();
+                }
             }
         }
     }

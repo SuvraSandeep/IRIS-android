@@ -75,6 +75,7 @@ public class ArchiveViewController {
 
     private MainActivity activity;
     private View rootView;
+    private Dialog activeLightbox;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     public void bind(MainActivity activity, View root) {
@@ -141,6 +142,10 @@ public class ArchiveViewController {
 
     public void onDestroy() {
         stopArchiveAudioPlayback();
+        if (activeLightbox != null && activeLightbox.isShowing()) {
+            try { activeLightbox.dismiss(); } catch (Exception ignored) { }
+            activeLightbox = null;
+        }
         if (archiveSearchRunnable != null) {
             handler.removeCallbacks(archiveSearchRunnable);
             archiveSearchRunnable = null;
@@ -1011,7 +1016,15 @@ public class ArchiveViewController {
         }
         final int[] currentIndex = new int[] { initIdx };
 
+        if (isFinishing() || isDestroyed()) return;
+        if (activeLightbox != null && activeLightbox.isShowing()) {
+            try { activeLightbox.dismiss(); } catch (Exception ignored) { }
+        }
         final Dialog lightbox = new Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        activeLightbox = lightbox;
+        lightbox.setOnDismissListener(d -> {
+            if (activeLightbox == lightbox) activeLightbox = null;
+        });
         final RelativeLayout root = new RelativeLayout(activity);
         root.setBackgroundColor(0xFF070816);
 
@@ -1224,7 +1237,9 @@ public class ArchiveViewController {
 
         updateMediaDisplay[0].run();
         lightbox.setContentView(root);
-        lightbox.show();
+        if (!isFinishing() && !isDestroyed()) {
+            lightbox.show();
+        }
     }
 
     private void showArchiveImage(final ArchiveRow row) {
@@ -1773,6 +1788,7 @@ public class ArchiveViewController {
     /** One-time explanation of what the archive keeps. Informational, not a gate. */
     private void maybeShowArchiveNotice(AppSettings settings) {
         if (settings.archiveNoticeShown()) return;
+        if (isFinishing() || isDestroyed()) return;
         settings.setArchiveNoticeShown(true);
         new AlertDialog.Builder(activity)
                 .setTitle("So, about this vault")

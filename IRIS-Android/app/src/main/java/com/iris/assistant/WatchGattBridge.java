@@ -214,10 +214,27 @@ final class WatchGattBridge implements AutoCloseable {
             obj.put("message", message);
             byte[] bytes = obj.toString().getBytes(StandardCharsets.UTF_8);
             responseCharacteristic.setValue(bytes);
-            if (Build.VERSION.SDK_INT >= 33) {
-                gattServer.notifyCharacteristicChanged(target, responseCharacteristic, false, bytes);
+
+            if (bytes.length <= 20) {
+                if (Build.VERSION.SDK_INT >= 33) {
+                    gattServer.notifyCharacteristicChanged(target, responseCharacteristic, false, bytes);
+                } else {
+                    gattServer.notifyCharacteristicChanged(target, responseCharacteristic, false);
+                }
             } else {
-                gattServer.notifyCharacteristicChanged(target, responseCharacteristic, false);
+                int chunkSize = 20;
+                for (int offset = 0; offset < bytes.length; offset += chunkSize) {
+                    int len = Math.min(chunkSize, bytes.length - offset);
+                    byte[] chunk = java.util.Arrays.copyOfRange(bytes, offset, offset + len);
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        gattServer.notifyCharacteristicChanged(target, responseCharacteristic, false, chunk);
+                    } else {
+                        responseCharacteristic.setValue(chunk);
+                        gattServer.notifyCharacteristicChanged(target, responseCharacteristic, false);
+                    }
+                    try { Thread.sleep(15); } catch (InterruptedException ignored) { }
+                }
+                responseCharacteristic.setValue(bytes);
             }
         } catch (Throwable ignored) { }
     }
