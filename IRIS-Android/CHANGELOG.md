@@ -1,5 +1,12 @@
 # Changelog
 
+## 16.82.2
+
+- CI Regression Suite Stabilization:
+  - Self-Contained OptOutDetector: Decoupled `OptOutDetector.java` from `ReplyTemplates.java` by inlining the default owner name, ensuring zero-dependency standalone compilation in `scripts/test-speech.sh` alongside `tests/OptOutDetectorTest.java`.
+  - Regression Test Harness: Simplified `scripts/test-speech.sh` opt-out compilation block to compile only `OptOutDetector.java` and `OptOutDetectorTest.java`.
+  - Version bump to 16.82.2 (code 484).
+
 ## 16.82.1
 
 - CI Build Stabilization & TTS Symbol Resolution:

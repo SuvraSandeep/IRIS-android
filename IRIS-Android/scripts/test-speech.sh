@@ -533,9 +533,6 @@ python3 tests/check-archive-schema.py
 # Opt-out detector across English, Hindi, Odia, and Bengali.
 mkdir -p "$test_dir/responder"
 javac -encoding UTF-8 -d "$test_dir/responder" \
-  app/src/main/java/com/iris/assistant/MessageCategory.java \
-  app/src/main/java/com/iris/assistant/ReplyTone.java \
-  app/src/main/java/com/iris/assistant/ReplyTemplates.java \
   app/src/main/java/com/iris/assistant/OptOutDetector.java \
   tests/OptOutDetectorTest.java
 java -cp "$test_dir/responder" com.iris.assistant.OptOutDetectorTest

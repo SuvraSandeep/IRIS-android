@@ -95,7 +95,7 @@ public final class OptOutDetector {
      * Standard polite confirmation sent once when a recipient requests silence.
      */
     public static String confirmationReply(String owner) {
-        String name = (owner == null || owner.trim().isEmpty()) ? ReplyTemplates.OWNER : owner.trim();
+        String name = (owner == null || owner.trim().isEmpty()) ? "Suvra" : owner.trim();
         return "Understood. I've muted auto-replies for this chat. " + name
                 + " will see your messages when he's back.";
     }

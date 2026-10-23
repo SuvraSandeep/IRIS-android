@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.82.1` / `versionCode 483` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `16.82.2` / `versionCode 484` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -148,7 +148,12 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v16.82.1 (Commit `063becd`)**:
+* **v16.82.2 (Commit `584f675`)**:
+  * **CI Regression Suite Stabilization**: Decoupled `OptOutDetector.java` from `ReplyTemplates.java` by inlining the default owner name, ensuring zero-dependency standalone compilation in `scripts/test-speech.sh` alongside `tests/OptOutDetectorTest.java`.
+  * **Regression Test Harness**: Simplified `scripts/test-speech.sh` opt-out compilation block to compile only `OptOutDetector.java` and `OptOutDetectorTest.java`.
+  * **Verification**: All offline test suites and contract checks pass 100%.
+
+* **v16.82.1 (Commit `cde20e7`)**:
   * **Streaming TTS Symbol Resolution**: Removed non-existent `setListeningState(ListeningState.SPEAKING)` in `IrisListeningService.java` `speakStreamSentence()` that triggered `cannot find symbol` compilation failure during Gradle `:app:testDebugUnitTest`. Streamed sentence TTS relies on established `requestSpeechFocus()` and `startStopWordListener()` with `UtteranceProgressListener` callback tracking.
   * **Regression Test Harness Integration**: Wired `OptOutDetectorTest.java` and `check-comms-deck.py` directly into `scripts/test-speech.sh`, guaranteeing multilingual opt-out detection (English, Hindi, Odia, Bengali) and Comms Deck contracts are verified automatically on every CI run.
   * **Verification**: All offline test suites and contract checks pass 100%.
