@@ -5,8 +5,8 @@
     "appName": "IRIS Remote",
     "appType": "app",
     "version": {
-      "code": 20,
-      "name": "17.3.0"
+      "code": 21,
+      "name": "17.4.0"
     },
     "icon": "icon.png",
     "vender": "IRIS",

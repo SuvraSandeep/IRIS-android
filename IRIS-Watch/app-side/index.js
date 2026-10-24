@@ -39,7 +39,7 @@ AppSideService(BaseSideService({
      throw new Error('HTTP ' + response.status);
     }
     const body = (response && typeof response.body === 'string') ? JSON.parse(response.body) : (response ? response.body : null);
-    res(null, { message: body?.message || 'Phone returned no message' });
+    res(null, body && typeof body === 'object' ? body : { message: body ? String(body) : 'Phone returned no message' });
    })
    .catch(() => {
     fetch({
@@ -52,7 +52,7 @@ AppSideService(BaseSideService({
        throw new Error('HTTP ' + response.status);
       }
       const body = (response && typeof response.body === 'string') ? JSON.parse(response.body) : (response ? response.body : null);
-      res(null, { message: body?.message || 'Phone returned no message' });
+      res(null, body && typeof body === 'object' ? body : { message: body ? String(body) : 'Phone returned no message' });
      })
      .catch(() => {
       if (typeof WebSocket !== 'undefined') {
@@ -75,7 +75,7 @@ AppSideService(BaseSideService({
           clearTimeout(t);
           try {
            const data = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-           res(null, { message: data?.message || 'Phone returned no message' });
+           res(null, data && typeof data === 'object' ? data : { message: data ? String(data) : 'Phone returned no message' });
           } catch (e) {
            res(null, { message: String(ev.data) || 'Phone returned no message' });
           }

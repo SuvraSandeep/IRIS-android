@@ -60,6 +60,7 @@ final class WatchBridge implements AutoCloseable {
             if (path.equals("/ping")) return "IRIS Phone Bridge Online";
             if (path.equals("/status")) {
                 String charging = "I can\u2019t check charging right now.";
+                int batteryLevel = -1;
                 try {
                     android.content.Intent b = app.registerReceiver(null, new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
                     if (b != null) {
@@ -68,9 +69,21 @@ final class WatchBridge implements AutoCloseable {
                         int level = b.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
                         int scale = b.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
                         charging = ChargingState.describe(status, plugged, level, scale);
+                        if (scale > 0 && level >= 0) batteryLevel = Math.round(level * 100f / scale);
                     }
                 } catch (Throwable ignored) {}
-                return "Phone: " + charging + (IrisListeningService.isRunning ? " · IRIS Active" : " · IRIS Standby");
+                boolean active = IrisListeningService.isRunning;
+                String summary = "Phone: " + charging + (active ? " · IRIS Active" : " · IRIS Standby");
+                try {
+                    return new org.json.JSONObject()
+                            .put("message", summary)
+                            .put("battery", batteryLevel)
+                            .put("charging", charging)
+                            .put("iris", active ? "Active" : "Standby")
+                            .toString();
+                } catch (Throwable t) {
+                    return summary;
+                }
             }
             if (path.equals("/stop")) {
                 if (finderHolder[0] != null && finderHolder[0].active()) {
@@ -85,21 +98,44 @@ final class WatchBridge implements AutoCloseable {
                 return finderHolder[0].active() ? "Ringing for 30 seconds" : "Alarm blocked: check phone DND settings";
             }
             if (path.equals("/talk")) {
+                boolean active = IrisListeningService.isRunning;
                 try {
+                    try {
+                        android.os.PowerManager pm = (android.os.PowerManager) app.getSystemService(Context.POWER_SERVICE);
+                        if (pm != null) {
+                            android.os.PowerManager.WakeLock wl = pm.newWakeLock(
+                                    android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK | android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP | android.os.PowerManager.ON_AFTER_RELEASE,
+                                    "iris:watch_talk");
+                            wl.acquire(3000);
+                        }
+                    } catch (Throwable ignored) {}
+
+                    if (active) {
+                        app.startService(new android.content.Intent(app, IrisListeningService.class).setAction(IrisListeningService.ACTION_TALK));
+                    }
+
+                    android.content.Intent openIntent = new android.content.Intent(app, MainActivity.class)
+                            .setAction(android.content.Intent.ACTION_ASSIST)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    try {
+                        app.startActivity(openIntent);
+                    } catch (Throwable ignored) {}
+
                     android.app.NotificationManager nm = (android.app.NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
                     if (nm != null && nm.areNotificationsEnabled()) {
-                        nm.createNotificationChannel(new android.app.NotificationChannel("iris_watch", "Watch talk requests", android.app.NotificationManager.IMPORTANCE_HIGH));
-                        android.app.PendingIntent open = android.app.PendingIntent.getActivity(app, 18473,
-                                new android.content.Intent(app, MainActivity.class).setAction(android.content.Intent.ACTION_ASSIST).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        android.app.NotificationChannel ch = new android.app.NotificationChannel("iris_watch", "Watch talk requests", android.app.NotificationManager.IMPORTANCE_HIGH);
+                        nm.createNotificationChannel(ch);
+                        android.app.PendingIntent open = android.app.PendingIntent.getActivity(app, 18473, openIntent,
                                 android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
                         nm.notify(18473, new android.app.Notification.Builder(app, "iris_watch")
                                 .setSmallIcon(R.drawable.ic_iris)
-                                .setContentTitle("IRIS · talk requested from watch")
-                                .setContentText("Tap to speak using your phone microphone")
+                                .setContentTitle("IRIS · Voice command")
+                                .setContentText("Listening on phone… Speak now!")
+                                .setFullScreenIntent(open, true)
                                 .setContentIntent(open)
                                 .setAutoCancel(true).build());
-                        return "Tap the IRIS notification on your phone to talk";
                     }
+                    return active ? "Phone is listening… Speak now!" : "IRIS opened on phone. Speak now!";
                 } catch (Throwable ignored) {}
                 return "Enable IRIS notifications on your phone first";
             }
@@ -409,7 +445,15 @@ final class WatchBridge implements AutoCloseable {
     }
 
     private static void sendWsResponse(OutputStream out, String message) throws Exception {
-        byte[] body = new org.json.JSONObject().put("message", message).toString().getBytes(StandardCharsets.UTF_8);
+        org.json.JSONObject json;
+        try {
+            json = (message != null && message.trim().startsWith("{"))
+                    ? new org.json.JSONObject(message)
+                    : new org.json.JSONObject().put("message", message);
+        } catch (Exception e) {
+            json = new org.json.JSONObject().put("message", message);
+        }
+        byte[] body = json.toString().getBytes(StandardCharsets.UTF_8);
         sendWsFrame(out, 0x1, body);
     }
 
@@ -428,7 +472,15 @@ final class WatchBridge implements AutoCloseable {
     }
 
     private void respond(Socket socket, int code, String message) throws Exception {
-        byte[] body = new org.json.JSONObject().put("message", message).toString().getBytes(StandardCharsets.UTF_8);
+        org.json.JSONObject json;
+        try {
+            json = (message != null && message.trim().startsWith("{"))
+                    ? new org.json.JSONObject(message)
+                    : new org.json.JSONObject().put("message", message);
+        } catch (Exception e) {
+            json = new org.json.JSONObject().put("message", message);
+        }
+        byte[] body = json.toString().getBytes(StandardCharsets.UTF_8);
         OutputStream out = socket.getOutputStream();
         String reason = code == 200 ? "OK" : (code == 400 ? "Bad Request" : (code == 403 ? "Forbidden" : (code == 408 ? "Request Timeout" : (code == 429 ? "Too Many Requests" : "Error"))));
         out.write(("HTTP/1.1 " + code + " " + reason + "\r\n"

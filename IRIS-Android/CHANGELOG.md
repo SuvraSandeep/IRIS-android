@@ -1,5 +1,14 @@
 # Changelog
 
+## 17.4.0
+
+- Dedicated Phone Status Details Tab & Watch-Triggered Voice Wakeup:
+  - Dedicated Phone Status Tab: Replaced cramped top header status text on Amazfit T-Rex 3 with a dedicated full-screen tab (`renderStatusTab()`). Displays a large 36px glanceable battery gauge (`⚡ 57%`, color-coded by battery health), detailed charging state, IRIS assistant state (Active/Standby), bridge port telemetry, an on-demand "🔄 Refresh Details" button, and a quick "◀ Back to Controls" return button.
+  - Safe-Area Main Screen Header Badge: Centered main remote status text within a 320px safe-zone contour (`x: 80, y: 92, w: 320`) to prevent text from clipping against the circular AMOLED bezel.
+  - Watch-Triggered Voice Wakeup (`/talk`): Tapping "🎙 Talk to IRIS (Voice)" turns on the phone screen via `SCREEN_BRIGHT_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP`, dispatches `ACTION_TALK` to `IrisListeningService` to activate the speech recognition pipeline immediately, posts a high-priority heads-up notification with `setFullScreenIntent`, and launches `MainActivity` with `ACTION_ASSIST`. Watch receives immediate feedback: `"🎙 Phone is listening… Speak now!"`.
+  - Structured Status Telemetry: Upgraded `WatchBridge` `/status` endpoint to return structured JSON containing `message`, `battery` (integer percentage), `charging`, and `iris` state. Upgraded `app-side/index.js` to pass through structured responses to the watch.
+  - Strict Semantic Versioning: Minor feature/fix increment (+0.1.0) to version 17.4.0 (Android versionCode 504, Zepp OS version 17.4.0 code 21).
+
 ## 17.3.0
 
 - Watch Companion Bridge Decoupling & Seamless Zero-Crash Diagnostics:
