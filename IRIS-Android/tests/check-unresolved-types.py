@@ -99,6 +99,7 @@ TYPE_USE = [
     re.compile(r"\bimplements\s+([A-Z][A-Za-z0-9_]*)"),
     re.compile(r"\bcatch\s*\(\s*([A-Z][A-Za-z0-9_]*)"),
     re.compile(r"\binstanceof\s+([A-Z][A-Za-z0-9_]*)"),
+    re.compile(r"\b(Log|Toast|TextUtils)\.[a-z]"),
 ]
 
 

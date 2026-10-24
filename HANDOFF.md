@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `17.5.0` / `versionCode 505` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `17.5.1` / `versionCode 506` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -152,6 +152,12 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v17.5.1 (Commit `PENDING_COMMIT_LOCK`)**:
+  * **CI Compilation Repair & Missing Android Log Linkage**: Added `import android.util.Log;` to `IrisListeningService.java`, resolving 6 `cannot find symbol: class Log` compiler errors during `:app:testDebugUnitTest` in GitHub Actions CI run `40085374977` (lines 833, 850, 855, 881, 5534, and 5590).
+  * **Enhanced Offline Static Utility Linting**: Upgraded `tests/check-unresolved-types.py` to inspect static utility class invocations (e.g. `Log`, `Toast`, `TextUtils`) across all Java source files, guaranteeing that unimported static references are caught instantly during local pre-commit verification.
+  * **Strict Semantic Versioning**: Incremented `+0.0.1` for build failure rebuild from `17.5.0` to version `17.5.1` (`versionCode 506` in Android, version `17.5.1` / code `23` in Zepp OS).
+  * **Verification**: All 9 offline test suites (`check-brackets.py`, `check-xml.py`, `check-training-layout.py`, `check-archive-schema.py`, `check-unresolved-types.py`, `check-comms-deck.py`, `check-planning-pipeline.py`, `check-speech-pipeline.py`, and `check-server-and-watch.py`) and watch tests (`npm run check` and `npm test`) pass 100%.
 
 * **v17.5.0 (Commit `ef93ac8`)**:
   * **Safe Foreground Contract Enforcement**: Engineered `safeStartForeground()` in `IrisListeningService.java` called immediately upon entering `onStartCommand()` before evaluating runtime permissions or model states. Completely eliminates the fatal `ForegroundServiceDidNotStartInTimeException` / `RemoteServiceException` caused by Android 8.0+ when `startForegroundService()` is followed by an early `stopSelf()` without `startForeground()`.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 17.5.1
+
+- CI Compilation Repair & Static Utility Symbol Lint Guard:
+  - Missing Android Log Import Resolution: Added `import android.util.Log;` to `IrisListeningService.java`, resolving 6 `cannot find symbol: class Log` compilation errors across lines 833, 850, 855, 881, 5534, and 5590 that failed `:app:testDebugUnitTest` in GitHub Actions CI.
+  - Enhanced Static Utility Offline Linting: Upgraded `tests/check-unresolved-types.py` to inspect static method calls against common Android utility classes (`Log`, `Toast`, `TextUtils`), ensuring unimported static references are caught locally and never break remote CI compilation.
+  - Strict Semantic Versioning: Build failure rebuild increment (+0.0.1) to version 17.5.1 (Android versionCode 506, Zepp OS version 17.5.1 code 23).
+
 ## 17.5.0
 
 - Zero-Crash Assistant Startup, Safe Foreground Contracts & Linkage Guards:

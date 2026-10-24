@@ -133,7 +133,7 @@ AppSettingsPage({
             color: '#94A3B8',
             display: 'block'
           }
-        }, 'Cyberpunk Neural Wrist Link · v17.5.0')
+        }, 'Cyberpunk Neural Wrist Link · v17.5.1')
       ]),
 
       // 2. Hardware Link Telemetry Card
