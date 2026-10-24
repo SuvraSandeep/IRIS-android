@@ -66,8 +66,8 @@ final class WatchBridge implements AutoCloseable {
     }
 
     static boolean allowed(String method, String path) {
-        return (method.equals("GET") && path.equals("/status"))
-                || (method.equals("POST") && (path.equals("/find") || path.equals("/stop") || path.equals("/talk")));
+        return (method.equals("GET") && (path.equals("/status") || path.equals("/ping")))
+                || (method.equals("POST") && (path.equals("/find") || path.equals("/stop") || path.equals("/talk") || path.equals("/ping")));
     }
 
     void start() {
@@ -152,7 +152,7 @@ final class WatchBridge implements AutoCloseable {
                 auth = v;
             }
             if (k.equals("x-iris-sent-at")) sentAt = Long.parseLong(v);
-            if (k.equals("origin") || k.equals("transfer-encoding")) origin = true;
+            if (k.equals("transfer-encoding")) origin = true;
             if (k.equals("content-length")) length = Integer.parseInt(v);
             if (k.equals("upgrade") && v.equalsIgnoreCase("websocket")) isWs = true;
             if (k.equals("sec-websocket-key")) wsKey = v;
@@ -283,7 +283,7 @@ final class WatchBridge implements AutoCloseable {
                 authenticated = true;
                 String action = msg.optString("action", msg.optString("path", ""));
                 if (!action.startsWith("/")) action = "/" + action;
-                if (!action.equals("/status") && !action.equals("/find") && !action.equals("/stop") && !action.equals("/talk")) {
+                if (!action.equals("/status") && !action.equals("/find") && !action.equals("/stop") && !action.equals("/talk") && !action.equals("/ping")) {
                     sendWsResponse(out, "Unsupported request");
                     continue;
                 }
