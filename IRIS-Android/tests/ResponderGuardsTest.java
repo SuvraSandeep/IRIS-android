@@ -138,11 +138,13 @@ public class ResponderGuardsTest {
         neverOutranksEverything();
         nameRuleCanRefuse();
         fixedReplyBypassesOnlyCategorySilence();
+        recipientMutedIsRefused();
         allowlistModeExcludesByDefault();
         scopeRules();
         groupMentionsRule();
         unsavedContactsAreRefusedByDefault();
         toneDrivenSilence();
+        urgentOnlyBlocksNonUrgent();
         burstProducesOneReplyNotSeven();
         sameTextIsNotAnsweredTwice();
         familyPriorityBypassesRateLimitsOnly();
@@ -314,6 +316,13 @@ public class ResponderGuardsTest {
                 "NEVER refuses a group mention too");
     }
 
+    private static void recipientMutedIsRefused() {
+        ResponderGuards.Policy muted = sendablePolicy();
+        muted.recipientMuted = true;
+        verdict(sendableMessage(), muted, ResponderGuards.Verdict.RECIPIENT_MUTED,
+                "a recipient who asked to stop replying is muted");
+    }
+
     /**
      * A rule on the sender's NAME can refuse them, and must not outrank a decision about the
      * person themselves.
@@ -472,6 +481,28 @@ public class ResponderGuardsTest {
             verdict(nothing, sendablePolicy(), ResponderGuards.Verdict.CATEGORY_SILENT,
                     "an unrecognised message is silent in " + tone);
         }
+    }
+
+    private static void urgentOnlyBlocksNonUrgent() {
+        ResponderGuards.Message m = sendableMessage();
+        m.category = MessageCategory.Kind.GREETING;
+        ResponderGuards.Policy p = sendablePolicy();
+        p.urgentOnly = true;
+
+        verdict(m, p, ResponderGuards.Verdict.NOT_URGENT,
+                "urgent-only mode blocks a regular greeting");
+
+        ResponderGuards.Message urgent = sendableMessage();
+        urgent.category = MessageCategory.Kind.URGENT;
+        verdict(urgent, p, ResponderGuards.Verdict.SEND,
+                "urgent-only mode permits an urgent message");
+
+        // Family priority bypasses urgent-only mode
+        ResponderGuards.Policy family = sendablePolicy();
+        family.urgentOnly = true;
+        family.familyPriority = true;
+        verdict(m, family, ResponderGuards.Verdict.SEND,
+                "family priority sends even when urgent-only is on");
     }
 
     /** Seven messages arrived in one notification on the owner's phone. One reply, not seven. */

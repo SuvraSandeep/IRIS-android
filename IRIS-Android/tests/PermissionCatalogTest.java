@@ -82,17 +82,23 @@ public class PermissionCatalogTest {
         check(!PermissionCatalog.find(PermissionCatalog.Capability.LOCATION).core, "location is optional");
         check(!PermissionCatalog.find(PermissionCatalog.Capability.NOTIFICATION_ACCESS).core,
                 "notification access is optional");
+        check(!PermissionCatalog.find(PermissionCatalog.Capability.EXACT_ALARMS).core,
+                "exact alarms is optional");
+        check(!PermissionCatalog.find(PermissionCatalog.Capability.CALENDAR).core,
+                "calendar access is optional");
     }
 
     /**
-     * The whole reason Kind exists. Notification listening cannot be granted by a runtime dialog,
-     * so if it were marked RUNTIME the dashboard would offer an "Allow" button that does nothing.
-     * Everything else must stay RUNTIME so it keeps offering the real dialog.
+     * The whole reason Kind exists. Notification listening and exact alarms cannot be granted
+     * by a runtime dialog, so if they were marked RUNTIME the dashboard would offer an "Allow"
+     * button that does nothing. Everything else must stay RUNTIME so it keeps offering the real dialog.
      */
     private static void notificationAccessIsSpecialNotRuntime() {
         for (PermissionCatalog.Entry entry : PermissionCatalog.all()) {
-            if (entry.capability == PermissionCatalog.Capability.NOTIFICATION_ACCESS) {
-                check(entry.kind == PermissionCatalog.Kind.SPECIAL, "notification access is SPECIAL");
+            if (entry.capability == PermissionCatalog.Capability.NOTIFICATION_ACCESS
+                    || entry.capability == PermissionCatalog.Capability.EXACT_ALARMS) {
+                check(entry.kind == PermissionCatalog.Kind.SPECIAL,
+                        entry.capability + " is SPECIAL");
             } else {
                 check(entry.kind == PermissionCatalog.Kind.RUNTIME,
                         entry.capability + " is RUNTIME so it can be requested with a dialog");

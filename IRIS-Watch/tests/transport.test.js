@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
-const source=path=>readFileSync(new URL(path,import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
+const source=path=>readFileSync(new URL(path,import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'');
 test('expired watch response cannot overwrite a newer request',async()=>{
  let page,display='',timeouts=[],resolve=[];
  const context={Page:p=>page=p,BasePage:p=>p,ui:{widget:{TEXT:1,BUTTON:2},align:{CENTER:1},prop:{TEXT:1},createWidget:()=>({setProperty:(_,text)=>{display=text;}})},setTimeout:fn=>{timeouts.push(fn);return timeouts.length;},clearTimeout:()=>{}};

@@ -42,6 +42,7 @@ abu.json
 IRIS-Watch/node_modules/
 IRIS-Watch/dist/
 IRIS-Watch/.zeus/
+IRIS-Watch/preview-qr.html
 
 # Large local data file, never commit (exceeds GitHub 100MB limit)
 now.json

@@ -59,6 +59,13 @@ public final class AutoResponder {
     }
 
     /**
+     * Entry point for the responder decision pipeline (alias for {@link #consider(Context, Incoming)}).
+     */
+    public static void decide(Context context, Incoming incoming) {
+        consider(context, incoming);
+    }
+
+    /**
      * Consider one notification and record what would happen.
      *
      * Called once per notification rather than once per message. The newest message is the one
@@ -153,6 +160,24 @@ public final class AutoResponder {
             return;
         }
         if (DeletedMessageRules.isSenderDeletion(rawBody)) {
+            // Check if replying to deleted messages is enabled (default false so deletions are archived silently).
+            if (!settings.replyToDeleted()) {
+                ResponderLog.Entry delEntry = new ResponderLog.Entry();
+                delEntry.whenMs = now;
+                delEntry.appLabel = incoming.appLabel;
+                delEntry.pkg = incoming.pkg;
+                delEntry.sender = resolvedSender;
+                delEntry.group = incoming.group;
+                delEntry.category = "DELETED";
+                delEntry.tone = settings.defaultTone().name();
+                delEntry.incoming = rawBody;
+                delEntry.dryRun = (state == ResponderGuards.State.DRY_RUN);
+                delEntry.verdict = "SILENT_DELETION";
+                delEntry.reason = "Sender revoked message; archived silently in Vault without sending public reply";
+                new ResponderLog(context).record(delEntry);
+                return;
+            }
+
             boolean hasReplyAction = IrisNotificationListener.replyAction(incoming.sbn) != null;
             ResponderGuards.ContactRule contactRule =
                     settings.effectiveContactRule(conversationKey, resolvedSender);
@@ -219,6 +244,55 @@ public final class AutoResponder {
 
             new ResponderLog(context).record(delEntry);
             return; // CRITICAL: Stop execution here so it NEVER hits Bedtime, modes, or category composer!
+        }
+
+        // ─── Recipient Opt-Out Interceptor ("stop", "shut up", "chup", "thamo") ───
+        if (settings.isConversationMuted(conversationKey, now)) {
+            ResponderLog.Entry muteEntry = new ResponderLog.Entry();
+            muteEntry.whenMs = now;
+            muteEntry.appLabel = incoming.appLabel;
+            muteEntry.pkg = incoming.pkg;
+            muteEntry.sender = resolvedSender;
+            muteEntry.group = incoming.group;
+            muteEntry.category = "OPT_OUT";
+            muteEntry.tone = settings.defaultTone().name();
+            muteEntry.incoming = rawBody;
+            muteEntry.dryRun = (state == ResponderGuards.State.DRY_RUN);
+            muteEntry.verdict = ResponderGuards.Verdict.RECIPIENT_MUTED.name();
+            muteEntry.reason = "Conversation muted by recipient opt-out request ('stop' / 'chup')";
+            new ResponderLog(context).record(muteEntry);
+            return;
+        }
+
+        if (settings.recipientOptOutEnabled() && OptOutDetector.isOptOut(rawBody)) {
+            settings.muteConversation(conversationKey, now + 24L * 60 * 60 * 1000L);
+            String optOutReply = OptOutDetector.confirmationReply(ReplyTemplates.OWNER);
+
+            ResponderLog.Entry optEntry = new ResponderLog.Entry();
+            optEntry.whenMs = now;
+            optEntry.appLabel = incoming.appLabel;
+            optEntry.pkg = incoming.pkg;
+            optEntry.sender = resolvedSender;
+            optEntry.group = incoming.group;
+            optEntry.category = "OPT_OUT";
+            optEntry.tone = settings.defaultTone().name();
+            optEntry.incoming = rawBody;
+            optEntry.dryRun = (state == ResponderGuards.State.DRY_RUN);
+            optEntry.verdict = "RECIPIENT_OPT_OUT";
+            optEntry.reply = optOutReply;
+            optEntry.reason = "Recipient requested silence ('stop' / 'chup'); 24h mute applied";
+
+            boolean hasReplyAction = IrisNotificationListener.replyAction(incoming.sbn) != null;
+            if (hasReplyAction && state == ResponderGuards.State.LIVE) {
+                NotificationReply.Result sendRes = NotificationReply.send(
+                        context, incoming.sbn, optOutReply, "auto_reply", false);
+                optEntry.sendResult = sendRes.name();
+                settings.recordReply(conversationKey, now);
+                rememberAnswered(incoming.sbn.getKey());
+            }
+
+            new ResponderLog(context).record(optEntry);
+            return;
         }
 
         // ─── Tone first, because it decides whether some categories speak at all ───
@@ -490,13 +564,12 @@ public final class AutoResponder {
         // the owner's own deletions and generic placeholders stay silent.
         message.senderDeletion = DeletedMessageRules.isSenderDeletion(incoming.body);
         message.flaggedDeleted = false;
+        boolean allowForceSmart = !settings.strictGuards();
         message.forceReply = ((!nameReply.isEmpty() || !learnedReply.isEmpty()
                         || awaitingReminderTime
                         || confirmsRing || urgentFamily || ringRequest)
                 && category.kind != MessageCategory.Kind.NONE)
-                || smartMatched
-                || vernMatched
-                || profileMatched
+                || (allowForceSmart && (smartMatched || vernMatched || profileMatched))
                 || followUp != ConversationContext.FollowUp.NONE
                 || offerReply != ConversationContext.OfferReply.NONE
                 || !learnedReply.isEmpty();
@@ -515,6 +588,7 @@ public final class AutoResponder {
         policy.contactRule = settings.effectiveContactRule(conversationKey, resolvedSender);
         policy.nameRuleBlocked = settings.nameRuleBlocks(resolvedSender);
         policy.allowlistOnly = settings.allowlistOnly();
+        policy.urgentOnly = settings.urgentOnly();
         policy.cooldownMs = settings.cooldownMs();
         policy.lastReplyToConversationMs = settings.lastReplyTo(conversationKey);
         policy.coalesceWindowMs = Debounce.DEFAULT_WINDOW_MS;
@@ -524,6 +598,7 @@ public final class AutoResponder {
         policy.replyToEveryMessage = settings.replyToEveryMessage();
         policy.lastAnsweredText = settings.lastAnsweredText(conversationKey);
         policy.familyPriority = confirmsRing || urgentFamily || ringRequest;
+        policy.recipientMuted = settings.isConversationMuted(conversationKey, now);
         policy.repliesToContactToday = settings.repliesToContactToday(conversationKey, now);
         policy.toIrisRepliesToday = settings.toIrisRepliesToday(conversationKey, now);
         policy.contactCapPerDay = settings.contactCapPerDay();
@@ -531,6 +606,18 @@ public final class AutoResponder {
         policy.dailyCapTotal = settings.dailyCapTotal();
 
         ResponderGuards.Verdict verdict = ResponderGuards.evaluate(message, policy);
+
+        // Urgent-Only Mode: block any message that does not exhibit urgency
+        boolean isUrgent = category.kind == MessageCategory.Kind.URGENT
+                || UrgencyScore.isUrgent(incoming.body, burst)
+                || SentimentScore.score(incoming.body).distressed()
+                || confirmsRing || urgentFamily || ringRequest
+                || FlagDetector.isExplicitFlagCommand(incoming.body)
+                || incoming.placeholder
+                || message.senderDeletion;
+        if (settings.urgentOnly() && !isUrgent) {
+            verdict = ResponderGuards.Verdict.NOT_URGENT;
+        }
 
         // An owner override on the category is applied after the guards, so the log still reports
         // the more fundamental reason when there is one. A fixed reply set by name is the owner
@@ -632,15 +719,16 @@ public final class AutoResponder {
                             ResponderWindow.partOfDay(minuteOfDay), -1, dayName(now));
                     decisionReason = "Media acknowledgement: per-type reply for media attachment";
                 } else {
-                    reply = compose(settings, category, tone, resolvedSender, now, minuteOfDay);
+                    reply = compose(context, settings, category, tone, resolvedSender, now, minuteOfDay);
                     decisionReason = "Category composer: template generated for " + category.kind.name()
                             + " (tone: " + tone.name() + ")";
                 }
                 // Once IRIS has already introduced itself in this conversation (or the sender is
                 // clearly addressing IRIS by name), drop the "I'm IRIS, Suvra's assistant" intro
                 // so a continuing chat stops repeating itself. Owner-defined wording is untouched.
-                if (learnedReply.isEmpty() && nameReply.isEmpty()) {
+                if (settings.dedupSignature() && learnedReply.isEmpty() && nameReply.isEmpty()) {
                     boolean introduced = settings.lastReplyTo(conversationKey) > 0
+                            || settings.repliesToContactToday(conversationKey, now) > 0
                             || IntroTrim.senderKnowsIris(incoming.body);
                     reply = IntroTrim.trim(reply, introduced, ReplyTemplates.OWNER);
                 }
@@ -809,7 +897,7 @@ public final class AutoResponder {
      * said, not whether anything is said. The single exception is urgency, which selects a
      * different quiet-hours variant rather than escaping quiet hours.
      */
-    private static String compose(ResponderSettings settings, MessageCategory.Result category,
+    private static String compose(Context context, ResponderSettings settings, MessageCategory.Result category,
                                   ReplyTone.Tone tone, String senderName, long nowMs,
                                   int minuteOfDay) {
         // A greeting that doesn't match the clock -- "good morning" sent at night -- gets an aware
@@ -828,13 +916,9 @@ public final class AutoResponder {
         // placeholder still needs filling for it.
         ResponderMode mode = settings.mode();
         // Self-activating modes: when the owner hasn't set one by hand, let the enabled signals
-        // decide. Only auto-sleep (quiet hours) needs no extra permission and is wired here;
-        // driving/meeting signals require device permissions and are added separately.
+        // decide (driving via car Bluetooth, meeting via busy calendar event, sleeping via quiet hours).
         if (mode == ResponderMode.NONE) {
-            AutoModePolicy.Signals sig = new AutoModePolicy.Signals();
-            sig.autoSleep = settings.autoSleepInQuietHours();
-            sig.quietHours = ResponderWindow.isQuiet(
-                    settings.quietStart(), settings.quietEnd(), minuteOfDay);
+            AutoModePolicy.Signals sig = AutoModeDetector.evaluateSignals(context, settings, minuteOfDay);
             mode = AutoModePolicy.resolve(ResponderMode.NONE, AutoModePolicy.Source.NONE, sig).mode;
         }
         boolean quiet;

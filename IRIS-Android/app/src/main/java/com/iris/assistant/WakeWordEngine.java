@@ -28,6 +28,7 @@ public final class WakeWordEngine {
     private static final int FRAME = 320;
     private static final int MAX_UTTERANCE_SAMPLES = SAMPLE_RATE * 3;
     private static final double[] FREQUENCIES = {250, 400, 600, 800, 1000, 1300, 1700, 2200, 2900, 3800};
+    private static final int AMBIENT_WINDOW_FRAMES = 25; // 25 frames * 20ms = 500ms
 
     private final Context context;
     private final String micPreference;
@@ -36,10 +37,19 @@ public final class WakeWordEngine {
     private volatile int generation;
     private AudioRecord recorder;
     private Thread worker;
+    private SileroVad sileroVad;
 
     public WakeWordEngine(Context context) {
         this.context = context.getApplicationContext();
         this.micPreference = new AppSettings(context).preferredMicrophone();
+    }
+
+    public void setSileroVad(SileroVad vad) {
+        this.sileroVad = vad;
+    }
+
+    public SileroVad getSileroVad() {
+        return sileroVad;
     }
 
     public void captureOne(Listener listener) {
@@ -101,6 +111,11 @@ public final class WakeWordEngine {
         int hotFrames = 0;
         int quietFrames = 0;
         boolean speaking = false;
+        double[] ambientRmsHistory = new double[AMBIENT_WINDOW_FRAMES];
+        int ambientRmsCount = 0;
+        int ambientRmsIndex = 0;
+        double currentAmbientRms = 160;
+        double currentAmbientDb = 45;
         postStatus(listener, captureOnly ? "Listening for your wake phrase…" : "Wake phrase armed");
 
         while (running && generation == activeGeneration) {
@@ -110,9 +125,39 @@ public final class WakeWordEngine {
             if (count <= 0) continue;
             double rms = rms(frame, count);
             peak = Math.max(peak, rms);
-            double trigger = Math.max(600, noiseFloor * 3.2);
 
             if (!speaking) {
+                ambientRmsHistory[ambientRmsIndex] = rms;
+                ambientRmsIndex = (ambientRmsIndex + 1) % AMBIENT_WINDOW_FRAMES;
+                if (ambientRmsCount < AMBIENT_WINDOW_FRAMES) ambientRmsCount++;
+
+                double sumRms = 0;
+                for (int i = 0; i < ambientRmsCount; i++) sumRms += ambientRmsHistory[i];
+                currentAmbientRms = sumRms / ambientRmsCount;
+                currentAmbientDb = SileroVad.calculateAmbientDb(currentAmbientRms);
+
+                if (sileroVad != null) {
+                    sileroVad.adaptThresholdFromRms(currentAmbientRms);
+                }
+
+                // Dynamic trigger threshold:
+                // In quiet environments (<40 dB), multiplier relaxed to 2.8 and floor 450.
+                // In noisy street/car (>65 dB), multiplier raised to 3.8 and floor 900.
+                double triggerMultiplier;
+                double minTriggerFloor;
+                if (currentAmbientDb <= 40.0) {
+                    triggerMultiplier = 2.8;
+                    minTriggerFloor = 450;
+                } else if (currentAmbientDb >= 65.0) {
+                    triggerMultiplier = 3.8;
+                    minTriggerFloor = 900;
+                } else {
+                    double t = (currentAmbientDb - 40.0) / (65.0 - 40.0);
+                    triggerMultiplier = 2.8 + t * 1.0;
+                    minTriggerFloor = 450 + t * 450;
+                }
+                double trigger = Math.max(minTriggerFloor, noiseFloor * triggerMultiplier);
+
                 noiseFloor = noiseFloor * .97 + Math.min(rms, trigger) * .03;
                 hotFrames = rms > trigger ? hotFrames + 1 : 0;
                 if (hotFrames >= 4) {
@@ -125,10 +170,15 @@ public final class WakeWordEngine {
 
             if (speaking) {
                 utterance.add(frame, count);
-                quietFrames = rms < trigger * .62 ? quietFrames + 1 : 0;
+                double speakingTrigger = Math.max(600, noiseFloor * 3.2);
+                quietFrames = rms < speakingTrigger * .62 ? quietFrames + 1 : 0;
                 if ((quietFrames >= 14 && utterance.size() > SAMPLE_RATE / 3)
                         || utterance.size() >= MAX_UTTERANCE_SAMPLES) {
-                    float[][] features = extractFeatures(utterance.toArray());
+                    short[] rawAudio = utterance.toArray();
+                    if (sileroVad != null && sileroVad.isReady()) {
+                        rawAudio = sileroVad.trim(rawAudio);
+                    }
+                    float[][] features = extractFeatures(rawAudio);
                     double snr = peak / Math.max(1, noiseFloor);
                     peak = 0;
                     speaking = false;
@@ -139,14 +189,28 @@ public final class WakeWordEngine {
                         String quality = snr >= 5 ? "Clear" : snr >= 3 ? "Usable" : "Too noisy";
                         running = false;
                         double finalSnr = snr;
-                        short[] rawCopy = utterance.toArray();
+                        short[] rawCopy = rawAudio;
                         main.post(() -> listener.onSample(features, quality, (float) finalSnr, rawCopy));
                         break;
                     }
+
+                    // Dynamically adapt DTW threshold:
+                    // In noisy environments (>65 dB), tighten threshold by ~6% to prevent acoustic false triggers.
+                    // In quiet environments (<40 dB), relax threshold by ~5% to avoid missed wakes.
+                    double effectiveThreshold = threshold;
+                    if (currentAmbientDb >= 65.0) {
+                        effectiveThreshold = threshold * 0.94;
+                    } else if (currentAmbientDb <= 40.0) {
+                        effectiveThreshold = threshold * 1.05;
+                    } else {
+                        double t = (currentAmbientDb - 40.0) / (65.0 - 40.0);
+                        effectiveThreshold = threshold * (1.05 - t * 0.11);
+                    }
+
                     double distance = bestDistance(features, templates);
-                    if (distance <= threshold) {
+                    if (distance <= effectiveThreshold) {
                         running = false;
-                        short[] detectedAudio = utterance.toArray();
+                        short[] detectedAudio = rawAudio;
                         main.post(() -> listener.onWakeDetected(distance, detectedAudio));
                         break;
                     }

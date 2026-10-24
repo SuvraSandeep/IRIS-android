@@ -53,9 +53,15 @@ public final class ResponderSettings {
     private static final String K_MENTION_WORDS = "mention_words";
     private static final String K_NAME_PATTERNS = "name_patterns";
     private static final String K_ALLOWLIST_ONLY = "allowlist_only";
+    private static final String K_URGENT_ONLY = "urgent_only";
     private static final String K_ROTATION = "rotation";
     private static final String K_COUNTER_DAY = "counter_day";
     private static final String K_REPLIES_TODAY = "replies_today";
+    private static final String K_REPLY_DELETED = "reply_to_deleted";
+    private static final String K_RECIPIENT_OPT_OUT = "recipient_opt_out";
+    private static final String K_STRICT_GUARDS = "strict_guards";
+    private static final String K_DEDUP_SIGNATURE = "dedup_signature";
+    private static final String K_TYPING_DELAY_MS = "typing_delay_ms";
 
     private static final String P_CATEGORY = "cat_";
     private static final String P_TEMPLATE = "tpl_";
@@ -70,6 +76,7 @@ public final class ResponderSettings {
     private static final String P_CONV_COUNT = "ccount_";
     private static final String P_CONV_IRIS = "ciris_";
     private static final String P_CONV_TEXT = "ctext_";
+    private static final String P_CONV_MUTED = "cmuted_";
     // Rapid-incoming tracking (for implicit-urgency burst detection) and running banter count
     // (for the N-message auto-snooze). Both are per-conversation.
     private static final String P_CONV_INWINDOW = "cinwin_";   // "count:windowStartMs"
@@ -82,6 +89,9 @@ public final class ResponderSettings {
 
     /** Shipped default cooldown between replies to one conversation, 2 hours. */
     public static final long COOLDOWN_DEFAULT_MS = 2L * 60 * 60 * 1000;
+
+    /** Shipped default natural typing anticipation delay before sending reply, 5 seconds. */
+    public static final long TYPING_DELAY_DEFAULT_MS = 5000L;
 
     public static final int CONTACT_CAP_DEFAULT = 3;
     public static final int DAILY_CAP_DEFAULT = 30;
@@ -170,6 +180,11 @@ public final class ResponderSettings {
         prefs.edit().putBoolean(K_ALLOWLIST_ONLY, v).apply();
     }
 
+    public boolean urgentOnly() { return prefs.getBoolean(K_URGENT_ONLY, false); }
+    public void setUrgentOnly(boolean v) {
+        prefs.edit().putBoolean(K_URGENT_ONLY, v).apply();
+    }
+
     /**
      * Whether to answer even while Suvra is using the phone. Default false.
      *
@@ -205,6 +220,88 @@ public final class ResponderSettings {
     public boolean keepUnread() { return prefs.getBoolean(K_KEEP_UNREAD, true); }
     public void setKeepUnread(boolean v) {
         prefs.edit().putBoolean(K_KEEP_UNREAD, v).apply();
+    }
+
+    /**
+     * Whether to publicly reply to sender deletions ("This message was deleted").
+     * OFF by default so deletions are quietly archived in the Vault without lecturing the contact.
+     */
+    public boolean replyToDeleted() { return prefs.getBoolean(K_REPLY_DELETED, false); }
+    public void setReplyToDeleted(boolean v) {
+        prefs.edit().putBoolean(K_REPLY_DELETED, v).apply();
+    }
+
+    /**
+     * Whether recipient silence requests ("stop", "shut up", "chup", "thamo") mute the chat for 24h.
+     * ON by default to empower contacts to silence unwanted automated replies.
+     */
+    public boolean recipientOptOutEnabled() { return prefs.getBoolean(K_RECIPIENT_OPT_OUT, true); }
+    public void setRecipientOptOutEnabled(boolean v) {
+        prefs.edit().putBoolean(K_RECIPIENT_OPT_OUT, v).apply();
+    }
+
+    public void muteConversation(String conversationKey, long untilMs) {
+        if (conversationKey == null || conversationKey.trim().isEmpty()) return;
+        prefs.edit().putLong(P_CONV_MUTED + conversationKey.trim(), untilMs).apply();
+    }
+
+    public boolean isConversationMuted(String conversationKey, long nowMs) {
+        if (conversationKey == null || conversationKey.trim().isEmpty()) return false;
+        long until = prefs.getLong(P_CONV_MUTED + conversationKey.trim(), 0L);
+        return until > nowMs;
+    }
+
+    public void unmuteConversation(String conversationKey) {
+        if (conversationKey == null || conversationKey.trim().isEmpty()) return;
+        prefs.edit().remove(P_CONV_MUTED + conversationKey.trim()).apply();
+    }
+
+    public int mutedConversationCount(long nowMs) {
+        int count = 0;
+        for (java.util.Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+            if (entry.getKey().startsWith(P_CONV_MUTED) && entry.getValue() instanceof Long) {
+                if (((Long) entry.getValue()) > nowMs) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    public void clearAllMutedConversations() {
+        SharedPreferences.Editor ed = prefs.edit();
+        for (String k : prefs.getAll().keySet()) {
+            if (k.startsWith(P_CONV_MUTED)) {
+                ed.remove(k);
+            }
+        }
+        ed.apply();
+    }
+
+    /**
+     * Strict category guards: casual smart/vernacular keyword matches do NOT force a reply
+     * through disabled categories, banter caps, or same-text guards. ON by default.
+     */
+    public boolean strictGuards() { return prefs.getBoolean(K_STRICT_GUARDS, true); }
+    public void setStrictGuards(boolean v) {
+        prefs.edit().putBoolean(K_STRICT_GUARDS, v).apply();
+    }
+
+    /**
+     * De-duplicate IRIS branding on follow-up replies in the same conversation session.
+     * ON by default to avoid sounding like a repetitive corporate answering machine.
+     */
+    public boolean dedupSignature() { return prefs.getBoolean(K_DEDUP_SIGNATURE, true); }
+    public void setDedupSignature(boolean v) {
+        prefs.edit().putBoolean(K_DEDUP_SIGNATURE, v).apply();
+    }
+
+    /**
+     * Natural typing delay / anticipation window in milliseconds before deciding and replying.
+     */
+    public long typingDelayMs() { return prefs.getLong(K_TYPING_DELAY_MS, TYPING_DELAY_DEFAULT_MS); }
+    public void setTypingDelayMs(long ms) {
+        prefs.edit().putLong(K_TYPING_DELAY_MS, ms).apply();
     }
 
     /**
@@ -264,6 +361,26 @@ public final class ResponderSettings {
         prefs.edit().putBoolean(K_AUTO_SLEEP, v).apply();
     }
     private static final String K_AUTO_SLEEP = "auto_sleep_quiet";
+
+    /**
+     * Auto-activate DRIVING mode when connected to vehicle Bluetooth head unit or car kit.
+     * Off by default.
+     */
+    public boolean autoDriving() { return prefs.getBoolean(K_AUTO_DRIVING, false); }
+    public void setAutoDriving(boolean v) {
+        prefs.edit().putBoolean(K_AUTO_DRIVING, v).apply();
+    }
+    private static final String K_AUTO_DRIVING = "auto_driving_bt";
+
+    /**
+     * Auto-activate MEETING mode when the owner has a calendar event marked BUSY in progress.
+     * Off by default.
+     */
+    public boolean autoMeeting() { return prefs.getBoolean(K_AUTO_MEETING, false); }
+    public void setAutoMeeting(boolean v) {
+        prefs.edit().putBoolean(K_AUTO_MEETING, v).apply();
+    }
+    private static final String K_AUTO_MEETING = "auto_meeting_calendar";
 
     /**
      * The situational mode the owner has switched on, or NONE.

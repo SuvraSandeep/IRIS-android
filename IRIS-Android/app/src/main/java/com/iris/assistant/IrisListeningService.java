@@ -38,7 +38,7 @@ import java.util.Calendar;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class IrisListeningService extends Service implements RecognitionListener {
+public class IrisListeningService extends Service implements RecognitionListener, PlanRunner.Host {
     public static final String ACTION_START = "com.iris.assistant.START";
     public static final String ACTION_STOP = "com.iris.assistant.STOP";
     public static final String ACTION_CONFIRM_CALL = "com.iris.assistant.CONFIRM_CALL";
@@ -408,7 +408,6 @@ public class IrisListeningService extends Service implements RecognitionListener
     private WakeWordEngine wakeEngine;
     private AppSettings settings;
     private String phase = PHASE_WAKE;
-    private WatchBridge watchBridge;
     private String historyId="";
     private String microphoneLabel = "Phone microphone";
     /** True only while a short command window / recording is open. Wake listening must never
@@ -423,7 +422,41 @@ public class IrisListeningService extends Service implements RecognitionListener
     private int pendingCandidateIndex;
     private AudioManager audioManager;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
-    private AudioDeviceCallback audioDeviceCallback;
+    private final VoicePipelineCoordinator voiceCoordinator =
+            new VoicePipelineCoordinator(this, handler, this::onAudioRouteChanged);
+    private final PlanRunner planRunner = new PlanRunner(this);
+    private OnnxSlmEngine slmEngine;
+    private LocalPlanner localPlanner;
+    private final java.util.ArrayDeque<String> recentActionHistory = new java.util.ArrayDeque<>();
+
+    private String recentActionContext() {
+        synchronized (recentActionHistory) {
+            if (recentActionHistory.isEmpty()) return "";
+            return LocalPlanner.contextFrom(new ArrayList<>(recentActionHistory));
+        }
+    }
+
+    private void recordActionContext(String action) {
+        if (action == null || action.trim().isEmpty()) return;
+        synchronized (recentActionHistory) {
+            recentActionHistory.addLast(action.trim());
+            while (recentActionHistory.size() > 5) {
+                recentActionHistory.removeFirst();
+            }
+        }
+    }
+
+    private void onAudioRouteChanged(String label) {
+        if (!isRunning) return;
+        microphoneLabel = label;
+        broadcastState(true, phase);
+        updateListeningNotification("Active through " + microphoneLabel);
+    }
+
+    @Override
+    public Context getContext() {
+        return this;
+    }
     private TextToSpeech textToSpeech;
     private boolean ttsReady;
     private android.media.MediaPlayer serverTtsPlayer;
@@ -442,6 +475,7 @@ public class IrisListeningService extends Service implements RecognitionListener
      *  voskEngine via attachEnsembleModels() as soon as either finishes loading. */
     private EcapaEmbedding ecapaEngine;
     private SileroVad vadEngine;
+    private OnnxSpeechRecognizer onnxRecognizer;
     private MediaMemoRecorder memoRecorder;
     private boolean voskReady;
     private volatile boolean androidWakeActive;
@@ -467,6 +501,8 @@ public class IrisListeningService extends Service implements RecognitionListener
     // within the press window, so a multi-press trigger doesn't also forward each individual
     // press as a normal media event once the count is satisfied.
     private Runnable headsetHookPassThrough;
+    private CallManager callManager;
+    private HeadsetSensorCoordinator headsetCoordinator;
 
     @Override
     public void onCreate() {
@@ -477,18 +513,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         try { new ProfileStore(this).seedHardcodedVoiceprint(); } catch (Throwable ignored) { }
         createNotificationChannels();
         startListenerWatchdog();
-        watchBridge=new WatchBridge(this,path->{
-            if(!isRunning)return "Start IRIS on your phone first";
-            if(path.equals("/status"))return "IRIS: "+phase+"; "+chargingStatusText();
-            if(path.equals("/stop")){if(phoneFinder==null||!phoneFinder.active())return "Finder is not ringing";phoneFinder.stop();rearmAfterAction();return "Finder stopped";}
-            if(path.equals("/find")){if(!PHASE_WAKE.equals(phase))return "IRIS is busy; finish the current command first";handleCommand("ring my phone");return phoneFinder!=null&&phoneFinder.active()?"Ringing for 30 seconds":"Alarm blocked: check phone DND settings";}
-            android.app.NotificationManager nm=(android.app.NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-            if(!nm.areNotificationsEnabled())return "Enable IRIS notifications on your phone first";
-            nm.createNotificationChannel(new android.app.NotificationChannel("iris_watch","Watch talk requests",android.app.NotificationManager.IMPORTANCE_DEFAULT));
-            android.app.PendingIntent open=android.app.PendingIntent.getActivity(this,18473,new Intent(this,MainActivity.class).setAction(Intent.ACTION_ASSIST),android.app.PendingIntent.FLAG_UPDATE_CURRENT|android.app.PendingIntent.FLAG_IMMUTABLE);
-            nm.notify(18473,new android.app.Notification.Builder(this,"iris_watch").setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS · talk requested from watch").setContentText("Tap to speak using your phone microphone").setContentIntent(open).setAutoCancel(true).build());
-            return "Tap the IRIS notification on your phone to talk";
-        });watchBridge.start();
+        WatchBridge.startShared(this);
         textToSpeech = new TextToSpeech(this, status -> {
             ttsReady = status == TextToSpeech.SUCCESS;
             if (ttsReady) {
@@ -503,6 +528,95 @@ public class IrisListeningService extends Service implements RecognitionListener
 
         // Prewarm only the selected offline provider. Readiness cannot select a provider.
         if(!settings.googleSttForCommands())prepareOfflineCommandModel();
+        vadEngine = new SileroVad();
+        vadEngine.load(this, new SileroVad.InitListener() {
+            @Override public void onReady() {
+                if (voskEngine != null) voskEngine.attachEnsembleModels(ecapaEngine, vadEngine);
+                if (wakeEngine != null) wakeEngine.setSileroVad(vadEngine);
+            }
+            @Override public void onError(String message) {
+                LogStore.append(IrisListeningService.this, "VAD", "Silero VAD not loaded: " + message);
+            }
+        });
+        ecapaEngine = new EcapaEmbedding();
+        ecapaEngine.load(this, new EcapaEmbedding.InitListener() {
+            @Override public void onReady() {
+                if (voskEngine != null) voskEngine.attachEnsembleModels(ecapaEngine, vadEngine);
+            }
+            @Override public void onError(String message) {
+                LogStore.append(IrisListeningService.this, "ECAPA", "ECAPA model not loaded: " + message);
+            }
+        });
+        onnxRecognizer = new OnnxSpeechRecognizer();
+        onnxRecognizer.setSileroVad(vadEngine);
+        onnxRecognizer.load(this, new OnnxSpeechRecognizer.InitListener() {
+            @Override public void onReady() {
+                LogStore.append(IrisListeningService.this, "ONNX STT", "High-accuracy offline speech recognizer ready");
+            }
+            @Override public void onError(String message) {
+                LogStore.append(IrisListeningService.this, "ONNX STT", "Speech model fallback: " + message);
+            }
+        });
+        slmEngine = new OnnxSlmEngine(this);
+        localPlanner = new LocalPlanner(slmEngine);
+
+        callManager = new CallManager(this, handler, settings, new CallManager.Host() {
+            @Override public void speak(String text) { IrisListeningService.this.speak(text); }
+            @Override public void speakThenRun(String text, Runnable after) { IrisListeningService.this.speakThenRun(text, after); }
+            @Override public void broadcastMessage(String text) { IrisListeningService.this.broadcastMessage(text); }
+            @Override public void broadcastMessageEphemeral(String text) { IrisListeningService.this.broadcastMessageEphemeral(text); }
+            @Override public void startConfirmationRecognition() { IrisListeningService.this.startConfirmationRecognition(); }
+            @Override public void startCommandRecognition() { IrisListeningService.this.startCommandRecognition(); }
+            @Override public void rearmAfterAction() { IrisListeningService.this.rearmAfterAction(); }
+            @Override public void destroyRecognizer() { IrisListeningService.this.destroyRecognizer(); }
+            @Override public boolean hasPermission(String permission) { return IrisListeningService.this.hasPermission(permission); }
+            @Override public String personalityLine(String key, String arg) { return IrisListeningService.this.personalityLine(key, arg); }
+            @Override public ActionLedger ledger() { return IrisListeningService.this.ledger(); }
+            @Override public boolean isRunning() { return IrisListeningService.this.isRunning; }
+            @Override public String getPhase() { return IrisListeningService.this.phase; }
+            @Override public void beginSms(String name, String body) { IrisListeningService.this.beginSms(name, body); }
+            @Override public void onCallPlacedSuccessfully() {
+                isRunning = false;
+                replyCompletion.cancel();
+                serviceStartedAt = 0;
+                wakeReadiness = "Service stopped";
+                phoneQuestionGeneration++;
+                broadcastState(false, "off");
+                destroyRecognizer();
+                stopWakeEngine();
+                stopForeground(STOP_FOREGROUND_REMOVE);
+                stopSelf();
+            }
+            @Override public void onCallFailed(Throwable error) {
+                stopIris("Call launch failed");
+            }
+            @Override public void speakConfirmationPrompt(String confirmText, Runnable onDone) {
+                if (settings.voiceReplies() && ttsReady && confirmText != null) {
+                    textToSpeech.speak(confirmText, TextToSpeech.QUEUE_FLUSH, null, "iris_confirm");
+                    textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                        @Override public void onStart(String utteranceId) { }
+                        @Override public void onDone(String utteranceId) {
+                            if ("iris_confirm".equals(utteranceId)) {
+                                textToSpeech.setOnUtteranceProgressListener(null);
+                                handler.post(onDone);
+                            }
+                        }
+                        @Override public void onError(String utteranceId) {
+                            textToSpeech.setOnUtteranceProgressListener(null);
+                            handler.post(onDone);
+                        }
+                    });
+                } else {
+                    onDone.run();
+                }
+            }
+        });
+
+        headsetCoordinator = new HeadsetSensorCoordinator(this, handler, settings, new HeadsetSensorCoordinator.TriggerCallback() {
+            @Override public void onTrigger(String source) { triggerTalk(source); }
+            @Override public boolean canTriggerShake() { return PHASE_WAKE.equals(phase); }
+        });
+
         voskEngine = new VoskEngine();
         // Schema 8 uses the bundled Vosk owner model plus recorded-phrase evidence.
         // Optional downloads never change the identity model midway through a session.
@@ -532,115 +646,27 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Register optional shake-to-wake and headset-button triggers (both off by default). */
     private void setupTriggers() {
-        try {
-            if (settings.shakeToWake()) {
-                sensorManager = (android.hardware.SensorManager) getSystemService(SENSOR_SERVICE);
-                android.hardware.Sensor accel = sensorManager == null ? null
-                        : sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER);
-                if (accel != null) {
-                    shakeListener = new android.hardware.SensorEventListener() {
-                        @Override public void onSensorChanged(android.hardware.SensorEvent e) {
-                            float x = e.values[0] / 9.81f, y = e.values[1] / 9.81f, z = e.values[2] / 9.81f;
-                            double g = Math.sqrt(x * x + y * y + z * z);
-                            if (g > 2.7) {
-                                long now = System.currentTimeMillis();
-                                if (now - lastShakeAt > 3000 && PHASE_WAKE.equals(phase)) {
-                                    lastShakeAt = now;
-                                    handler.post(() -> triggerTalk("shake"));
-                                }
-                            }
-                        }
-                        @Override public void onAccuracyChanged(android.hardware.Sensor s, int a) { }
-                    };
-                    sensorManager.registerListener(shakeListener, accel,
-                            android.hardware.SensorManager.SENSOR_DELAY_UI);
-                    IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.ACCELEROMETER,
-                            "Shake trigger");
-                }
-            }
-        } catch (Throwable ignored) { }
-        try {
-            if (settings.headsetTrigger()) {
-                final int wantKeyCode = triggerKeyCodeFor(settings.triggerButton());
-                final int wantPresses = settings.triggerPressCount();
-                mediaSession = new android.media.session.MediaSession(this, "IRIS");
-                mediaSession.setCallback(new android.media.session.MediaSession.Callback() {
-                    @Override public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
-                        android.view.KeyEvent ke = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
-                        if (ke != null && ke.getAction() == android.view.KeyEvent.ACTION_UP
-                                && ke.getKeyCode() == wantKeyCode) {
-                            long now = System.currentTimeMillis();
-                            if (now - lastTriggerPressAt < 700) {
-                                triggerPressRunCount++;
-                            } else {
-                                triggerPressRunCount = 1;
-                            }
-                            lastTriggerPressAt = now;
-                            handler.removeCallbacks(headsetHookPassThrough);
-                            if (triggerPressRunCount >= wantPresses) {
-                                triggerPressRunCount = 0;
-                                handler.post(() -> triggerTalk("headset"));
-                            } else {
-                                // Was: every single press was fully consumed (return true) while
-                                // waiting to see if enough presses arrived — the OS/media app
-                                // never saw a lone click, so normal play/pause/skip never worked
-                                // while this (opt-in) trigger was on. Wait out the press window,
-                                // then pass the event through if the count wasn't met in time.
-                                final long pressTime = now;
-                                headsetHookPassThrough = () -> {
-                                    if (lastTriggerPressAt == pressTime) {
-                                        triggerPressRunCount = 0;
-                                        super.onMediaButtonEvent(mediaButtonIntent);
-                                    }
-                                };
-                                handler.postDelayed(headsetHookPassThrough, 700);
-                            }
-                            return true;
-                        }
-                        return super.onMediaButtonEvent(mediaButtonIntent);
-                    }
-                });
-                reassertMediaSessionPriority();
-            }
-        } catch (Throwable ignored) { }
+        if (headsetCoordinator != null) {
+            headsetCoordinator.setupTriggers();
+        }
     }
 
     /** Maps the user's chosen trigger button (Settings) to the KeyEvent code to listen for. */
     private static int triggerKeyCodeFor(String triggerButton) {
-        if ("next".equals(triggerButton)) return android.view.KeyEvent.KEYCODE_MEDIA_NEXT;
-        if ("previous".equals(triggerButton)) return android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS;
-        return android.view.KeyEvent.KEYCODE_HEADSETHOOK; // covers KEYCODE_MEDIA_PLAY_PAUSE too on most devices
+        return HeadsetSensorCoordinator.triggerKeyCodeFor(triggerButton);
     }
 
-    /** Re-publish IRIS's MediaSession as active with a fresh PlaybackState. Android routes
-     *  Bluetooth/wired media-button events to whichever session it currently considers
-     *  "preferred" — normally whatever app most recently started active playback. Calling
-     *  setActive(true) only once at service startup loses that priority the moment another
-     *  app starts playing, which is exactly when this trigger is most needed. Re-asserting on
-     *  every wake-phase entry gives IRIS a real (though not 100% guaranteed — Android's exact
-     *  priority algorithm is undocumented and OEM-dependent) chance of receiving the event
-     *  while music is actively playing. */
     private void reassertMediaSessionPriority() {
-        if (mediaSession == null) return;
-        try {
-            android.media.session.PlaybackState ps = new android.media.session.PlaybackState.Builder()
-                    .setActions(android.media.session.PlaybackState.ACTION_PLAY_PAUSE
-                            | android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT
-                            | android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS)
-                    .setState(android.media.session.PlaybackState.STATE_PAUSED, 0, 0f).build();
-            mediaSession.setPlaybackState(ps);
-            mediaSession.setActive(true);
-        } catch (Throwable ignored) { }
+        if (headsetCoordinator != null) {
+            headsetCoordinator.reassertMediaSessionPriority();
+        }
     }
 
     private void teardownTriggers() {
-        try { if (sensorManager != null && shakeListener != null) sensorManager.unregisterListener(shakeListener); } catch (Throwable ignored) { }
-        IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.ACCELEROMETER);
+        if (headsetCoordinator != null) {
+            headsetCoordinator.teardownTriggers();
+        }
         IrisSensorUsageRegistry.end(IrisSensorUsageRegistry.Hardware.MICROPHONE);
-        try { if (mediaSession != null) { mediaSession.setActive(false); mediaSession.release(); mediaSession = null; } } catch (Throwable ignored) { }
-        handler.removeCallbacks(headsetHookPassThrough);
-        triggerPressRunCount = 0;
-        lastTriggerPressAt = 0;
     }
 
     @Override
@@ -954,7 +980,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if(voiceSession!=null){voiceSession.close();voiceSession=null;LogStore.append(this,"MIC_HANDOFF","External speech provider owns capture; buffered handoff is offline-only");}
         // A command window is short, so the headset mic is worth it here (and only here).
         if (!btMicAllowed) {
-            btMicAllowed = true;
+            btMicAllowed = true; voiceCoordinator.setBtMicAllowed(true);
             microphoneLabel = configureAudioRoute();
         }
         IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE, "Command listening");
@@ -1034,12 +1060,74 @@ public class IrisListeningService extends Service implements RecognitionListener
         updateListeningNotification("Listening\u2026");
         // The ready cue belongs to onReadyForSpeech, not before recognizer startup.
 
-        // Prefer Google STT for accuracy; Vosk is the offline fallback.
+        // Prefer Google STT for accuracy; ONNX high-accuracy is the preferred offline engine; Vosk is fallback.
         if (settings.googleSttForCommands() && SpeechRecognizer.isRecognitionAvailable(this)) {
             startAndroidCommandRecognition();
             return;
         }
+        if (onnxRecognizer != null && onnxRecognizer.isReady()) {
+            startOnnxCommandRecognition();
+            return;
+        }
         startVoskCommandRecognition();
+    }
+
+    /** High-accuracy offline STT using bundled ONNX Runtime */
+    private void startOnnxCommandRecognition() {
+        destroyRecognizer();
+        googleCommandActive = false;
+        if (!isRunning || !PHASE_COMMAND.equals(phase)) return;
+        final long epoch = ++commandEpoch;
+        recognitionLabel = "Offline High-Accuracy (ONNX)";
+        broadcastState(true, phase);
+        final boolean[] handled = {false};
+        commandTimeout = () -> {
+            if (isRunning && PHASE_COMMAND.equals(phase) && epoch == commandEpoch && !handled[0]) {
+                if (onnxRecognizer != null) onnxRecognizer.stop();
+                broadcastMessage("No command heard. Going back to sleep.");
+                LogStore.append(this, "TIMEOUT", "Command window expired");
+                rearmAfterAction();
+            }
+        };
+        handler.postDelayed(commandTimeout, 15_000);
+        handler.postDelayed(() -> {
+            if (!isRunning || !PHASE_COMMAND.equals(phase) || epoch != commandEpoch) return;
+            if (onnxRecognizer == null || !onnxRecognizer.isReady()) {
+                startVoskCommandRecognition();
+                return;
+            }
+            onnxRecognizer.startListening(new OnnxSpeechRecognizer.Listener() {
+                @Override public void onReady() {
+                    if (epoch == commandEpoch && isRunning && !handled[0] && commandTimeout != null && PHASE_COMMAND.equals(phase)) {
+                        VoiceEndurance.event("ONNX_CMD_READY");
+                        LogStore.append(IrisListeningService.this, "LISTEN", "Microphone ready (ONNX STT)");
+                        handler.removeCallbacks(commandTimeout);
+                        handler.postDelayed(commandTimeout, 15_000);
+                        playListeningEarcon();
+                    }
+                }
+                @Override public void onPartial(String text) {
+                    if (epoch == commandEpoch && !text.isEmpty()) broadcastTranscript(text);
+                }
+                @Override public void onFinal(String text) {
+                    if (epoch != commandEpoch || handled[0] || text.isEmpty()) return;
+                    handled[0] = true;
+                    if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                    if (onnxRecognizer != null) onnxRecognizer.stop();
+                    LogStore.append(IrisListeningService.this, "HEARD CMD", text + " (ONNX)");
+                    recordTranscript(text);
+                    handleCommand(text);
+                }
+                @Override public void onError(String message) {
+                    if (epoch != commandEpoch || handled[0]) return;
+                    handled[0] = true;
+                    if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
+                    LogStore.append(IrisListeningService.this, "ONNX STT ERROR", message);
+                    // Fall back to Vosk if ONNX encounters unexpected runtime error
+                    startVoskCommandRecognition();
+                }
+            });
+        }, 150);
     }
 
     private void prepareOfflineCommandModel() {
@@ -1252,31 +1340,33 @@ public class IrisListeningService extends Service implements RecognitionListener
                 lastUserCommand = heard.trim();   // remember only real, repeatable commands
             }
         }
-        if (spellingCall) {
-            try { handleSpellInput(heard); }
-            catch (Throwable t) { spellingCall = false; LogStore.append(this, "SPELL", "error: " + t); rearmAfterAction(); }
-            return;
-        }
-        if (pendingPlan != null) {
-            try { handleClarificationAnswer(heard); }
-            catch (Throwable t) { pendingPlan = null; LogStore.append(this, "CLARIFY", "error: " + t); rearmAfterAction(); }
-            return;
-        }
-        if (smsCompose != null) {
-            try { handleSmsComposeInput(heard); }
-            catch (Throwable t) { smsCompose = null; LogStore.append(this, "SMS", "compose error: " + t); rearmAfterAction(); }
-            return;
-        }
-        try {
-            handleCommandInner(heard);
-        } catch (Throwable t) {
-            LogStore.append(this, "COMMAND ERROR",
-                    "Crash handling command: " + t + " | heard: " + heard);
+        try (AudioFocusSession session = voiceCoordinator.openSpeechSession(false)) {
+            if (spellingCall) {
+                try { handleSpellInput(heard); }
+                catch (Throwable t) { spellingCall = false; LogStore.append(this, "SPELL", "error: " + t); rearmAfterAction(); }
+                return;
+            }
+            if (pendingPlan != null) {
+                try { handleClarificationAnswer(heard); }
+                catch (Throwable t) { pendingPlan = null; LogStore.append(this, "CLARIFY", "error: " + t); rearmAfterAction(); }
+                return;
+            }
+            if (smsCompose != null) {
+                try { handleSmsComposeInput(heard); }
+                catch (Throwable t) { smsCompose = null; LogStore.append(this, "SMS", "compose error: " + t); rearmAfterAction(); }
+                return;
+            }
             try {
-                broadcastMessage("Sorry, something went wrong.");
-                speakThenRun("Sorry, something went wrong.", this::rearmAfterAction);
-            } catch (Throwable ignored) {
-                rearmAfterAction();
+                handleCommandInner(heard);
+            } catch (Throwable t) {
+                LogStore.append(this, "COMMAND ERROR",
+                        "Crash handling command: " + t + " | heard: " + heard);
+                try {
+                    broadcastMessage("Sorry, something went wrong.");
+                    speakThenRun("Sorry, something went wrong.", this::rearmAfterAction);
+                } catch (Throwable ignored) {
+                    rearmAfterAction();
+                }
             }
         }
     }
@@ -1285,7 +1375,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         if (commandTimeout != null) { handler.removeCallbacks(commandTimeout); commandTimeout = null; }
         // Safety net: a new command should never inherit a stale pause-flag from a prior
         // command that ended abnormally (e.g. crashed mid-flow before rearmAfterAction ran).
-        commandPausedMedia = false;
+        voiceCoordinator.resetCommandPausedMedia();
         String clean = heard == null ? "" : heard.trim();
         if (clean.isEmpty()) {
             rearmAfterAction();
@@ -1370,18 +1460,30 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
-        // ── Phase 2: structured understanding, used ONLY to ask for a missing detail. ──
-        // Complete commands keep flowing through the proven keyword router below, unchanged.
-        Plan plan = IntentParser.parse(clean);
-        if (!plan.isUnknown() && !plan.isComplete()) {
-            String question = IntentParser.clarifyQuestion(plan);
-            if (!question.isEmpty()) {
-                pendingPlan = plan;
-                LogStore.append(this, "CLARIFY", plan.intent() + " needs " + plan.firstMissing());
-                broadcastMessage(question);
-                nextOutputMinor = true;              // a question isn't an action result
-                speakThenRun(question, this::startCommandRecognition);
-                return;
+        // ── Phase 2 & 5: structured understanding and local SLM planner ──
+        Plan plan = localPlanner != null && localPlanner.available()
+                ? localPlanner.plan(clean, recentActionContext())
+                : Plan.unknown();
+        if (plan.isUnknown()) {
+            plan = IntentParser.parse(clean);
+        }
+        if (!plan.isUnknown()) {
+            if (plan.isComplete() && plan.allStepsKnown()) {
+                LogStore.append(this, "PLAN EXEC", plan.intent() + " (" + plan.steps().size() + " steps)");
+                recordActionContext(plan.intent() + ": " + (plan.goal().isEmpty() ? clean : plan.goal()));
+                if (planRunner.execute(plan)) {
+                    return;
+                }
+            } else if (!plan.isComplete()) {
+                String question = IntentParser.clarifyQuestion(plan);
+                if (!question.isEmpty()) {
+                    pendingPlan = plan;
+                    LogStore.append(this, "CLARIFY", plan.intent() + " needs " + plan.firstMissing());
+                    broadcastMessage(question);
+                    nextOutputMinor = true;              // a question isn't an action result
+                    speakThenRun(question, this::startCommandRecognition);
+                    return;
+                }
             }
         }
 
@@ -1731,59 +1833,14 @@ public class IrisListeningService extends Service implements RecognitionListener
             return;
         }
 
-        // Guard: "call me / myself / my phone" — can't call the owner
-        if (requested.matches("(?i)^(?:me|myself|my\\s*self|my\\s+phone|my\\s+number)$")) {
-            broadcastMessage("That's you — I can't call you. Tell me who to call.");
-            speakThenRun("That's you! Who would you like me to call?", this::rearmAfterAction);
-            LogStore.append(this, "CALL", "Refused self-call");
-            return;
-        }
-        // Direct dial: "call nine eight seven…" or "call 9876543210"
-        String dialNumber = extractPhoneNumber(requested);
-        if (dialNumber != null) {
-            pendingCandidates = null;
-            requestCallConfirmation(dialNumber, dialNumber, "Call " + speakableNumber(dialNumber) + "?");
-            return;
-        }
-        // Guard: empty or too-short name — ask who instead of matching randomly
-        if (requested.length() < 2) {
-            broadcastMessage("Who would you like me to call?");
-            speakThenRun("Who would you like me to call?", this::startCommandRecognition);
-            LogStore.append(this, "CALL", "No name given");
-            return;
-        }
-
-        List<ContactMatch> candidates = resolveContacts(requested);
-        if (candidates.isEmpty()) {
-            broadcastMessage(hasPermission(Manifest.permission.READ_CONTACTS)
-                    ? "I couldn't confidently match “" + requested + "”. Teach me once."
-                    : "Contacts permission is needed to find “" + requested + "”.");
-            LogStore.append(this, "NO MATCH", requested);
-            requestCorrection(clean);
-            rearmAfterAction();
-            return;
-        }
-        ContactMatch first = candidates.get(0);
-        // Verbally confirm the best match; "no" walks to the next candidate.
-        pendingCandidates = candidates;
-        pendingCandidateIndex = 0;
-        confirmCandidate(0);
+        handleCallContact(requested);
     }
 
     /** Verbally confirm a contact candidate by index; "no" advances to the next. */
     private void confirmCandidate(int index) {
-        if (pendingCandidates == null || index >= pendingCandidates.size()) {
-            cancelCallNotification();
-            broadcastMessage("Okay, I won't call anyone.");
-            speakThenRun("Okay, I won't call anyone.", this::rearmAfterAction);
-            pendingCandidates = null;
-            return;
+        if (callManager != null) {
+            callManager.confirmCandidate(index);
         }
-        pendingCandidateIndex = index;
-        ContactMatch c = pendingCandidates.get(index);
-        boolean multiple = pendingCandidates.size() > 1;
-        String prompt = multiple ? "Did you mean " + c.name + "?" : "Call " + c.name + "?";
-        requestCallConfirmation(c.name, c.number, prompt);
     }
 
     /**
@@ -1816,22 +1873,67 @@ public class IrisListeningService extends Service implements RecognitionListener
             final String msg = original;
             new Thread(() -> {
                 long t0 = System.currentTimeMillis();
-                String reply = new ServerClient(settings.serverUrl(), settings.serverToken())
-                        .chat(msg, conversation.turnsJson(), profileJson(), 4000, 25000);
-                long dt = System.currentTimeMillis() - t0;
-                handler.post(() -> {
-                    if (reply != null && !reply.isEmpty()) {
-                        serverMonitor.recordSuccess(dt);
-                        try {
-                            conversation.add(msg, reply.replaceAll("\\[.*?\\]", "").trim());
-                            handleLlmOutput(reply, store);
-                        } catch (Throwable t) {
+                java.util.concurrent.atomic.AtomicBoolean isAction = new java.util.concurrent.atomic.AtomicBoolean(false);
+                java.util.concurrent.atomic.AtomicInteger sentencesSpoken = new java.util.concurrent.atomic.AtomicInteger(0);
+                java.util.concurrent.atomic.AtomicBoolean firstSentenceSpoken = new java.util.concurrent.atomic.AtomicBoolean(false);
+                ServerClient client = new ServerClient(settings.serverUrl(), settings.serverToken());
+                client.chatStream(msg, conversation.turnsJson(), profileJson(), 4000, 25000, new ServerClient.StreamListener() {
+                    @Override
+                    public void onSentence(String sentence, int index) {
+                        handler.post(() -> {
+                            if (sentence == null || sentence.trim().isEmpty()) return;
+                            String trimmed = sentence.trim();
+                            if (index == 1 && trimmed.startsWith("[")) {
+                                isAction.set(true);
+                            }
+                            if (!isAction.get() && !trimmed.startsWith("[") && settings.voiceReplies() && !"Silent".equals(settings.personality())) {
+                                int count = sentencesSpoken.incrementAndGet();
+                                boolean first = firstSentenceSpoken.compareAndSet(false, true);
+                                speakStreamSentence(trimmed, count, first);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onComplete(String fullReply) {
+                        long dt = System.currentTimeMillis() - t0;
+                        handler.post(() -> {
+                            if (fullReply != null && !fullReply.isEmpty()) {
+                                serverMonitor.recordSuccess(dt);
+                                try {
+                                    if (isAction.get() || fullReply.trim().startsWith("[")) {
+                                        conversation.add(msg, fullReply.replaceAll("\\[.*?\\]", "").trim());
+                                        handleLlmOutput(fullReply, store);
+                                    } else {
+                                        String clean = fullReply.replaceAll("\\[.*?\\]", "").trim();
+                                        if (clean.isEmpty()) clean = "Okay.";
+                                        conversation.add(msg, clean);
+                                        broadcastMessage(clean);
+                                        mirrorToWatch(clean, false);
+                                        if (sentencesSpoken.get() == 0) {
+                                            handler.postDelayed(IrisListeningService.this::rearmAfterAction, 800);
+                                        } else {
+                                            scheduleStreamRearm(sentencesSpoken.get(), clean.length());
+                                        }
+                                    }
+                                } catch (Throwable t) {
+                                    offlineChat(msg, normalized, store);
+                                }
+                            } else {
+                                serverMonitor.recordFailure();
+                                LogStore.append(IrisListeningService.this, "SERVER", "chat miss \u2192 offline");
+                                offlineChat(msg, normalized, store);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        handler.post(() -> {
+                            serverMonitor.recordFailure();
+                            LogStore.append(IrisListeningService.this, "SERVER", "chat stream error \u2192 offline");
                             offlineChat(msg, normalized, store);
-                        }
-                    } else {
-                        serverMonitor.recordFailure();
-                        LogStore.append(IrisListeningService.this, "SERVER", "chat miss \u2192 offline");
-                        offlineChat(msg, normalized, store);
+                        });
                     }
                 });
             }, "IRIS-Server-Chat").start();
@@ -2205,7 +2307,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             b.getIntExtra(BatteryManager.EXTRA_LEVEL,-1),b.getIntExtra(BatteryManager.EXTRA_SCALE,-1));
     }
 
-    private void handleQuickAction(String normalized) {
+    public void handleQuickAction(String normalized) {
         if (normalized.matches(".*\\b(time|what time)\\b.*")) {
             Calendar cal = Calendar.getInstance();
             int hour = cal.get(Calendar.HOUR_OF_DAY);
@@ -2266,7 +2368,7 @@ public class IrisListeningService extends Service implements RecognitionListener
      *  - "read my notifications / whatsapp"     → read the recent few
      * Prompts to grant Notification Access if needed.
      */
-    private void handleNotifications(String normalized) {
+    public void handleNotifications(String normalized) {
         if (!notificationAccessGranted()) {
             String msg = "I need notification access first. Opening the settings — enable IRIS there.";
             broadcastMessage(msg);
@@ -2366,14 +2468,14 @@ public class IrisListeningService extends Service implements RecognitionListener
         LogStore.append(this, "NOTIF", "Read " + count + " of " + items.size() + scope);
     }
 
-    private void reply(String text) {
+    public void reply(String text) {
         broadcastMessage("\uD83D\uDD14 " + text);
         lastActionSummary = text;
         speakThenRun(text, this::rearmAfterAction);
     }
 
     /** Speak weather/forecast for the current location via free Open-Meteo. */
-    private void handleWeather(String normalized) {
+    public void handleWeather(String normalized) {
         // Offline-only mode is a hard promise that nothing reaches the network, and weather is
         // inherently a network lookup - so say so plainly instead of appearing to try and then
         // failing with a confusing error.
@@ -2413,7 +2515,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Tell the user their current place name (reverse-geocoded). */
-    private void handleLocation() {
+    public void handleLocation() {
         if (!hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
                 && !hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
             String msg = "I need location permission for that. Open the IRIS app and grant location access.";
@@ -2800,9 +2902,10 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
-    private void handleSendSms(String who,String message){
+    @Override
+    public void handleSendSms(String who, String message) {
         // A recognized message is a draft, never an immediate send. Resolve and read back.
-        beginSms(who,message);
+        beginSms(who, message);
     }
 
     /** Actually send an SMS to an already-resolved number. */
@@ -2863,7 +2966,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Set a system alarm. Parses hour/minute/am-pm; opens the clock UI if that is refused. */
-    private void handleSetAlarm(String timeText) {
+    public void handleSetAlarm(String timeText) {
         int[] hm = parseClockTime(timeText);
         // 1. Try to create it silently (needs the SET_ALARM permission + a clock app that supports it).
         if (hm != null) {
@@ -2906,7 +3009,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Set a system countdown timer. */
-    private void handleSetTimer(String durationText) {
+    public void handleSetTimer(String durationText) {
         int seconds = parseDurationSeconds(durationText);
         try {
             Intent i = new Intent(android.provider.AlarmClock.ACTION_SET_TIMER);
@@ -2939,7 +3042,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Schedule a reminder via AlarmManager; ReminderReceiver posts the notification. */
-    private void handleReminder(String task, String inAt, String timeText) {
+    public void handleReminder(String task, String inAt, String timeText) {
         long triggerAt;
         String whenSpoken;
         if ("in".equalsIgnoreCase(inAt)) {
@@ -2976,9 +3079,17 @@ public class IrisListeningService extends Service implements RecognitionListener
                     (int) (triggerAt & 0x7fffffff), i, flags);
             boolean exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms();
             if (exact) {
-                am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                try {
+                    am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                } catch (SecurityException se) {
+                    am.setWindow(android.app.AlarmManager.RTC_WAKEUP, triggerAt, 60_000L, pi);
+                }
             } else {
-                am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                try {
+                    am.setWindow(android.app.AlarmManager.RTC_WAKEUP, triggerAt, 120_000L, pi);
+                } catch (Throwable t) {
+                    am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAt, pi);
+                }
             }
             String msg = "Okay, I'll remind you to " + task + " " + whenSpoken + ".";
             try {
@@ -2996,7 +3107,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Toggle the flashlight/torch. */
-    private void handleTorch(boolean on) {
+    public void handleTorch(boolean on) {
         try {
             android.hardware.camera2.CameraManager cm =
                     (android.hardware.camera2.CameraManager) getSystemService(CAMERA_SERVICE);
@@ -3040,7 +3151,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Control whatever is currently playing (any media app) via media key events. */
-    private void handleMediaControl(String n) {
+    public void handleMediaControl(String n) {
         int key; String msg;
         if (n.matches(".*\\b(next|skip)\\b.*")) { key = android.view.KeyEvent.KEYCODE_MEDIA_NEXT; msg = "Next track."; }
         else if (n.matches(".*\\b(previous|prev|last|back)\\b.*")) { key = android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS; msg = "Previous track."; }
@@ -3059,7 +3170,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Set media volume to a percentage (0-100). */
-    private void handleSetVolumePercent(String value) {
+    public void handleSetVolumePercent(String value) {
         int pct = parseNumberWords(value);
         if (pct < 0) {
             String m = "I didn't catch the volume level.";
@@ -3096,7 +3207,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Silent / vibrate / normal ringer. Needs Do Not Disturb access on modern Android. */
     /** Take a single screenshot. Prefers the no-dialog accessibility path; falls back to MediaProjection. */
-    private void handleScreenshot() {
+    public void handleScreenshot() {
         if (Build.VERSION.SDK_INT >= 30 && IrisAccessibilityService.available()
                 && IrisAccessibilityService.instance.takeScreenshotNow()) {
             String m = "Screenshot taken.";
@@ -3117,6 +3228,34 @@ public class IrisListeningService extends Service implements RecognitionListener
                 : "Taking a screenshot.";
         broadcastMessage(m);
         speakThenRun(m, () -> launchScreenCapture("shot", 0));
+    }
+
+    @Override
+    public void handleStartScreenRecording(String duration) {
+        beginScreenRecording(parseDuration(duration, 60));
+    }
+
+    @Override
+    public void handleRecordCameraVideo(String camera, String duration) {
+        String cam = (camera == null || camera.trim().isEmpty()) ? "back" : camera.trim();
+        beginVideoRecording(parseDuration(duration, 60), cam);
+    }
+
+    @Override
+    public void handleRecordVoice(String duration) {
+        beginVoiceRecording(parseDuration(duration, 60), null);
+    }
+
+    @Override
+    public void handleStopRecording() {
+        stopVoiceRecording();
+    }
+
+    @Override
+    public void handleCallContact(String name) {
+        if (callManager != null) {
+            callManager.handleCallContact(name);
+        }
     }
 
     /** Record the screen (with mic audio) for a set time via MediaProjection. */
@@ -3163,7 +3302,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Take a single still photo (not video) via the same lock-screen-capable camera activity. */
-    private void handleTakePhoto(String camWord, boolean flashRequested) {
+    public void handleTakePhoto(String camWord, boolean flashRequested) {
         if (!hasPermission(Manifest.permission.CAMERA)) {
             String m = "I need camera permission to take a photo — opening settings so you can allow it.";
             broadcastMessage(m);
@@ -3515,7 +3654,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         reply("I can't undo " + ActionLedger.spoken(r) + ".");
     }
 
-    private void handleAppIntegration(AppRequest request) {
+    public void handleAppIntegration(AppRequest request) {
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         // Sharing/search payloads can be private, regardless of the camera lock-screen setting.
         if (keyguard != null && keyguard.isKeyguardLocked()) {
@@ -3532,6 +3671,16 @@ public class IrisListeningService extends Service implements RecognitionListener
             reply(prepared.message);
         } catch (Exception error) {
             reply("I couldn't open that app action. Nothing was confirmed as sent.");
+        }
+    }
+
+    public void handleOpenApp(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            reply("Which app should I open?");
+            return;
+        }
+        if (!openApp(name.trim())) {
+            reply("I couldn't find an installed app called " + name + ".");
         }
     }
 
@@ -3652,7 +3801,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Full rundown: ringer, DND, airplane, internet/Wi-Fi, Bluetooth, battery. */
-    private void handlePhoneStatus() {
+    public void handlePhoneStatus() {
         StringBuilder sb = new StringBuilder();
         AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -3813,42 +3962,11 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private String bluetoothSummary() {
-        try {
-            android.bluetooth.BluetoothManager bm =
-                    (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
-            android.bluetooth.BluetoothAdapter ba = bm != null ? bm.getAdapter()
-                    : android.bluetooth.BluetoothAdapter.getDefaultAdapter();
-            if (ba == null) return "";
-            if (!ba.isEnabled()) return "Bluetooth is off. ";
-            String name = connectedBluetoothDeviceName(ba);
-            return name != null ? "Connected to " + name + " over Bluetooth. " : "Bluetooth is on, nothing connected. ";
-        } catch (Exception e) { return ""; }
+        return headsetCoordinator != null ? headsetCoordinator.bluetoothSummary() : "";
     }
 
-    /** The name of the currently-connected Bluetooth audio device, or null if none. */
     private String connectedBluetoothDeviceName(android.bluetooth.BluetoothAdapter ba) {
-        try {
-            if (Build.VERSION.SDK_INT >= 31 && !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) return null;
-            int a2dp = ba.getProfileConnectionState(android.bluetooth.BluetoothProfile.A2DP);
-            int headset = ba.getProfileConnectionState(android.bluetooth.BluetoothProfile.HEADSET);
-            if (a2dp != android.bluetooth.BluetoothProfile.STATE_CONNECTED
-                    && headset != android.bluetooth.BluetoothProfile.STATE_CONNECTED) return null;
-            // A connected profile confirms *something* is connected; identify it via the bonded
-            // set (public API — no async profile-proxy round trip needed for a name lookup).
-            java.util.Set<android.bluetooth.BluetoothDevice> bonded = ba.getBondedDevices();
-            if (bonded == null) return null;
-            for (android.bluetooth.BluetoothDevice d : bonded) {
-                try {
-                    java.lang.reflect.Method m = d.getClass().getMethod("isConnected");
-                    Object connected = m.invoke(d);
-                    if (Boolean.TRUE.equals(connected)) return d.getName();
-                } catch (Throwable ignored) { }
-            }
-            // Reflection unavailable/blocked — fall back to the most recently bonded device name
-            // rather than reporting nothing when we already know a profile IS connected.
-            for (android.bluetooth.BluetoothDevice d : bonded) return d.getName();
-            return null;
-        } catch (Throwable t) { return null; }
+        return headsetCoordinator != null ? headsetCoordinator.connectedBluetoothDeviceName(ba) : null;
     }
 
     private String batterySummary() {
@@ -3895,7 +4013,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Turn a phone mode on/off, checking current state and telling the user what happened. */
-    private void handleModeSet(String actionRaw, String modeRaw, String trailingRaw) {
+    public void handleModeSet(String actionRaw, String modeRaw, String trailingRaw) {
         String a = actionRaw == null ? "" : actionRaw.toLowerCase(Locale.ROOT);
         String t = trailingRaw == null ? "" : trailingRaw.toLowerCase(Locale.ROOT);
         boolean turnOff = a.contains("off") || a.startsWith("disable") || a.startsWith("stop")
@@ -3963,7 +4081,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Report whether a mode is currently on. */
-    private void handleModeQuery(String modeRaw) {
+    public void handleModeQuery(String modeRaw) {
         String mode = canonMode(modeRaw);
         AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -3993,7 +4111,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Airplane mode can't be toggled by apps — report state and open settings if a change is wanted. */
-    private void handleAirplane(boolean turnOn) {
+    public void handleAirplane(boolean turnOn) {
         boolean isOn = airplaneOn();
         if (turnOn == isOn) { inform("Airplane mode is already " + (isOn ? "on." : "off.")); return; }
         String msg = "I can't switch airplane mode directly — opening settings so you can toggle it.";
@@ -4015,7 +4133,7 @@ public class IrisListeningService extends Service implements RecognitionListener
      * mode above) AND turn on IRIS's own resource-saving mode. "...for yourself" / "...for
      * IRIS" / "...for you" = IRIS-only, no system settings screen opened.
      */
-    private void handleBatterySaverSet(String actionRaw, String onOffRaw, String scopeRaw) {
+    public void handleBatterySaverSet(String actionRaw, String onOffRaw, String scopeRaw) {
         String a = actionRaw == null ? "" : actionRaw.toLowerCase(Locale.ROOT);
         String o = onOffRaw == null ? "" : onOffRaw.toLowerCase(Locale.ROOT);
         boolean turnOff = a.contains("off") || a.startsWith("disable") || a.startsWith("stop") || "off".equals(o);
@@ -4043,7 +4161,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** "Is battery saving mode on?" — reports both IRIS's own mode and, where readable, Android's. */
-    private void handleBatterySaverQuery() {
+    public void handleBatterySaverQuery() {
         boolean irisOn = settings.irisPowerSaver();
         String msg;
         try {
@@ -4057,7 +4175,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         inform(msg);
     }
 
-    private void handleRinger(int mode) {
+    public void handleRinger(int mode) {
         try {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (Build.VERSION.SDK_INT >= 23 && nm != null && !nm.isNotificationPolicyAccessGranted()
@@ -4079,7 +4197,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Toggle Do Not Disturb. Needs DND (notification policy) access. */
-    private void handleDnd(boolean on) {
+    public void handleDnd(boolean on) {
         try {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (Build.VERSION.SDK_INT < 23 || nm == null) {
@@ -4109,7 +4227,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Play a local song/artist by name via any installed music app (offline). */
-    private void handlePlaySong(String query) {
+    public void handlePlaySong(String query) {
         if (query == null || query.trim().isEmpty()) { handleMediaControl("play"); return; }
         String q = query.trim();
         String lower = q.toLowerCase(Locale.ROOT);
@@ -4180,7 +4298,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Adjust media volume. */
-    private void handleVolume(String normalized) {
+    public void handleVolume(String normalized) {
         try {
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
             int stream = AudioManager.STREAM_MUSIC;
@@ -4211,7 +4329,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Open the WiFi/Bluetooth settings panel (toggling isn't allowed by Android). */
-    private void handleConnectivity(String which) {
+    public void handleConnectivity(String which) {
         boolean bt = which != null && which.toLowerCase(Locale.ROOT).startsWith("bluetooth");
         try {
             Intent i;
@@ -4234,7 +4352,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Do a web search in the browser. */
-    private void handleWebSearch(String query) {
+    public void handleWebSearch(String query) {
         try {
             Intent i = new Intent(Intent.ACTION_VIEW,
                     Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)));
@@ -4249,7 +4367,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Start turn-by-turn navigation (or a map) to a destination. */
-    private void handleNavigate(String destination) {
+    public void handleNavigate(String destination) {
         try {
             Intent i = new Intent(Intent.ACTION_VIEW,
                     Uri.parse("google.navigation:q=" + Uri.encode(destination)));
@@ -4271,7 +4389,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
     /** Compose an email (resolves a contact's address when possible). */
-    private void handleEmail(String recipient, String body) {
+    public void handleEmail(String recipient, String body) {
         try {
             String to = recipient;
             if (!recipient.contains("@")) {
@@ -4295,7 +4413,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     /** Open the calendar to create an event, pre-filling title and time. */
-    private void handleCalendar(String title, String when) {
+    public void handleCalendar(String title, String when) {
         try {
             Intent i = new Intent(Intent.ACTION_INSERT);
             i.setData(android.provider.CalendarContract.Events.CONTENT_URI);
@@ -5131,235 +5249,57 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void handleHistory(String normalized, ProfileStore store) {
-        if (normalized.matches(".*\\bwho\\s+did\\s+i\\s+call\\s+last\\b.*")) {
-            ProfileStore.Entry last = store.lastCalled();
-            if (last != null) {
-                String text = "Your last call was to " + last.contactName;
-                speak(text);
-                broadcastMessage(text);
-            } else {
-                broadcastMessage("I don\u2019t have any call history yet.");
-            }
-        } else if (normalized.matches(".*\\bwho\\s+did\\s+i\\s+call\\s+today\\b.*") || normalized.matches(".*\\bmy\\s+calls\\b.*") || normalized.matches(".*\\bcall\\s+history\\b.*")) {
-            List<ProfileStore.Entry> today = store.calledToday();
-            if (today.isEmpty()) {
-                broadcastMessage("No calls yet today.");
-            } else {
-                List<String> names = new ArrayList<>();
-                for (ProfileStore.Entry e : today) names.add(e.contactName);
-                String text = "Today you called: " + String.join(", ", names);
-                speak(text);
-                broadcastMessage(text);
-            }
-        } else if (normalized.matches(".*\\bhow\\s+many\\s+times\\b.*")) {
-            String who = normalized.replaceAll(".*how\\s+many\\s+times\\s+did\\s+i\\s+call\\s+", "").trim();
-            List<ContactMatch> matches = resolveContacts(who);
-            if (!matches.isEmpty()) {
-                ContactMatch best = matches.get(0);
-                ProfileStore.Entry entry = null;
-                for (ProfileStore.Entry e : store.getEntries()) {
-                    if (e.contactName.equalsIgnoreCase(best.name)) { entry = e; break; }
-                }
-                if (entry != null && entry.callCount > 0) {
-                    String text = "You\u2019ve called " + entry.contactName + " " + entry.callCount + " time" + (entry.callCount != 1 ? "s" : "") + " total.";
-                    speak(text);
-                    broadcastMessage(text);
-                } else {
-                    broadcastMessage("I don\u2019t have call records for " + who + ".");
-                }
-            } else {
-                broadcastMessage("I couldn\u2019t find a contact matching \u201C" + who + "\u201D.");
-            }
-        } else if (normalized.matches(".*\\bwhen\\s+did\\s+i\\b.*")) {
-            String who = normalized.replaceAll(".*when\\s+did\\s+i\\s+(?:last\\s+)?call\\s+", "").trim();
-            List<ContactMatch> matches = resolveContacts(who);
-            if (!matches.isEmpty()) {
-                ContactMatch best = matches.get(0);
-                ProfileStore.Entry entry = null;
-                for (ProfileStore.Entry e : store.getEntries()) {
-                    if (e.contactName.equalsIgnoreCase(best.name)) { entry = e; break; }
-                }
-                if (entry != null && entry.lastCalled > 0) {
-                    String timeAgo = relativeTime(entry.lastCalled);
-                    String text = "You last called " + entry.contactName + " " + timeAgo + ".";
-                    speak(text);
-                    broadcastMessage(text);
-                } else {
-                    broadcastMessage("I don\u2019t have a record of calling " + who + ".");
-                }
-            } else {
-                broadcastMessage("I couldn\u2019t find a contact matching \u201C" + who + "\u201D.");
-            }
-        } else {
-            broadcastMessage("I didn\u2019t understand the history question.");
+        if (callManager != null) {
+            callManager.handleHistory(normalized, store);
         }
-        LogStore.append(this, "HISTORY", normalized);
-        rearmAfterAction();
     }
 
     private String relativeTime(long timestamp) {
-        long diff = System.currentTimeMillis() - timestamp;
-        long minutes = diff / 60_000;
-        if (minutes < 1) return "just now";
-        if (minutes < 60) return minutes + " minute" + (minutes != 1 ? "s" : "") + " ago";
-        long hours = minutes / 60;
-        if (hours < 24) return hours + " hour" + (hours != 1 ? "s" : "") + " ago";
-        long days = hours / 24;
-        if (days == 1) return "yesterday";
-        return days + " days ago";
+        return CallManager.relativeTime(timestamp);
     }
 
     private void handleConfirmation(String heard) {
-        String answer = ProfileStore.normalize(heard);
-        LogStore.append(this, "CONFIRM VOICE", answer);
-        // "no" first so "no" never gets misread as yes. "call" is NOT a yes —
-        // it's ambiguous with a fresh command and caused wrong-contact calls.
-        if (answer.matches("^(?:no|nope|nah|nahi|cancel|wrong|not\\s+\\w+|stop|kill|abort|forget\\s*it|leave\\s*it|hang\\s*up|don'?t|end\\s*it|nvm|never\\s*mind|ruk|bas|chhod)\\b.*")) {
-            if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
-            cancelCallNotification();
-            // If there are more candidates, ask about the next one
-            if (pendingCandidates != null && pendingCandidateIndex + 1 < pendingCandidates.size()) {
-                int next = pendingCandidateIndex + 1;
-                LogStore.append(this, "CONFIRM", "Declined, trying next: "
-                        + pendingCandidates.get(next).name);
-                handler.postDelayed(() -> confirmCandidate(next), 300);
-            } else {
-                pendingCandidates = null;
-                broadcastMessage("Call cancelled.");
-                speakThenRun("Okay, cancelled.", this::rearmAfterAction);
-            }
-        } else if (answer.matches("^(?:yes|yeah|yep|yup|confirm|correct|right|sure|okay|ok|do\\s+it|go\\s+ahead|haan|ha)\\b.*")
-                // "call" on its own (or with a pronoun) means "yes, place it". A name after
-                // "call" is deliberately NOT treated as confirmation, because that used to
-                // place a call to the wrong contact.
-                || answer.matches("^(?:call|dial|ring)(?:\\s+(?:him|her|them|it|now|please|karo))?$")) {
-            if (confirmTimeout != null) { handler.removeCallbacks(confirmTimeout); confirmTimeout = null; }
-            pendingCandidates = null;
-            placeCall(pendingName, pendingNumber);
-        } else if (confirmationRetries++ < 1) {
-            broadcastMessage("Say “yes” to call or “no” to cancel.");
-            speakThenRun("Say yes to call, or no to cancel.", this::startConfirmationRecognition);
-        } else {
-            cancelCallNotification();
-            broadcastMessage("I couldn't understand. Call cancelled.");
-            LogStore.append(IrisListeningService.this, "CANCELLED", "Unrecognized confirmation for " + (pendingName == null ? "contact" : pendingName));
-            rearmAfterAction();
+        if (callManager != null) {
+            callManager.handleConfirmation(heard);
         }
     }
 
     private List<ContactMatch> resolveContacts(String requested) {
-        String target = ProfileStore.normalize(requested);
-        if (target.matches("[0-9 ]{3,}")) {
-            return Collections.singletonList(new ContactMatch(requested, requested.replace(" ", ""), 1.0));
+        if (callManager == null) return Collections.emptyList();
+        List<CallManager.ContactMatch> matches = callManager.resolveContacts(requested);
+        List<ContactMatch> result = new ArrayList<>();
+        for (CallManager.ContactMatch m : matches) {
+            result.add(new ContactMatch(m.name, m.number, m.score));
         }
-        List<ContactMatch> matches = new ArrayList<>();
-        if (!hasPermission(Manifest.permission.READ_CONTACTS)) return matches;
-        String[] projection = {ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                ContactsContract.CommonDataKinds.Phone.NUMBER};
-        try (Cursor cursor = getContentResolver().query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                projection, null, null, null)) {
-            if (cursor == null) return matches;
-            while (cursor.moveToNext()) {
-                String name = cursor.getString(0);
-                String number = cursor.getString(1);
-                double score = nameScore(target, ProfileStore.normalize(name));
-                if (score >= .72) matches.add(new ContactMatch(name, number, score));
-            }
-        } catch (Exception error) {
-            LogStore.append(this, "ERROR", "Contact lookup failed: " + error.getMessage());
-        }
-        matches.sort((a, b) -> Double.compare(b.score, a.score));
-        return matches;
+        return result;
     }
 
     private double nameScore(String target, String candidate) {
-        if (target.equals(candidate)) return 1;
-        if (candidate.startsWith(target) || target.startsWith(candidate)) return .90;
-        if (candidate.contains(target) || target.contains(candidate)) return .82;
-        for (String a : target.split(" ")) for (String b : candidate.split(" "))
-            if (a.length() > 2 && a.equals(b)) return .76;
-        if (soundex(target).equals(soundex(candidate)) && !soundex(target).isEmpty()) return .74;
-        return textSimilarity(target, candidate);
+        return callManager != null ? callManager.nameScore(target, candidate) : 0;
     }
 
     private String soundex(String value) {
-        String latin = value.replaceAll("[^a-z]", "");
-        if (latin.isEmpty()) return "";
-        String map = "01230120022455012623010202";
-        StringBuilder result = new StringBuilder().append(latin.charAt(0));
-        char previous = map.charAt(latin.charAt(0) - 'a');
-        for (int i = 1; i < latin.length() && result.length() < 4; i++) {
-            char code = map.charAt(latin.charAt(i) - 'a');
-            if (code != '0' && code != previous) result.append(code);
-            previous = code;
-        }
-        while (result.length() < 4) result.append('0');
-        return result.toString();
+        return CallManager.soundex(value);
     }
 
     private double textSimilarity(String a, String b) {
-        if (a.isEmpty() || b.isEmpty()) return 0;
-        int[] previous = new int[b.length() + 1];
-        int[] current = new int[b.length() + 1];
-        for (int j = 0; j <= b.length(); j++) previous[j] = j;
-        for (int i = 1; i <= a.length(); i++) {
-            current[0] = i;
-            for (int j = 1; j <= b.length(); j++) {
-                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
-                current[j] = Math.min(Math.min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + cost);
-            }
-            int[] swap = previous; previous = current; current = swap;
-        }
-        return 1.0 - ((double) previous[b.length()] / Math.max(a.length(), b.length()));
+        return CallManager.textSimilarity(a, b);
     }
 
     private void requestDisambiguation(List<ContactMatch> candidates) {
-        destroyRecognizer();
-        ArrayList<String> names = new ArrayList<>();
-        ArrayList<String> numbers = new ArrayList<>();
-        for (ContactMatch candidate : candidates) {
-            names.add(candidate.name);
-            numbers.add(candidate.number);
-        }
-        sendBroadcast(new Intent(EVENT_DISAMBIGUATE).setPackage(getPackageName())
-                .putStringArrayListExtra(EXTRA_NAMES, names)
-                .putStringArrayListExtra(EXTRA_NUMBERS, numbers));
-        Intent open = new Intent(this, MainActivity.class)
-                .putStringArrayListExtra(EXTRA_NAMES, names)
-                .putStringArrayListExtra(EXTRA_NUMBERS, numbers);
-        PendingIntent content = PendingIntent.getActivity(this, 14, open,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification notification = new Notification.Builder(this, CALL_CHANNEL)
-                .setSmallIcon(R.drawable.ic_iris)
-                .setContentTitle("Which contact did you mean?")
-                .setContentText(String.join(" • ", names))
-                .setContentIntent(content)
-                .setAutoCancel(true)
-                .build();
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(CALL_NOTIFICATION, notification);
-        handler.postDelayed(() -> {
-            if (isRunning && pendingName == null && PHASE_COMMAND.equals(phase)) {
-                broadcastMessage("No selection made. Going back to sleep.");
-                LogStore.append(this, "TIMEOUT", "Disambiguation expired");
-                cancelCallNotification();
-                rearmAfterAction();
+        if (callManager != null) {
+            List<CallManager.ContactMatch> list = new ArrayList<>();
+            if (candidates != null) {
+                for (ContactMatch c : candidates) list.add(new CallManager.ContactMatch(c.name, c.number, c.score));
             }
-        }, 30_000);
+            callManager.requestDisambiguation(list);
+        }
     }
 
     private void requestCorrection(String heard) {
-        sendBroadcast(new Intent(EVENT_TEACH).setPackage(getPackageName())
-                .putExtra(EXTRA_TEXT, heard));
-        Intent open = new Intent(this, MainActivity.class)
-                .putExtra(EXTRA_TEACH, true).putExtra(EXTRA_TEXT, heard);
-        Notification notification = new Notification.Builder(this, CALL_CHANNEL)
-                .setSmallIcon(R.drawable.ic_iris)
-                .setContentTitle("Teach IRIS what you meant?")
-                .setContentText("“" + heard + "”")
-                .setContentIntent(PendingIntent.getActivity(this, 34, open,
-                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
-                .setAutoCancel(true).build();
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(TEACH_NOTIFICATION, notification);
+        if (callManager != null) {
+            callManager.requestCorrection(heard);
+        }
     }
 
     private void requestCallConfirmation(String name, String number) {
@@ -5367,150 +5307,27 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void requestCallConfirmation(String name, String number, String customPrompt) {
-        if (name == null || number == null) {
-            rearmAfterAction();
-            return;
-        }
-        // Smart call timing checks
-        String warning = callTimingWarning(name, number);
-        if (warning != null) {
-            broadcastMessage(warning);
-            speak(warning);
-        }
-        pendingName = name;
-        pendingNumber = number;
-        confirmationRetries = 0;
-        destroyRecognizer();
-        LogStore.append(this, "CONFIRM", "Waiting to call " + name);
-        broadcastCallPrompt(name, number);
-        showCallNotification(name, number);
-        String confirmText = customPrompt != null ? customPrompt : personalityLine("confirm", name);
-        if (settings.voiceReplies() && ttsReady && confirmText != null) {
-            textToSpeech.speak(confirmText, TextToSpeech.QUEUE_FLUSH, null, "iris_confirm");
-            textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
-                @Override public void onStart(String utteranceId) { }
-                @Override public void onDone(String utteranceId) {
-                    if ("iris_confirm".equals(utteranceId)) {
-                        textToSpeech.setOnUtteranceProgressListener(null);
-                        handler.post(() -> startConfirmationRecognition());
-                    }
-                }
-                @Override public void onError(String utteranceId) {
-                    textToSpeech.setOnUtteranceProgressListener(null);
-                    handler.post(() -> startConfirmationRecognition());
-                }
-            });
-        } else {
-            startConfirmationRecognition();
+        if (callManager != null) {
+            callManager.requestCallConfirmation(name, number, customPrompt);
         }
     }
 
     private void placeCall(String name, String number) {
-        if (number == null || number.trim().isEmpty()) {
-            broadcastMessage("That contact has no callable number.");
-            rearmAfterAction();
-            return;
+        if (callManager != null) {
+            callManager.placeCall(name, number);
         }
-        KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-        if (settings.requireUnlock() && keyguard != null && keyguard.isDeviceLocked()) {
-            cancelCallNotification();
-            requestUnlockForCall(name, number);
-            return;
-        }
-        pendingName = name;
-        pendingNumber = number;
-        speak(personalityLine("calling", name));
-        broadcastMessage("Calling " + name + "…");
-        handler.postDelayed(() -> performCall(name, number), settings.voiceReplies() ? 500 : 80);
     }
 
     private void performCall(String name, String number) {
-        String digits = number.replaceAll("[^0-9+]", "");
-        boolean sensitive = digits.replace("+", "").length() <= 3 || digits.startsWith("1900");
-        boolean direct = hasPermission(Manifest.permission.CALL_PHONE) && !sensitive;
-        Intent call = new Intent(direct ? Intent.ACTION_CALL : Intent.ACTION_DIAL,
-                Uri.parse("tel:" + Uri.encode(digits))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            new ProfileStore(this).recordCall(name, number);
-            BehaviorAnalyzer.onCallPlaced(this, name, number);
-            try { ledger().record("call", ActionLedger.OK,
-                    "Called " + (name == null ? number : name), "", "", false); } catch (Throwable ignored) { }
-            LogStore.append(this, direct ? "CALLING" : "DIALER", name == null ? number : name);
-
-            // Launch FIRST, while we are still a foreground service. Tearing down foreground
-            // state before startActivity loses the background-activity-start exemption on
-            // Android 10+, which silently swallowed the call.
-            boolean launched = false;
-            try { startActivity(call); launched = true; }
-            catch (Throwable t) { LogStore.append(this, "CALL", "direct start blocked: " + t); }
-
-            if (!launched) {
-                // Reliable fallback: a full-screen intent can bring the dialer up from the
-                // background and over the lock screen.
-                try {
-                    PendingIntent pi = PendingIntent.getActivity(this, 51, call,
-                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-                    Notification n = new Notification.Builder(this, CALL_CHANNEL)
-                            .setSmallIcon(R.drawable.ic_iris)
-                            .setContentTitle("Calling " + (name == null ? number : name))
-                            .setContentText("Tap if the call doesn't start")
-                            .setCategory(Notification.CATEGORY_CALL)
-                            .setFullScreenIntent(pi, true)
-                            .setAutoCancel(true).build();
-                    ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(0xCA11, n);
-                    launched = true;
-                } catch (Throwable t) {
-                    LogStore.append(this, "CALL", "full-screen fallback failed: " + t);
-                }
-            }
-            if (!launched) {
-                // After-failed-call follow-up (INTELLIGENCE-ROADMAP §4.2). A dead-end apology
-                // leaves the owner with nothing to do, so offer the text fallback and hand
-                // straight to the EXISTING guided compose flow, which already asks what to say
-                // and can be cancelled. Done this way deliberately rather than by adding a
-                // second yes/no state machine to the call-confirmation path above, which is
-                // delicate and already handles candidates, retries and timeouts.
-                broadcastMessage("This device blocked the call. Tap the notification to dial.");
-                final String who = (name != null && !name.trim().isEmpty()) ? name.trim()
-                        : (number != null && !number.trim().isEmpty() ? number.trim() : null);
-                if (who != null) {
-                    speakThenRun("I couldn't start the call. I'll text " + who
-                            + " instead \u2014 say cancel if you'd rather not.",
-                            () -> beginSms(who, null));
-                } else {
-                    speakThenRun("I couldn't start the call.", this::rearmAfterAction);
-                }
-                return;
-            }
-            // Now it is safe to stand down.
-            isRunning = false;
-        replyCompletion.cancel();
-        serviceStartedAt = 0; wakeReadiness = "Service stopped"; phoneQuestionGeneration++;
-            broadcastState(false, "off");
-            destroyRecognizer();
-            stopWakeEngine();
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
-        } catch (Exception error) {
-            LogStore.append(this, "ERROR", "Call failed: " + error.getMessage());
-            broadcastMessage("This device could not place the call.");
-            stopIris("Call launch failed");
+        if (callManager != null) {
+            callManager.performCall(name, number);
         }
     }
 
     private void requestUnlockForCall(String name, String number) {
-        Intent open = new Intent(this, MainActivity.class)
-                .putExtra(EXTRA_NAME, name).putExtra(EXTRA_NUMBER, number)
-                .putExtra(EXTRA_AUTH_REQUIRED, true);
-        PendingIntent content = PendingIntent.getActivity(this, 24, open,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification notification = new Notification.Builder(this, CALL_CHANNEL)
-                .setSmallIcon(R.drawable.ic_iris)
-                .setContentTitle("Unlock to call " + name)
-                .setContentText("IRIS protects calls while your phone is locked.")
-                .setContentIntent(content).setAutoCancel(true).build();
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(CALL_NOTIFICATION, notification);
-        LogStore.append(this, "LOCKED", "Authentication required for " + name);
+        if (callManager != null) {
+            callManager.requestUnlockForCall(name, number);
+        }
     }
 
     /** True (and tells the user) if an action must wait for unlock while the phone is locked. */
@@ -5593,7 +5410,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
-    private void rearmAfterAction() {
+    public void rearmAfterAction() {
         VoiceEndurance.event("REARM");wakeAckPending=false;
         historyId="";
         replyCompletion.cancel();
@@ -5617,124 +5434,44 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private String configureAudioRoute() {
-        if(audioManager==null)audioManager=(AudioManager)getSystemService(AUDIO_SERVICE);
-        // Capture owners request and observe their actual AudioRecord route.
-        return AudioRouteController.observed;
+        return voiceCoordinator.configureAudioRoute();
     }
 
-    /** Diagnostic: log every detected audio input device's exact AudioDeviceInfo type whenever
-     *  the mic route is (re)configured. Lets a "still using phone mic despite headphones"
-     *  report be root-caused from a log capture — e.g. a no-name wired headset reporting as a
-     *  type not yet covered by the wired-device check in chooseDevice() below — instead of
-     *  guessing at the device model over remote description. */
     private void logDetectedInputDevices(AudioManager manager) {
-        try {
-            StringBuilder sb = new StringBuilder("Input devices:");
-            java.util.List<AudioDeviceInfo> devices = Build.VERSION.SDK_INT >= 31
-                    ? manager.getAvailableCommunicationDevices()
-                    : arrayToList(manager.getDevices(AudioManager.GET_DEVICES_INPUTS));
-            if (devices.isEmpty()) sb.append(" (none reported)");
-            for (AudioDeviceInfo d : devices) {
-                sb.append(' ').append('[').append(d.getType()).append(' ')
-                        .append(readableDeviceName(d)).append(']');
-            }
-            android.util.Log.i("IRIS", sb.toString());
-            LogStore.append(this, "AUDIO ROUTE", sb.toString());
-        } catch (Throwable ignored) { }
+        voiceCoordinator.logDetectedInputDevices();
     }
 
-    /** True if the mic is a Bluetooth headset (SCO/BLE) that needs communication mode. */
     private boolean isBluetoothMic(AudioDeviceInfo device) {
-        if (device == null) return false;
-        int t = device.getType();
-        return t == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-                || (Build.VERSION.SDK_INT >= 31 && t == AudioDeviceInfo.TYPE_BLE_HEADSET);
+        return voiceCoordinator.isBluetoothMic(device);
     }
 
     private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference) {
-        // Automatic may use the Bluetooth mic ONLY for a short command window / explicit
-        // recording. Holding it during always-on wake listening forces A2DP into call-quality
-        // SCO, which is what made music sound bad while IRIS was merely awake.
-        boolean musicPlaying = false;
-        try { musicPlaying = audioManager != null && audioManager.isMusicActive(); } catch (Throwable ignored) { }
-        return chooseDevice(devices, preference, btMicAllowed && !musicPlaying);
+        return voiceCoordinator.chooseDevice(devices, preference);
     }
 
     private AudioDeviceInfo chooseDevice(List<AudioDeviceInfo> devices, String preference,
                                          boolean allowBluetoothInAuto) {
-        AudioDeviceInfo builtIn = null, btDev = null, wiredDev = null;
-        for (AudioDeviceInfo device : devices) {
-            int type = device.getType();
-            if (type == AudioDeviceInfo.TYPE_BUILTIN_MIC || type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) builtIn = device;
-            boolean bluetooth = type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-                    || (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_HEADSET);
-            // Some USB-C earphones/dongles report as a generic USB device, not USB_HEADSET —
-            // treat any USB input with a mic as wired so they aren't missed as "phone mic".
-            boolean wired = type == AudioDeviceInfo.TYPE_WIRED_HEADSET || type == AudioDeviceInfo.TYPE_USB_HEADSET
-                    || type == AudioDeviceInfo.TYPE_USB_DEVICE || type == AudioDeviceInfo.TYPE_USB_ACCESSORY;
-            if (bluetooth) btDev = device;
-            if (wired) wiredDev = device;
-        }
-        if ("Phone".equals(preference)) return builtIn;
-        if ("Bluetooth".equals(preference)) return btDev != null ? btDev : builtIn;
-        if ("Wired / USB".equals(preference)) return wiredDev != null ? wiredDev : builtIn;
-        // Automatic: wired first (never disturbs playback), then the Bluetooth headset you're
-        // actually wearing — but only when music isn't playing, so the tone never changes.
-        if (wiredDev != null) return wiredDev;
-        if (btDev != null && allowBluetoothInAuto) return btDev;
-        return builtIn;
+        return voiceCoordinator.chooseDevice(devices, preference, allowBluetoothInAuto);
     }
 
     private List<AudioDeviceInfo> arrayToList(AudioDeviceInfo[] devices) {
-        List<AudioDeviceInfo> result = new ArrayList<>();
-        Collections.addAll(result, devices);
-        return result;
+        return VoicePipelineCoordinator.arrayToList(devices);
     }
 
     private String readableDeviceName(AudioDeviceInfo device) {
-        int type = device.getType();
-        if (type == AudioDeviceInfo.TYPE_BUILTIN_MIC || type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE)
-            return "Phone microphone";
-        String product = device.getProductName() == null ? "" : device.getProductName().toString().trim();
-        switch (type) {
-            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
-                return (product.isEmpty() ? "Bluetooth headset" : product) + " (Bluetooth)";
-            case AudioDeviceInfo.TYPE_WIRED_HEADSET:
-                return (product.isEmpty() ? "Wired headset" : product) + " (wired)";
-            case AudioDeviceInfo.TYPE_USB_HEADSET:
-                return (product.isEmpty() ? "USB headset" : product) + " (USB)";
-            default:
-                if (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-                    return (product.isEmpty() ? "Bluetooth headset" : product) + " (Bluetooth)";
-                return product.isEmpty() ? "Phone microphone" : product + " microphone";
-        }
+        return VoicePipelineCoordinator.readableDeviceName(device);
     }
 
     private void registerAudioChanges() {
-        if (audioManager == null || audioDeviceCallback != null) return;
-        audioDeviceCallback = new AudioDeviceCallback() {
-            @Override public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) { refreshAudioRoute(); }
-            @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) { refreshAudioRoute(); }
-        };
-        audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler);
+        voiceCoordinator.registerAudioChanges();
     }
 
     private void refreshAudioRoute() {
-        if (!isRunning) return;
-        handler.postDelayed(() -> {
-            microphoneLabel = configureAudioRoute();
-            broadcastState(true, phase);
-            updateListeningNotification("Active through " + microphoneLabel);
-        }, 300);
+        voiceCoordinator.refreshAudioRoute();
     }
 
     private void releaseAudioRoute() {
-        if (audioManager == null) return;
-        try {
-            if (audioDeviceCallback != null) audioManager.unregisterAudioDeviceCallback(audioDeviceCallback);
-        } catch (Exception ignored) { }
-        audioDeviceCallback = null;
-        audioManager = null;
+        voiceCoordinator.releaseAudioRoute();
     }
 
     private Notification.Builder baseListeningNotificationBuilder(String contentText) {
@@ -5876,7 +5613,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         }, 400);
     }
 
-    private void stopCommandCapture(){commandLoadGate.cancel();commandEpoch++;if(voiceSession!=null)voiceSession.pause();if(commandEngine!=null)commandEngine.stop();}
+    private void stopCommandCapture(){commandLoadGate.cancel();commandEpoch++;if(voiceSession!=null)voiceSession.pause();if(commandEngine!=null)commandEngine.stop();if(onnxRecognizer!=null)onnxRecognizer.stop();}
     private void stopWakeEngine() {
         captureActionGeneration++;if(!isRunning&&voiceSession!=null){voiceSession.close();voiceSession=null;}
         stopCommandCapture();
@@ -5886,6 +5623,7 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     private void destroyRecognizer() {
         recognizerGeneration++;
+        if (onnxRecognizer != null) onnxRecognizer.stop();
         if (recognizer != null) {
             try { recognizer.cancel(); } catch (Exception ignored) { }
             recognizer.destroy();
@@ -5960,14 +5698,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         }
     }
 
-    private Object speechFocusRequest;
     private volatile boolean speechCancelled;
     private boolean wakeAckPending;
-    private final ReplyCompletionGate replyCompletion=new ReplyCompletionGate();
-    /** Set once per command the first time we actually pause media for speech; only this
-     *  flag (not per-utterance state) decides whether media is resumed, and only once, when
-     *  the whole command finishes — never after each individual TTS utterance. */
-    private volatile boolean commandPausedMedia;
+    private final ReplyCompletionGate replyCompletion = new ReplyCompletionGate();
     private String lastUserCommand = "";
     private String lastActionSummary = "";
     private volatile boolean nextOutputMinor;
@@ -5986,71 +5719,17 @@ public class IrisListeningService extends Service implements RecognitionListener
      * the source outright, then PLAY resumes it afterwards.
      */
     private void requestSpeechFocus() {
-        try {
-            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-            if (am == null) return;
-            // Only the FIRST speech-focus request in a command may pause media — later
-            // utterances in the same command (e.g. "Taking a photo…" then "Saved a photo to…")
-            // must not re-sample isMusicActive(), which is flaky and can report a false "true"
-            // for a session that already stopped, causing an unwanted resume later.
-            if (!commandPausedMedia && am.isMusicActive()) {
-                commandPausedMedia = true;
-                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                        android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE));
-                am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                        android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE));
-            }
-            // Still take brief focus so the system doesn't let anything else start while we talk.
-            if (Build.VERSION.SDK_INT >= 26) {
-                android.media.AudioFocusRequest req = new android.media.AudioFocusRequest.Builder(
-                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-                        .setAudioAttributes(new android.media.AudioAttributes.Builder()
-                                .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
-                                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                        .build();
-                if (am.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                    speechFocusRequest = req;
-                }
-            } else {
-                am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
-            }
-        } catch (Exception ignored) { }
+        voiceCoordinator.requestSpeechFocus();
     }
 
-    /** Release audio focus after this utterance. Does NOT resume media — resuming is deferred
-     *  to {@link #finishCommandMediaResume()}, called once the whole command finishes, so a
-     *  multi-utterance flow (e.g. photo capture's "Taking a photo…" + "Saved a photo to…")
-     *  doesn't resume media between its own utterances. */
     private void abandonSpeechFocus() {
-        try {
-            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-            if (am == null) return;
-            if (Build.VERSION.SDK_INT >= 26 && speechFocusRequest instanceof android.media.AudioFocusRequest) {
-                am.abandonAudioFocusRequest((android.media.AudioFocusRequest) speechFocusRequest);
-                speechFocusRequest = null;
-            } else {
-                am.abandonAudioFocus(null);
-            }
-        } catch (Exception ignored) { }
+        voiceCoordinator.abandonSpeechFocus();
     }
 
-    /** Resume media if — and only if — this command actually paused it, exactly once. Call
-     *  this when the whole command flow ends (rearmAfterAction), or when speech is cut short
-     *  by the user or a service stop (stopSpeaking/onDestroy), never after each utterance. */
     private void finishCommandMediaResume() {
-        if (!commandPausedMedia) return;
-        commandPausedMedia = false;
-        try {
-            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-            if (am == null) return;
-            am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                    android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
-            am.dispatchMediaKeyEvent(new android.view.KeyEvent(
-                    android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
-        } catch (Exception ignored) { }
+        voiceCoordinator.finishCommandMediaResume();
     }
 
-    /** Immediately stop whatever IRIS is saying (TTS or server audio) and return to listening. */
     private void stopSpeaking() {
         speechCancelled = true;
         replyCompletion.cancel();
@@ -6100,7 +5779,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         try { if (voskEngine != null) voskEngine.stop(); } catch (Throwable ignored) { }
     }
 
-    private void speak(String text) {
+    public void speak(String text) {
         if (text == null || text.isEmpty()) return;
         if (!settings.voiceReplies()) return;
         if (useServerTts()) { speakServerThenRun(text, null); return; }
@@ -6200,7 +5879,7 @@ public class IrisListeningService extends Service implements RecognitionListener
      * Prevents the mic from cutting off IRIS mid-sentence.
      * If voice replies are off or TTS fails, runs the callback after a short delay.
      */
-    private void speakThenRun(String text, Runnable afterSpeaking) {
+    public void speakThenRun(String text, Runnable afterSpeaking) {
         boolean minor = nextOutputMinor; nextOutputMinor = false;
         mirrorToWatch(text, minor);
         if (useServerTts() && text != null && !text.isEmpty() && settings.voiceReplies()) {
@@ -6272,6 +5951,66 @@ public class IrisListeningService extends Service implements RecognitionListener
         }catch(Exception error){handler.post(complete);}
         // A missing callback must not leave the assistant permanently in a command phase.
         handler.postDelayed(complete,Math.min(60_000L,Math.max(acknowledgement?2500L:6000L,text.length()*90L+2000L)));
+    }
+
+    private void speakStreamSentence(String sentence, int index, boolean isFirst) {
+        if (textToSpeech == null || !ttsReady) return;
+        speechCancelled = false;
+        if (isFirst) {
+            requestSpeechFocus();
+            startStopWordListener();
+            try {
+                textToSpeech.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, "stream_part_" + index);
+            } catch (Exception ignored) { }
+        } else {
+            try {
+                textToSpeech.speak(sentence, TextToSpeech.QUEUE_ADD, null, "stream_part_" + index);
+            } catch (Exception ignored) { }
+        }
+    }
+
+    private void scheduleStreamRearm(int totalSentences, int totalChars) {
+        final long token = replyCompletion.begin();
+        final String lastUtterance = "stream_part_" + totalSentences;
+        speechCancelled = false;
+        Runnable complete = () -> {
+            if (!replyCompletion.complete(token)) return;
+            stopWordEngine();
+            if (textToSpeech != null) {
+                textToSpeech.setOnUtteranceProgressListener(null);
+            }
+            abandonSpeechFocus();
+            if (isRunning && !speechCancelled) rearmAfterAction();
+        };
+
+        if (textToSpeech != null && ttsReady) {
+            if (!textToSpeech.isSpeaking()) {
+                handler.postDelayed(complete, 300);
+                return;
+            }
+            textToSpeech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                @Override
+                public void onStart(String id) {
+                    if (replyCompletion.pending(token)) VoiceEndurance.event("STREAM_REPLY_STARTED");
+                }
+
+                @Override
+                public void onDone(String id) {
+                    if (lastUtterance.equals(id)) {
+                        handler.postDelayed(complete, 300);
+                    }
+                }
+
+                @Override
+                public void onError(String id) {
+                    if (lastUtterance.equals(id)) {
+                        handler.post(complete);
+                    }
+                }
+            });
+        }
+        long maxDelay = Math.min(60_000L, Math.max(6000L, totalChars * 90L + 3000L));
+        handler.postDelayed(complete, maxDelay);
     }
 
     private String callTimingWarning(String name, String number) {
@@ -6407,7 +6146,7 @@ public class IrisListeningService extends Service implements RecognitionListener
                 .putExtra(EXTRA_NAME, name).putExtra(EXTRA_NUMBER, number));
     }
 
-    private void broadcastMessage(String text) {
+    public void broadcastMessage(String text) {
         CommandHistory.reply(this,historyId,text);
         if (text != null) sendBroadcast(new Intent(EVENT_MESSAGE).setPackage(getPackageName()).putExtra(EXTRA_TEXT, text));
     }
@@ -6527,7 +6266,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     @Override
     public void onDestroy() {
         handler.removeCallbacks(listenerWatchdogTick);
-        if(watchBridge!=null)watchBridge.close();
+        if (!WatchBridge.enabled(this)) WatchBridge.stopShared();
         if (phoneFinder != null) phoneFinder.stop();
         // Real leak this fixes: if the Service is destroyed mid-memo (a voice memo recording
         // in progress), the recorder/ParcelFileDescriptor/mic previously kept running until
@@ -6563,17 +6302,18 @@ public class IrisListeningService extends Service implements RecognitionListener
         if(commandEngine!=null){commandEngine.close();commandEngine=null;}
         if (ecapaEngine != null) { ecapaEngine.close(); ecapaEngine = null; }
         if (vadEngine != null) { vadEngine.close(); vadEngine = null; }
+        if (onnxRecognizer != null) { onnxRecognizer.close(); onnxRecognizer = null; }
+        if (slmEngine != null) { slmEngine.close(); slmEngine = null; }
+        if (headsetCoordinator != null) { headsetCoordinator.teardownTriggers(); }
+        if (callManager != null) { callManager.clearPending(); }
         super.onDestroy();
     }
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
-    private static class ContactMatch {
-        final String name;
-        final String number;
-        final double score;
-        ContactMatch(String name, String number, double score) {
-            this.name = name; this.number = number; this.score = score;
+    public static class ContactMatch extends CallManager.ContactMatch {
+        public ContactMatch(String name, String number, double score) {
+            super(name, number, score);
         }
     }
 }

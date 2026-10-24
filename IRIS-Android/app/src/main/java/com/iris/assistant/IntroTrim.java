@@ -41,10 +41,17 @@ public final class IntroTrim {
         out = out.replaceAll("(?i)\\s*" + dash + "*\\s*" + intro + "\\s*[.!]*\\s*$", "");
         out = out.replaceAll("(?i)\\s*" + dash + "+\\s*iris\\s*[.!]*\\s*$", "");
 
+        // Middle parenthetical or dash clause: "... — I'm IRIS, Suvra's assistant. I've flagged..."
+        out = out.replaceAll("(?i)\\s*" + dash + "+\\s*" + intro + "\\s*[.!]*\\s*" + dash + "+\\s*", " \u2014 ");
+        out = out.replaceAll("(?i)\\s*" + dash + "+\\s*" + intro + "\\s*[.!]+\\s*", ". ");
+        out = out.replaceAll("(?i)\\s*\\(\\s*" + intro + "\\s*\\)\\s*", " ");
+
         out = out.trim();
         // Clean a leftover leading separator/space from a removed clause.
         out = out.replaceAll("^[\\u2014\\-:,\\s]+", "").trim();
-        if (out.isEmpty()) return reply.trim();
+        out = out.replaceAll("\\s*[\\u2014\\-:,]\\s*$", ".").trim();
+        out = out.replaceAll("\\s{2,}", " ");
+        if (out.isEmpty() || ".".equals(out)) return reply.trim();
 
         // Re-capitalise the first letter.
         out = Character.toUpperCase(out.charAt(0)) + out.substring(1);

@@ -10,7 +10,10 @@ import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -35,6 +38,18 @@ import java.util.Set;
 public class IrisNotificationListener extends NotificationListenerService {
 
     private static volatile IrisNotificationListener instance;
+    private static volatile long lastWipeEpoch = 0L;
+
+    /** Set an explicit in-memory wipe barrier epoch to guard against shade resurrection. */
+    public static void setLastWipeEpoch(long t) {
+        lastWipeEpoch = t;
+    }
+
+    /** Returns the greatest wipe epoch between memory and persistent settings. */
+    private static long getEffectiveLastWipe(AppSettings settings) {
+        long prefWipe = settings != null ? settings.lastArchiveWipeAt() : 0L;
+        return Math.max(lastWipeEpoch, prefWipe);
+    }
 
     /**
      * Per-notification state needed to judge a later removal.
@@ -69,6 +84,7 @@ public class IrisNotificationListener extends NotificationListenerService {
     private volatile long lastInteractiveAt;
 
     private BroadcastReceiver screenWatcher;
+    private BroadcastReceiver bluetoothWatcher;
 
     /**
      * Whether the system has the notification reader bound.
@@ -108,13 +124,32 @@ public class IrisNotificationListener extends NotificationListenerService {
         try {
             StatusBarNotification[] active = service.getActiveNotifications();
             if (active != null) {
+                AppSettings settings = new AppSettings(service.getApplicationContext());
+                long lastWipe = getEffectiveLastWipe(settings);
                 for (StatusBarNotification sbn : active) {
+                    if (sbn == null) continue;
+                    // Do not re-capture notifications that predate an explicit owner wipe
+                    if (lastWipe > 0) {
+                        long pt = sbn.getPostTime();
+                        long wt = (sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
+                        if (pt <= lastWipe || wt <= lastWipe || (pt <= 0 && wt <= 0)) continue;
+                    }
                     service.onNotificationPosted(sbn);
                     offered++;
                 }
             }
         } catch (Throwable ignored) { }
         return offered;
+    }
+
+    /** Clear in-memory deletion-tracking state when the owner wipes the archive. */
+    public static void clearTracked() {
+        IrisNotificationListener service = instance;
+        if (service != null) {
+            synchronized (service.tracked) {
+                service.tracked.clear();
+            }
+        }
     }
 
     /**
@@ -191,15 +226,26 @@ public class IrisNotificationListener extends NotificationListenerService {
         instance = this;
         blindSince = 0L;
         startScreenWatch();
+        startBluetoothWatch();
         // Records that capture resumed. A gap between a disconnect marker and this one is a window
         // the archive genuinely did not see, which the owner can then judge for themselves rather
         // than being shown an apparently continuous record.
         archiveMark(ArchiveSchema.KIND_LISTENER_CONNECTED, "Notification capture started.");
-        // Seed with notifications already showing in the shade
+        // Seed with notifications already showing in the shade, excluding those predating an explicit wipe
         try {
             StatusBarNotification[] active = getActiveNotifications();
             if (active != null) {
-                for (StatusBarNotification sbn : active) onNotificationPosted(sbn);
+                AppSettings settings = new AppSettings(getApplicationContext());
+                long lastWipe = getEffectiveLastWipe(settings);
+                for (StatusBarNotification sbn : active) {
+                    if (sbn == null) continue;
+                    if (lastWipe > 0) {
+                        long pt = sbn.getPostTime();
+                        long wt = (sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
+                        if (pt <= lastWipe || wt <= lastWipe || (pt <= 0 && wt <= 0)) continue;
+                    }
+                    onNotificationPosted(sbn);
+                }
             }
         } catch (Exception ignored) { }
     }
@@ -208,6 +254,15 @@ public class IrisNotificationListener extends NotificationListenerService {
         archiveMark(ArchiveSchema.KIND_LISTENER_DISCONNECTED,
                 "Notification capture stopped. Messages arriving now are not being saved.");
         stopScreenWatch();
+        stopBluetoothWatch();
+        synchronized (bubbleLock) {
+            for (Runnable r : pendingFlushes.values()) {
+                bubbleHandler.removeCallbacks(r);
+            }
+            pendingFlushes.clear();
+            pendingBubbles.clear();
+            pendingIncomings.clear();
+        }
         if (instance == this) instance = null;
         // Stamped only on the first disconnect of a run, so repeated failed rebinds report the
         // true total outage rather than resetting the clock each attempt.
@@ -244,6 +299,15 @@ public class IrisNotificationListener extends NotificationListenerService {
 
     @Override public void onDestroy() {
         stopScreenWatch();
+        stopBluetoothWatch();
+        synchronized (bubbleLock) {
+            for (Runnable r : pendingFlushes.values()) {
+                bubbleHandler.removeCallbacks(r);
+            }
+            pendingFlushes.clear();
+            pendingBubbles.clear();
+            pendingIncomings.clear();
+        }
         if (responderWorker != null) {
             try { responderWorker.shutdownNow(); } catch (Throwable ignored) { }
             responderWorker = null;
@@ -256,6 +320,32 @@ public class IrisNotificationListener extends NotificationListenerService {
         }
         if (instance == this) instance = null;
         super.onDestroy();
+    }
+
+    /**
+     * Watch for Bluetooth car head unit / handsfree connections to trigger driving mode without latency.
+     */
+    private void startBluetoothWatch() {
+        if (bluetoothWatcher != null) return;
+        try {
+            bluetoothWatcher = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    AutoModeDetector.onBluetoothAclEvent(intent);
+                }
+            };
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED);
+            filter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED);
+            registerReceiver(bluetoothWatcher, filter);
+        } catch (Exception e) {
+            bluetoothWatcher = null;
+        }
+    }
+
+    private void stopBluetoothWatch() {
+        if (bluetoothWatcher == null) return;
+        try { unregisterReceiver(bluetoothWatcher); } catch (Exception ignored) { }
+        bluetoothWatcher = null;
     }
 
     /**
@@ -383,6 +473,12 @@ public class IrisNotificationListener extends NotificationListenerService {
 
         // A deletion placeholder flags an existing row instead of becoming one.
         if (DeletedMessageRules.isAnyDeletionPlaceholder(text)) {
+            long lastWipe = getEffectiveLastWipe(settings);
+            if (lastWipe > 0) {
+                long pt = sbn.getPostTime();
+                long wt = (sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
+                if (pt <= lastWipe || wt <= lastWipe || (pt <= 0 && wt <= 0)) return;
+            }
             synchronized (tracked) {
                 Tracked state = tracked.get(key);
                 if (state == null) { state = new Tracked(); tracked.put(key, state); }
@@ -520,15 +616,75 @@ public class IrisNotificationListener extends NotificationListenerService {
             // Remember that this app can be replied to, so the picker can show it.
             if (IrisNotificationListener.replyAction(sbn) != null) noteReplyCapable(pkg);
 
-            responderWorker().execute(new Runnable() {
-                @Override public void run() {
-                    try {
-                        AutoResponder.consider(context, incoming);
-                    } catch (Throwable ignored) { }
+            ResponderSettings settings = new ResponderSettings(context);
+            if (settings.replyToEveryMessage()) {
+                responderWorker().execute(new Runnable() {
+                    @Override public void run() {
+                        try {
+                            AutoResponder.decide(context, incoming);
+                        } catch (Throwable ignored) { }
+                    }
+                });
+                return;
+            }
+
+            final String convKey = pkg + ":" + incoming.sender;
+            synchronized (bubbleLock) {
+                Runnable existing = pendingFlushes.remove(convKey);
+                if (existing != null) {
+                    bubbleHandler.removeCallbacks(existing);
                 }
-            });
+
+                List<String> bubbles = pendingBubbles.get(convKey);
+                if (bubbles == null) {
+                    bubbles = new ArrayList<>();
+                    pendingBubbles.put(convKey, bubbles);
+                }
+                String trimmed = incoming.body.trim();
+                if (!trimmed.isEmpty()) {
+                    if (bubbles.isEmpty() || !bubbles.get(bubbles.size() - 1).equals(trimmed)) {
+                        bubbles.add(trimmed);
+                    }
+                }
+                pendingIncomings.put(convKey, incoming);
+
+                Runnable flushTask = new Runnable() {
+                    @Override public void run() {
+                        final AutoResponder.Incoming toProcess;
+                        final List<String> toCombine;
+                        synchronized (bubbleLock) {
+                            pendingFlushes.remove(convKey);
+                            toProcess = pendingIncomings.remove(convKey);
+                            toCombine = pendingBubbles.remove(convKey);
+                        }
+                        if (toProcess != null) {
+                            if (toCombine != null && !toCombine.isEmpty()) {
+                                toProcess.body = Debounce.combine(toCombine);
+                            }
+                            responderWorker().execute(new Runnable() {
+                                @Override public void run() {
+                                    try {
+                                        AutoResponder.decide(context, toProcess);
+                                    } catch (Throwable ignored) { }
+                                }
+                            });
+                        }
+                    }
+                };
+                pendingFlushes.put(convKey, flushTask);
+                long delayMs = settings.typingDelayMs();
+                if (delayMs <= 0) delayMs = 2500L;
+                // Sliding window buffer: bubbleHandler.postDelayed(flushTask, 2500L)
+                bubbleHandler.postDelayed(flushTask, delayMs);
+            }
         } catch (Throwable ignored) { }
     }
+
+    private final android.os.Handler bubbleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Object bubbleLock = new Object();
+    private final Map<String, List<String>> pendingBubbles = new HashMap<>();
+    private final Map<String, Runnable> pendingFlushes = new HashMap<>();
+    private final Map<String, AutoResponder.Incoming> pendingIncomings = new HashMap<>();
 
     /**
      * Worker for responder decisions.
@@ -620,6 +776,15 @@ public class IrisNotificationListener extends NotificationListenerService {
     private long recordOne(Context context, AppSettings settings, StatusBarNotification sbn,
                            String pkg, String appLabel, String key, Bundle extras,
                            String rawTitle, String sender, String group, String body, long when) {
+        if (settings != null) {
+            long lastWipe = getEffectiveLastWipe(settings);
+            if (lastWipe > 0) {
+                if (when > 0 && when <= lastWipe) return 0;
+                long pt = sbn != null ? sbn.getPostTime() : 0L;
+                long wt = (sbn != null && sbn.getNotification() != null) ? sbn.getNotification().when : 0L;
+                if (pt <= lastWipe || wt <= lastWipe || (when <= 0 && pt <= 0 && wt <= 0)) return 0;
+            }
+        }
         NotificationArchive.Capture capture = new NotificationArchive.Capture();
         capture.pkg = pkg;
         capture.appLabel = appLabel;

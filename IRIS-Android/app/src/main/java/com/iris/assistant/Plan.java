@@ -119,7 +119,14 @@ public final class Plan {
         public Builder needsConfirmation(boolean b) { this.needsConfirmation = b; return this; }
 
         public Plan build() {
-            return new Plan(intent, goal, entities, steps, missing, confidence, needsConfirmation);
+            boolean sensitive = intent.isSensitive();
+            for (ToolCall step : steps) {
+                if ("call_contact".equals(step.tool()) || "compose_message".equals(step.tool()) || "share_text_to_app".equals(step.tool())) {
+                    sensitive = true;
+                    break;
+                }
+            }
+            return new Plan(intent, goal, entities, steps, missing, confidence, needsConfirmation || sensitive);
         }
     }
 

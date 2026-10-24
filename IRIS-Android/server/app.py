@@ -12,9 +12,10 @@ Env:
   IRIS_MODEL   (default qwen2.5:3b-instruct)
   IRIS_WHISPER (default small)   faster-whisper size: tiny|base|small|medium
 """
-import os, tempfile, subprocess, requests
+import os, tempfile, subprocess, requests, json
 from fastapi import FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel
+from starlette.responses import StreamingResponse
 
 TOKEN   = os.environ["IRIS_TOKEN"]
 MODEL   = os.environ.get("IRIS_MODEL", "qwen2.5:3b-instruct")
@@ -71,6 +72,40 @@ def chat(inp: ChatIn, authorization: str = Header("")):
     r = requests.post(OLLAMA, json={"model": MODEL, "messages": msgs, "stream": False}, timeout=90)
     r.raise_for_status()
     return {"reply": r.json()["message"]["content"].strip()}
+
+@app.post("/chat/stream")
+def chat_stream(inp: ChatIn, authorization: str = Header("")):
+    auth(authorization)
+    msgs = [{"role": "system", "content": SYSTEM + f"\nProfile: {inp.profile}"}]
+    for t in inp.context[-8:]:
+        role = t.get("role", "user")
+        msgs.append({"role": "assistant" if role == "assistant" else "user",
+                     "content": t.get("text", "")})
+    msgs.append({"role": "user", "content": inp.message})
+
+    def event_stream():
+        try:
+            with requests.post(OLLAMA, json={"model": MODEL, "messages": msgs, "stream": True},
+                               stream=True, timeout=90) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line.decode("utf-8"))
+                        delta = chunk.get("message", {}).get("content", "")
+                        done = chunk.get("done", False)
+                        payload = json.dumps({"delta": delta, "done": done})
+                        yield f"data: {payload}\n\n"
+                        if done:
+                            break
+                    except Exception:
+                        continue
+        except Exception as e:
+            err_payload = json.dumps({"error": str(e), "done": True})
+            yield f"data: {err_payload}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 @app.post("/transcribe")
 async def transcribe(request: Request, authorization: str = Header("")):

@@ -3,15 +3,8 @@
   ARCHIVE section of the COMMS DECK. The title and neon rule live in the shell (view_comms.xml),
   so this file is the section body only.
 
-  Built on the existing Command Deck tokens. deck_accent carries the owner's chosen accent colour,
-  so the cyan edges follow the theme; magenta is used as a fixed second accent that belongs to this
-  screen alone. The one exception is the WIPE ALL outline, which is pinned to the error colour so
-  it cannot be themed into looking harmless.
-
-  Copy is in IRIS's own voice at the owner's request. The exception is the [STATUS: ...] marker on
-  each row, generated in DeletedMessageRules: that text also lands in CSV exports and a pinned test
-  asserts a suspected deletion can never read as a confirmed one. Jokes there would undermine the
-  only part of this screen that functions as evidence.
+  Optimized for maximum message viewing real estate with collapsible diagnostics header,
+  streamlined action rows, and high-performance smooth scrolling ListView with fast-scroll thumb.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/archiveView"
@@ -19,208 +12,237 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fontFamily="monospace"
-        android:text="I write down every notification from the apps you tick, STG. When somebody deletes a message hoping you never saw it \u2014 I already have it. I\u0027m not saying I enjoy this. I\u0027m saying I\u0027m unreasonably good at it."
-        android:textColor="@color/deck_text_dim"
-        android:textSize="12sp" />
-
+    <!-- Sleek, compact cyber status bar (expands on tap) -->
     <LinearLayout
+        android:id="@+id/archiveDiagnosticsPanel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="2dp"
         android:background="@drawable/bg_cyber_panel"
         android:orientation="vertical"
-        android:paddingBottom="11dp"
-        android:paddingLeft="13dp"
-        android:paddingRight="11dp"
-        android:paddingTop="11dp">
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp">
 
-        <TextView
+        <LinearLayout
+            android:id="@+id/archiveDiagHeader"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:letterSpacing="0.25"
-            android:text="DIAGNOSTICS"
-            android:textColor="@color/magenta"
-            android:textSize="10sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/archiveSummary"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:fontFamily="monospace"
-            android:letterSpacing="0.05"
-            android:text="spinning up\u2026 pretending that took effort"
-            android:textColor="@color/deck_accent"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            <TextView
+                android:id="@+id/archiveSummary"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.04"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:text="spinning up… pretending that took effort"
+                android:textColor="@color/deck_accent"
+                android:textSize="11sp"
+                android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/archiveStatus"
+            <TextView
+                android:id="@+id/archiveDiagToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="6dp"
+                android:background="@drawable/bg_cyber_button"
+                android:fontFamily="monospace"
+                android:paddingLeft="7dp"
+                android:paddingRight="7dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:text="DIAG ▾"
+                android:textColor="@color/magenta"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/archiveDiagBody"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="5dp"
-            android:fontFamily="monospace"
-            android:textColor="@color/deck_text_dim"
-            android:textSize="11sp" />
+            android:orientation="vertical"
+            android:visibility="gone">
 
-        <TextView
-            android:id="@+id/archiveWarning"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:fontFamily="monospace"
-            android:textColor="@color/deck_error"
-            android:textSize="11sp"
-            android:visibility="gone" />
+            <TextView
+                android:id="@+id/archiveIntroText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:text="I write down every notification from the apps you tick, STG. When somebody deletes a message hoping you never saw it — I already have it."
+                android:textColor="@color/deck_text_dim"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/archiveStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:fontFamily="monospace"
+                android:textColor="@color/deck_text_dim"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/archiveWarning"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:fontFamily="monospace"
+                android:textColor="@color/deck_error"
+                android:textSize="10sp"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- Shown only while notification access is missing, so the screen is not permanently
-         nagging about a permission that is already granted. -->
+    <!-- Shown only while notification access is missing -->
     <Button
         android:id="@+id/archiveGrantButton"
         android:layout_width="match_parent"
-        android:layout_height="46dp"
-        android:layout_marginTop="9dp"
+        android:layout_height="34dp"
+        android:layout_marginTop="3dp"
         android:background="@drawable/bg_button_primary"
         android:fontFamily="monospace"
-        android:letterSpacing="0.15"
+        android:letterSpacing="0.12"
         android:text="GRANT ME EYES"
         android:textAllCaps="false"
         android:textColor="@color/ink"
-        android:textSize="13sp"
+        android:textSize="11sp"
         android:textStyle="bold"
         android:visibility="gone" />
 
+    <!-- Action Buttons Row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="9dp"
+        android:layout_marginTop="3dp"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/archiveAppsButton"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="32dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.1"
+            android:letterSpacing="0.06"
             android:text="TARGETS"
             android:textAllCaps="false"
             android:textColor="@color/deck_accent"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
         <Button
             android:id="@+id/archiveRefreshButton"
             android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_marginLeft="6dp"
+            android:layout_height="32dp"
+            android:layout_marginLeft="4dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.1"
+            android:letterSpacing="0.06"
             android:text="RESCAN"
             android:textAllCaps="false"
             android:textColor="@color/deck_accent"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
         <Button
             android:id="@+id/archiveExportButton"
             android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_marginLeft="6dp"
+            android:layout_height="32dp"
+            android:layout_marginLeft="4dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.1"
+            android:letterSpacing="0.06"
             android:text="EXPORT"
             android:textAllCaps="false"
             android:textColor="@color/deck_accent"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
     </LinearLayout>
 
+    <!-- View Mode & Density Selector Row -->
     <LinearLayout
         android:id="@+id/archiveViewModeRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="3dp"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/archiveModeTimeline"
             android:layout_width="0dp"
-            android:layout_height="38dp"
+            android:layout_height="32dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.08"
+            android:letterSpacing="0.06"
             android:text="TIMELINE ⏱️"
             android:textAllCaps="false"
             android:textColor="@color/deck_accent"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
         <Button
             android:id="@+id/archiveModeConversations"
             android:layout_width="0dp"
-            android:layout_height="38dp"
-            android:layout_marginLeft="6dp"
+            android:layout_height="32dp"
+            android:layout_marginLeft="4dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_row"
             android:fontFamily="monospace"
-            android:letterSpacing="0.08"
+            android:letterSpacing="0.06"
             android:text="CHATS 💬"
             android:textAllCaps="false"
             android:textColor="@color/deck_text_dim"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
         <Button
             android:id="@+id/archiveDensityToggle"
             android:layout_width="wrap_content"
-            android:layout_height="38dp"
-            android:layout_marginLeft="6dp"
+            android:layout_height="32dp"
+            android:layout_marginLeft="4dp"
             android:background="@drawable/bg_cyber_row"
             android:fontFamily="monospace"
-            android:letterSpacing="0.06"
-            android:paddingLeft="10dp"
-            android:paddingRight="10dp"
+            android:letterSpacing="0.05"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
             android:text="COMPACT ▤"
             android:textAllCaps="false"
             android:textColor="@color/deck_text_dim"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
     </LinearLayout>
 
     <EditText
         android:id="@+id/archiveSearch"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="3dp"
         android:background="@drawable/bg_cyber_input"
         android:fontFamily="monospace"
-        android:hint="search the receipts\u2026"
+        android:hint="search the receipts…"
         android:importantForAutofill="no"
         android:inputType="text"
         android:maxLines="1"
-        android:minHeight="46dp"
-        android:paddingBottom="10dp"
-        android:paddingLeft="10dp"
-        android:paddingRight="10dp"
-        android:paddingTop="10dp"
+        android:minHeight="34dp"
+        android:paddingBottom="5dp"
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingTop="5dp"
         android:textColor="@color/deck_accent"
         android:textColorHint="@color/deck_inactive"
-        android:textSize="12sp" />
+        android:textSize="11sp" />
 
     <HorizontalScrollView
         android:id="@+id/archiveFilterScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="4dp"
+        android:layout_marginTop="3dp"
+        android:layout_marginBottom="2dp"
         android:scrollbars="none">
 
         <LinearLayout
@@ -234,8 +256,8 @@
         android:id="@+id/archiveDateScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:layout_marginBottom="6dp"
+        android:layout_marginTop="1dp"
+        android:layout_marginBottom="3dp"
         android:scrollbars="none">
 
         <LinearLayout
@@ -249,23 +271,23 @@
         android:id="@+id/archiveThreadHeader"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:layout_marginBottom="6dp"
+        android:layout_marginTop="1dp"
+        android:layout_marginBottom="4dp"
         android:background="@drawable/bg_cyber_panel"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="8dp"
+        android:padding="6dp"
         android:visibility="gone">
 
         <Button
             android:id="@+id/archiveThreadBackButton"
             android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_height="28dp"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.05"
-            android:paddingLeft="10dp"
-            android:paddingRight="10dp"
+            android:letterSpacing="0.04"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
             android:text="← ALL CHATS"
             android:textAllCaps="false"
             android:textColor="@color/deck_accent"
@@ -275,7 +297,7 @@
             android:id="@+id/archiveThreadTitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="10dp"
+            android:layout_marginLeft="8dp"
             android:layout_weight="1"
             android:ellipsize="end"
             android:fontFamily="monospace"
@@ -290,23 +312,32 @@
         android:layout_height="1dp"
         android:background="@color/deck_border" />
 
+    <!-- Unobstructed Fluid Message List -->
     <ListView
         android:id="@+id/archiveList"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="3dp"
         android:layout_weight="1"
         android:divider="@android:color/transparent"
         android:dividerHeight="6dp"
         android:listSelector="@android:color/transparent"
         android:scrollbars="vertical"
-        android:fadeScrollbars="true" />
+        android:fadeScrollbars="false"
+        android:scrollbarSize="4dp"
+        android:fastScrollEnabled="true"
+        android:smoothScrollbar="true"
+        android:scrollingCache="false"
+        android:animationCache="false"
+        android:nestedScrollingEnabled="true"
+        android:overScrollMode="always"
+        android:descendantFocusability="afterDescendants" />
 
     <TextView
         android:id="@+id/archiveEmptyText"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="3dp"
         android:layout_weight="1"
         android:fontFamily="monospace"
         android:gravity="center"
@@ -315,8 +346,7 @@
         android:textSize="12sp"
         android:visibility="gone" />
 
-    <!-- Undo window for a swiped row. The delete is held, not yet written, so undo cancels a
-         timer rather than re-inserting: the append-only history is never actually disturbed. -->
+    <!-- Undo window for a swiped row -->
     <LinearLayout
         android:id="@+id/archiveUndoBar"
         android:layout_width="match_parent"
@@ -324,10 +354,10 @@
         android:background="@drawable/bg_cyber_panel"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingBottom="8dp"
-        android:paddingLeft="13dp"
-        android:paddingRight="8dp"
-        android:paddingTop="8dp"
+        android:paddingBottom="6dp"
+        android:paddingLeft="10dp"
+        android:paddingRight="6dp"
+        android:paddingTop="6dp"
         android:visibility="gone">
 
         <TextView
@@ -342,15 +372,15 @@
         <Button
             android:id="@+id/archiveUndoButton"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="34dp"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.1"
-            android:minWidth="96dp"
+            android:letterSpacing="0.08"
+            android:minWidth="80dp"
             android:text="UNDO"
             android:textAllCaps="false"
             android:textColor="@color/magenta"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
     </LinearLayout>
 
     <View
@@ -358,51 +388,52 @@
         android:layout_height="1dp"
         android:background="@color/magenta" />
 
+    <!-- Bottom Action Row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="9dp"
+        android:layout_marginTop="4dp"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/archiveBackButton"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="36dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.1"
+            android:letterSpacing="0.08"
             android:text="BACK"
             android:textAllCaps="false"
             android:textColor="@color/deck_accent"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
         <Button
             android:id="@+id/archiveInspectButton"
             android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_marginLeft="6dp"
+            android:layout_height="36dp"
+            android:layout_marginLeft="4dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button"
             android:fontFamily="monospace"
-            android:letterSpacing="0.1"
+            android:letterSpacing="0.08"
             android:text="PROBE"
             android:textAllCaps="false"
             android:textColor="@color/magenta"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
         <Button
             android:id="@+id/archiveDeleteAllButton"
             android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_marginLeft="6dp"
+            android:layout_height="36dp"
+            android:layout_marginLeft="4dp"
             android:layout_weight="1"
             android:background="@drawable/bg_cyber_button_danger"
             android:fontFamily="monospace"
-            android:letterSpacing="0.1"
+            android:letterSpacing="0.08"
             android:text="WIPE ALL"
             android:textAllCaps="false"
             android:textColor="@color/deck_error"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
     </LinearLayout>
 </LinearLayout>
