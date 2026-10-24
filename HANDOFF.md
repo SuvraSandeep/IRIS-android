@@ -153,7 +153,7 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v17.5.0 (Commit `cf0dce6`)**:
+* **v17.5.0 (Commit `ef93ac8`)**:
   * **Safe Foreground Contract Enforcement**: Engineered `safeStartForeground()` in `IrisListeningService.java` called immediately upon entering `onStartCommand()` before evaluating runtime permissions or model states. Completely eliminates the fatal `ForegroundServiceDidNotStartInTimeException` / `RemoteServiceException` caused by Android 8.0+ when `startForegroundService()` is followed by an early `stopSelf()` without `startForeground()`.
   * **Android 14+ / targetSdk 35 Microphone FGS Guards**: Wrapped `startForeground(..., FOREGROUND_SERVICE_TYPE_MICROPHONE)` across all service entry points (`ACTION_START`, `ACTION_TALK`, `ACTION_PROCESS_TEXT`) in robust try/catch blocks that automatically fall back to untyped foreground notifications if `RECORD_AUDIO` or `FOREGROUND_SERVICE_MICROPHONE` is denied, restricted, or blocked by background policies.
   * **Native LinkageError Guards in On-Device Embedding**: Updated exception handling in `EcapaEmbedding.java` from `catch (Exception error)` to `catch (Throwable error)` across `load()` and `extract()`, preventing fatal `UnsatisfiedLinkError` or `LinkageError` when native ONNX runtime libraries fail to bind from crashing the application.
