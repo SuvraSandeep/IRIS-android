@@ -16,9 +16,14 @@
   `Emoji`, `Vernacular`, `ProfileShare`, `ArchiveSchema`, `DeletedMessageRules`, `SwipeDecision`,
   `Plan`, `IntentParser`, `IrisIntent`, `ToolCall`, etc.). The Android framework layer is kept lean and decoupled.
 - **Standing Rules (Mandatory):**
-  1. Every feature or fix bumps `app/build.gradle` (`versionName` / `versionCode`), prepends a new entry to the `FEATURES` array in `IRIS-FEATURES.html`, updates `BUILD_VERSION`, and **updates `HANDOFF.md` after each commit**.
-  2. Pure policy classes must remain free of Android imports (`android.*`) so they are unit-testable offline.
-  3. Append-only database triggers in `ArchiveSchema.java` must never be weakened or deleted.
+  1. **Strict Versioning Policy:**
+     - **Major change / overhaul**: Increment `+1.0.0` (e.g. `16.x.x` -> `17.0.0`).
+     - **Minor change or fix**: Increment `+0.1.0` (e.g. `17.0.0` -> `17.1.0`).
+     - **Build failed and re-built / hotfix**: Increment `+0.0.1` (e.g. `17.1.0` -> `17.1.1`).
+     - `versionCode` in `app/build.gradle` increments with every single release (`+1`).
+  2. Every feature or fix bumps `app/build.gradle` (`versionName` / `versionCode`), updates watch companion versions (`IRIS-Watch/app.json` and `IRIS-Watch/package.json`), prepends a new entry to the `FEATURES` array in `IRIS-FEATURES.html`, updates `BUILD_VERSION`, and **updates `HANDOFF.md` after each commit**.
+  3. Pure policy classes must remain free of Android imports (`android.*`) so they are unit-testable offline.
+  4. Append-only database triggers in `ArchiveSchema.java` must never be weakened or deleted.
 
 ---
 
@@ -283,6 +288,10 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 Whenever making code changes:
 1. Ensure pure policy classes have no `android.*` imports.
 2. Run `python tests/check-archive-schema.py`, `python tests/check-unresolved-types.py`, and `python tests/check-xml.py`.
-3. Bump `versionCode` (+1) and `versionName` in `app/build.gradle`.
+3. Apply Strict Versioning in `app/build.gradle` (`versionName` / `versionCode`), `IRIS-Watch/app.json`, and `IRIS-Watch/package.json`:
+   - **Major change / overhaul**: `+1.0.0`
+   - **Minor change or fix**: `+0.1.0`
+   - **Build failed and re-built / hotfix**: `+0.0.1`
+   - `versionCode`: always `+1` with every release
 4. Prepend a new feature entry to `FEATURES` array and update `BUILD_VERSION` in `IRIS-FEATURES.html`.
 5. **Update `HANDOFF.md` immediately with the commit hash, version bump, and architectural changes.**
