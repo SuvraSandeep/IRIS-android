@@ -194,7 +194,7 @@ final class ContinuousVoiceSession implements AutoCloseable {
             closeDecoder();if(!current(token,Mode.COMMAND))return;
             try{preparing=true;if(modelWorker!=null)remoteDecoder=modelWorker.openCommand();else decoder=commandEngine.decoder();preparing=false;lastAnalysisAt=SystemClock.elapsedRealtime();commandGain=new QuietAudioProcessor();lastPartial="";lastPartialAt=0;
                 main.post(()->{if(current(token,Mode.COMMAND))listener.onReady();});requestDrain();}
-            catch(Exception error){preparing=false;VoiceHealth.event("COMMAND_START_ERROR",CrashSummary.describe(error));if(modelWorker!=null&&modelWorker.failed()){failSession("Command worker failed; restarting");return;}commandError(token,"Cannot start command decoder: "+error.getClass().getSimpleName());}
+            catch(Throwable error){preparing=false;VoiceHealth.event("COMMAND_START_ERROR",CrashSummary.describe(error));if(modelWorker!=null&&modelWorker.failed()){failSession("Command worker failed; restarting");return;}commandError(token,"Cannot start command decoder: "+error.getClass().getSimpleName());}
         });
     }
     private void drainCommand(){
@@ -212,7 +212,7 @@ final class ContinuousVoiceSession implements AutoCloseable {
                 closeDecoder();note(clear?"COMMAND_HEARD":"COMMAND_UNCLEAR","Offline command result (transcript not saved in study)");
                 main.post(()->{synchronized(lock){if(token!=generation||mode==Mode.CLOSED)return;}if(clear)listener.onFinal(text);else listener.onUnclear(text);});
             }else if(!complete&&!text.equals(lastPartial)&&SystemClock.elapsedRealtime()-lastPartialAt>=150){lastPartial=text;lastPartialAt=SystemClock.elapsedRealtime();main.post(()->{if(current(token,Mode.COMMAND))listener.onPartial(text);});}
-        }catch(Exception error){VoiceHealth.event("COMMAND_DECODE_ERROR",CrashSummary.describe(error));if(modelWorker!=null&&modelWorker.failed()){failSession("Command worker failed; restarting");return;}commandError(token,"Command capture failed: "+error.getClass().getSimpleName());}
+        }catch(Throwable error){VoiceHealth.event("COMMAND_DECODE_ERROR",CrashSummary.describe(error));if(modelWorker!=null&&modelWorker.failed()){failSession("Command worker failed; restarting");return;}commandError(token,"Command capture failed: "+error.getClass().getSimpleName());}
     }
     private void commandError(long token,String error){
         VoskEngine.SttListener listener;synchronized(lock){if(!current(token,Mode.COMMAND))return;mode=Mode.IDLE;ring.clear();wakeCursor=0;listener=commandListener;}closeDecoder();note("COMMAND_LOST",error);

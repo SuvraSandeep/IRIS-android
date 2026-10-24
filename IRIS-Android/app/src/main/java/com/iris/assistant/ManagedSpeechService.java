@@ -39,13 +39,17 @@ final class ManagedSpeechService {
     void startListening(RecognitionListener listener){
         running=true;
         worker=new Thread(()->{
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
-            Object lease=null;long acquireUntil=SystemClock.elapsedRealtime()+2500;
-            while(running&&lease==null&&SystemClock.elapsedRealtime()<acquireUntil){
-                lease=AudioCaptureCoordinator.acquire();if(lease==null)try{Thread.sleep(10);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
-            }
-            AudioRouteController route=new AudioRouteController(context);
+            Object lease=null;
+            AudioRouteController route=null;
             try{
+                try{
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
+                }catch(Throwable ignored){}
+                long acquireUntil=SystemClock.elapsedRealtime()+2500;
+                while(running&&lease==null&&SystemClock.elapsedRealtime()<acquireUntil){
+                    lease=AudioCaptureCoordinator.acquire();if(lease==null)try{Thread.sleep(10);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
+                }
+                route=new AudioRouteController(context);
                 if(!running)return;
                 if(lease==null)throw new IllegalStateException("Microphone is in use by training");
                 int buffer=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
@@ -106,10 +110,12 @@ final class ManagedSpeechService {
                     final String result=output;
                     main.post(()->{if(running){if(complete)listener.onResult(result);else listener.onPartialResult(result);}});
                 }
-            }catch(Exception error){main.post(()->{if(running)listener.onError(error);});}
-            finally{
+            }catch(Throwable error){
+                final Exception ex = error instanceof Exception ? (Exception) error : new Exception(error);
+                main.post(()->{if(running)listener.onError(ex);});
+            }finally{
                 AudioRecord old=mic;mic=null;if(old!=null){try{old.stop();}catch(Exception ignored){}old.release();}
-                try{route.close();if(recognizer!=null)recognizer.close();}finally{AudioCaptureCoordinator.release(lease);}
+                try{if(route!=null)route.close();if(recognizer!=null)recognizer.close();}finally{AudioCaptureCoordinator.release(lease);}
             }
         },"IRIS-PCM");worker.start();
     }

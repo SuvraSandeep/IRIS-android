@@ -513,8 +513,9 @@ public class IrisListeningService extends Service implements RecognitionListener
         try { new ProfileStore(this).seedDefaultWakePhrase(); } catch (Throwable ignored) { }
         try { new ProfileStore(this).seedHardcodedVoiceprint(); } catch (Throwable ignored) { }
         createNotificationChannels();
+        safeStartForeground();
         startListenerWatchdog();
-        WatchBridge.startShared(this);
+        try { WatchBridge.startShared(this); } catch (Throwable ignored) { }
         textToSpeech = new TextToSpeech(this, status -> {
             try {
                 ttsReady = status == TextToSpeech.SUCCESS;
@@ -903,57 +904,78 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
     private void startWakeDetection() {
         if(!isRunning)return;
-        stopCommandCapture();final long epoch=++wakeEpoch;handler.removeCallbacks(retryWake);destroyRecognizer();
-        if(voskEngine!=null)voskEngine.stop();
-        phase=PHASE_WAKE;currentPhase=phase;androidWakeActive=false;broadcastState(true,phase);
-        OwnerVoiceProfile profile=new ProfileStore(this).ownerEvidence();
-        if(profile==null){wakeReadiness="Train your wake sound and owner voice";updateListeningNotification(wakeReadiness);scheduleWakeRetry(3000);return;}
-        WakeModelState.State readiness=WakeModelState.evaluate(voskReady&&voskEngine!=null,
-            voskEngine!=null&&voskEngine.isSpeakerReady(),profile.usesEcapa(),voskEngine!=null&&voskEngine.ecapaReady(),
-            voskEngine!=null&&voskEngine.profileModelMatches(profile));
-        if(readiness!=WakeModelState.State.READY){
-            wakeReadiness=readiness==WakeModelState.State.LOADING_VOSK?"Loading offline voice model":readiness==WakeModelState.State.LOADING_OWNER?"Loading dedicated owner model":"Owner model changed; retrain";
-            updateListeningNotification(wakeReadiness);
-            if(readiness!=WakeModelState.State.MODEL_CHANGED)scheduleWakeRetry(1000);
-            return;
-        }
-        if(voiceSession==null||!voiceSession.usable()){if(voiceSession!=null)voiceSession.close();voiceSession=new ContinuousVoiceSession(this,voskEngine);}
-        wakeReadiness="Streaming wake armed; input: "+AudioRouteController.observed;
-        updateListeningNotification(wakeReadiness);IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE,"Streaming wake");
-        final String revision=profile.revision();
-        voiceSession.arm(profile,new VoskEngine.WakeListener(){
-            public void onRejected(String reason){if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Listening · "+RecordedWakeCheck.guidance(reason);
-                LogStore.append(IrisListeningService.this,"WAKE REJECTED",reason+"; "+voskEngine.lastWakeDiagnostic());updateListeningNotification(wakeReadiness);}
-            public void onWakeDetected(float[] ecapa,float[] vosk){
-                if(epoch!=wakeEpoch||!isRunning||(!PHASE_WAKE.equals(phase)&&!PHASE_COMMAND.equals(phase)))return;
-                boolean accepted=revision.equals(new ProfileStore(IrisListeningService.this).ownerRevision())&&isOwnerVoice(profile,ecapa,vosk);
-                voskEngine.recordWakeOutcome(accepted?"OWNER_ACCEPTED":"PROFILE_OR_OWNER_CHANGED",accepted);
-                if(!accepted){rearmAfterAction();return;}
-                commandEpoch++;commandLoadGate.cancel();
-                // A fresh verified wake abandons an unfinished command/clarification.
-                smsCompose=null;pendingPlan=null;spellingCall=false;pendingName=null;pendingNumber=null;
-                if(commandTimeout!=null){handler.removeCallbacks(commandTimeout);commandTimeout=null;}
-                lastWakeAt=android.os.SystemClock.elapsedRealtime();vibrate(45);
-                requestSpeechFocus();
-                // Preserve an inline command already in the ring. For a standalone wake,
-                // pause capture analysis while greeting so IRIS cannot transcribe itself.
-                if (voiceSession != null && voiceSession.hasBufferedCommand()) {
-                    broadcastMessage("Listening…");startCommandRecognition();
-                } else {
-                    if (voiceSession != null) voiceSession.pause();
-                    phase=PHASE_COMMAND;currentPhase=phase;broadcastState(true,phase);
-                    String greeting="Hello"+butlerAddress()+".";
-                    String suggestion=proactiveSuggestionLine();
-                    if(suggestion!=null)greeting=greeting+" "+suggestion;
-                    broadcastMessage(greeting);nextOutputMinor=false;
-                    wakeAckPending=true;mirrorToWatch(greeting,true);
-                    // A wake acknowledgement never waits for a server voice download.
-                    speakThenRunLocal(greeting,IrisListeningService.this::startCommandRecognition);
-                }
+        try {
+            stopCommandCapture();final long epoch=++wakeEpoch;handler.removeCallbacks(retryWake);destroyRecognizer();
+            if(voskEngine!=null) try { voskEngine.stop(); } catch (Throwable ignored) { }
+            phase=PHASE_WAKE;currentPhase=phase;androidWakeActive=false;broadcastState(true,phase);
+            OwnerVoiceProfile profile=new ProfileStore(this).ownerEvidence();
+            if(profile==null){wakeReadiness="Train your wake sound and owner voice";updateListeningNotification(wakeReadiness);scheduleWakeRetry(3000);return;}
+            WakeModelState.State readiness=WakeModelState.evaluate(voskReady&&voskEngine!=null,
+                voskEngine!=null&&voskEngine.isSpeakerReady(),profile.usesEcapa(),voskEngine!=null&&voskEngine.ecapaReady(),
+                voskEngine!=null&&voskEngine.profileModelMatches(profile));
+            if(readiness!=WakeModelState.State.READY){
+                wakeReadiness=readiness==WakeModelState.State.LOADING_VOSK?"Loading offline voice model":readiness==WakeModelState.State.LOADING_OWNER?"Loading dedicated owner model":"Owner model changed; retrain";
+                updateListeningNotification(wakeReadiness);
+                if(readiness!=WakeModelState.State.MODEL_CHANGED)scheduleWakeRetry(1000);
+                return;
             }
-            public void onError(String message){if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Wake unavailable: "+message;
-                LogStore.append(IrisListeningService.this,"WAKE UNAVAILABLE",message);updateListeningNotification(wakeReadiness);rearmAfterAction();scheduleWakeRetry(1500);}
-        });
+            if(voiceSession==null||!voiceSession.usable()){if(voiceSession!=null) try { voiceSession.close(); } catch (Throwable ignored) { } voiceSession=new ContinuousVoiceSession(this,voskEngine);}
+            wakeReadiness="Streaming wake armed; input: "+AudioRouteController.observed;
+            updateListeningNotification(wakeReadiness);
+            try { IrisSensorUsageRegistry.begin(IrisSensorUsageRegistry.Hardware.MICROPHONE,"Streaming wake"); } catch (Throwable ignored) { }
+            final String revision=profile.revision();
+            voiceSession.arm(profile,new VoskEngine.WakeListener(){
+                public void onRejected(String reason){
+                    try {
+                        if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Listening · "+RecordedWakeCheck.guidance(reason);
+                        LogStore.append(IrisListeningService.this,"WAKE REJECTED",reason+"; "+voskEngine.lastWakeDiagnostic());updateListeningNotification(wakeReadiness);
+                    } catch (Throwable ignored) { }
+                }
+                public void onWakeDetected(float[] ecapa,float[] vosk){
+                    try {
+                        if(epoch!=wakeEpoch||!isRunning||(!PHASE_WAKE.equals(phase)&&!PHASE_COMMAND.equals(phase)))return;
+                        boolean accepted=revision.equals(new ProfileStore(IrisListeningService.this).ownerRevision())&&isOwnerVoice(profile,ecapa,vosk);
+                        voskEngine.recordWakeOutcome(accepted?"OWNER_ACCEPTED":"PROFILE_OR_OWNER_CHANGED",accepted);
+                        if(!accepted){rearmAfterAction();return;}
+                        commandEpoch++;commandLoadGate.cancel();
+                        // A fresh verified wake abandons an unfinished command/clarification.
+                        smsCompose=null;pendingPlan=null;spellingCall=false;pendingName=null;pendingNumber=null;
+                        if(commandTimeout!=null){handler.removeCallbacks(commandTimeout);commandTimeout=null;}
+                        lastWakeAt=android.os.SystemClock.elapsedRealtime();
+                        try { vibrate(45); } catch (Throwable ignored) { }
+                        try { requestSpeechFocus(); } catch (Throwable ignored) { }
+                        // Preserve an inline command already in the ring. For a standalone wake,
+                        // pause capture analysis while greeting so IRIS cannot transcribe itself.
+                        if (voiceSession != null && voiceSession.hasBufferedCommand()) {
+                            broadcastMessage("Listening…");startCommandRecognition();
+                        } else {
+                            if (voiceSession != null) try { voiceSession.pause(); } catch (Throwable ignored) { }
+                            phase=PHASE_COMMAND;currentPhase=phase;broadcastState(true,phase);
+                            String greeting="Hello"+butlerAddress()+".";
+                            String suggestion=proactiveSuggestionLine();
+                            if(suggestion!=null)greeting=greeting+" "+suggestion;
+                            broadcastMessage(greeting);nextOutputMinor=false;
+                            wakeAckPending=true;mirrorToWatch(greeting,true);
+                            // A wake acknowledgement never waits for a server voice download.
+                            speakThenRunLocal(greeting,IrisListeningService.this::startCommandRecognition);
+                        }
+                    } catch (Throwable t) {
+                        Log.e("IRIS", "onWakeDetected error: " + t.getMessage(), t);
+                    }
+                }
+                public void onError(String message){
+                    try {
+                        if(epoch!=wakeEpoch||!isRunning)return;wakeReadiness="Wake unavailable: "+message;
+                        LogStore.append(IrisListeningService.this,"WAKE UNAVAILABLE",message);updateListeningNotification(wakeReadiness);rearmAfterAction();scheduleWakeRetry(1500);
+                    } catch (Throwable ignored) { }
+                }
+            });
+        } catch (Throwable t) {
+            Log.e("IRIS", "startWakeDetection error: " + t.getMessage(), t);
+            wakeReadiness = "Wake start failed: " + t.getMessage();
+            updateListeningNotification(wakeReadiness);
+            scheduleWakeRetry(2000);
+        }
     }
 
     private long lastRejectCueAt = 0;
@@ -3706,18 +3728,23 @@ public class IrisListeningService extends Service implements RecognitionListener
 
     /** Open the command window immediately (used by notification/tile/headset/shake/assist triggers). */
     private void triggerTalk(String source) {
-        if (memoRecorder != null && memoRecorder.isRecording()) return;
-        if (PHASE_COMMAND.equals(phase)) return;   // already listening
-        try { if (voskEngine != null) voskEngine.stop(); } catch (Exception ignored) { }
-        if(voiceSession!=null)voiceSession.pause();
-        phase=PHASE_COMMAND;currentPhase=phase;
-        vibrate(45);
-        broadcastState(true, PHASE_COMMAND);
-        String greet = wakeGreeting();
-        broadcastMessage(greet);
-        nextOutputMinor = true;                     // a greeting isn't worth a notification
-        speakThenRun(greet, this::startCommandRecognition);
-        LogStore.append(this, "TRIGGER", source == null ? "manual" : source);
+        try {
+            if (memoRecorder != null && memoRecorder.isRecording()) return;
+            if (PHASE_COMMAND.equals(phase)) return;   // already listening
+            try { if (voskEngine != null) voskEngine.stop(); } catch (Throwable ignored) { }
+            if (voiceSession != null) try { voiceSession.pause(); } catch (Throwable ignored) { }
+            phase = PHASE_COMMAND;
+            currentPhase = phase;
+            try { vibrate(45); } catch (Throwable ignored) { }
+            broadcastState(true, PHASE_COMMAND);
+            String greet = wakeGreeting();
+            broadcastMessage(greet);
+            nextOutputMinor = true;                     // a greeting isn't worth a notification
+            speakThenRun(greet, this::startCommandRecognition);
+            LogStore.append(this, "TRIGGER", source == null ? "manual" : source);
+        } catch (Throwable t) {
+            Log.e("IRIS", "triggerTalk error: " + t.getMessage(), t);
+        }
     }
 
     /** Start a timed voice memo. Speaks first (pausing music), then records so our own voice isn't captured. */
@@ -6146,16 +6173,18 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void vibrate(long milliseconds) {
-        if (!settings.haptics()) return;
-        Vibrator vibrator;
-        if (Build.VERSION.SDK_INT >= 31) {
-            android.os.VibratorManager vm = (android.os.VibratorManager) getSystemService(VIBRATOR_MANAGER_SERVICE);
-            vibrator = vm != null ? vm.getDefaultVibrator() : null;
-        } else {
-            vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-        }
-        if (vibrator != null && vibrator.hasVibrator())
-            vibrator.vibrate(VibrationEffect.createOneShot(milliseconds, VibrationEffect.DEFAULT_AMPLITUDE));
+        try {
+            if (!settings.haptics()) return;
+            Vibrator vibrator;
+            if (Build.VERSION.SDK_INT >= 31) {
+                android.os.VibratorManager vm = (android.os.VibratorManager) getSystemService(VIBRATOR_MANAGER_SERVICE);
+                vibrator = vm != null ? vm.getDefaultVibrator() : null;
+            } else {
+                vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+            }
+            if (vibrator != null && vibrator.hasVibrator())
+                vibrator.vibrate(VibrationEffect.createOneShot(milliseconds, VibrationEffect.DEFAULT_AMPLITUDE));
+        } catch (Throwable ignored) { }
     }
 
     private boolean hasPermission(String permission) {

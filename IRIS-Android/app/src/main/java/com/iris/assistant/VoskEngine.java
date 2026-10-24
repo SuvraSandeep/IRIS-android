@@ -127,7 +127,7 @@ public final class VoskEngine {
                 }
                 if(!installModel(new Model(target.getAbsolutePath())))throw new java.io.IOException("Training was cancelled");
                 main.post(listener::onReady);
-            }catch(Exception error){main.post(()->listener.onError("English voice pack: "+error.getMessage()));}
+            }catch(Throwable error){main.post(()->listener.onError("English voice pack: "+error.getMessage()));}
         },"IRIS-OwnerEnglish").start();
     }
     public void init(Context context, InitListener listener) {
@@ -510,7 +510,7 @@ public final class VoskEngine {
                     public void onTimeout(){}
                     public void onError(Exception error){if(generation==wakeGeneration)listener.onError(error.getMessage());}
                 });
-            }catch(Exception error){analyses.close();listener.onError(error.getMessage());}
+            }catch(Throwable error){analyses.close();listener.onError(error.getMessage());}
         }
     }
     private WakeAnalysisQueue wakeAnalyses;
@@ -563,7 +563,7 @@ public final class VoskEngine {
                 }
                 @Override public void onTimeout() { }
             });
-        } catch (Exception e) {
+        } catch (Throwable e) {
             listener.onError(e.getMessage());
         }
         }
@@ -786,7 +786,7 @@ public final class VoskEngine {
                         + "until the speaker model is reverted or WakePolicy.EMBED_DIM is updated.");
             }
             return v;
-        } catch (Exception e) {
+        } catch (Throwable e) {
             return null;
         }
     }
@@ -797,7 +797,7 @@ public final class VoskEngine {
         if (json == null) return "";
         try {
             return new JSONObject(json).optString(field, "").trim().toLowerCase();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             return "";
         }
     }

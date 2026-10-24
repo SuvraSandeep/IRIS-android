@@ -110,8 +110,16 @@ final class WatchBridge implements AutoCloseable {
                         }
                     } catch (Throwable ignored) {}
 
-                    if (active) {
-                        app.startService(new android.content.Intent(app, IrisListeningService.class).setAction(IrisListeningService.ACTION_TALK));
+                    android.content.Intent talkIntent = new android.content.Intent(app, IrisListeningService.class)
+                            .setAction(IrisListeningService.ACTION_TALK);
+                    try {
+                        if (android.os.Build.VERSION.SDK_INT >= 26) {
+                            app.startForegroundService(talkIntent);
+                        } else {
+                            app.startService(talkIntent);
+                        }
+                    } catch (Throwable t) {
+                        android.util.Log.e("IRIS", "WatchBridge failed to start talk service: " + t.getMessage());
                     }
 
                     android.content.Intent openIntent = new android.content.Intent(app, MainActivity.class)
@@ -135,7 +143,7 @@ final class WatchBridge implements AutoCloseable {
                                 .setContentIntent(open)
                                 .setAutoCancel(true).build());
                     }
-                    return active ? "Phone is listening… Speak now!" : "IRIS opened on phone. Speak now!";
+                    return active ? "Phone is listening… Speak now!" : "IRIS started on phone. Speak now!";
                 } catch (Throwable ignored) {}
                 return "Enable IRIS notifications on your phone first";
             }

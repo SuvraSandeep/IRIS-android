@@ -1,5 +1,15 @@
 # Changelog
 
+## 18.0.0
+
+- Universal Assistant Wakeup Crash Elimination & Watch-Triggered Speech Bridge:
+  - Immediate Foreground Service Assertion in `onCreate`: Added `safeStartForeground()` to `IrisListeningService.onCreate()` immediately following notification channel creation. Eliminates the Android 12+ / 14+ `ForegroundServiceDidNotStartInTimeException` caused by synchronous model initialization delaying `onStartCommand()`.
+  - Android 14+ Watch-Triggered Background Service Fix: Upgraded `WatchBridge.java` `/talk` handler to dispatch `ACTION_TALK` intents via `startForegroundService()` on API 26+ rather than `startService()`, completely eliminating `BackgroundServiceStartNotAllowedException` crashes when users wake the assistant from their smartwatch while the phone is locked or backgrounded.
+  - Audio Capture Worker Thread Crash Shield: Enclosed the entire recording loop in `ManagedSpeechService.java` inside an outer `try-catch (Throwable)` guard. Prevents unhandled `SecurityException` (e.g. Android 14+ microphone FGS restrictions), `IllegalStateException`, or native library errors in the background thread from crashing the process.
+  - Hardened Vibration and Speech Handoff: Protected `vibrate(long)` in `IrisListeningService.java` with a defensive `try-catch (Throwable)` block, shielding against device-specific vibration manager `SecurityException` or NPEs. Added defensive error handling around `triggerTalk()`, `startWakeDetection()`, and `onWakeDetected()` to guarantee continuous recovery rather than fatal teardown.
+  - Throwable Exception Handling in Voice Decoders: Updated `VoskEngine.java`, `ContinuousVoiceSession.java`, and `VoiceTaskGuard.java` from catching `Exception` to catching `Throwable`, ensuring JNI native linkage errors (`UnsatisfiedLinkError`, `LinkageError`, `NoClassDefFoundError`) degrade safely to fallback offline recognizers.
+  - Strict Major Semantic Versioning: Major version increment (+1.0.0 per owner request) to version 18.0.0 (Android versionCode 507, Zepp OS version 18.0.0 code 24).
+
 ## 17.5.1
 
 - CI Compilation Repair & Static Utility Symbol Lint Guard:

@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `17.5.1` / `versionCode 506` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `18.0.0` / `versionCode 507` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -152,6 +152,16 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v18.0.0 (Commit `297b21d` / `feat/responder-conversation-fixes`)**:
+  * **Universal Assistant Wakeup Crash Elimination**:
+    * **Foreground Service Startup Race**: Placed `safeStartForeground()` directly into `IrisListeningService.onCreate()` immediately following `createNotificationChannels()`. Satisfies Android's strict foreground start contract before heavy initialization (socket binds, Vosk acoustic models, planner engine), eliminating `ForegroundServiceDidNotStartInTimeException` crashes on Android 14+.
+    * **Watch `/talk` Background Execution Restriction**: Upgraded `WatchBridge.java` `/talk` endpoint to dispatch `talkIntent` via `Build.VERSION.SDK_INT >= 26 ? app.startForegroundService(talkIntent) : app.startService(talkIntent)` wrapped in comprehensive `try/catch (Throwable)` blocks. Eliminates fatal `android.app.BackgroundServiceStartNotAllowedException` crashes when triggering voice wake from the smartwatch while the phone screen is locked or IRIS is in standby.
+    * **Audio Capture Worker Thread Shield**: Wrapped the background recording thread in `ManagedSpeechService.java` in a top-level `try { ... } catch (Throwable error)` block, ensuring that unexpected `SecurityException` or native JNI errors from `AudioRecord` never crash the host process.
+    * **Defensive Vibration & State Transitions**: Wrapped `vibrate(long)` and voice state transitions (`triggerTalk`, `onWakeDetected`) in `IrisListeningService.java` with `try/catch (Throwable)` blocks, preventing strict OEM vibration policy exceptions from crashing speech transitions.
+    * **Native JNI Decoder Hardening**: Upgraded error handling in `VoskEngine.java`, `ContinuousVoiceSession.java`, and `VoiceTaskGuard.java` from `catch (Exception)` to `catch (Throwable)`, preventing fatal unhandled `UnsatisfiedLinkError` or `LinkageError` crashes when initializing native offline acoustic models.
+  * **Strict Semantic Versioning**: Major release bump (+1.0.0) to version `18.0.0` (`versionCode 507` in Android, version `18.0.0` / code `24` in Zepp OS).
+  * **Verification**: All 9 offline test suites (`check-brackets.py`, `check-xml.py`, `check-training-layout.py`, `check-archive-schema.py`, `check-unresolved-types.py`, `check-comms-deck.py`, `check-planning-pipeline.py`, `check-speech-pipeline.py`, `check-server-and-watch.py`) and watch transport test suites pass 100%.
 
 * **v17.5.1 (Commit `88f98f6`)**:
   * **CI Compilation Repair & Missing Android Log Linkage**: Added `import android.util.Log;` to `IrisListeningService.java`, resolving 6 `cannot find symbol: class Log` compiler errors during `:app:testDebugUnitTest` in GitHub Actions CI run `40085374977` (lines 833, 850, 855, 881, 5534, and 5590).
