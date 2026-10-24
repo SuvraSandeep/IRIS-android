@@ -40,7 +40,7 @@ final class EcapaEmbedding {
                         if(!session.getInputNames().contains("wav"))throw new IOException("Incompatible owner model input");fingerprint=expected;ready=true;}
                 }
                 if(!closed)listener.onReady();
-            }catch(Exception error){ready=false;synchronized(lock){if(session!=null)try{session.close();}catch(Exception ignored){}session=null;}listener.onError("Dedicated owner model: "+error.getMessage());}
+            }catch(Throwable error){ready=false;synchronized(lock){if(session!=null)try{session.close();}catch(Exception ignored){}session=null;}listener.onError("Dedicated owner model: "+error.getMessage());}
         },"IRIS-OwnerModel").start();
     }
     float[] extract(short[] pcm){
@@ -51,7 +51,7 @@ final class EcapaEmbedding {
                 OrtSession.Result output=session.run(java.util.Collections.singletonMap("wav",input))){
                 Object value=output.get(0).getValue();if(!(value instanceof float[][]))return null;
                 float[][] matrix=(float[][])value;if(matrix.length!=1||!WakePolicy.ownerDim(matrix[0],matrix[0],.99,192))return null;return matrix[0].clone();
-            }catch(Exception error){return null;}finally{java.util.Arrays.fill(audio,0);}
+            }catch(Throwable error){return null;}finally{java.util.Arrays.fill(audio,0);}
         }
     }
     void close(){closed=true;ready=false;synchronized(lock){if(session!=null)try{session.close();}catch(Exception ignored){}session=null;}}

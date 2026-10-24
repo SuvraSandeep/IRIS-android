@@ -17,17 +17,21 @@ public class IrisTileService extends TileService {
     @Override
     public void onClick() {
         super.onClick();
-        if (IrisListeningService.isRunning) {
-            startService(new Intent(this, IrisListeningService.class).setAction(IrisListeningService.ACTION_STOP));
-        } else if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-                || (AppSettings.MODE_WAKE.equals(new AppSettings(this).listeningMode())
-                && !new ProfileStore(this).getWakeProfile().isReady())) {
-            Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivityAndCollapse(android.app.PendingIntent.getActivity(this, 0, open,
-                    android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT));
-        } else {
-            startForegroundService(new Intent(this, IrisListeningService.class).setAction(IrisListeningService.ACTION_START));
-        }
+        try {
+            if (IrisListeningService.isRunning) {
+                startService(new Intent(this, IrisListeningService.class).setAction(IrisListeningService.ACTION_STOP));
+            } else if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+                    || (AppSettings.MODE_WAKE.equals(new AppSettings(this).listeningMode())
+                    && !new ProfileStore(this).getWakeProfile().isReady())) {
+                Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivityAndCollapse(android.app.PendingIntent.getActivity(this, 0, open,
+                        android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT));
+            } else {
+                Intent start = new Intent(this, IrisListeningService.class).setAction(IrisListeningService.ACTION_START);
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(start);
+                else startService(start);
+            }
+        } catch (Throwable ignored) { }
         Tile tile = getQsTile();
         if (tile != null) {
             tile.setState(IrisListeningService.isRunning ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);

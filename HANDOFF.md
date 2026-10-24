@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `17.4.0` / `versionCode 504` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `17.5.0` / `versionCode 505` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -153,7 +153,15 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v17.4.0 (Commit `676a2db`)**:
+* **v17.5.0 (Commit `cf0dce6`)**:
+  * **Safe Foreground Contract Enforcement**: Engineered `safeStartForeground()` in `IrisListeningService.java` called immediately upon entering `onStartCommand()` before evaluating runtime permissions or model states. Completely eliminates the fatal `ForegroundServiceDidNotStartInTimeException` / `RemoteServiceException` caused by Android 8.0+ when `startForegroundService()` is followed by an early `stopSelf()` without `startForeground()`.
+  * **Android 14+ / targetSdk 35 Microphone FGS Guards**: Wrapped `startForeground(..., FOREGROUND_SERVICE_TYPE_MICROPHONE)` across all service entry points (`ACTION_START`, `ACTION_TALK`, `ACTION_PROCESS_TEXT`) in robust try/catch blocks that automatically fall back to untyped foreground notifications if `RECORD_AUDIO` or `FOREGROUND_SERVICE_MICROPHONE` is denied, restricted, or blocked by background policies.
+  * **Native LinkageError Guards in On-Device Embedding**: Updated exception handling in `EcapaEmbedding.java` from `catch (Exception error)` to `catch (Throwable error)` across `load()` and `extract()`, preventing fatal `UnsatisfiedLinkError` or `LinkageError` when native ONNX runtime libraries fail to bind from crashing the application.
+  * **Robust Activity UI State Recovery**: Fortified `MainActivity.java` `startListeningService()`, `toggleIris()`, and `ensureStartPermissions()` with try/catch blocks that gracefully handle `ForegroundServiceStartNotAllowedException` or `SecurityException`, display informative toasts, and revert the UI state cleanly to `off` rather than leaving the orb stuck or crashing. Added API 26 SDK fallback for `startService()`.
+  * **Notification Channel & Builder Resiliency**: Added `Build.VERSION.SDK_INT >= 26` guards and exception handling to `createNotificationChannels()`, `updateListeningNotification()`, and `baseListeningNotificationBuilder()`, ensuring seamless notification presentation on all Android releases.
+  * **Strict Semantic Versioning**: Minor fix increment (+0.1.0) to version `17.5.0` (`versionCode 505` in Android, version `17.5.0` / code `22` in Zepp OS).
+
+* **v17.4.0 (Commit `57896a1`)**:
   * **Dedicated Phone Status HUD Tab**: Replaced the cramped top battery status sentence on Amazfit T-Rex 3 with a dedicated full-screen tab (`renderStatusTab()`) reachable by tapping "📊 Phone Battery & Status". Displays a giant 36px glanceable battery gauge (`⚡ 57%`, color-coded by battery health), detailed charging state, IRIS assistant state (Active/Standby), bridge port telemetry, an on-demand "🔄 Refresh Details" button, and a quick "◀ Back to Controls" return button.
   * **Safe-Area Main Screen Header Badge**: Centered main remote status text within a 320px safe-zone contour (`x: 80, y: 92, w: 320`) to prevent text from clipping against the circular AMOLED bezel.
   * **Watch-Triggered Voice Wakeup (`/talk`)**: Tapping "🎙 Talk to IRIS (Voice)" turns on the phone screen via `SCREEN_BRIGHT_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP`, dispatches `ACTION_TALK` to `IrisListeningService` to activate the speech recognition pipeline immediately, posts a high-priority heads-up notification with `setFullScreenIntent`, and launches `MainActivity` with `ACTION_ASSIST`. Watch receives immediate feedback: `"🎙 Phone is listening… Speak now!"`.

@@ -515,14 +515,18 @@ public class IrisListeningService extends Service implements RecognitionListener
         startListenerWatchdog();
         WatchBridge.startShared(this);
         textToSpeech = new TextToSpeech(this, status -> {
-            ttsReady = status == TextToSpeech.SUCCESS;
-            if (ttsReady) {
-                configureVoice();
-                // Warm up TTS engine with silent utterance — some devices need this
-                textToSpeech.speak(" ", TextToSpeech.QUEUE_FLUSH, null, "warmup");
-                LogStore.append(IrisListeningService.this, "TTS", "Ready: " + textToSpeech.getDefaultEngine());
-            } else {
-                LogStore.append(IrisListeningService.this, "TTS", "FAILED (status " + status + ")");
+            try {
+                ttsReady = status == TextToSpeech.SUCCESS;
+                if (ttsReady) {
+                    configureVoice();
+                    // Warm up TTS engine with silent utterance — some devices need this
+                    try { textToSpeech.speak(" ", TextToSpeech.QUEUE_FLUSH, null, "warmup"); } catch (Throwable ignored) { }
+                    LogStore.append(IrisListeningService.this, "TTS", "Ready: " + textToSpeech.getDefaultEngine());
+                } else {
+                    LogStore.append(IrisListeningService.this, "TTS", "FAILED (status " + status + ")");
+                }
+            } catch (Throwable t) {
+                LogStore.append(IrisListeningService.this, "TTS", "Init error: " + t.getMessage());
             }
         });
 
@@ -728,12 +732,7 @@ public class IrisListeningService extends Service implements RecognitionListener
             return START_STICKY;
         }
         if (ACTION_TALK.equals(action)) {
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(LISTENING_NOTIFICATION, listeningNotification(),
-                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
-            } else {
-                startForeground(LISTENING_NOTIFICATION, listeningNotification());
-            }
+            safeStartForeground();
             if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
                 broadcastMessage("Microphone permission is required."); return START_STICKY;
             }
@@ -741,8 +740,8 @@ public class IrisListeningService extends Service implements RecognitionListener
                 if (!isRunning) serviceStartedAt = android.os.SystemClock.elapsedRealtime();
                 isRunning = true;
                 recognitionLabel = resolveRecognitionLabel();
-                microphoneLabel = configureAudioRoute();
-                registerAudioChanges();
+                try { microphoneLabel = configureAudioRoute(); } catch (Throwable ignored) { }
+                try { registerAudioChanges(); } catch (Throwable ignored) { }
             }
             acquireListeningWakeLock();
             triggerTalk(intent.getStringExtra(EXTRA_TEXT));
@@ -772,18 +771,13 @@ public class IrisListeningService extends Service implements RecognitionListener
             if (text == null || text.trim().isEmpty()) return START_STICKY;
             final String typed = text.trim();
             // Bring us to foreground so TTS/actions run reliably.
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(LISTENING_NOTIFICATION, listeningNotification(),
-                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
-            } else {
-                startForeground(LISTENING_NOTIFICATION, listeningNotification());
-            }
+            safeStartForeground();
             if (!isRunning) {
                 if (!isRunning) serviceStartedAt = android.os.SystemClock.elapsedRealtime();
                 isRunning = true;
                 recognitionLabel = resolveRecognitionLabel();
-                microphoneLabel = configureAudioRoute();
-                registerAudioChanges();
+                try { microphoneLabel = configureAudioRoute(); } catch (Throwable ignored) { }
+                try { registerAudioChanges(); } catch (Throwable ignored) { }
             }
             acquireListeningWakeLock();
             // A reviewed typed retry starts a fresh command, never supplies an answer to
@@ -803,24 +797,20 @@ public class IrisListeningService extends Service implements RecognitionListener
             return START_STICKY;
         }
 
+        safeStartForeground();
+
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
             broadcastMessage("Microphone permission is required.");
-            stopSelf();
+            stopIris("Microphone permission is required");
             return START_NOT_STICKY;
-        }
-
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(LISTENING_NOTIFICATION, listeningNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
-        } else {
-            startForeground(LISTENING_NOTIFICATION, listeningNotification());
         }
 
         if (!isRunning) {
             if (!isRunning) serviceStartedAt = android.os.SystemClock.elapsedRealtime();
-                isRunning = true;
+            isRunning = true;
             recognitionLabel = resolveRecognitionLabel();
-            microphoneLabel = configureAudioRoute();
-            registerAudioChanges();
+            try { microphoneLabel = configureAudioRoute(); } catch (Throwable ignored) { }
+            try { registerAudioChanges(); } catch (Throwable ignored) { }
             acquireListeningWakeLock();
             LogStore.append(this, "START", settings.listeningMode() + " mode through " + microphoneLabel);
             // Diagnostic breadcrumb for RAM reports: which speech model is active and current
@@ -837,8 +827,33 @@ public class IrisListeningService extends Service implements RecognitionListener
             } catch (Throwable ignored) { }
         }
         broadcastState(true, phase);
-        beginForSelectedMode();
+        try {
+            beginForSelectedMode();
+        } catch (Throwable t) {
+            Log.e("IRIS", "beginForSelectedMode failed: " + t.getMessage());
+            broadcastMessage("Failed to start voice listener: " + t.getMessage());
+        }
         return START_STICKY;
+    }
+
+    private void safeStartForeground() {
+        try {
+            createNotificationChannels();
+            Notification notification = listeningNotification();
+            if (Build.VERSION.SDK_INT >= 34 && hasPermission(Manifest.permission.RECORD_AUDIO)
+                    && hasPermission("android.permission.FOREGROUND_SERVICE_MICROPHONE")) {
+                try {
+                    startForeground(LISTENING_NOTIFICATION, notification,
+                            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+                    return;
+                } catch (Throwable t) {
+                    Log.w("IRIS", "startForeground with microphone type failed, falling back: " + t.getMessage());
+                }
+            }
+            startForeground(LISTENING_NOTIFICATION, notification);
+        } catch (Throwable t) {
+            Log.e("IRIS", "safeStartForeground failed completely: " + t.getMessage());
+        }
     }
 
     private void beginForSelectedMode() {
@@ -856,11 +871,15 @@ public class IrisListeningService extends Service implements RecognitionListener
      *  this from all three entry points (instead of only one) fixes that without changing the
      *  existing release paths (stopIris()/onDestroy() already guard with wakeLock.isHeld()). */
     private void acquireListeningWakeLock() {
-        if (wakeLock != null && wakeLock.isHeld()) return;
-        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        if (pm == null) return;
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "iris:listening");
-        wakeLock.acquire(60 * 60 * 1000L); // 1 hour max
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) return;
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (pm == null) return;
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "iris:listening");
+            wakeLock.acquire(60 * 60 * 1000L); // 1 hour max
+        } catch (Throwable t) {
+            Log.w("IRIS", "acquireListeningWakeLock failed: " + t.getMessage());
+        }
     }
 
     private String resolveRecognitionLabel() {
@@ -5487,9 +5506,12 @@ public class IrisListeningService extends Service implements RecognitionListener
         Intent shush = new Intent(this, IrisListeningService.class).setAction(ACTION_STOP_SPEAKING);
         PendingIntent shushPending = PendingIntent.getService(this, 12, shush,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        return new Notification.Builder(this, LISTENING_CHANNEL)
+        Notification.Builder builder = Build.VERSION.SDK_INT >= 26
+                ? new Notification.Builder(this, LISTENING_CHANNEL)
+                : new Notification.Builder(this);
+        return builder
                 .setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS is active")
-                .setContentText(contentText).setOngoing(true).setOnlyAlertOnce(true)
+                .setContentText(contentText != null ? contentText : "").setOngoing(true).setOnlyAlertOnce(true)
                 .setContentIntent(content)
                 .addAction(new Notification.Action.Builder(null, "\uD83C\uDF99 Talk", talkPending).build())
                 .addAction(new Notification.Action.Builder(null, "\u23F9 Stop", shushPending).build())
@@ -5497,19 +5519,20 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private Notification listeningNotification() {
-        return baseListeningNotificationBuilder(microphoneLabel).build();
+        return baseListeningNotificationBuilder(microphoneLabel != null ? microphoneLabel : "Ready").build();
     }
 
     private void updateListeningNotification(String text) {
-        // Was building a bare notification with only a content PendingIntent — no Talk/Stop/
-        // Turn-off actions. Since this is called on nearly every wake-state change (armed,
-        // paused, rejected, "Active through …"), those primary manual controls vanished from
-        // the persistent notification almost immediately after startForeground and stayed gone
-        // for essentially the whole listening session. Now shares baseListeningNotificationBuilder
-        // with listeningNotification() so the two can never drift apart again.
-        microphoneLabel=AudioRouteController.observed;
-        Notification notification = baseListeningNotificationBuilder(text + " • " + microphoneLabel).build();
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(LISTENING_NOTIFICATION, notification);
+        try {
+            microphoneLabel = AudioRouteController.observed;
+            Notification notification = baseListeningNotificationBuilder(text + " • " + microphoneLabel).build();
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.notify(LISTENING_NOTIFICATION, notification);
+            }
+        } catch (Throwable t) {
+            Log.e("IRIS", "updateListeningNotification failed: " + t.getMessage());
+        }
     }
 
     private void showCallNotification(String name, String number) {
@@ -5554,11 +5577,19 @@ public class IrisListeningService extends Service implements RecognitionListener
     }
 
     private void createNotificationChannels() {
-        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        manager.createNotificationChannel(new NotificationChannel(LISTENING_CHANNEL,
-                "IRIS listening", NotificationManager.IMPORTANCE_LOW));
-        manager.createNotificationChannel(new NotificationChannel(CALL_CHANNEL,
-                "IRIS call decisions", NotificationManager.IMPORTANCE_HIGH));
+        if (Build.VERSION.SDK_INT >= 26) {
+            try {
+                NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                if (manager != null) {
+                    manager.createNotificationChannel(new NotificationChannel(LISTENING_CHANNEL,
+                            "IRIS listening", NotificationManager.IMPORTANCE_LOW));
+                    manager.createNotificationChannel(new NotificationChannel(CALL_CHANNEL,
+                            "IRIS call decisions", NotificationManager.IMPORTANCE_HIGH));
+                }
+            } catch (Throwable t) {
+                Log.e("IRIS", "createNotificationChannels failed: " + t.getMessage());
+            }
+        }
     }
 
     private void stopIris(String reason) {

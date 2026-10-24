@@ -3149,24 +3149,32 @@ public class MainActivity extends Activity {
     }
 
     private void toggleIris() {
-        if (IrisListeningService.isRunning) stopListeningService();
-        else ensureStartPermissions();
+        try {
+            if (IrisListeningService.isRunning) stopListeningService();
+            else ensureStartPermissions();
+        } catch (Throwable t) {
+            toast("Could not toggle IRIS: " + t.getMessage());
+        }
     }
 
     private void ensureStartPermissions() {
-        List<String> missing = new ArrayList<>();
-        addIfMissing(missing, Manifest.permission.RECORD_AUDIO);
-        addIfMissing(missing, Manifest.permission.READ_CONTACTS);
-        addIfMissing(missing, Manifest.permission.CALL_PHONE);
-        addIfMissing(missing, Manifest.permission.ACCESS_COARSE_LOCATION);
-        if (Build.VERSION.SDK_INT >= 31) addIfMissing(missing, Manifest.permission.BLUETOOTH_CONNECT);
-        if (Build.VERSION.SDK_INT >= 33) addIfMissing(missing, Manifest.permission.POST_NOTIFICATIONS);
-        if (missing.isEmpty()) startListeningService();
-        else new AlertDialog.Builder(this).setTitle("IRIS needs a few doors opened")
-                .setMessage("Microphone listens; Contacts resolves names; Phone places confirmed calls; Location powers weather; Bluetooth chooses a headset; Notifications keep listening visible.")
-                .setNegativeButton("Not now", null)
-                .setPositiveButton("Continue", (dialog, which) ->
-                        requestPermissions(missing.toArray(new String[0]), PERMISSION_START)).show();
+        try {
+            List<String> missing = new ArrayList<>();
+            addIfMissing(missing, Manifest.permission.RECORD_AUDIO);
+            addIfMissing(missing, Manifest.permission.READ_CONTACTS);
+            addIfMissing(missing, Manifest.permission.CALL_PHONE);
+            addIfMissing(missing, Manifest.permission.ACCESS_COARSE_LOCATION);
+            if (Build.VERSION.SDK_INT >= 31) addIfMissing(missing, Manifest.permission.BLUETOOTH_CONNECT);
+            if (Build.VERSION.SDK_INT >= 33) addIfMissing(missing, Manifest.permission.POST_NOTIFICATIONS);
+            if (missing.isEmpty()) startListeningService();
+            else new AlertDialog.Builder(this).setTitle("IRIS needs a few doors opened")
+                    .setMessage("Microphone listens; Contacts resolves names; Phone places confirmed calls; Location powers weather; Bluetooth chooses a headset; Notifications keep listening visible.")
+                    .setNegativeButton("Not now", null)
+                    .setPositiveButton("Continue", (dialog, which) ->
+                            requestPermissions(missing.toArray(new String[0]), PERMISSION_START)).show();
+        } catch (Throwable t) {
+            toast("Could not check permissions: " + t.getMessage());
+        }
     }
 
     private void startListeningService() {
@@ -3182,11 +3190,17 @@ public class MainActivity extends Activity {
             return;
         }
         try {
-            startForegroundService(new Intent(this, IrisListeningService.class)
-                    .setAction(IrisListeningService.ACTION_START));
+            Intent serviceIntent = new Intent(this, IrisListeningService.class)
+                    .setAction(IrisListeningService.ACTION_START);
+            if (Build.VERSION.SDK_INT >= 26) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
             updateAssistantState(true, AppSettings.MODE_WAKE.equals(settings.listeningMode()) ? "wake" : "command");
         } catch (Throwable t) {
             toast("Could not start IRIS service: " + t.getMessage());
+            updateAssistantState(false, "off");
         }
     }
 

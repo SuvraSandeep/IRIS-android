@@ -1,5 +1,15 @@
 # Changelog
 
+## 17.5.0
+
+- Zero-Crash Assistant Startup, Safe Foreground Contracts & Linkage Guards:
+  - Safe Foreground Contract Enforcement: Added `safeStartForeground()` in `IrisListeningService.java` called immediately upon entering `onStartCommand()` before checking runtime permissions or model states. Completely eliminates the fatal `ForegroundServiceDidNotStartInTimeException` / `RemoteServiceException` caused by Android 8.0+ when `startForegroundService()` is followed by an early `stopSelf()` without `startForeground()`.
+  - Android 14+ / targetSdk 35 Microphone FGS Guards: Wrapped `startForeground(..., FOREGROUND_SERVICE_TYPE_MICROPHONE)` across all service entry points (`ACTION_START`, `ACTION_TALK`, `ACTION_PROCESS_TEXT`) in robust try/catch blocks that automatically fall back to untyped foreground notifications if `RECORD_AUDIO` or `FOREGROUND_SERVICE_MICROPHONE` is denied, restricted, or blocked by background policies.
+  - Native LinkageError Guards in On-Device Embedding: Updated exception handling in `EcapaEmbedding.java` from `catch (Exception error)` to `catch (Throwable error)` across `load()` and `extract()`, preventing fatal `UnsatisfiedLinkError` or `LinkageError` when native ONNX runtime libraries fail to bind from crashing the application.
+  - Robust Activity UI State Recovery: Fortified `MainActivity.java` `startListeningService()`, `toggleIris()`, and `ensureStartPermissions()` with try/catch blocks that gracefully handle `ForegroundServiceStartNotAllowedException` or `SecurityException`, display informative toasts, and revert the UI state cleanly to `off` rather than leaving the orb stuck or crashing. Added API 26 SDK fallback for `startService()`.
+  - Notification Channel & Builder Resiliency: Added `Build.VERSION.SDK_INT >= 26` guards and exception handling to `createNotificationChannels()`, `updateListeningNotification()`, and `baseListeningNotificationBuilder()`, ensuring seamless notification presentation on all Android releases.
+  - Strict Semantic Versioning: Minor fix increment (+0.1.0) to version 17.5.0 (Android versionCode 505, Zepp OS version 17.5.0 code 22).
+
 ## 17.4.0
 
 - Dedicated Phone Status Details Tab & Watch-Triggered Voice Wakeup:
