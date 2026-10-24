@@ -33,6 +33,79 @@ final class WatchBridge implements AutoCloseable {
     private volatile WatchGattBridge gattBridge;
     private long lastAction;
     static volatile String state = "Disabled";
+    private static volatile WatchBridge shared;
+
+    static synchronized void startShared(Context context) {
+        if (!enabled(context)) {
+            stopShared();
+            return;
+        }
+        if (shared != null && !shared.closed) return;
+        Context app = context.getApplicationContext();
+        shared = new WatchBridge(app, createDefaultActions(app));
+        shared.start();
+    }
+
+    static synchronized void stopShared() {
+        if (shared != null) {
+            try { shared.close(); } catch (Throwable ignored) {}
+            shared = null;
+        }
+    }
+
+    static Actions createDefaultActions(Context context) {
+        final Context app = context.getApplicationContext();
+        final PhoneFinder[] finderHolder = new PhoneFinder[1];
+        return path -> {
+            if (path.equals("/ping")) return "IRIS Phone Bridge Online";
+            if (path.equals("/status")) {
+                String charging = "I can\u2019t check charging right now.";
+                try {
+                    android.content.Intent b = app.registerReceiver(null, new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+                    if (b != null) {
+                        int status = b.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+                        int plugged = b.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, -1);
+                        int level = b.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+                        int scale = b.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+                        charging = ChargingState.describe(status, plugged, level, scale);
+                    }
+                } catch (Throwable ignored) {}
+                return "Phone: " + charging + (IrisListeningService.isRunning ? " · IRIS Active" : " · IRIS Standby");
+            }
+            if (path.equals("/stop")) {
+                if (finderHolder[0] != null && finderHolder[0].active()) {
+                    finderHolder[0].stop();
+                    return "Alarm silenced";
+                }
+                return "Alarm is not ringing";
+            }
+            if (path.equals("/find")) {
+                if (finderHolder[0] == null) finderHolder[0] = new PhoneFinder(app);
+                finderHolder[0].start(null);
+                return finderHolder[0].active() ? "Ringing for 30 seconds" : "Alarm blocked: check phone DND settings";
+            }
+            if (path.equals("/talk")) {
+                try {
+                    android.app.NotificationManager nm = (android.app.NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null && nm.areNotificationsEnabled()) {
+                        nm.createNotificationChannel(new android.app.NotificationChannel("iris_watch", "Watch talk requests", android.app.NotificationManager.IMPORTANCE_HIGH));
+                        android.app.PendingIntent open = android.app.PendingIntent.getActivity(app, 18473,
+                                new android.content.Intent(app, MainActivity.class).setAction(android.content.Intent.ACTION_ASSIST).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+                        nm.notify(18473, new android.app.Notification.Builder(app, "iris_watch")
+                                .setSmallIcon(R.drawable.ic_iris)
+                                .setContentTitle("IRIS · talk requested from watch")
+                                .setContentText("Tap to speak using your phone microphone")
+                                .setContentIntent(open)
+                                .setAutoCancel(true).build());
+                        return "Tap the IRIS notification on your phone to talk";
+                    }
+                } catch (Throwable ignored) {}
+                return "Enable IRIS notifications on your phone first";
+            }
+            return "Unsupported request";
+        };
+    }
 
     WatchBridge(Context c, Actions a) {
         context = c;

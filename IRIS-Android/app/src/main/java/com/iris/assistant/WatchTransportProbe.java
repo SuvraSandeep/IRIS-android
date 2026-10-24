@@ -14,11 +14,9 @@ final class WatchTransportProbe {
             .setPositiveButton("Close", null)
             .show();
 
+        WatchBridge.startShared(a);
         new Thread(() -> {
-            for (int w = 0; w < 10; w++) {
-                if (IrisListeningService.isRunning) break;
-                try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-            }
+            try { Thread.sleep(150); } catch (InterruptedException ignored) {}
 
             String result;
             try {
@@ -31,7 +29,7 @@ final class WatchTransportProbe {
                     BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
                     String status = reader.readLine();
                     if (status != null && status.startsWith("HTTP/1.1 200 ")) {
-                        result = "🟢 Phone bridge is ONLINE and responding!\n\nPort 18473 is listening on loopback.\n\nNext steps:\n1. Open Zepp App settings and tap 'Ping Phone Bridge'.\n2. Open IRIS Remote on your T-Rex 3 watch!";
+                        result = "🟢 Phone bridge is ONLINE and responding!\n\nPort 18473 is listening on loopback.\n\nNext steps:\n1. Open Zepp App settings and tap 'PING PHONE BRIDGE'.\n2. Open IRIS Remote on your T-Rex 3 watch!";
                     } else if (status != null && status.contains("403")) {
                         result = "🔴 Bridge rejected pairing key.\n\nCopy the key from IRIS Settings → Amazfit T-Rex 3 Bridge and paste into Zepp app settings.";
                     } else {
@@ -39,11 +37,7 @@ final class WatchTransportProbe {
                     }
                 }
             } catch (Exception e) {
-                if (!IrisListeningService.isRunning) {
-                    result = "🔴 IRIS Service is resting.\n\nThe bridge runs while IRIS is active. Please start IRIS on the Home tab, then retry.";
-                } else {
-                    result = "🔴 Phone bridge port 18473 could not connect.\n\nMake sure the bridge is enabled in Settings, then retry.";
-                }
+                result = "🔴 Phone bridge port 18473 could not connect.\n\nMake sure the bridge is enabled in Settings, then tap Test again.";
             }
             final String report = result;
             a.runOnUiThread(() -> {

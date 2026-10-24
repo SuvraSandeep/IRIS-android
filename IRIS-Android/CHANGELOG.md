@@ -1,5 +1,14 @@
 # Changelog
 
+## 17.3.0
+
+- Watch Companion Bridge Decoupling & Seamless Zero-Crash Diagnostics:
+  - Complete Foreground Service Decoupling: Decoupled `WatchBridge` from `IrisListeningService`. `WatchBridge` now runs as a dedicated shared singleton (`WatchBridge.startShared()`), allowing smartwatch controls (battery query, find phone, silence alarm, status) to operate 24/7 independently without requiring microphone permissions or active voice recognition foreground service.
+  - Zero-Crash Bridge Probe: Updated item 1 in `showWatchSetup()` to direct "📡 Test phone bridge connection", invoking `WatchBridge.startShared(this)` and `WatchTransportProbe.run(this)` directly. Completely eliminated Android 14+ `ForegroundServiceStartNotAllowedException` crashes when testing connectivity from Settings.
+  - Zepp Settings WebSocket Fallback: Added automatic `ws://127.0.0.1:18473/ws` probe fallback inside `setting/index.js` `testBridge()`, bypassing Android WebView cleartext HTTP blocks and guaranteeing instant diagnostics.
+  - Smooth Uncontrolled TextInput: Removed `value: token` from Zepp OS `TextInput` to prevent key locking/glitching when typing or pasting.
+  - Strict Semantic Versioning: Minor fix increment (+0.1.0) to version 17.3.0 (Android versionCode 503, Zepp OS version 17.3.0 code 20).
+
 ## 17.2.0
 
 - Watch Bridge Transport Crash Fix & Bulletproof Pairing Key Extraction:

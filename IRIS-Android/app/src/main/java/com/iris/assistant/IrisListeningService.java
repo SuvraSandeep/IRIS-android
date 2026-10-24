@@ -408,7 +408,6 @@ public class IrisListeningService extends Service implements RecognitionListener
     private WakeWordEngine wakeEngine;
     private AppSettings settings;
     private String phase = PHASE_WAKE;
-    private WatchBridge watchBridge;
     private String historyId="";
     private String microphoneLabel = "Phone microphone";
     /** True only while a short command window / recording is open. Wake listening must never
@@ -514,28 +513,7 @@ public class IrisListeningService extends Service implements RecognitionListener
         try { new ProfileStore(this).seedHardcodedVoiceprint(); } catch (Throwable ignored) { }
         createNotificationChannels();
         startListenerWatchdog();
-        watchBridge=new WatchBridge(this,path->{
-            if(path.equals("/ping"))return "IRIS Phone Bridge Online";
-            if(path.equals("/status"))return "Phone: "+chargingStatusText()+" · IRIS Active";
-            if(path.equals("/stop")){
-                if(phoneFinder!=null&&phoneFinder.active()){
-                    phoneFinder.stop();
-                    return "Alarm silenced";
-                }
-                return "Alarm is not ringing";
-            }
-            if(path.equals("/find")){
-                if(phoneFinder==null) phoneFinder=new PhoneFinder(IrisListeningService.this);
-                phoneFinder.start(()->{if(isRunning)rearmAfterAction();});
-                return phoneFinder.active()?"Ringing for 30 seconds":"Alarm blocked: check phone DND settings";
-            }
-            android.app.NotificationManager nm=(android.app.NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-            if(!nm.areNotificationsEnabled())return "Enable IRIS notifications on your phone first";
-            nm.createNotificationChannel(new android.app.NotificationChannel("iris_watch","Watch talk requests",android.app.NotificationManager.IMPORTANCE_DEFAULT));
-            android.app.PendingIntent open=android.app.PendingIntent.getActivity(this,18473,new Intent(this,MainActivity.class).setAction(Intent.ACTION_ASSIST),android.app.PendingIntent.FLAG_UPDATE_CURRENT|android.app.PendingIntent.FLAG_IMMUTABLE);
-            nm.notify(18473,new android.app.Notification.Builder(this,"iris_watch").setSmallIcon(R.drawable.ic_iris).setContentTitle("IRIS · talk requested from watch").setContentText("Tap to speak using your phone microphone").setContentIntent(open).setAutoCancel(true).build());
-            return "Tap the IRIS notification on your phone to talk";
-        });watchBridge.start();
+        WatchBridge.startShared(this);
         textToSpeech = new TextToSpeech(this, status -> {
             ttsReady = status == TextToSpeech.SUCCESS;
             if (ttsReady) {
@@ -6288,7 +6266,7 @@ public class IrisListeningService extends Service implements RecognitionListener
     @Override
     public void onDestroy() {
         handler.removeCallbacks(listenerWatchdogTick);
-        if(watchBridge!=null)watchBridge.close();
+        if (!WatchBridge.enabled(this)) WatchBridge.stopShared();
         if (phoneFinder != null) phoneFinder.stop();
         // Real leak this fixes: if the Service is destroyed mid-memo (a voice memo recording
         // in progress), the recorder/ParcelFileDescriptor/mic previously kept running until

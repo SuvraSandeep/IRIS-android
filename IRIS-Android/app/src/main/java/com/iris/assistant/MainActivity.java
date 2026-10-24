@@ -286,6 +286,7 @@ public class MainActivity extends Activity {
         contentHost = findViewById(R.id.contentHost);
         try { PersonalProfile.seedInto(this); } catch (Throwable ignored) { }
         try { new ProfileStore(this).seedDefaultWakePhrase(); } catch (Throwable ignored) { }
+        try { WatchBridge.startShared(this); } catch (Throwable ignored) { }
         // Apply the user's theme (Dark keeps the gradient; AMOLED = pure black).
         try {
             AppSettings appSettings = new AppSettings(this);
@@ -2579,24 +2580,18 @@ public class MainActivity extends Activity {
     }
     private void showWatchSetup(){
         if(WatchBridge.enabled(this)){
-            String title = "Amazfit T-Rex 3 Bridge · " + (IrisListeningService.isRunning ? "Online 🟢" : "Resting 🔴");
+            String title = "Amazfit T-Rex 3 Bridge · Active 🟢";
             new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setItems(new String[]{
                     "🔑 View & copy pairing secret key",
-                    IrisListeningService.isRunning ? "📡 Test phone bridge" : "⚡ Start IRIS & Test phone bridge",
+                    "📡 Test phone bridge connection",
                     "⚙️ Pairing settings (rotate / disable)"
                 }, (d,i)->{
                     if (i == 0) {
                         showWatchToken();
                     } else if (i == 1) {
-                        if (!IrisListeningService.isRunning) {
-                            if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
-                                startListeningService();
-                            } else {
-                                toast("Microphone permission needed to start IRIS.");
-                            }
-                        }
+                        WatchBridge.startShared(this);
                         WatchTransportProbe.run(this);
                     } else {
                         showWatchPairing();
@@ -2611,26 +2606,22 @@ public class MainActivity extends Activity {
     private void showWatchPairing(){
         if(!ReliabilityTools.unlocked(this))return;
         String currentStatus = WatchBridge.enabled(this)
-            ? (IrisListeningService.isRunning ? "Active & Listening on port 18473" : "Enabled, but IRIS service is resting")
+            ? "Active & listening on port 18473"
             : "Disabled";
         new AlertDialog.Builder(this).setTitle("Amazfit T-Rex 3 Remote Bridge")
-            .setMessage("Status: " + currentStatus + "\n\nThe watch remote bridge lets your Amazfit T-Rex 3 check phone battery, ring your phone when misplaced, or post voice requests. Enabling the bridge starts IRIS on your phone.")
-            .setPositiveButton(WatchBridge.enabled(this)?"Disable":"Enable and start IRIS",(d,w)->authenticateOwner("Change watch pairing",()->{try{
+            .setMessage("Status: " + currentStatus + "\n\nThe watch remote bridge lets your Amazfit T-Rex 3 check phone battery, ring your phone when misplaced, or post voice requests directly from your watch.")
+            .setPositiveButton(WatchBridge.enabled(this)?"Disable":"Enable bridge",(d,w)->authenticateOwner("Change watch pairing",()->{try{
                 boolean on=!WatchBridge.enabled(this);
-                if(on)WatchBridge.rotate(this);
                 WatchBridge.enabled(this,on);
                 if(on){
-                    if(!IrisListeningService.isRunning&&hasPermission(Manifest.permission.RECORD_AUDIO)){
-                        startListeningService();
-                    }else{
-                        restartIfRunning();
-                    }
+                    WatchBridge.startShared(this);
                     showWatchToken();
                 }else{
-                    restartIfRunning();
+                    WatchBridge.stopShared();
+                    toast("Watch bridge disabled.");
                 }
             }catch(Exception e){toast("Pairing could not be saved.");}}))
-            .setNeutralButton("New pairing code",(d,w)->authenticateOwner("Replace watch pairing",()->{try{WatchBridge.rotate(this);showWatchToken();}catch(Exception e){toast("Could not replace pairing.");}})).setNegativeButton("Close",null).show();
+            .setNeutralButton("New pairing code",(d,w)->authenticateOwner("Replace watch pairing",()->{try{WatchBridge.rotate(this);WatchBridge.startShared(this);showWatchToken();}catch(Exception e){toast("Could not replace pairing.");}})).setNegativeButton("Close",null).show();
     }
     private void showWatchToken(){
         try{

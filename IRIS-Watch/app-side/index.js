@@ -63,35 +63,35 @@ AppSideService(BaseSideService({
          if (!done) {
           done = true;
           try { ws.close(); } catch (e) {}
-          res(null, { message: 'Phone bridge unreachable. Start IRIS on your phone first.' });
+          res(null, { message: 'Phone bridge unreachable. Check IRIS Settings.' });
          }
         }, 2500);
         ws.onopen = () => {
          ws.send(JSON.stringify({ action: req.action, token: token, sentAt: Date.now() }));
         };
         ws.onmessage = (ev) => {
-         if (done) return;
-         done = true;
-         clearTimeout(t);
-         try {
-          const data = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-          res(null, { message: data?.message || 'Phone returned no message' });
-         } catch (e) {
-          res(null, { message: String(ev.data) || 'Phone returned no message' });
-         }
-         try { ws.close(); } catch (e) {}
+          if (done) return;
+          done = true;
+          clearTimeout(t);
+          try {
+           const data = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+           res(null, { message: data?.message || 'Phone returned no message' });
+          } catch (e) {
+           res(null, { message: String(ev.data) || 'Phone returned no message' });
+          }
+          try { ws.close(); } catch (e) {}
         };
         ws.onerror = () => {
          if (!done) {
           done = true;
           clearTimeout(t);
-          res(null, { message: 'Phone bridge unreachable. Start IRIS on your phone first.' });
+          res(null, { message: 'Phone bridge unreachable. Check IRIS Settings.' });
          }
         };
         return;
        } catch (e) {}
       }
-      res(null, { message: 'Phone bridge unreachable. Start IRIS on your phone first.' });
+      res(null, { message: 'Phone bridge unreachable. Check IRIS Settings.' });
      });
    });
  }

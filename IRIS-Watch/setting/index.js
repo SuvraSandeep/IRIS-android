@@ -37,14 +37,59 @@ AppSettingsPage({
           });
       };
 
+      const testWs = () => {
+        return new Promise((resolve, reject) => {
+          if (typeof WebSocket === 'undefined') {
+            return reject(new Error('WebSocket unavailable'));
+          }
+          let resolved = false;
+          let ws;
+          try {
+            ws = new WebSocket('ws://127.0.0.1:18473/ws');
+          } catch (e) {
+            return reject(e);
+          }
+          const timer = setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              try { ws.close(); } catch (e) {}
+              reject(new Error('Connection timed out'));
+            }
+          }, 3000);
+
+          ws.onopen = () => {
+            ws.send(JSON.stringify({ action: path.replace(/^\//, ''), token: token, sentAt: Date.now() }));
+          };
+          ws.onmessage = (ev) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            try { ws.close(); } catch (e) {}
+            try {
+              const parsed = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+              resolve(parsed && parsed.message ? parsed.message : String(ev.data));
+            } catch (e) {
+              resolve(String(ev.data));
+            }
+          };
+          ws.onerror = (err) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            reject(new Error(err && err.message ? err.message : 'WebSocket probe failed'));
+          };
+        });
+      };
+
       doReq('http://127.0.0.1:18473' + path)
         .catch(() => doReq('http://localhost:18473' + path))
+        .catch(() => testWs())
         .then(data => {
           const body = (typeof data === 'object' && data) ? (data.message || JSON.stringify(data)) : String(data);
           props.settingsStorage.setItem('irisStatusNotice', '✓ SUCCESS: ' + (successMsg || body));
         })
         .catch(err => {
-          props.settingsStorage.setItem('irisStatusNotice', '✕ BRIDGE UNREACHABLE: Start IRIS on your phone (Settings → Amazfit T-Rex 3 → Start IRIS & Test). ' + (err && err.message ? '(' + err.message + ')' : ''));
+          props.settingsStorage.setItem('irisStatusNotice', '✕ BRIDGE UNREACHABLE: Ensure IRIS bridge is active on your phone (Settings → Amazfit T-Rex 3 Bridge). ' + (err && err.message ? '(' + err.message + ')' : ''));
         });
     };
 
@@ -88,7 +133,7 @@ AppSettingsPage({
             color: '#94A3B8',
             display: 'block'
           }
-        }, 'Cyberpunk Neural Wrist Link · v17.2.0')
+        }, 'Cyberpunk Neural Wrist Link · v17.3.0')
       ]),
 
       // 2. Hardware Link Telemetry Card
@@ -203,7 +248,6 @@ AppSettingsPage({
         TextInput({
           label: 'Secret Key (64 hex characters)',
           settingsKey: 'irisToken',
-          value: token,
           placeholder: 'Paste 64-hex key here...',
           onChange: val => {
             const key = extractHexKey(val);
@@ -374,7 +418,7 @@ AppSettingsPage({
           }
         }, '3-Step Connection Guide'),
         Text({ paragraph: true, style: { fontSize: '13px', color: '#F1F5F9', display: 'block', marginBottom: '8px' } }, '1. Open IRIS App on phone → Settings → tap "Amazfit T-Rex 3 Bridge".'),
-        Text({ paragraph: true, style: { fontSize: '13px', color: '#F1F5F9', display: 'block', marginBottom: '8px' } }, '2. Tap "Start IRIS & Test bridge" → copy your pairing key.'),
+        Text({ paragraph: true, style: { fontSize: '13px', color: '#F1F5F9', display: 'block', marginBottom: '8px' } }, '2. Tap "Test phone bridge connection" → copy your pairing key.'),
         Text({ paragraph: true, style: { fontSize: '13px', color: '#F1F5F9', display: 'block', marginBottom: '8px' } }, '3. Paste the key above, tap "SAVE & ARM KEY", then tap "PING PHONE BRIDGE".'),
         Text({ paragraph: true, style: { fontSize: '13px', color: '#00FF9D', display: 'block', marginTop: '6px' } }, '✓ Open IRIS Remote on your T-Rex 3 watch and enjoy wrist control!')
       ])
