@@ -153,11 +153,12 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v17.3.0 (Commit `7cc8f1d`)**:
+* **v17.3.0 (Commit `8477b4c`)**:
   * **Watch Companion Bridge Decoupling**: Decoupled `WatchBridge` from the `IrisListeningService` voice assistant service. It now operates as an independent shared lifecycle singleton (`WatchBridge.startShared()`) with pure Android system handlers for battery, alarm ringing, silencing, and status queries. Smartwatch users can now check battery or ring their phone 24/7 without needing the voice assistant microphone armed or foreground service running.
   * **Zero-Crash Phone Bridge Probe**: Updated item 1 in `showWatchSetup()` to direct "📡 Test phone bridge connection", invoking `WatchBridge.startShared(this)` and `WatchTransportProbe.run(this)` directly. Completely eliminated Android 14+ `ForegroundServiceStartNotAllowedException` crashes when testing connectivity from Settings.
   * **Zepp Settings WebSocket Fallback**: Added automatic `ws://127.0.0.1:18473/ws` probe fallback inside `setting/index.js` `testBridge()`, bypassing Android WebView cleartext HTTP blocks and guaranteeing instant diagnostics.
   * **Smooth Uncontrolled TextInput**: Removed `value: token` from Zepp OS `TextInput` to prevent key locking/glitching when typing or pasting.
+  * **Companion Architecture & Troubleshooting Manual**: Added comprehensive reference specification in `docs/COMPANION-APP-ARCHITECTURE-AND-TROUBLESHOOTING.md` covering multi-tier architecture, Android 14+ restrictions, WebView WebSocket fallback, circular AMOLED design, feature blueprints, and failure diagnostics.
   * **Strict Semantic Versioning**: Minor fix increment (+0.1.0) to version `17.3.0` (`versionCode 503` in Android, version `17.3.0` / code `20` in Zepp OS).
 
 * **v17.2.0 (Commit `b05171f`)**:
