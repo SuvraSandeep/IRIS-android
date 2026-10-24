@@ -2578,18 +2578,17 @@ public class MainActivity extends Activity {
     }
     private void showWatchSetup(){
         if(WatchBridge.enabled(this)){
-            String serviceState = IrisListeningService.isRunning
-                ? "🟢 Active & Listening on port 18473"
-                : "🔴 Service Stopped (Tap to Start)";
+            String title = "Amazfit T-Rex 3 Bridge · " + (IrisListeningService.isRunning ? "Online 🟢" : "Resting 🔴");
             new AlertDialog.Builder(this)
-                .setTitle("Amazfit T-Rex 3 Bridge")
-                .setMessage("Status: " + serviceState + "\n\nWhen IRIS is running, your watch can query battery, ring your phone, or send voice prompts.")
+                .setTitle(title)
                 .setItems(new String[]{
+                    "🔑 View & copy pairing secret key",
                     IrisListeningService.isRunning ? "📡 Test phone bridge" : "⚡ Start IRIS & Test phone bridge",
-                    "🔑 View pairing secret key",
                     "⚙️ Pairing settings (rotate / disable)"
                 }, (d,i)->{
                     if (i == 0) {
+                        showWatchToken();
+                    } else if (i == 1) {
                         if (!IrisListeningService.isRunning) {
                             if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
                                 startListeningService();
@@ -2598,8 +2597,6 @@ public class MainActivity extends Activity {
                             }
                         }
                         WatchTransportProbe.run(this);
-                    } else if (i == 1) {
-                        showWatchToken();
                     } else {
                         showWatchPairing();
                     }
@@ -2634,7 +2631,29 @@ public class MainActivity extends Activity {
             }catch(Exception e){toast("Pairing could not be saved.");}}))
             .setNeutralButton("New pairing code",(d,w)->authenticateOwner("Replace watch pairing",()->{try{WatchBridge.rotate(this);showWatchToken();}catch(Exception e){toast("Could not replace pairing.");}})).setNegativeButton("Close",null).show();
     }
-    private void showWatchToken(){try{TextView text=new TextView(this);text.setPadding(24,16,24,16);text.setTextIsSelectable(true);text.setText("Paste this secret into the IRIS Remote mini app's Zepp settings. Replacing it revokes the old pairing.\n\n"+WatchBridge.token(this));new AlertDialog.Builder(this).setTitle("Watch pairing secret").setView(text).setPositiveButton("Close",null).show();}catch(Exception e){toast("No pairing secret available.");}}
+    private void showWatchToken(){
+        try{
+            String token = WatchBridge.token(this);
+            TextView text=new TextView(this);
+            text.setPadding(32,24,32,24);
+            text.setTextIsSelectable(true);
+            text.setText("Paste this secret into the IRIS Remote mini app's Zepp settings. Replacing it revokes the old pairing.\n\n" + token);
+            new AlertDialog.Builder(this)
+                .setTitle("Watch pairing secret")
+                .setView(text)
+                .setPositiveButton("Copy key", (d,w) -> {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("IRIS Watch Secret", token));
+                        toast("Pairing key copied to clipboard!");
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+        }catch(Exception e){
+            toast("No pairing secret available.");
+        }
+    }
 
     private void showSettings() {
         selectedTab = 4;

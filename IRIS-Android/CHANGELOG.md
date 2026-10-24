@@ -1,5 +1,12 @@
 # Changelog
 
+## 17.1.0
+
+- Watch Bridge Dialog Visibility & Clipboard Key Fix:
+  - AlertDialog Items Restoration: Fixed an issue where `showWatchSetup()` in `MainActivity.java` called `.setMessage()` alongside `.setItems()`, which caused Android's `AlertController` to hide the list items entirely. Removed `.setMessage()` so the action items ("🔑 View & copy pairing secret key", "📡 Test phone bridge", "⚙️ Pairing settings") are fully visible and clickable.
+  - One-Tap Key Copy to Clipboard: Added a "Copy key" action in `showWatchToken()` with direct `ClipboardManager` integration and toast confirmation.
+  - Semantic Versioning: Minor fix increment (+0.1.0) to version 17.1.0 (versionCode 501 in Android, version 17.1.0 in Zepp OS).
+
 ## 17.0.0
 
 - Amazfit T-Rex 3 Cyberpunk Remote & Bridge Architecture Overhaul:

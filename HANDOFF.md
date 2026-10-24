@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `17.0.0` / `versionCode 500` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `17.1.0` / `versionCode 501` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -152,6 +152,11 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v17.1.0 (Commit `c44cdff`)**:
+  * **Watch Bridge Dialog Items Restoration**: Resolved Android `AlertController` issue where `showWatchSetup()` in `MainActivity.java` called `.setMessage()` alongside `.setItems()`, concealing the action list items. Removed `.setMessage()` to restore full visibility of list options ("🔑 View & copy pairing secret key", "📡 Test phone bridge", "⚙️ Pairing settings").
+  * **One-Tap Secret Key Copy to Clipboard**: Added a "Copy key" action in `showWatchToken()` with direct `ClipboardManager` integration and confirmation toast.
+  * **Semantic Versioning Enforcement**: Bumped version to `17.1.0` (`versionCode 501` in Android, version `17.1.0` in Zepp OS) under the strict minor-fix rule (+0.1.0).
 
 * **v17.0.0 (Commit `92eed7a`)**:
   * **WatchBridge Auto-Start & Transport Hardening**: Resolved Android WebView "Bridge unavailable start iris, zepp may block local http" rejection by implementing standard CORS response headers (`Access-Control-Allow-Origin: *`, `Access-Control-Allow-Headers: Authorization, X-IRIS-Sent-At, Content-Type`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`), adding explicit `OPTIONS` preflight handling, permitting request bodies with payload consumption, widening request timestamp tolerance to 60s, and providing localhost fallback in `app-side/index.js`.
