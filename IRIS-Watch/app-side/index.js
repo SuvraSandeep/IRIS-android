@@ -55,7 +55,7 @@ AppSideService(BaseSideService({
          if (!done) {
           done = true;
           try { ws.close(); } catch (e) {}
-          res(null, { message: 'Phone bridge unreachable. Check IRIS Settings → Watch Remote Bridge.' });
+          res(null, { message: 'Phone bridge unreachable. Start IRIS on your phone first.' });
          }
         }, 2500);
         ws.onopen = () => {
@@ -77,13 +77,13 @@ AppSideService(BaseSideService({
          if (!done) {
           done = true;
           clearTimeout(t);
-          res(null, { message: 'Phone bridge unreachable. Check IRIS Settings → Watch Remote Bridge.' });
+          res(null, { message: 'Phone bridge unreachable. Start IRIS on your phone first.' });
          }
         };
         return;
        } catch (e) {}
       }
-      res(null, { message: 'Phone bridge unreachable. Check IRIS Settings → Watch Remote Bridge.' });
+      res(null, { message: 'Phone bridge unreachable. Start IRIS on your phone first.' });
      });
    });
  }

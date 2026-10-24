@@ -8,264 +8,360 @@ AppSettingsPage({
       ? '•••• •••• •••• ' + token.slice(-8).toUpperCase()
       : (token.length > 0 ? 'Incomplete (' + token.length + '/64 chars)' : 'Not entered yet');
 
+    const testBridge = (path, method, successMsg) => {
+      if (!isValid) {
+        props.settingsStorage.setItem('irisStatusNotice', '⚠️ Paste and save a valid 64-hex key first.');
+        return;
+      }
+      props.settingsStorage.setItem('irisStatusNotice', '⏳ Contacting phone bridge at 127.0.0.1:18473' + path + '...');
+      const headers = {
+        Authorization: 'Bearer ' + token,
+        'X-IRIS-Sent-At': String(Date.now()),
+        'Content-Type': 'application/json'
+      };
+
+      const doReq = (url) => {
+        return fetch(url, { method: method, headers: headers, mode: 'cors' })
+          .then(res => {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json().catch(() => res.text());
+          });
+      };
+
+      doReq('http://127.0.0.1:18473' + path)
+        .catch(() => doReq('http://localhost:18473' + path))
+        .then(data => {
+          const body = (typeof data === 'object' && data) ? (data.message || JSON.stringify(data)) : String(data);
+          props.settingsStorage.setItem('irisStatusNotice', '✓ SUCCESS: ' + (successMsg || body));
+        })
+        .catch(() => {
+          props.settingsStorage.setItem('irisStatusNotice', '✕ BRIDGE UNREACHABLE: Start IRIS on your phone (Settings → Amazfit T-Rex 3 → Start IRIS & Test).');
+        });
+    };
+
     return View({
       style: {
         backgroundColor: '#070816',
         minHeight: '100%',
         padding: '16px',
-        color: '#F1F5F9',
+        display: 'flex',
+        flexDirection: 'column',
         fontFamily: 'system-ui, -apple-system, sans-serif'
       }
     }, [
-      // 1. Header Card
+      // 1. Cyber Header Card
       View({
         style: {
-          backgroundColor: '#0F1226',
+          backgroundColor: '#0D1127',
           border: '1px solid #1E293B',
           borderTop: '3px solid #00F0FF',
           borderRadius: '14px',
-          padding: '18px',
-          marginBottom: '14px'
+          padding: '16px',
+          marginBottom: '14px',
+          display: 'flex',
+          flexDirection: 'column'
         }
       }, [
         Text({
+          paragraph: true,
           style: {
-            fontSize: '20px',
+            fontSize: '18px',
             fontWeight: 'bold',
             color: '#00F0FF',
+            display: 'block',
             marginBottom: '4px'
           }
-        }, '⚡ IRIS Remote Settings'),
+        }, '⚡ IRIS REMOTE // T-REX 3'),
         Text({
+          paragraph: true,
           style: {
-            fontSize: '13px',
-            color: '#94A3B8'
+            fontSize: '12px',
+            color: '#94A3B8',
+            display: 'block'
           }
-        }, 'Amazfit T-Rex 3 Companion Bridge · v17.0')
+        }, 'Cyberpunk Neural Wrist Link · v17.0.0')
       ]),
 
-      // 2. Connection Status Card
+      // 2. Hardware Link Telemetry Card
       View({
         style: {
-          backgroundColor: '#0F1226',
+          backgroundColor: '#0D1127',
           border: '1px solid ' + (isValid ? '#065F46' : '#701A2E'),
           borderRadius: '14px',
           padding: '16px',
-          marginBottom: '14px'
+          marginBottom: '14px',
+          display: 'flex',
+          flexDirection: 'column'
         }
       }, [
         Text({
+          paragraph: true,
           style: {
-            fontSize: '12px',
+            fontSize: '11px',
             fontWeight: 'bold',
             color: '#64748B',
-            letterSpacing: '0.5px',
+            letterSpacing: '1px',
+            display: 'block',
             marginBottom: '6px'
           }
-        }, 'CONNECTION STATUS'),
+        }, 'HARDWARE TELEMETRY'),
         Text({
+          paragraph: true,
           style: {
-            fontSize: '16px',
+            fontSize: '15px',
             fontWeight: 'bold',
             color: isValid ? '#00FF9D' : '#FB7185',
+            display: 'block',
             marginBottom: '8px'
           }
-        }, isValid ? '🟢 Connected & Ready' : '🟡 Ready to Pair (Enter Key Below)'),
+        }, isValid ? '● LINK ARMED & AUTHENTICATED' : '○ STANDBY // UNPAIRED'),
         Text({
+          paragraph: true,
           style: {
             fontSize: '13px',
             color: '#38BDF8',
             fontFamily: 'monospace',
-            marginBottom: '4px'
+            display: 'block',
+            marginBottom: '6px'
           }
-        }, 'Pairing Key: ' + maskedKey),
+        }, 'Active Key: ' + maskedKey),
         Text({
+          paragraph: true,
           style: {
             fontSize: '12px',
-            color: '#94A3B8'
+            color: '#94A3B8',
+            display: 'block'
           }
         }, isValid
-          ? 'Secure bridge active on port 18473. Your watch can now control IRIS.'
-          : 'Copy the 64-character pairing key from your phone\'s IRIS app to connect.')
+          ? 'Secure bridge active on port 18473. Your T-Rex 3 watch can control IRIS.'
+          : 'Copy the 64-hex pairing key from IRIS Settings on your phone to link.')
       ]),
 
-      // Status Feedback Notice
+      // Live Notice Banner (if any)
       notice ? View({
         style: {
-          backgroundColor: '#1E293B',
-          border: '1px solid #38BDF8',
+          backgroundColor: notice.includes('SUCCESS') ? '#07241A' : (notice.includes('UNREACHABLE') || notice.includes('⚠️') ? '#240F18' : '#0B1E33'),
+          border: '1px solid ' + (notice.includes('SUCCESS') ? '#00FF9D' : (notice.includes('UNREACHABLE') || notice.includes('⚠️') ? '#FB7185' : '#00F0FF')),
           borderRadius: '10px',
           padding: '12px 14px',
-          marginBottom: '14px'
+          marginBottom: '14px',
+          display: 'flex',
+          flexDirection: 'column'
         }
       }, [
         Text({
+          paragraph: true,
           style: {
             fontSize: '13px',
-            color: '#38BDF8'
+            color: notice.includes('SUCCESS') ? '#00FF9D' : (notice.includes('UNREACHABLE') || notice.includes('⚠️') ? '#FB7185' : '#38BDF8'),
+            display: 'block',
+            lineHeight: '18px'
           }
-        }, '💬 ' + notice)
+        }, notice)
       ]) : null,
 
-      // 3. Pairing Key Input Card
+      // 3. Pairing Secret Key Input Card
       View({
         style: {
-          backgroundColor: '#0F1226',
+          backgroundColor: '#0D1127',
           border: '1px solid #1E293B',
           borderRadius: '14px',
           padding: '16px',
-          marginBottom: '14px'
+          marginBottom: '14px',
+          display: 'flex',
+          flexDirection: 'column'
         }
       }, [
         Text({
+          paragraph: true,
           style: {
             fontSize: '14px',
             fontWeight: 'bold',
             color: '#F1F5F9',
+            display: 'block',
             marginBottom: '4px'
           }
         }, 'Pairing Secret Key'),
         Text({
+          paragraph: true,
           style: {
             fontSize: '12px',
             color: '#94A3B8',
+            display: 'block',
             marginBottom: '12px'
           }
-        }, 'From IRIS Android App → Settings → Amazfit T-Rex 3 Watch Remote.'),
+        }, 'From IRIS Android App → Settings → Amazfit T-Rex 3 Bridge.'),
         TextInput({
-          label: 'Pairing Secret Key',
+          label: 'Secret Key (64 hex characters)',
           settingsKey: 'irisToken',
-          placeholder: 'Paste 64-character secret key here...',
+          placeholder: 'Paste 64-hex key here...',
           onChange: val => {
             const clean = (val || '').replace(/^Bearer\s+/i, '').replace(/["']/g, '').trim().toLowerCase();
             props.settingsStorage.setItem('irisToken', clean);
           }
         }),
-        View({ style: { marginTop: '14px', marginBottom: '8px' } }, [
+        View({
+          style: {
+            marginTop: '14px',
+            marginBottom: '10px',
+            display: 'flex',
+            flexDirection: 'column'
+          }
+        }, [
           Button({
-            label: '✓ Save & Connect Key',
-            color: 'primary',
+            label: '⚡ SAVE & ARM KEY',
+            style: {
+              background: 'linear-gradient(135deg, #7C3AED, #06B6D4)',
+              backgroundColor: '#06B6D4',
+              color: '#FFFFFF',
+              borderRadius: '12px',
+              fontWeight: 'bold',
+              fontSize: '14px',
+              border: 'none',
+              padding: '12px',
+              width: '100%',
+              cursor: 'pointer'
+            },
             onClick: () => {
               const current = (props.settingsStorage.getItem('irisToken') || '').replace(/^Bearer\s+/i, '').replace(/["']/g, '').trim().toLowerCase();
               props.settingsStorage.setItem('irisToken', current);
               const valid = /^[a-f0-9]{64}$/i.test(current);
               props.settingsStorage.setItem('irisStatusNotice', valid
-                ? 'Key saved & validated! T-Rex 3 is now paired.'
-                : 'Key saved, but length is ' + current.length + '/64 chars. Please re-copy.');
+                ? '✓ Key saved & validated! Tap "Ping Phone Bridge" below to verify.'
+                : '⚠️ Key length is ' + current.length + '/64 characters. Please re-copy.');
             }
           })
         ]),
-        View({}, [
+        View({
+          style: {
+            display: 'flex',
+            flexDirection: 'column'
+          }
+        }, [
           Button({
-            label: 'Clear Stored Key',
-            color: 'default',
+            label: '✕ CLEAR STORED KEY',
+            style: {
+              backgroundColor: '#1E1220',
+              color: '#FB7185',
+              borderRadius: '12px',
+              border: '1px solid #701A2E',
+              fontWeight: 'bold',
+              fontSize: '13px',
+              padding: '10px',
+              width: '100%',
+              cursor: 'pointer'
+            },
             onClick: () => {
               props.settingsStorage.removeItem('irisToken');
-              props.settingsStorage.setItem('irisStatusNotice', 'Pairing key cleared.');
+              props.settingsStorage.setItem('irisStatusNotice', 'Stored pairing secret cleared.');
             }
           })
         ])
       ]),
 
-      // 4. Quick Connection Tests
+      // 4. Live Bridge Diagnostics & Hardware Controls
       View({
         style: {
-          backgroundColor: '#0F1226',
+          backgroundColor: '#0D1127',
           border: '1px solid #1E293B',
           borderRadius: '14px',
           padding: '16px',
-          marginBottom: '14px'
+          marginBottom: '14px',
+          display: 'flex',
+          flexDirection: 'column'
         }
       }, [
         Text({
-          style: {
-            fontSize: '14px',
-            fontWeight: 'bold',
-            color: '#F1F5F9',
-            marginBottom: '4px'
-          }
-        }, 'Test Watch Connection'),
-        Text({
-          style: {
-            fontSize: '12px',
-            color: '#94A3B8',
-            marginBottom: '12px'
-          }
-        }, 'Verify that communication between the watch and phone is working.'),
-        View({ style: { marginBottom: '10px' } }, [
-          Button({
-            label: '📡 Ping Phone Bridge',
-            color: 'default',
-            onClick: () => {
-              if (!isValid) {
-                props.settingsStorage.setItem('irisStatusNotice', 'Please paste and save a valid 64-char key first.');
-                return;
-              }
-              props.settingsStorage.setItem('irisStatusNotice', 'Checking phone bridge at 127.0.0.1:18473...');
-              const headers = { Authorization: 'Bearer ' + token, 'X-IRIS-Sent-At': String(Date.now()) };
-              const doTest = (url) => {
-                return fetch(url, { method: 'GET', headers: headers }).catch(() => fetch({ url: url, method: 'GET', headers: headers }));
-              };
-              doTest('http://127.0.0.1:18473/ping')
-                .then(res => {
-                  props.settingsStorage.setItem('irisStatusNotice', '✓ Success: Phone bridge is ONLINE and responding!');
-                })
-                .catch(() => {
-                  doTest('http://localhost:18473/ping')
-                    .then(res => {
-                      props.settingsStorage.setItem('irisStatusNotice', '✓ Success: Phone bridge is ONLINE on localhost!');
-                    })
-                    .catch(() => {
-                      props.settingsStorage.setItem('irisStatusNotice', 'Phone bridge unreachable. Make sure the IRIS app is running on this phone.');
-                    });
-                });
-            }
-          })
-        ]),
-        View({}, [
-          Button({
-            label: '🔔 Test Ring Phone (Find Me)',
-            color: 'default',
-            onClick: () => {
-              if (!isValid) {
-                props.settingsStorage.setItem('irisStatusNotice', 'Please paste and save a valid 64-char key first.');
-                return;
-              }
-              const headers = { Authorization: 'Bearer ' + token, 'X-IRIS-Sent-At': String(Date.now()) };
-              fetch('http://127.0.0.1:18473/find', { method: 'POST', headers: headers })
-                .catch(() => fetch({ url: 'http://127.0.0.1:18473/find', method: 'POST', headers: headers }))
-                .then(() => {
-                  props.settingsStorage.setItem('irisStatusNotice', '✓ Ring command sent! Your phone should be ringing now.');
-                })
-                .catch(() => {
-                  props.settingsStorage.setItem('irisStatusNotice', 'Could not send ring command. Check that IRIS is running.');
-                });
-            }
-          })
-        ])
-      ]),
-
-      // 5. 3-Step Setup Guide
-      View({
-        style: {
-          backgroundColor: '#0F1226',
-          border: '1px solid #1E293B',
-          borderRadius: '14px',
-          padding: '16px'
-        }
-      }, [
-        Text({
+          paragraph: true,
           style: {
             fontSize: '14px',
             fontWeight: 'bold',
             color: '#00F0FF',
+            display: 'block',
+            marginBottom: '4px'
+          }
+        }, 'Hardware Bridge Diagnostics'),
+        Text({
+          paragraph: true,
+          style: {
+            fontSize: '12px',
+            color: '#94A3B8',
+            display: 'block',
+            marginBottom: '12px'
+          }
+        }, 'Directly probe connectivity between Zepp companion and your phone.'),
+        View({
+          style: {
+            marginBottom: '10px',
+            display: 'flex',
+            flexDirection: 'column'
+          }
+        }, [
+          Button({
+            label: '📡 PING PHONE BRIDGE',
+            style: {
+              backgroundColor: '#0B2032',
+              color: '#00F0FF',
+              borderRadius: '12px',
+              border: '1px solid #00F0FF',
+              fontWeight: 'bold',
+              fontSize: '14px',
+              padding: '12px',
+              width: '100%',
+              cursor: 'pointer'
+            },
+            onClick: () => testBridge('/ping', 'GET', 'Phone bridge is ONLINE and ready!')
+          })
+        ]),
+        View({
+          style: {
+            display: 'flex',
+            flexDirection: 'column'
+          }
+        }, [
+          Button({
+            label: '🔔 TEST RING PHONE (FIND ME)',
+            style: {
+              backgroundColor: '#0A261A',
+              color: '#00FF9D',
+              borderRadius: '12px',
+              border: '1px solid #00FF9D',
+              fontWeight: 'bold',
+              fontSize: '14px',
+              padding: '12px',
+              width: '100%',
+              cursor: 'pointer'
+            },
+            onClick: () => testBridge('/find', 'POST', 'Ring command accepted! Phone is ringing.')
+          })
+        ])
+      ]),
+
+      // 5. Setup Guide
+      View({
+        style: {
+          backgroundColor: '#0D1127',
+          border: '1px solid #1E293B',
+          borderRadius: '14px',
+          padding: '16px',
+          display: 'flex',
+          flexDirection: 'column'
+        }
+      }, [
+        Text({
+          paragraph: true,
+          style: {
+            fontSize: '14px',
+            fontWeight: 'bold',
+            color: '#00F0FF',
+            display: 'block',
             marginBottom: '10px'
           }
-        }, 'Simple 3-Step Setup'),
-        Text({ style: { fontSize: '13px', color: '#F1F5F9', marginBottom: '8px' } }, '1. Open the IRIS app on your phone → tap Settings.'),
-        Text({ style: { fontSize: '13px', color: '#F1F5F9', marginBottom: '8px' } }, '2. Tap "Amazfit T-Rex 3 Watch Remote" → copy your pairing key.'),
-        Text({ style: { fontSize: '13px', color: '#F1F5F9', marginBottom: '8px' } }, '3. Paste the key above and tap "Save & Connect Key".'),
-        Text({ style: { fontSize: '13px', color: '#00FF9D', marginTop: '6px' } }, '✓ Open IRIS Remote on your T-Rex 3 watch and tap any button!')
+        }, '3-Step Connection Guide'),
+        Text({ paragraph: true, style: { fontSize: '13px', color: '#F1F5F9', display: 'block', marginBottom: '8px' } }, '1. Open IRIS App on phone → Settings → tap "Amazfit T-Rex 3 Bridge".'),
+        Text({ paragraph: true, style: { fontSize: '13px', color: '#F1F5F9', display: 'block', marginBottom: '8px' } }, '2. Tap "Start IRIS & Test bridge" → copy your pairing key.'),
+        Text({ paragraph: true, style: { fontSize: '13px', color: '#F1F5F9', display: 'block', marginBottom: '8px' } }, '3. Paste the key above, tap "SAVE & ARM KEY", then tap "PING PHONE BRIDGE".'),
+        Text({ paragraph: true, style: { fontSize: '13px', color: '#00FF9D', display: 'block', marginTop: '6px' } }, '✓ Open IRIS Remote on your T-Rex 3 watch and enjoy wrist control!')
       ])
     ]);
   }

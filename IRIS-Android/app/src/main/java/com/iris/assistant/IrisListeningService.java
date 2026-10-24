@@ -515,11 +515,20 @@ public class IrisListeningService extends Service implements RecognitionListener
         createNotificationChannels();
         startListenerWatchdog();
         watchBridge=new WatchBridge(this,path->{
-            if(!isRunning)return "Start IRIS on your phone first";
-            if(path.equals("/ping"))return "IRIS Bridge Online · "+phase;
-            if(path.equals("/status"))return "IRIS: "+phase+"; "+chargingStatusText();
-            if(path.equals("/stop")){if(phoneFinder==null||!phoneFinder.active())return "Finder is not ringing";phoneFinder.stop();rearmAfterAction();return "Finder stopped";}
-            if(path.equals("/find")){if(!PHASE_WAKE.equals(phase))return "IRIS is busy; finish the current command first";handleCommand("ring my phone");return phoneFinder!=null&&phoneFinder.active()?"Ringing for 30 seconds":"Alarm blocked: check phone DND settings";}
+            if(path.equals("/ping"))return "IRIS Phone Bridge Online";
+            if(path.equals("/status"))return "Phone: "+chargingStatusText()+" · IRIS Active";
+            if(path.equals("/stop")){
+                if(phoneFinder!=null&&phoneFinder.active()){
+                    phoneFinder.stop();
+                    return "Alarm silenced";
+                }
+                return "Alarm is not ringing";
+            }
+            if(path.equals("/find")){
+                if(phoneFinder==null) phoneFinder=new PhoneFinder(IrisListeningService.this);
+                phoneFinder.start(()->{if(isRunning)rearmAfterAction();});
+                return phoneFinder.active()?"Ringing for 30 seconds":"Alarm blocked: check phone DND settings";
+            }
             android.app.NotificationManager nm=(android.app.NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(!nm.areNotificationsEnabled())return "Enable IRIS notifications on your phone first";
             nm.createNotificationChannel(new android.app.NotificationChannel("iris_watch","Watch talk requests",android.app.NotificationManager.IMPORTANCE_DEFAULT));

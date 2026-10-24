@@ -2577,15 +2577,61 @@ public class MainActivity extends Activity {
         try{startForegroundService(new Intent(this,IrisListeningService.class).setAction(IrisListeningService.ACTION_PROCESS_TEXT).putExtra(IrisListeningService.EXTRA_TEXT,command));}catch(Exception e){toast("Could not start IRIS. Try the main Talk control.");}
     }
     private void showWatchSetup(){
-        if(WatchBridge.enabled(this)){new AlertDialog.Builder(this).setTitle("Watch connection")
-            .setItems(new String[]{"Test phone bridge","Pairing and controls"},(d,i)->{if(i==0)WatchTransportProbe.run(this);else showWatchPairing();}).show();return;}
+        if(WatchBridge.enabled(this)){
+            String serviceState = IrisListeningService.isRunning
+                ? "🟢 Active & Listening on port 18473"
+                : "🔴 Service Stopped (Tap to Start)";
+            new AlertDialog.Builder(this)
+                .setTitle("Amazfit T-Rex 3 Bridge")
+                .setMessage("Status: " + serviceState + "\n\nWhen IRIS is running, your watch can query battery, ring your phone, or send voice prompts.")
+                .setItems(new String[]{
+                    IrisListeningService.isRunning ? "📡 Test phone bridge" : "⚡ Start IRIS & Test phone bridge",
+                    "🔑 View pairing secret key",
+                    "⚙️ Pairing settings (rotate / disable)"
+                }, (d,i)->{
+                    if (i == 0) {
+                        if (!IrisListeningService.isRunning) {
+                            if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                                startListeningService();
+                            } else {
+                                toast("Microphone permission needed to start IRIS.");
+                            }
+                        }
+                        WatchTransportProbe.run(this);
+                    } else if (i == 1) {
+                        showWatchToken();
+                    } else {
+                        showWatchPairing();
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+            return;
+        }
         showWatchPairing();
     }
     private void showWatchPairing(){
         if(!ReliabilityTools.unlocked(this))return;
-        new AlertDialog.Builder(this).setTitle("T-Rex 3 remote · experimental")
-            .setMessage("Status: "+WatchBridge.state+"\n\nA Zepp mini app can request status, ring/stop your phone, or post a Talk notification. The phone uses its own microphone. The local bridge runs only while IRIS runs. Compatibility with Zepp's local HTTP policy must be tested on your phone. DND still needs alarms allowed.")
-            .setPositiveButton(WatchBridge.enabled(this)?"Disable":"Enable and pair",(d,w)->authenticateOwner("Change watch pairing",()->{try{boolean on=!WatchBridge.enabled(this);if(on)WatchBridge.rotate(this);WatchBridge.enabled(this,on);restartIfRunning();if(on)showWatchToken();}catch(Exception e){toast("Pairing could not be saved.");}}))
+        String currentStatus = WatchBridge.enabled(this)
+            ? (IrisListeningService.isRunning ? "Active & Listening on port 18473" : "Enabled, but IRIS service is resting")
+            : "Disabled";
+        new AlertDialog.Builder(this).setTitle("Amazfit T-Rex 3 Remote Bridge")
+            .setMessage("Status: " + currentStatus + "\n\nThe watch remote bridge lets your Amazfit T-Rex 3 check phone battery, ring your phone when misplaced, or post voice requests. Enabling the bridge starts IRIS on your phone.")
+            .setPositiveButton(WatchBridge.enabled(this)?"Disable":"Enable and start IRIS",(d,w)->authenticateOwner("Change watch pairing",()->{try{
+                boolean on=!WatchBridge.enabled(this);
+                if(on)WatchBridge.rotate(this);
+                WatchBridge.enabled(this,on);
+                if(on){
+                    if(!IrisListeningService.isRunning&&hasPermission(Manifest.permission.RECORD_AUDIO)){
+                        startListeningService();
+                    }else{
+                        restartIfRunning();
+                    }
+                    showWatchToken();
+                }else{
+                    restartIfRunning();
+                }
+            }catch(Exception e){toast("Pairing could not be saved.");}}))
             .setNeutralButton("New pairing code",(d,w)->authenticateOwner("Replace watch pairing",()->{try{WatchBridge.rotate(this);showWatchToken();}catch(Exception e){toast("Could not replace pairing.");}})).setNegativeButton("Close",null).show();
     }
     private void showWatchToken(){try{TextView text=new TextView(this);text.setPadding(24,16,24,16);text.setTextIsSelectable(true);text.setText("Paste this secret into the IRIS Remote mini app's Zepp settings. Replacing it revokes the old pairing.\n\n"+WatchBridge.token(this));new AlertDialog.Builder(this).setTitle("Watch pairing secret").setView(text).setPositiveButton("Close",null).show();}catch(Exception e){toast("No pairing secret available.");}}
