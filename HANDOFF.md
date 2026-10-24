@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `16.82.2` / `versionCode 484` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `17.0.0` / `versionCode 500` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -69,7 +69,7 @@
 | Feature | Status | Description |
 |---|---|---|
 | **Server Mode & SSE Streaming** | Working (Opt-in) | FastAPI server (`server/app.py`) with `POST /chat/stream` SSE endpoint streaming Ollama tokens. `ServerClient.java` with `StreamListener` and `findSentenceSplit()` streams sentences into `IrisListeningService.java` with immediate `QUEUE_FLUSH` Sentence 1 TTS, dropping perceived latency from 8.0s to ~800ms. Subsequent sentences queue seamlessly with `QUEUE_ADD`; action tags (`[CALL]`, `[TIME]`) are intercepted and dispatched to `handleLlmOutput()`. Clean lifecycle re-arming via `scheduleStreamRearm()` and watchdog timer. |
-| **Watch Companion Multi-Transport** | Working | `IRIS-Watch/` Zepp OS mini-app with multi-transport phone bridge: loopback HTTP, RFC 6455 local WebSocket (`ws://127.0.0.1:18473/ws`), and authenticated BLE GATT service (`WatchGattBridge.java`, UUID `00001847-0000-1000-8000-00805f9b34fb`). `app-side/index.js` automatically falls back to WebSocket when loopback HTTP is blocked on newer runtimes. |
+| **Amazfit T-Rex 3 Remote & Bridge** | Working | `IRIS-Watch/` Zepp OS 4.0 mini-app with hardened loopback HTTP (`WatchBridge.java` with full CORS preflight and headers, payload consumption, 60s clock skew tolerance, and RFC 6455 local WebSocket fallback). Contoured 480x480 AMOLED HUD with glowing IRIS logo (`assets/trex3/icon.png` & `iris_logo.png`), human-friendly action buttons (Battery, Ring Phone, Silence, Talk), companion settings with live bridge ping, and dedicated glowing accent card in Android Settings. |
 
 ---
 
@@ -147,6 +147,13 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v17.0.0 (Commit `0781519`)**:
+  * **WatchBridge CORS & Transport Hardening**: Resolved Android WebView "Bridge unavailable start iris, zepp may block local http" rejection by implementing standard CORS response headers (`Access-Control-Allow-Origin: *`, `Access-Control-Allow-Headers: Authorization, X-IRIS-Sent-At, Content-Type`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`), adding explicit `OPTIONS` preflight handling, permitting request bodies with payload consumption, widening request timestamp tolerance to 60s, and providing localhost fallback in `app-side/index.js`.
+  * **Authentic IRIS Eye Logo Assets**: Designed and bundled authentic antialiased IRIS glowing concentric orb vectors rendered to 124x124 Zepp OS app icons and 48x48 HUD top badges across standard and T-Rex 3 target directories (`assets/trex3/icon.png`, `assets/trex3/iris_logo.png`).
+  * **Redesigned Watch HUD & Companion Settings**: Overhauled watch interface with clear human-friendly buttons (`📊 Phone Battery & Status`, `🔔 Ring My Phone`, `🔕 Silence Phone Alarm`, `🎙 Talk to IRIS`), contoured AMOLED styling, and intuitive companion Zepp settings cards with direct secret token persistence and live ping controls.
+  * **Cyberpunk Settings Deck Redesign**: Redesigned IRIS Android Settings view to cleanly feature the T-Rex 3 wrist bridge in a dedicated glowing accent card (`bg_card_accent`), alongside neatly grouped and styled decks for Voice Routines and System Diagnostics.
+  * **Major Release**: Version bump to 17.0.0 (versionCode 500 in Android, version 17.0.0 in Zepp OS).
 
 * **v16.82.2 (Commit `584f675`)**:
   * **CI Regression Suite Stabilization**: Decoupled `OptOutDetector.java` from `ReplyTemplates.java` by inlining the default owner name, ensuring zero-dependency standalone compilation in `scripts/test-speech.sh` alongside `tests/OptOutDetectorTest.java`.

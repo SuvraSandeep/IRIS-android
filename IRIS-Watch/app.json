@@ -5,12 +5,12 @@
     "appName": "IRIS Remote",
     "appType": "app",
     "version": {
-      "code": 1,
-      "name": "0.1.0"
+      "code": 17,
+      "name": "17.0.0"
     },
     "icon": "icon.png",
     "vender": "IRIS",
-    "description": "Experimental local phone remote"
+    "description": "Cyberpunk local remote HUD for Amazfit T-Rex 3"
   },
   "permissions": [
     "data:os.device.info",

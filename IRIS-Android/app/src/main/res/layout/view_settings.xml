@@ -10,14 +10,193 @@
         android:orientation="vertical"
         android:paddingBottom="22dp">
 
-        <Button android:id="@+id/enduranceSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Voice endurance and labelled tests" />
-        <Button android:id="@+id/reliabilityDashboard" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Wake reliability dashboard" />
-        <Button android:id="@+id/recognitionSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Offline language readiness" />
-        <Button android:id="@+id/commandHistory" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Command history and retry" />
-        <Button android:id="@+id/routinesSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Editable routines" />
-        <Button android:id="@+id/watchSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="T-Rex 3 remote · experimental" />
-        <Button android:id="@+id/assistantSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Default assistant · experimental" />
-        <Button android:id="@+id/findPhoneSetup" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Find my phone · alarm setup" />
+        <!-- ========================================================= -->
+        <!-- SMARTWATCH & WEARABLES (AMAZFIT T-REX 3 WRIST LINK)       -->
+        <!-- ========================================================= -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_card_accent"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="SMARTWATCH REMOTE"
+                android:textColor="@color/cyan"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Amazfit T-Rex 3 Bridge"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Direct wrist HUD link: check battery status, ring your phone if misplaced, cancel alarms, and post voice prompts straight to IRIS."
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/watchSetup"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_button_primary"
+                android:text="⌚ Configure Watch Remote &amp; Pairing Secret"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- ========================================================= -->
+        <!-- VOICE SHORTCUTS & ROUTINES DECK                           -->
+        <!-- ========================================================= -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="11dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="VOICE SHORTCUTS &amp; ROUTINES"
+                android:textColor="@color/magenta"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Quick Actions &amp; System Integration"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/routinesSetup"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_button_secondary"
+                android:text="⚡ Editable Voice Routines"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/findPhoneSetup"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_button_secondary"
+                android:text="🔔 Find My Phone · Alarm Trigger"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/assistantSetup"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_button_secondary"
+                android:text="🎙 Default System Assistant Integration"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- ========================================================= -->
+        <!-- DIAGNOSTICS & SYSTEM TELEMETRY DECK                       -->
+        <!-- ========================================================= -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="11dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="DIAGNOSTICS &amp; TELEMETRY"
+                android:textColor="@color/cyan"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Health, Accuracy &amp; History"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/commandHistory"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_button_secondary"
+                android:text="📜 Command History &amp; Retry"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/reliabilityDashboard"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_button_secondary"
+                android:text="📈 Wake Reliability Dashboard"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/recognitionSetup"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_button_secondary"
+                android:text="🌐 Offline Language Readiness"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/enduranceSetup"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_button_secondary"
+                android:text="⏱ Voice Endurance &amp; Labelled Tests"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Divider / Spacer before Behavior settings -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"
+            android:background="@color/border_subtle" />
 
         <TextView
             android:layout_width="match_parent"

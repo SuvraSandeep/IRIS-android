@@ -1,5 +1,5 @@
 @echo off
-set PATH=%USERPROFILE%\.gemini\antigravity\tools\node;%PATH%
+set PATH=C:\Program Files\nodejs;%USERPROFILE%\.gemini\antigravity\tools\node;%PATH%
 echo ========================================================
 echo   IRIS Remote - Wireless Install for Amazfit T-Rex 3
 echo ========================================================

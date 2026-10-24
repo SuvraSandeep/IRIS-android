@@ -61,11 +61,19 @@ final class WatchBridge implements AutoCloseable {
     }
 
     static boolean authorized(String actual, String expected) {
-        return expected != null && expected.length() == 64 && actual != null
-                && MessageDigest.isEqual(actual.getBytes(StandardCharsets.UTF_8), ("Bearer " + expected).getBytes(StandardCharsets.UTF_8));
+        if (expected == null || expected.length() != 64 || actual == null) return false;
+        String val = actual.trim();
+        if (val.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            val = val.substring(7).trim();
+        }
+        return MessageDigest.isEqual(
+                val.toLowerCase(java.util.Locale.ROOT).getBytes(StandardCharsets.UTF_8),
+                expected.toLowerCase(java.util.Locale.ROOT).getBytes(StandardCharsets.UTF_8)
+        );
     }
 
     static boolean allowed(String method, String path) {
+        if (method.equals("OPTIONS")) return true;
         return (method.equals("GET") && (path.equals("/status") || path.equals("/ping")))
                 || (method.equals("POST") && (path.equals("/find") || path.equals("/stop") || path.equals("/talk") || path.equals("/ping")));
     }
@@ -173,15 +181,29 @@ final class WatchBridge implements AutoCloseable {
             return;
         }
 
-        if (!end || length != 0 || origin || !allowed(request[0], request[1])) {
+        if (request[0].equals("OPTIONS")) {
+            respond(socket, 200, "Preflight OK");
+            return;
+        }
+
+        if (!end || origin || !allowed(request[0], request[1])) {
             respond(socket, 400, "Unsupported request");
             return;
+        }
+        if (length > 0) {
+            long remaining = length;
+            byte[] discard = new byte[Math.min(length, 4096)];
+            while (remaining > 0) {
+                int r = in.read(discard, 0, (int) Math.min(discard.length, remaining));
+                if (r < 0) break;
+                remaining -= r;
+            }
         }
         if (closed || !enabled(context) || !authorized(auth, token(context))) {
             respond(socket, 403, "Pairing required");
             return;
         }
-        if (request[0].equals("POST") && (sentAt == 0 || Math.abs(System.currentTimeMillis() - sentAt) > 5000)) {
+        if (request[0].equals("POST") && (sentAt == 0 || Math.abs(System.currentTimeMillis() - sentAt) > 60000)) {
             respond(socket, 408, "Watch request expired; try again");
             return;
         }
@@ -331,7 +353,15 @@ final class WatchBridge implements AutoCloseable {
     private void respond(Socket socket, int code, String message) throws Exception {
         byte[] body = new org.json.JSONObject().put("message", message).toString().getBytes(StandardCharsets.UTF_8);
         OutputStream out = socket.getOutputStream();
-        out.write(("HTTP/1.1 " + code + " IRIS\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: " + body.length + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+        String reason = code == 200 ? "OK" : (code == 400 ? "Bad Request" : (code == 403 ? "Forbidden" : (code == 408 ? "Request Timeout" : (code == 429 ? "Too Many Requests" : "Error"))));
+        out.write(("HTTP/1.1 " + code + " " + reason + "\r\n"
+                + "Content-Type: application/json; charset=utf-8\r\n"
+                + "Access-Control-Allow-Origin: *\r\n"
+                + "Access-Control-Allow-Headers: Authorization, X-IRIS-Sent-At, Content-Type\r\n"
+                + "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+                + "Cache-Control: no-store\r\n"
+                + "Connection: close\r\n"
+                + "Content-Length: " + body.length + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
         out.write(body);
         out.flush();
     }

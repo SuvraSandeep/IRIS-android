@@ -1,5 +1,14 @@
 # Changelog
 
+## 17.0.0
+
+- Amazfit T-Rex 3 Cyberpunk Remote & Bridge Architecture Overhaul:
+  - WatchBridge CORS & Transport Hardening: Resolved WebView "Bridge unavailable start iris, zepp may block local http" error by implementing standard CORS response headers (`Access-Control-Allow-Origin: *`, `Access-Control-Allow-Headers: Authorization, X-IRIS-Sent-At, Content-Type`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`), adding explicit `OPTIONS` preflight handling, permitting request bodies with payload discarding, widening request timestamp tolerance to 60s, and providing localhost fallback in `app-side/index.js`.
+  - Authentic IRIS Eye Logo Assets: Designed and bundled authentic antialiased IRIS glowing concentric orb vectors rendered to 124x124 Zepp OS app icons and 48x48 HUD top badges across standard and T-Rex 3 target directories (`assets/trex3/icon.png`, `assets/trex3/iris_logo.png`).
+  - Redesigned Watch HUD & Companion Settings: Overhauled watch interface with clear human-friendly buttons (`📊 Phone Battery & Status`, `🔔 Ring My Phone`, `🔕 Silence Phone Alarm`, `🎙 Talk to IRIS`), contoured AMOLED styling, and intuitive companion Zepp settings cards with direct secret token persistence and live ping controls.
+  - Cyberpunk Settings Deck Redesign: Redesigned IRIS Android Settings view to cleanly feature the T-Rex 3 wrist bridge in a dedicated glowing accent card (`bg_card_accent`), alongside neatly grouped and styled decks for Voice Routines and System Diagnostics.
+  - Major Release: Version bump to 17.0.0 (versionCode 500 in Android, version 17.0.0 in Zepp OS).
+
 ## 16.82.2
 
 - CI Regression Suite Stabilization:
