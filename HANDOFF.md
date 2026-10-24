@@ -153,7 +153,7 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v17.3.0**:
+* **v17.3.0 (Commit `7cc8f1d`)**:
   * **Watch Companion Bridge Decoupling**: Decoupled `WatchBridge` from the `IrisListeningService` voice assistant service. It now operates as an independent shared lifecycle singleton (`WatchBridge.startShared()`) with pure Android system handlers for battery, alarm ringing, silencing, and status queries. Smartwatch users can now check battery or ring their phone 24/7 without needing the voice assistant microphone armed or foreground service running.
   * **Zero-Crash Phone Bridge Probe**: Updated item 1 in `showWatchSetup()` to direct "📡 Test phone bridge connection", invoking `WatchBridge.startShared(this)` and `WatchTransportProbe.run(this)` directly. Completely eliminated Android 14+ `ForegroundServiceStartNotAllowedException` crashes when testing connectivity from Settings.
   * **Zepp Settings WebSocket Fallback**: Added automatic `ws://127.0.0.1:18473/ws` probe fallback inside `setting/index.js` `testBridge()`, bypassing Android WebView cleartext HTTP blocks and guaranteeing instant diagnostics.
