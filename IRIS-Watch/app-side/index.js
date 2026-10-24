@@ -1,15 +1,23 @@
 import { BaseSideService } from '@zeppos/zml/base-side';
 import { settingsLib as settingsStorage } from '@zeppos/zml/base-side';
 
+function extractHexKey(str) {
+  if (!str) return '';
+  const s = String(str).trim();
+  const match = s.match(/[a-f0-9]{64}/i);
+  if (match) return match[0].toLowerCase();
+  const cleaned = s.replace(/[^a-f0-9]/gi, '').toLowerCase();
+  return cleaned.length >= 64 ? cleaned.slice(-64) : cleaned;
+}
+
 AppSideService(BaseSideService({
  onRequest(req, res) {
   if (req.method !== 'IRIS' || !['status', 'find', 'stop', 'talk', 'ping'].includes(req.action)) {
    res(null, { message: 'Unsupported request' });
    return;
   }
-  const raw = (settingsStorage.getItem('irisToken') || '').trim();
-  const token = raw.replace(/^Bearer\s+/i, '').replace(/["']/g, '').trim().toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(token)) {
+  const token = extractHexKey(settingsStorage.getItem('irisToken') || '');
+  if (token.length !== 64) {
    res(null, { message: 'Pair in Zepp mini-app settings first' });
    return;
   }

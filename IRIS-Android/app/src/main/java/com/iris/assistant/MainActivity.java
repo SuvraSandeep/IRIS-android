@@ -285,6 +285,7 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         contentHost = findViewById(R.id.contentHost);
         try { PersonalProfile.seedInto(this); } catch (Throwable ignored) { }
+        try { new ProfileStore(this).seedDefaultWakePhrase(); } catch (Throwable ignored) { }
         // Apply the user's theme (Dark keeps the gradient; AMOLED = pure black).
         try {
             AppSettings appSettings = new AppSettings(this);
@@ -3189,13 +3190,19 @@ public class MainActivity extends Activity {
             toast("Train your custom wake phrase first.");
             return;
         }
-        startForegroundService(new Intent(this, IrisListeningService.class)
-                .setAction(IrisListeningService.ACTION_START));
-        updateAssistantState(true, AppSettings.MODE_WAKE.equals(settings.listeningMode()) ? "wake" : "command");
+        try {
+            startForegroundService(new Intent(this, IrisListeningService.class)
+                    .setAction(IrisListeningService.ACTION_START));
+            updateAssistantState(true, AppSettings.MODE_WAKE.equals(settings.listeningMode()) ? "wake" : "command");
+        } catch (Throwable t) {
+            toast("Could not start IRIS service: " + t.getMessage());
+        }
     }
 
     private void stopListeningService() {
-        startService(new Intent(this, IrisListeningService.class).setAction(IrisListeningService.ACTION_STOP));
+        try {
+            startService(new Intent(this, IrisListeningService.class).setAction(IrisListeningService.ACTION_STOP));
+        } catch (Throwable ignored) { }
         updateAssistantState(false, "off");
     }
 
@@ -3206,40 +3213,49 @@ public class MainActivity extends Activity {
     }
 
     private void updateAssistantState(boolean active, String phase) {
-        if (irisOrb == null) return;
+        if (selectedTab != 0 || irisOrb == null || statusText == null) {
+            TextView micLabelTrainingLive = findViewById(R.id.micLabelTraining);
+            if (micLabelTrainingLive != null) micLabelTrainingLive.setText("\uD83C\uDF99 Listening mic: " + micLabel());
+            return;
+        }
         String safePhase = active ? (phase == null ? "wake" : phase) : "off";
         irisOrb.setPhase(safePhase);
         if (!active) {
             statusText.setText("IRIS is resting");
-            subStatusText.setText("Tap the orb when you need me.");
-            phaseChip.setText("OFFLINE");
-            phaseChip.setTextColor(getColor(R.color.text_muted));
-            liveTranscript.setText("Say “Call <contact name>”");
+            if (subStatusText != null) subStatusText.setText("Tap the orb when you need me.");
+            if (phaseChip != null) {
+                phaseChip.setText("OFFLINE");
+                phaseChip.setTextColor(getColor(R.color.text_muted));
+            }
+            if (liveTranscript != null) liveTranscript.setText("Say “Call <contact name>”");
         } else if ("wake".equals(safePhase)) {
             ProfileStore.WakeProfile wake = new ProfileStore(this).getWakeProfile();
             statusText.setText("IRIS is standing by");
-            subStatusText.setText("Say “" + wake.phrase + "”, then give the call command.");
-            phaseChip.setText("CUSTOM WAKE PHRASE ARMED");
-            phaseChip.setTextColor(getColor(R.color.magenta));
+            if (subStatusText != null) subStatusText.setText("Say “" + wake.phrase + "”, then give the call command.");
+            if (phaseChip != null) {
+                phaseChip.setText("CUSTOM WAKE PHRASE ARMED");
+                phaseChip.setTextColor(getColor(R.color.magenta));
+            }
         } else if ("confirm".equals(safePhase)) {
             statusText.setText("Decision time");
-            subStatusText.setText("Say Call or Cancel—or tap a button.");
-            phaseChip.setText("CONFIRMATION");
-            phaseChip.setTextColor(getColor(R.color.magenta));
+            if (subStatusText != null) subStatusText.setText("Say Call or Cancel—or tap a button.");
+            if (phaseChip != null) {
+                phaseChip.setText("CONFIRMATION");
+                phaseChip.setTextColor(getColor(R.color.magenta));
+            }
         } else {
             statusText.setText("IRIS is listening");
-            subStatusText.setText("Ask me to call someone.");
-            phaseChip.setText("COMMAND WINDOW");
-            phaseChip.setTextColor(getColor(R.color.cyan));
+            if (subStatusText != null) subStatusText.setText("Ask me to call someone.");
+            if (phaseChip != null) {
+                phaseChip.setText("COMMAND WINDOW");
+                phaseChip.setTextColor(getColor(R.color.cyan));
+            }
         }
         statusText.setTextColor(active ? getColor(R.color.cyan) : getColor(R.color.text_primary));
-        micRouteText.setText("\uD83C\uDF99  Microphone: " + micLabel());
-        // Keep the Training screen's mic label live too — it used to only be set once when the
-        // screen opened, so switching mics (e.g. plugging in headphones) while still on that
-        // screen never updated it. This receiver already fires on every mic-route change.
+        if (micRouteText != null) micRouteText.setText("\uD83C\uDF99  Microphone: " + micLabel());
         TextView micLabelTrainingLive = findViewById(R.id.micLabelTraining);
         if (micLabelTrainingLive != null) micLabelTrainingLive.setText("\uD83C\uDF99 Listening mic: " + micLabel());
-        recognitionText.setText("\uD83E\uDDE0  Recognition: " + lastRecognition);
+        if (recognitionText != null) recognitionText.setText("\uD83E\uDDE0  Recognition: " + lastRecognition);
         updateFrequentContacts();
     }
 

@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `17.1.0` / `versionCode 501` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `17.2.0` / `versionCode 502` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -153,7 +153,14 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v17.1.0 (Commit `c44cdff`)**:
+* **v17.2.0 (Current)**:
+  * **Watch Transport Probe Crash Elimination**: Removed illegal background `startForegroundService()` calls in `WatchTransportProbe.java` that triggered `ForegroundServiceStartNotAllowedException` on Android 14+ (targetSdk 35). Added safe service readiness polling on port 18473 and UI try/catch guards in `MainActivity.java`.
+  * **Settings Tab Detachment Isolation**: Fixed `NullPointerException` and detached view updates in `updateAssistantState()` when starting IRIS from Settings tab (tab 4). Added strict `selectedTab == 0` guards and null checks across all UI status text views.
+  * **Bulletproof 64-Hex Pairing Key Extraction**: Added `extractHexKey()` across Zepp companion `setting/index.js` and `app-side/index.js` to automatically extract the true 64-hex key even if the user copies whole dialog sentences, trailing clipboard newlines (`\r\n`), spaces, quotes, or `Bearer ` prefixes.
+  * **Key Auto-Generation on Access**: Updated `WatchBridge.token()` to automatically generate and save a secure 64-hex key if none exists yet, eliminating empty keys.
+  * **Strict Semantic Versioning**: Minor fix increment (+0.1.0) to version `17.2.0` (`versionCode 502` in Android, version `17.2.0` / code `19` in Zepp OS).
+
+* **v17.1.0 (Commit `d848d34`)**:
   * **Watch Bridge Dialog Items Restoration**: Resolved Android `AlertController` issue where `showWatchSetup()` in `MainActivity.java` called `.setMessage()` alongside `.setItems()`, concealing the action list items. Removed `.setMessage()` to restore full visibility of list options ("🔑 View & copy pairing secret key", "📡 Test phone bridge", "⚙️ Pairing settings").
   * **One-Tap Secret Key Copy to Clipboard**: Added a "Copy key" action in `showWatchToken()` with direct `ClipboardManager` integration and confirmation toast.
   * **Semantic Versioning Enforcement**: Bumped version to `17.1.0` (`versionCode 501` in Android, version `17.1.0` in Zepp OS) under the strict minor-fix rule (+0.1.0).

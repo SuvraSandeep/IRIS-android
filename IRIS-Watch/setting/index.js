@@ -1,12 +1,21 @@
+function extractHexKey(str) {
+  if (!str) return '';
+  const s = String(str).trim();
+  const match = s.match(/[a-f0-9]{64}/i);
+  if (match) return match[0].toLowerCase();
+  const cleaned = s.replace(/[^a-f0-9]/gi, '').toLowerCase();
+  return cleaned.length >= 64 ? cleaned.slice(-64) : cleaned;
+}
+
 AppSettingsPage({
   build(props) {
-    const rawToken = (props.settingsStorage.getItem('irisToken') || '').trim();
-    const token = rawToken.replace(/^Bearer\s+/i, '').replace(/["']/g, '').trim().toLowerCase();
-    const isValid = /^[a-f0-9]{64}$/i.test(token);
+    const rawToken = props.settingsStorage.getItem('irisToken') || '';
+    const token = extractHexKey(rawToken);
+    const isValid = token.length === 64;
     const notice = props.settingsStorage.getItem('irisStatusNotice') || '';
     const maskedKey = isValid
       ? '•••• •••• •••• ' + token.slice(-8).toUpperCase()
-      : (token.length > 0 ? 'Incomplete (' + token.length + '/64 chars)' : 'Not entered yet');
+      : (token.length > 0 ? 'Incomplete (' + token.length + '/64 hex chars)' : 'Not entered yet');
 
     const testBridge = (path, method, successMsg) => {
       if (!isValid) {
@@ -34,8 +43,8 @@ AppSettingsPage({
           const body = (typeof data === 'object' && data) ? (data.message || JSON.stringify(data)) : String(data);
           props.settingsStorage.setItem('irisStatusNotice', '✓ SUCCESS: ' + (successMsg || body));
         })
-        .catch(() => {
-          props.settingsStorage.setItem('irisStatusNotice', '✕ BRIDGE UNREACHABLE: Start IRIS on your phone (Settings → Amazfit T-Rex 3 → Start IRIS & Test).');
+        .catch(err => {
+          props.settingsStorage.setItem('irisStatusNotice', '✕ BRIDGE UNREACHABLE: Start IRIS on your phone (Settings → Amazfit T-Rex 3 → Start IRIS & Test). ' + (err && err.message ? '(' + err.message + ')' : ''));
         });
     };
 
@@ -79,7 +88,7 @@ AppSettingsPage({
             color: '#94A3B8',
             display: 'block'
           }
-        }, 'Cyberpunk Neural Wrist Link · v17.0.0')
+        }, 'Cyberpunk Neural Wrist Link · v17.2.0')
       ]),
 
       // 2. Hardware Link Telemetry Card
@@ -194,10 +203,14 @@ AppSettingsPage({
         TextInput({
           label: 'Secret Key (64 hex characters)',
           settingsKey: 'irisToken',
+          value: token,
           placeholder: 'Paste 64-hex key here...',
           onChange: val => {
-            const clean = (val || '').replace(/^Bearer\s+/i, '').replace(/["']/g, '').trim().toLowerCase();
-            props.settingsStorage.setItem('irisToken', clean);
+            const key = extractHexKey(val);
+            props.settingsStorage.setItem('irisToken', key);
+            if (key.length === 64) {
+              props.settingsStorage.setItem('irisStatusNotice', '✓ Valid 64-hex key detected! Tap "SAVE & ARM KEY" below.');
+            }
           }
         }),
         View({
@@ -223,12 +236,14 @@ AppSettingsPage({
               cursor: 'pointer'
             },
             onClick: () => {
-              const current = (props.settingsStorage.getItem('irisToken') || '').replace(/^Bearer\s+/i, '').replace(/["']/g, '').trim().toLowerCase();
-              props.settingsStorage.setItem('irisToken', current);
-              const valid = /^[a-f0-9]{64}$/i.test(current);
-              props.settingsStorage.setItem('irisStatusNotice', valid
-                ? '✓ Key saved & validated! Tap "Ping Phone Bridge" below to verify.'
-                : '⚠️ Key length is ' + current.length + '/64 characters. Please re-copy.');
+              const raw = props.settingsStorage.getItem('irisToken') || '';
+              const key = extractHexKey(raw);
+              if (key.length === 64) {
+                props.settingsStorage.setItem('irisToken', key);
+                props.settingsStorage.setItem('irisStatusNotice', '✓ Key saved & armed (••••' + key.slice(-8).toUpperCase() + ')! Tap "PING PHONE BRIDGE" below to verify.');
+              } else {
+                props.settingsStorage.setItem('irisStatusNotice', '⚠️ Invalid key: found ' + key.length + '/64 hex characters. Please re-copy from IRIS Android app.');
+              }
             }
           })
         ]),

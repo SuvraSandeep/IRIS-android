@@ -1,6 +1,13 @@
 # Changelog
 
-## 17.1.0
+## 17.2.0
+
+- Watch Bridge Transport Crash Fix & Bulletproof Pairing Key Extraction:
+  - Eliminated Crash on "Start IRIS & Test Phone Bridge": Removed illegal background `startForegroundService` call from `WatchTransportProbe.java` that caused `ForegroundServiceStartNotAllowedException` on Android 14+ (targetSdk 35). Added loopback poll synchronization and wrapped foreground service startup in UI try/catch handlers.
+  - Tab Detachment View Isolation: Added `selectedTab` null/attachment guards in `MainActivity.java` `updateAssistantState()` so starting the IRIS service while viewing Settings never crashes on detached Home tab views.
+  - Bulletproof 64-Hex Key Extraction: Added `extractHexKey()` helper to `setting/index.js` and `app-side/index.js` to automatically extract the true 64-hex key even if the user copies whole dialog sentences, trailing clipboard newlines, spaces, quotes, or `Bearer ` prefixes.
+  - Auto-Generation on Access: Updated `WatchBridge.token()` to automatically generate and save a secure 64-hex key if none exists yet, eliminating empty keys.
+  - Semantic Versioning: Minor fix increment (+0.1.0) to version 17.2.0 (versionCode 502 in Android, version 17.2.0 in Zepp OS).
 
 - Watch Bridge Dialog Visibility & Clipboard Key Fix:
   - AlertDialog Items Restoration: Fixed an issue where `showWatchSetup()` in `MainActivity.java` called `.setMessage()` alongside `.setItems()`, which caused Android's `AlertController` to hide the list items entirely. Removed `.setMessage()` so the action items ("🔑 View & copy pairing secret key", "📡 Test phone bridge", "⚙️ Pairing settings") are fully visible and clickable.

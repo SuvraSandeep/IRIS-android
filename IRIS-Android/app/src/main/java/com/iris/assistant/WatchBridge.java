@@ -48,7 +48,11 @@ final class WatchBridge implements AutoCloseable {
     }
 
     static String token(Context c) throws Exception {
-        return SecureStore.read(c, "watch-token.txt", "");
+        String existing = SecureStore.read(c, "watch-token.txt", "");
+        if (existing == null || existing.trim().length() != 64) {
+            return rotate(c);
+        }
+        return existing.trim();
     }
 
     static String rotate(Context c) throws Exception {
