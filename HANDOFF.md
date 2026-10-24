@@ -153,7 +153,7 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v17.2.0 (Current)**:
+* **v17.2.0 (Commit `b05171f`)**:
   * **Watch Transport Probe Crash Elimination**: Removed illegal background `startForegroundService()` calls in `WatchTransportProbe.java` that triggered `ForegroundServiceStartNotAllowedException` on Android 14+ (targetSdk 35). Added safe service readiness polling on port 18473 and UI try/catch guards in `MainActivity.java`.
   * **Settings Tab Detachment Isolation**: Fixed `NullPointerException` and detached view updates in `updateAssistantState()` when starting IRIS from Settings tab (tab 4). Added strict `selectedTab == 0` guards and null checks across all UI status text views.
   * **Bulletproof 64-Hex Pairing Key Extraction**: Added `extractHexKey()` across Zepp companion `setting/index.js` and `app-side/index.js` to automatically extract the true 64-hex key even if the user copies whole dialog sentences, trailing clipboard newlines (`\r\n`), spaces, quotes, or `Bearer ` prefixes.
