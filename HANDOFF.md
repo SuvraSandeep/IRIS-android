@@ -153,7 +153,7 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 
 ## 4. Recent Milestones & Release History
 
-* **v17.5.1 (Commit `PENDING_COMMIT_LOCK`)**:
+* **v17.5.1 (Commit `88f98f6`)**:
   * **CI Compilation Repair & Missing Android Log Linkage**: Added `import android.util.Log;` to `IrisListeningService.java`, resolving 6 `cannot find symbol: class Log` compiler errors during `:app:testDebugUnitTest` in GitHub Actions CI run `40085374977` (lines 833, 850, 855, 881, 5534, and 5590).
   * **Enhanced Offline Static Utility Linting**: Upgraded `tests/check-unresolved-types.py` to inspect static utility class invocations (e.g. `Log`, `Toast`, `TextUtils`) across all Java source files, guaranteeing that unimported static references are caught instantly during local pre-commit verification.
   * **Strict Semantic Versioning**: Incremented `+0.0.1` for build failure rebuild from `17.5.0` to version `17.5.1` (`versionCode 506` in Android, version `17.5.1` / code `23` in Zepp OS).
