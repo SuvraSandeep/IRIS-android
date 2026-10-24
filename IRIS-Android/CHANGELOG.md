@@ -1,5 +1,12 @@
 # Changelog
 
+## 18.0.1
+
+- CI Unit Test Repair: VoiceTaskGuard Exception & Fatal Error Boundary:
+  - Fatal Error Boundary in `VoiceTaskGuard`: Restored `catch (RuntimeException error)` in `VoiceTaskGuard.run()` so fatal `Error` types (e.g. `AssertionError`, `VirtualMachineError`) propagate directly to test runners and JVM crash handlers rather than being swallowed as runtime exceptions, passing `VoiceStabilityTest.fatalErrorsStillReachCrashHandling`.
+  - Maintained Native Linkage Protection: Preserved robust `catch (Throwable)` error guards across `VoskEngine.java`, `ContinuousVoiceSession.java`, and `IrisListeningService.java` for unhandled native JNI and `AudioRecord` hardware failures.
+  - Strict Semantic Versioning: Build failure rebuild increment (+0.0.1) to version 18.0.1 (Android versionCode 508, Zepp OS version 18.0.1 code 25).
+
 ## 18.0.0
 
 - Universal Assistant Wakeup Crash Elimination & Watch-Triggered Speech Bridge:

@@ -3,7 +3,7 @@
 > Snapshot for bringing a new contributor (human or AI) up to speed.
 > Written against the actual source (build workflow, `app/build.gradle`, responder classes,
 > Notification Vault architecture, Server/Watch packages).
-> **Current version: `18.0.0` / `versionCode 507` (Branch: `feat/responder-conversation-fixes`).**
+> **Current version: `18.0.1` / `versionCode 508` (Branch: `feat/responder-conversation-fixes`).**
 
 ---
 
@@ -152,6 +152,11 @@ python tests/check-server-and-watch.py   # 100% pass across streaming TTS & watc
 ---
 
 ## 4. Recent Milestones & Release History
+
+* **v18.0.1 (Commit `8750f52` / `feat/responder-conversation-fixes`)**:
+  * **CI Unit Test Repair (VoiceTaskGuard Fatal Error Boundary)**: Restored `catch (RuntimeException error)` in `VoiceTaskGuard.run()` so fatal `Error` instances (`AssertionError`, `VirtualMachineError`) propagate directly to test runners and JVM crash handlers rather than being swallowed as runtime exceptions, passing `VoiceStabilityTest.fatalErrorsStillReachCrashHandling`. Maintained robust `catch (Throwable)` error guards across `VoskEngine.java`, `ContinuousVoiceSession.java`, and `IrisListeningService.java` for unhandled native JNI and `AudioRecord` hardware failures.
+  * **Strict Semantic Versioning**: Advanced +0.0.1 for CI rebuild failure to version `18.0.1` (`versionCode 508` in Android, version `18.0.1` / code `25` in Zepp OS).
+  * **Verification**: All 9 offline test suites and watch transport test suites pass 100%.
 
 * **v18.0.0 (Commit `297b21d` / `feat/responder-conversation-fixes`)**:
   * **Universal Assistant Wakeup Crash Elimination**:
